@@ -22,6 +22,7 @@ model_dir = "/storage/yiliu7"
 
 model_dir = "/storage/yiliu7"
 model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 # model_name="Qwen/Qwen2.5-0.5B/"
 
 model_id = f"{model_dir}/{model_name}"

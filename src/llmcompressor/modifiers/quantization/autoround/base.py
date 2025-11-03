@@ -115,9 +115,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             - remove_hooks()
             - model.apply(freeze_module_quantization)
 
-    :param sequential_targets: list of layer names to compress during AutoRound, or
-        '__ALL__' to compress every layer in the model
-
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
     :param targets: list of layer names to quantize if a scheme is provided. Defaults
@@ -132,9 +129,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     """
 
     # AutoRound modifier arguments
-    sequential_targets: Union[str, List[str], None] = None
     iters: Optional[int] = 200
-    # TODO: this does not serialize / will be incorrectly written
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
