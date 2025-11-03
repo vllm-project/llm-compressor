@@ -45,7 +45,7 @@ class MoECalibrationModule(ABC, torch.nn.Module):
 
     is_permanent: bool = False
 
-    def restore(self) -> torch.nn.Module:
+    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         """
         Restore the original module structure.
 
@@ -163,5 +163,5 @@ def moe_calibration_context(
         # Step 2: Restore non-permanent modules
         for name, (original, replacement) in replaced.items():
             if not replacement.is_permanent:
-                restored = replacement.restore()
+                restored = replacement.restore(original)
                 model.set_submodule(name, restored)
