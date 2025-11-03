@@ -23,6 +23,8 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
+from compressed_tensors.quantization import enable_quantization
+from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 
 __all__ = ["AutoRoundModifier"]
 
@@ -180,13 +182,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     # gptq modifier arguments
     sequential_targets: Union[str, List[str], None] = None
-    block_size: int = 128
+    iters: int = 200
     dampening_frac: Optional[float] = 0.01
     # TODO: this does not serialize / will be incorrectly written
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-
     _cur_layer_idx = PrivateAttr(default=0)
     
 
@@ -217,7 +218,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # freeze all model parameters
         for name, param in state.model.named_parameters():
             param.requires_grad_(False)
-
         return True
 
 
@@ -228,8 +228,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         :param model: model to prepare for calibration
         """
 
-        from compressed_tensors.quantization import enable_quantization
-        from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
+
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round
             # self._initialize_observers(module)
@@ -285,17 +284,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         wrapped_model = _wrap_decoding_layer(decoding_layer)
 
         with torch.enable_grad(), align_module_device(decoding_layer):
-            if _DEBUG:
-                iters = 4
-            else:
-                iters = 200
             import auto_round
-
             ar = auto_round.AutoRound(
                 model=wrapped_model,
                 tokenizer="",
                 scheme="W4A16",
-                iters=iters,
+                iters=self.iters,
                 enable_quanted_input=False,
                 # FIXME: batch size 1 causes error, looks like related to the input_others prepare
                 # batch_size=1
@@ -325,13 +319,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     logger.debug(
                         f"Updating offload parameters for module {getattr(module, '_tmp_name', '')} || {name}"
                     )
-                    # weight = module.weight
+                    # The model's weight is already quantized and determined in auto-round
                     weight_scale = module.scale
                     del module.scale
                     del module.zp
                     # TODO: update weight as well
-                    # breakpoint()
-                    
                     update_offload_parameter(module, "weight_scale", weight_scale)
 
             decoding_layer.eval()
