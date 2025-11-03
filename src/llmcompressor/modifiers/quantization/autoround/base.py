@@ -299,7 +299,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 enable_quanted_input=False,
                 # FIXME: batch size 1 causes error, looks like related to the input_others prepare
                 # batch_size=1
-                # enable_torch_compile=True,
+                enable_torch_compile=True,
                 # enable_deterministic_algorithms=True,
             )
 
