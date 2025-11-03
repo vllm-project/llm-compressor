@@ -74,8 +74,6 @@ DATASET_SPLIT = "train_sft"
 
 
 from auto_round.calib_dataset import get_dataset
-
-from llmcompressor.args import DatasetArguments
 ds = get_dataset(
     tokenizer=tokenizer,
     seqlen=MAX_SEQUENCE_LENGTH,

@@ -25,26 +25,17 @@ from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
 from compressed_tensors.quantization import enable_quantization
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
+from collections import defaultdict
 
 __all__ = ["AutoRoundModifier"]
 
 
-from collections import defaultdict
-import os
 
-FALLBACK_CHANGE = os.environ.get("FALLBACK_CHANGE", "0").lower() in ("1", "true", "yes")
-_DEBUG = os.environ.get("DEBUG", "0").lower() in ("1", "true", "yes")
+
 
 all_module_input = defaultdict(list)
 all_module_output = defaultdict(list)
 
-
-def input_capture_hook(module, *args, **kwargs):
-    all_module_input[module._tmp_name].append((args, kwargs))
-
-
-def output_capture_hook(module, *args, **kwargs):
-    all_module_output[module._tmp_name].append((args, kwargs))
 
 
 def normalize_input(cur_inputs):
@@ -104,22 +95,17 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     wrapped_model.dtype = first_param.dtype
     return wrapped_model
 
-
-
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
-    Implements the GPTQ algorithm from https://arxiv.org/abs/2210.17323. This modifier
-    uses activations to calibrate a hessian matrix, which is then used to determine
-    optimal quantizion values and orderings for the model weights.
+    Implements the AutoRound algorithm from https://arxiv.org/pdf/2309.05516. This modifier
+    leverages signed gradient descent (SignSGD) and block-wise loss to optimize rounding values
+    and weight clipping in a few steps.
 
     | Sample yaml:
     | test_stage:
     |    obcq_modifiers:
     |      AutoRoundModifier:
-    |          block_size: 128
-    |          dampening_frac: 0.001
-    |          offload_hessians: False
-    |          actorder: static
+    |          iters: 200
     |          config_groups:
     |            group_0:
     |                targets:
@@ -127,7 +113,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     |                input_activations: null
     |                output_activations: null
     |                weights:
-    |                    num_bits: 8
+    |                    num_bits: 4
     |                    type: "int"
     |                    symmetric: true
     |                    strategy: group
@@ -137,24 +123,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         - on_initialize
             - apply config to model
         - on_start
-            - add activation calibration hooks
-            - add gptq weight calibration hooks
+            - add input/output capture hooks to decoding layers
         - on_sequential_epoch_end
             - quantize_weight
         - on_finalize
             - remove_hooks()
             - model.apply(freeze_module_quantization)
 
-    :param sequential_targets: list of layer names to compress during GPTQ, or
+    :param sequential_targets: list of layer names to compress during AutoRound, or
         '__ALL__' to compress every layer in the model
-    :param block_size: Used to determine number of columns to compress in one pass
-    :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
-        diagonal norm
-    :param actorder: order in which weight columns are quantized. Defaults to "static"
-        activation ordering, which achieves best accuracy recovery with no runtime cost.
-        For more information, see https://github.com/vllm-project/vllm/pull/8135
-    :param offload_hessians: Set to True for decreased memory usage but increased
-        runtime.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -180,10 +157,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
-    # gptq modifier arguments
+    # AutoRound modifier arguments
     sequential_targets: Union[str, List[str], None] = None
-    iters: int = 200
-    dampening_frac: Optional[float] = 0.01
+    iters: Optional[int] = 200
     # TODO: this does not serialize / will be incorrectly written
 
     # private variables
@@ -197,7 +173,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize and run the GPTQ algorithm on the current state
+        Initialize and run the AutoRound algorithm on the current state
 
         :param state: session state storing input model and calibration data
         """
@@ -238,20 +214,29 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
 
+    def input_capture_hook(self, module, *args, **kwargs):
+        all_module_input[module._tmp_name].append((args, kwargs))
+
+
+    def output_capture_hook(self, module, *args, **kwargs):
+        all_module_output[module._tmp_name].append((args, kwargs))
+
+
+
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        # Replace it with call to self.start_calibration
-        # QuantizationMixin.start_calibration(self, state.model)
-        self.start_calibration( state.model)
+        self.start_calibration(state.model)
         for name, module in state.model.named_modules():
             if _is_decoding_layer(module, name):
                 # register input/output capture hooks for decoding layers
                 logger.warning(f">> Registering input/output capture hooks for decoding layer {getattr(module, '_tmp_name', '')} || {name}")
-                module.register_forward_pre_hook(input_capture_hook, with_kwargs=True)
-                module.register_forward_hook(output_capture_hook, with_kwargs=True)
+                # module.register_forward_pre_hook(input_capture_hook, with_kwargs=True)
+                # module.register_forward_hook(output_capture_hook, with_kwargs=True)
+                self.register_hook(module, self.input_capture_hook, "forward_pre", with_kwargs=True)
+                self.register_hook(module, self.output_capture_hook, "forward", with_kwargs=True)
 
 
     def on_event(self, state: State, event: Event, **kwargs):
