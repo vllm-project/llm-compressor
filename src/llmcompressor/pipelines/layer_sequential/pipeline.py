@@ -19,6 +19,7 @@ from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
+    DISABLE_QAC_MODIFIERS,
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
@@ -72,7 +73,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         # TODO: remove this to enable quantization aware calibration for GPTQ and AWQ
         disable_qac = any(
-            type(mod).__name__ in ["GPTQModifier", "AWQModifier"]
+            type(mod).__name__ in DISABLE_QAC_MODIFIERS
             for mod in session.lifecycle.recipe.modifiers
         )
 
