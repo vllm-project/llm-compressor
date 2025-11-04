@@ -1,0 +1,20 @@
+quant_stage:
+  quant_modifiers:
+    GPTQModifier:
+      ignore: [
+        "lm_head",
+        # Ignore layers (20+)
+        "re:.*model\\.layers\\.([2-9][0-9])\\..*",
+      ]
+      actorder: null
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 4
+            type: "int"
+            symmetric: False
+            strategy: "group"
+            group_size: 128
+          input_activations: null
+          output_activations: null
+          targets: ["Linear"]
