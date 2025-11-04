@@ -1,13 +1,16 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import (
     QuantizationConfig,
+    QuantizationStrategy,
+    QuantizationScheme,
     enable_quantization,
 )
 from compressed_tensors.utils import (
     align_module_device,
     match_named_modules,
+    getattr_chain,
     update_offload_parameter,
 )
 from loguru import logger
@@ -109,7 +112,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _cur_layer_idx = PrivateAttr(default=0)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
-    _all_module_output: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -158,11 +160,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-    def output_capture_hook(self, module, *args, **kwargs):
-        if module._tmp_name not in self._all_module_output:
-            self._all_module_output[module._tmp_name] = []
-        self._all_module_output[module._tmp_name].append((args, kwargs))
-
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
@@ -172,14 +169,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for name, module in state.model.named_modules():
             if _is_decoding_layer(module, name):
                 # register input/output capture hooks for decoding layers
-                logger.warning(
-                    f">> Registering input/output capture hooks for decoding layer {getattr(module, '_tmp_name', '')} || {name}"
-                )
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
-                )
-                self.register_hook(
-                    module, self.output_capture_hook, "forward", with_kwargs=True
                 )
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -195,33 +186,60 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if not self.ended_:
                 self.on_end(state, None)
 
+    def _mapping_config_to_autoround(self):
+        from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
+
+        resolved_config = self.resolved_config
+        quant_scheme = None
+        for scheme in resolved_config.config_groups.values():
+            assert isinstance(scheme, QuantizationScheme), f"Expected QuantizationScheme, got {type(scheme)}"
+            quant_scheme = scheme
+        weight_args = quant_scheme.weights
+        # TODO: release below constraint in later PRs
+        assert weight_args.strategy == QuantizationStrategy.GROUP, (
+            "Only group-wise quantization is supported in AutoRoundModifier for now, "
+            f"got {weight_args.strategy}"
+        )
+        assert quant_scheme.input_activations is None, (
+            "Input activation quantization is not supported in AutoRoundModifier, "
+            f"got {quant_scheme.input_activations}"
+        )
+        assert quant_scheme.output_activations is None, (
+            "Output activation quantization is not supported in AutoRoundModifier, "
+            f"got {quant_scheme.output_activations}"
+        )
+        ar_quant_scheme = ARQuantizationScheme(
+            bits=weight_args.num_bits,
+            sym=weight_args.symmetric,
+            group_size=weight_args.group_size,
+            data_type=weight_args.type,
+            act_bits=16,
+        )
+        return ar_quant_scheme
+
     def apply_autoround(self, state):
         cur_layer_idx = self._cur_layer_idx
         self._cur_layer_idx += 1
         logger.info(f">>||>> AutoRound for decoding layer index {cur_layer_idx}")
         if cur_layer_idx >= len(state.model.model.layers):
             # skip the lm_head layer
-            logger.info(">>||>> All decoding layers have been processed for AutoRound.")
             return
         decoding_layer = state.model.model.layers[cur_layer_idx]
-        logger.debug(
-            f">>||>> Strating AutoRound for decoding layer {getattr(decoding_layer, '_tmp_name', '')}"
-        )
 
         wrapped_model = _wrap_decoding_layer(decoding_layer)
 
         with torch.enable_grad(), align_module_device(decoding_layer):
             import auto_round
-
+            parsed_scheme = self._mapping_config_to_autoround()
             ar = auto_round.AutoRound(
                 model=wrapped_model,
                 tokenizer="",
-                scheme="W4A16",
+                scheme=parsed_scheme,
                 iters=self.iters,
                 enable_quanted_input=False,
                 enable_torch_compile=True,
             )
-
+            # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config()
             first_param = next(decoding_layer.parameters())
             device = first_param.device
@@ -236,11 +254,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 device=device,
             )
             # Update offload parameters and remove temporary attributes
-            for name, module in decoding_layer.named_modules():
+            for _, module in decoding_layer.named_modules():
                 if hasattr(module, "weight_scale") and hasattr(
                     module, "weight_zero_point"
                 ):
-                    # Note: The model's weight is already quantized and dequantized in-place by auto-round.
+                    # Note: The model's weight is already q-dq in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
                     del module.zp
@@ -250,7 +268,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
-        self._all_module_output.clear()
 
     def on_end(self, state: State, event: Event, **kwargs):
         """
