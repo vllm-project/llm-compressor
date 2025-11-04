@@ -186,7 +186,7 @@ class QuantizationMixin(HooksMixin):
             )
             validate_group_size_divisibility(
                 modules_to_validate,
-                current_ignore_list=self.ignore if self.ignore else [],
+                current_ignore_list=self.ignore,
             )
 
         # disable quantization until calibration
