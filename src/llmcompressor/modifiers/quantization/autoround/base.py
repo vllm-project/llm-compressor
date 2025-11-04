@@ -219,6 +219,20 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         return ar_quant_scheme
 
     def apply_autoround(self, state):
+        """Applies AutoRound quantization tuning on the current decoding layer.
+
+        The tuning logic is below:
+        for iter in range(iters):
+           quant_output = forward(layer, cached_inputs)
+           loss = mse_loss(quant_output, original_output)
+           loss.backward()
+           optimizer.step()
+           if loss < best_loss:
+                best_params = save_params(layer)
+        For more details, please refer to the AutoRound repository:
+        https://github.com/intel/auto-round/
+        """
+
         cur_layer_idx = self._cur_layer_idx
         self._cur_layer_idx += 1
         logger.info(f">>||>> AutoRound for decoding layer index {cur_layer_idx}")
