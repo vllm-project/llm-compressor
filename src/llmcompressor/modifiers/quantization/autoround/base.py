@@ -21,32 +21,6 @@ from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 __all__ = ["AutoRoundModifier"]
 
 
-def normalize_input(cur_inputs):
-    # TODO: move it to auto-round
-    input_ids = []
-    input_others = {}
-    positional_inputs = []
-    attention_mask = None
-    position_ids = None
-    cache_position = None
-    position_embeddings = (None, None)
-    for cur_inp in cur_inputs:
-        input_ids.append(cur_inp[0][0][0])
-        for key, val in cur_inp[0][1].items():
-            if key == "position_ids":
-                position_ids = val
-            elif key == "position_embeddings":
-                position_embeddings = val
-            elif key == "cache_position":
-                cache_position = val
-    input_others["position_ids"] = position_ids
-    input_others["positional_inputs"] = positional_inputs
-    input_others["attention_mask"] = attention_mask
-    input_others["position_embeddings"] = position_embeddings
-    input_others["cache_position"] = cache_position
-    return input_ids, input_others
-
-
 def _is_decoding_layer(module, name):
     return "decoderlayer" in module.__class__.__name__.lower()
 
@@ -87,7 +61,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     | Sample yaml:
     | test_stage:
-    |    obcq_modifiers:
+    |    modifiers:
     |      AutoRoundModifier:
     |          iters: 200
     |          config_groups:
@@ -156,7 +130,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             m: name
             for name, m in match_named_modules(state.model, self.targets, self.ignore)
         }
-        # add temporary names to all modules for debugging
+        # add temporary names to all modules
         for name, mod in state.model.named_modules():
             mod._tmp_name = name
         # freeze all model parameters
@@ -249,18 +223,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             )
 
             ar.configure_layer_config()
-
+            first_param = next(decoding_layer.parameters())
+            device = first_param.device
             input_name = f"model.layers.{cur_layer_idx}"
             cur_inputs = self._all_module_input[input_name]
-            input_ids, input_others = normalize_input(cur_inputs)
-            decoding_layer.tuning_device = torch.device("cuda")
+            decoding_layer.tuning_device = device
 
             ar.quantize_block(
                 block=decoding_layer,
-                input_ids=input_ids,
-                input_others=input_others,
-                q_input=None,
-                device="cuda",
+                inputs=cur_inputs,
+                normalize_inputs=True,
+                device=device,
             )
             # Update offload parameters and remove temporary attributes
             for name, module in decoding_layer.named_modules():
@@ -289,7 +262,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
-        disable the quantization observers used by the OBCQ algorithm
+        disable the quantization observers used by the AutoRound algorithm
 
         :param state: session state storing input model and calibration data
         """

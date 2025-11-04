@@ -1,6 +1,7 @@
 import os
 
 _DEBUG = os.environ.get("DEBUG", "0") == "1"
+IS_LLAMA = os.environ.get("MODEL", "LLAMA") == "LLAMA"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -22,8 +23,10 @@ model_dir = "/storage/yiliu7"
 
 model_dir = "/storage/yiliu7"
 model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
-# model_name="Qwen/Qwen2.5-0.5B/"
+if IS_LLAMA:
+    model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
+else:
+    model_name="Qwen/Qwen2.5-0.5B/"
 
 model_id = f"{model_dir}/{model_name}"
 
