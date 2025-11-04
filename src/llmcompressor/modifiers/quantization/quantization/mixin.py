@@ -33,6 +33,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     initialize_observer,
     reset_quantization_status,
 )
+from llmcompressor.modifiers.utils.helpers import validate_group_size_divisibility
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     untie_if_target_shared_embedding,
@@ -90,6 +91,11 @@ class QuantizationMixin(HooksMixin):
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
+    :param validate_group_size: if True, validates that weight columns are evenly
+        divisible by group_size for GROUP strategy quantization. Raises a ValueError
+        if validation fails, providing a comprehensive list of problematic layers and
+        a suggested ignore list that combines the current ignore list with the
+        problematic layers. Defaults to True.
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
@@ -100,6 +106,7 @@ class QuantizationMixin(HooksMixin):
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
+    validate_group_size: bool = True
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
@@ -171,6 +178,16 @@ class QuantizationMixin(HooksMixin):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
         apply_quantization_config(model, self.resolved_config)
+
+        # Validate group size divisibility if enabled
+        if self.validate_group_size:
+            modules_to_validate = list(
+                match_named_modules(model, self.resolved_targets, self.ignore)
+            )
+            validate_group_size_divisibility(
+                modules_to_validate,
+                current_ignore_list=self.ignore if self.ignore else [],
+            )
 
         # disable quantization until calibration
         model.apply(disable_quantization)

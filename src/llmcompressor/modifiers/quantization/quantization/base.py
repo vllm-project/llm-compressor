@@ -42,6 +42,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
+    :param validate_group_size: if True, validates that weight columns are evenly
+        divisible by group_size for GROUP strategy quantization. Raises a ValueError
+        if validation fails, providing a comprehensive list of problematic layers and
+        a suggested ignore list that combines the current ignore list with the
+        problematic layers. Defaults to True.
     """
 
     def on_initialize(self, state: State, **kwargs) -> bool:
