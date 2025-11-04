@@ -3,14 +3,13 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from compressed_tensors.quantization import (
     QuantizationConfig,
-    QuantizationStrategy,
     QuantizationScheme,
+    QuantizationStrategy,
     enable_quantization,
 )
 from compressed_tensors.utils import (
     align_module_device,
     match_named_modules,
-    getattr_chain,
     update_offload_parameter,
 )
 from loguru import logger
@@ -192,7 +191,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         resolved_config = self.resolved_config
         quant_scheme = None
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(scheme, QuantizationScheme), f"Expected QuantizationScheme, got {type(scheme)}"
+            assert isinstance(
+                scheme, QuantizationScheme
+            ), f"Expected QuantizationScheme, got {type(scheme)}"
             quant_scheme = scheme
         weight_args = quant_scheme.weights
         # TODO: release below constraint in later PRs
@@ -230,6 +231,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         with torch.enable_grad(), align_module_device(decoding_layer):
             import auto_round
+
             parsed_scheme = self._mapping_config_to_autoround()
             ar = auto_round.AutoRound(
                 model=wrapped_model,

@@ -26,7 +26,7 @@ model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 if IS_LLAMA:
     model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 else:
-    model_name="Qwen/Qwen2.5-0.5B/"
+    model_name = "Qwen/Qwen2.5-0.5B/"
 
 model_id = f"{model_dir}/{model_name}"
 
