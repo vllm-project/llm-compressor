@@ -115,6 +115,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         config = super().resolve_quantization_config()
         return config
 
+    def _add_temporary_names(self, model: torch.nn.Module):
+        for name, mod in model.named_modules():
+            mod._tmp_name = name
+
+    def _remove_temporary_names(self, model: torch.nn.Module):
+        for _, mod in model.named_modules():
+            if hasattr(mod, "_tmp_name"):
+                del mod._tmp_name
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run the AutoRound algorithm on the current state
@@ -130,9 +139,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             m: name
             for name, m in match_named_modules(state.model, self.targets, self.ignore)
         }
-        # add temporary names to all modules
-        for name, mod in state.model.named_modules():
-            mod._tmp_name = name
+        self._add_temporary_names(state.model)
         # freeze all model parameters
         for name, param in state.model.named_parameters():
             param.requires_grad_(False)
@@ -296,6 +303,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         """
         self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
+        self._remove_temporary_names(state.model)
         self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
