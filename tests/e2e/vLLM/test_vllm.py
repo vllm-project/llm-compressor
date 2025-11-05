@@ -223,7 +223,7 @@ class TestvLLM:
         llm_kwargs = {"model": self.save_dir}
         if IS_VLLM_IMAGE:
             llm_kwargs = {"model":
-                self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR))}
+                self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR)}
 
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
