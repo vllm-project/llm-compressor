@@ -243,9 +243,10 @@ class TestvLLM:
                     f"'{json_llm_kwargs}'", f"'{json_prompts}'"]
             vllm_cmd = " ".join(cmds)
             with open(self.vllm_bash, "w") as cf:
-                cf.write(f"#!/bin/bash\n\n
-                           export VLLM_NO_USAGE_STATS=1\n\n
-                           {vllm_cmd}\n")
+                cf.write(f"""#!/bin/bash
+                    export VLLM_NO_USAGE_STATS=1
+                    {vllm_cmd}
+                    """)
             logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
             logger.info(vllm_cmd)
             if IS_VLLM_IMAGE_DEPLOYED:
