@@ -177,21 +177,17 @@ class QuantizationMixin(HooksMixin):
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Attach observers, register activation calibration hooks (including
+        Attach observers, untie_shared_embeddings (if necessary), register activation calibration hooks (including
         kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-
-        matched_module_generator = (
-            x[1] for x in match_named_modules(model, self.resolved_targets, self.ignore)
-        )
-        untie_if_target_shared_embedding(model, matched_module_generator)
-
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
+
+        untie_if_target_shared_embedding(model, match_named_modules(model, self.resolved_targets, self.ignore))
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
