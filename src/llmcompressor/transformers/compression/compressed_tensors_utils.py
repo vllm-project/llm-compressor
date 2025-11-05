@@ -203,7 +203,7 @@ def _get_embeddings_or_warn(
 
 
 def untie_if_target_shared_embedding(
-    model: torch.nn.Module, matched_module_generator: Generator[torch.nn.Module]
+    model: torch.nn.Module, matched_module_generator: Generator[torch.nn.Module | tuple[str, torch.nn.Module]]
 ):
     """
     Helper method that checks for shared input/output embedding and unties them
@@ -211,8 +211,9 @@ def untie_if_target_shared_embedding(
 
     :param model: model to untie if embeddings are shared and targeted by
         matched_module_generator
-    :param matched_module_generator: Generator of all modules (not names) which
-            will be modified by quantization or transformation
+    :param matched_module_generator: Generator of all modules which
+            will be modified by quantization or transformation. 
+            Needs to generate modules or [name, module] tuples.
     """
     input_embeddings, output_embeddings = _get_embeddings_or_warn(model)
 
@@ -225,7 +226,8 @@ def untie_if_target_shared_embedding(
         return
 
     # if shared, check if either is targeted
-    for module in matched_module_generator:
+    for item in matched_module_generator:
+        module = item if isinstance(item, torch.nn.Module) else item[1]
         if module in (input_embeddings, output_embeddings):
             untie_word_embeddings(model)
             return
