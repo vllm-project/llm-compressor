@@ -247,6 +247,7 @@ class TestvLLM:
                     export VLLM_NO_USAGE_STATS=1
                     {vllm_cmd}
                     """)
+            os.chmod(self.vllm_bash, 0o755)
             logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
             logger.info(vllm_cmd)
             if IS_VLLM_IMAGE_DEPLOYED:
