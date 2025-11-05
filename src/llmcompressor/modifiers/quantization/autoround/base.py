@@ -195,13 +195,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         resolved_config = self.resolved_config
         quant_scheme = None
+        # TODO: release below constraint in later PRs
+        assert len(resolved_config.config_groups) == 1, (
+            "AutoRoundModifier only supports one quantization scheme for now, "
+            f"got {len(resolved_config.config_groups)}"
+        )
+
         for scheme in resolved_config.config_groups.values():
             assert isinstance(
                 scheme, QuantizationScheme
             ), f"Expected QuantizationScheme, got {type(scheme)}"
             quant_scheme = scheme
         weight_args = quant_scheme.weights
-        # TODO: release below constraint in later PRs
         assert weight_args.strategy == QuantizationStrategy.GROUP, (
             "Only group-wise quantization is supported in AutoRoundModifier for now, "
             f"got {weight_args.strategy}"
