@@ -283,8 +283,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     # Note: The model's weight is already q-dq in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
-                    del module.zp
-                    # TODO: update zero_point as well if needed
+                    # TODO: update zero_point after supporting asymmetric quantization
                     update_offload_parameter(module, "weight_scale", weight_scale)
         decoding_layer.eval()
 
