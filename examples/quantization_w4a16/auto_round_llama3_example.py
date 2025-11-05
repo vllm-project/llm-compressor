@@ -1,3 +1,4 @@
+from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -13,7 +14,6 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
 # Get aligned calibration dataset.
-from auto_round.calib_dataset import get_dataset
 
 ds = get_dataset(
     tokenizer=tokenizer,

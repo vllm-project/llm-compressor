@@ -57,9 +57,9 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
-    Implements the AutoRound algorithm from https://arxiv.org/pdf/2309.05516. This modifier
-    leverages signed gradient descent (SignSGD) optimizer and block-wise loss to optimize
-    rounding values and weight clipping in a few steps.
+    Implements the AutoRound algorithm from https://arxiv.org/pdf/2309.05516.
+    This modifier leverages signed gradient descent (SignSGD) optimizer and
+    block-wise loss to optimize rounding values and weight clipping in a few steps.
 
     | Sample yaml:
     | test_stage:
@@ -229,9 +229,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if loss < best_loss:
                 best_params = save_params(layer)
 
-        This method retrieves the current decoding layer, wraps it for compatibility with
-        AutoRound, and performs iterative optimization to minimize the quantization error.
-        The best parameters are tracked and applied to the layer after tuning.
+        This method retrieves the current decoding layer, wraps it for
+        compatibility with AutoRound, and performs iterative optimization
+        to minimize the quantization error. The best parameters are tracked
+        and applied to the layer after tuning.
 
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
