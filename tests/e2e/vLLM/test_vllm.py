@@ -239,7 +239,8 @@ class TestvLLM:
 
         if IS_VLLM_IMAGE:
             run_file_path = os.path.join(VLLM_VOLUME_MOUNT_DIR, "run_vllm.py")
-            shutil.copy(os.path.join(test_file_dir, "run_vllm.py"), run_file_path)
+            shutil.copy(os.path.join(test_file_dir, "run_vllm.py"), 
+                os.path.join(RUN_SAVE_DIR, "run_vllm.py"))
             cmds = ["python", run_file_path, f"'{json_scheme}'",
                     f"'{json_llm_kwargs}'", f"'{json_prompts}'"]
             vllm_cmd = " ".join(cmds)
