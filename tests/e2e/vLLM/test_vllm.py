@@ -220,7 +220,7 @@ class TestvLLM:
         import json
         import subprocess
 
-        llm_kwargs = {"model": self.save_dir(}
+        llm_kwargs = {"model": self.save_dir}
         if IS_VLLM_IMAGE:
             llm_kwargs = {"model":
                 self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR))}
