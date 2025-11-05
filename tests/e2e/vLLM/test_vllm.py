@@ -244,7 +244,7 @@ class TestvLLM:
             vllm_cmd = " ".join(cmds)
             with open(self.vllm_bash, "w") as cf:
                 cf.write(f"#!/bin/bash\n\n
-                           export VLLM_NO_USAGE_STATS=1\n\n")
+                           export VLLM_NO_USAGE_STATS=1\n\n
                            {vllm_cmd}\n")
             logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
             logger.info(vllm_cmd)
