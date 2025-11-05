@@ -252,15 +252,14 @@ class TestvLLM:
             if IS_VLLM_IMAGE_DEPLOYED:
                 logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
             else:
-                podman_cmd = " ".join("podman",
-                    "run", "--rm", "--device",
-                    "nvidia.com/gpu=all",
+                cmds = ["podman run --rm --device nvidia.com/gpu=all",
                     "--security-opt=label=disable",
                     "--userns=keep-id:uid=1001",
                     "--entrypoint",
                     self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
                     "-v", f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
-                    VLLM_PYTHON_ENV)
+                    VLLM_PYTHON_ENV]
+                podman_cmd = " ".join(cmds)
                 logger.info("podman command:")
                 logger.info(podman_cmd)
                 result = subprocess.Popen(
