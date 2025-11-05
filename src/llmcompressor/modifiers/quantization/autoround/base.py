@@ -83,7 +83,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         - on_initialize
             - apply config to model
         - on_start
-            - add input/output capture hooks to decoding layers
+            - add input capture hooks to decoding layers
         - on_sequential_epoch_end
             - apply_autoround
             - post_autoround_cleanup
@@ -106,6 +106,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     # AutoRound modifier arguments
     iters: Optional[int] = 200
+    enable_torch_compile: Optional[bool] = True
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -219,23 +220,28 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         return ar_quant_scheme
 
     def apply_autoround(self, state):
-        """Applies AutoRound quantization tuning on the current decoding layer.
+        """
+        Applies AutoRound quantization tuning on the current decoding layer.
 
-        The tuning logic is below:
+        The tuning logic is as follows:
         for iter in range(iters):
-           quant_output = forward(layer, cached_inputs)
-           loss = mse_loss(quant_output, original_output)
-           loss.backward()
-           optimizer.step()
-           if loss < best_loss:
+            quant_output = forward(layer, cached_inputs)
+            loss = mse_loss(quant_output, original_output)
+            loss.backward()
+            optimizer.step()
+            if loss < best_loss:
                 best_params = save_params(layer)
+
+        This method retrieves the current decoding layer, wraps it for compatibility with
+        AutoRound, and performs iterative optimization to minimize the quantization error.
+        The best parameters are tracked and applied to the layer after tuning.
+
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
         """
-
         cur_layer_idx = self._cur_layer_idx
+        logger.info("Applying AutoRound to layer index: {}", cur_layer_idx)
         self._cur_layer_idx += 1
-        logger.info(f">>||>> AutoRound for decoding layer index {cur_layer_idx}")
         if cur_layer_idx >= len(state.model.model.layers):
             # skip the lm_head layer
             return
@@ -253,7 +259,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 scheme=parsed_scheme,
                 iters=self.iters,
                 enable_quanted_input=False,
-                enable_torch_compile=True,
+                enable_torch_compile=self.enable_torch_compile,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config()
@@ -268,6 +274,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 inputs=cur_inputs,
                 normalize_inputs=True,
                 device=device,
+                # Leave offload for LLMC
+                auto_offload=False,
             )
             # Update offload parameters and remove temporary attributes
             for _, module in decoding_layer.named_modules():
