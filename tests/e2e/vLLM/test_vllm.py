@@ -244,6 +244,7 @@ class TestvLLM:
             vllm_cmd = " ".join(cmds)
             with open(self.vllm_bash, "w") as cf:
                 cf.write(f"""#!/bin/bash
+                    export HF_HUB_OFFLINE=0
                     export VLLM_NO_USAGE_STATS=1
                     {vllm_cmd}
                     """)
