@@ -79,6 +79,14 @@ class Subgraph:
 
         return outputs
 
+    def submodules(self, model: Module, recurse: bool = False) -> Set[Module]:
+        nodes = self.graph.find_nodes(op="call_module")
+        modules = set(model.get_submodule(node.target) for node in nodes)
+        if recurse:
+            modules = set(module.modules() for module in modules)
+
+        return modules
+
 
 def trace_subgraphs(
     model: PreTrainedModel,
