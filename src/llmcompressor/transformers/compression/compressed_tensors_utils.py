@@ -227,7 +227,7 @@ def untie_if_target_shared_embedding(
 
     # if shared, check if either is targeted
     for item in matched_module_generator:
-        module = item if isinstance(item, torch.nn.Module) else item[1]
+        module = item[1] if isinstance(item, tuple) else item
         if module in (input_embeddings, output_embeddings):
             untie_word_embeddings(model)
             return
