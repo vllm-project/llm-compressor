@@ -15,15 +15,30 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
 from tests.testing_utils import requires_gpu
 
+
+def is_quay_image(url: str) -> bool:
+    pattern = r"^quay\.io/[a-z0-9][a-z0-9-_]*/[a-z0-9][a-z0-9-_/]*:[\w][\w.-]*$"
+    return re.match(pattern, url) is not None
+
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
-# vllm environment: image url, same (default), or the path of vllm virtualenv
+# vllm environment: image url, deployed runner name, same (default), or the path of vllm virtualenv
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
+IS_VLLM_IMAGE = False
+IS_VLLM_IMAGE_DEPLOYED=False
 RUN_SAVE_DIR=os.environ.get("RUN_SAVE_DIR", "none")
+VLLM_VOLUME_MOUNT_DIR=os.environ.get("VLLM_VOLUME_MOUNT_DIR", "/opt/app-root/runs")
+# when using vllm image, needs to save the generated model and vllm command
+if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
+    IS_VLLM_IMAGE = True
+    if not is_quay_image(VLLM_PYTHON_ENV):
+        IS_VLLM_IMAGE_DEPLOYED = True
+        assert RUN_SAVE_DIR != "none", "To use vllm image must set RUN_SAVE_DIR too!"
+
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
@@ -32,11 +47,6 @@ EXPECTED_SAVED_FILES = [
     "recipe.yaml",
     "tokenizer.json",
 ]
-IS_VLLM_IMAGE = False
-# when using vllm image, needs to save the generated model and vllm command
-if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
-    IS_VLLM_IMAGE = True
-    assert RUN_SAVE_DIR != "none", "To use vllm image must set RUN_SAVE_DIR too!"
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
@@ -61,6 +71,7 @@ class TestvLLM:
     be used for quantization. Otherwise, the recipe will always be used if given.
     """  # noqa: E501
 
+
     def set_up(self, test_data_file: str):
         eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
@@ -81,7 +92,7 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
-        self.is_vllm_image = IS_VLLM_IMAGE
+        #self.is_vllm_image = IS_VLLM_IMAGE
         if VLLM_PYTHON_ENV.lower() == "same":
             self.vllm_env = sys.executable
         else:
@@ -90,20 +101,19 @@ class TestvLLM:
         if RUN_SAVE_DIR != "none":
             assert Path(RUN_SAVE_DIR).exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
             self.run_save_dir = RUN_SAVE_DIR
+            # RUN_SAVE_DIR overwrites config save_dir
+            self.save_dir = os.path.join(RUN_SAVE_DIR, self.model.split("/")[1] + f"-{self.scheme}")
 
         if not self.save_dir:
-            if RUN_SAVE_DIR != "none":
-                self.save_dir = os.path.join(RUN_SAVE_DIR, self.model.split("/")[1] + f"-{self.scheme}")
-            else:
-                self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
 
         logger.info("========== RUNNING ==============")
         logger.info(f"model save dir: {self.save_dir}")
 
-        # command file to run vllm if using vllm image
-        if self.is_vllm_image:
-            self.vllm_cmd_file = os.path.join(RUN_SAVE_DIR, "vllm.cmd")
-            logger.info(f"vllm cmd file save dir: {self.vllm_cmd_file}")
+        # script to run vllm if using vllm image
+        if IS_VLLM_IMAGE:
+            self.vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm.bash")
+            logger.info(f"vllm bash save dir: {self.vllm_bash}")
 
         self.prompts = [
             "The capital of France is",
@@ -151,7 +161,8 @@ class TestvLLM:
             fp.write(recipe_yaml_str)
         session.reset()
 
-        if SKIP_HF_UPLOAD.lower() != "yes":
+        # if vllm image is used, don't upload
+        if SKIP_HF_UPLOAD.lower() != "yes" and not IS_VLLM_IMAGE:
             logger.info("================= UPLOADING TO HUB ======================")
 
             stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
@@ -168,8 +179,7 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        logger.info(f"Before vllm starts, here is self.save_dir: {self.save_dir}")
-        if self.is_vllm_image:
+        if IS_VLLM_IMAGE:
             logger.info("========== To run vLLM with vllm image ==========")
         else:
             if VLLM_PYTHON_ENV.lower() == "same":
@@ -182,6 +192,7 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
+        # model save_dir is needed for vllm image testing
         if not IS_VLLM_IMAGE and self.save_dir is not None and os.path.isdir(self.save_dir):
             shutil.rmtree(self.save_dir)
 
@@ -209,7 +220,10 @@ class TestvLLM:
         import json
         import subprocess
 
-        llm_kwargs = {"model": self.save_dir}
+        llm_kwargs = {"model": self.save_dir(}
+        if IS_VLLM_IMAGE:
+            llm_kwargs = {"model":
+                self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR))}
 
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
@@ -219,20 +233,26 @@ class TestvLLM:
         json_prompts = json.dumps(self.prompts)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
-        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
         logger.info("Run vllm using env:")
         logger.info(self.vllm_env)
 
-        if self.is_vllm_image:
+        if IS_VLLM_IMAGE:
+            run_file_path = os.path.join(VLLM_VOLUME_MOUNT_DIR, "run_vllm.py")
             cmds = ["python", run_file_path, f"'{json_scheme}'",
                     f"'{json_llm_kwargs}'", f"'{json_prompts}'"]
             vllm_cmd = " ".join(cmds)
-            with open(self.vllm_cmd_file, "a") as cf:
+            with open(self.vllm_bash, "w") as cf:
+                cf.write("#!/bin/bash\n\n")
                 cf.write(vllm_cmd + "\n")
-            logger.info(f"Wrote vllm cmd into {self.vllm_cmd_file}:")
+            logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
             logger.info(vllm_cmd)
+            if IS_VLLM_IMAGE_DEPLOYED:
+                logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
+            else:
+                logger.info("use vllm image directly. Run vllm cmd with podman.")
         else:
+            run_file_path = os.path.join(test_file_dir, "run_vllm.py")
             logger.info("Run vllm in subprocess.Popen using python env:")
             logger.info(self.vllm_env)
             result = subprocess.Popen(
