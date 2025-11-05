@@ -29,6 +29,7 @@ quant_stage:
 
 recipe_modifier_full = AutoRoundModifier(
     ignore=["lm_head"],
+    iters=10,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"],

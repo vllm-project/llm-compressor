@@ -165,7 +165,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self.start_calibration(state.model)
         for name, module in state.model.named_modules():
             if _is_decoding_layer(module, name):
-                # register input capture hooks for decoding layers
+                # register input capture hook for decoding layers
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
