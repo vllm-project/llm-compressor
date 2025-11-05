@@ -284,7 +284,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     weight_scale = module.scale
                     del module.scale
                     del module.zp
-                    # TODO: update weight as well
+                    # TODO: update zero_point as well if needed
                     update_offload_parameter(module, "weight_scale", weight_scale)
         decoding_layer.eval()
 
