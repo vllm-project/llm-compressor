@@ -36,7 +36,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    # disbable shuffling to get slightly better mmlu score
+    # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
 )
 
