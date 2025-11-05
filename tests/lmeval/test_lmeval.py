@@ -25,6 +25,7 @@ class LmEvalConfig(BaseModel):
     num_fewshot: int = 5
     limit: int = 1000
     batch_size: int = 100
+    apply_chat_template: bool = False
     # Recovery testing (default): compare against base model performance
     # Default threshold is 0.95 (retain ≥95% of base), can be overridden
     recovery_threshold: Union[float, dict] = 0.95
@@ -160,6 +161,7 @@ class TestLMEval:
             num_fewshot=self.lmeval.num_fewshot,
             limit=self.lmeval.limit,
             device="cuda:0",
+            apply_chat_template=self.lmeval.apply_chat_template,
             batch_size=self.lmeval.batch_size,
         )
 
@@ -190,6 +192,7 @@ class TestLMEval:
             num_fewshot=self.lmeval.num_fewshot,
             limit=self.lmeval.limit,
             device="cuda:0",
+            apply_chat_template=self.lmeval.apply_chat_template,
             batch_size=self.lmeval.batch_size,
         )
 
