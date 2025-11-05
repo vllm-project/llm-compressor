@@ -57,7 +57,7 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
-    Implements the AutoRound algorithm from https://arxiv.org/pdf/2309.05516.
+    Implements the AutoRound algorithm from https://aclanthology.org/2024.findings-emnlp.662.pdf.
     This modifier leverages signed gradient descent (SignSGD) optimizer and
     block-wise loss to optimize rounding values and weight clipping in a few steps.
 
