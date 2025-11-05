@@ -58,8 +58,8 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
     Implements the AutoRound algorithm from https://arxiv.org/pdf/2309.05516. This modifier
-    leverages signed gradient descent (SignSGD) and block-wise loss to optimize rounding values
-    and weight clipping in a few steps.
+    leverages signed gradient descent (SignSGD) optimizer and block-wise loss to optimize
+    rounding values and weight clipping in a few steps.
 
     | Sample yaml:
     | test_stage:
@@ -99,9 +99,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         quantize even if they match a target in config_groups. Defaults to empty list.
     :param scheme: a single quantization scheme to apply to the model. This is a
         dictionary that supports all keys from QuantizationScheme except targets, which
-        will be set to the targets parameter set at the modifier level. Can also be set
-        to a dictionary of the format `preset_scheme_name: targets` for example:
-        `W8A8: ['Linear']` for weight and activation 8-bit.
+        will be set to the targets parameter set at the modifier level.
     """
 
     # AutoRound modifier arguments
@@ -149,7 +147,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round
-            # self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
@@ -168,7 +165,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self.start_calibration(state.model)
         for name, module in state.model.named_modules():
             if _is_decoding_layer(module, name):
-                # register input/output capture hooks for decoding layers
+                # register input capture hooks for decoding layers
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
@@ -299,7 +296,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         """
         self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove gptq hooks
+        self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
