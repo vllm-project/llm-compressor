@@ -253,10 +253,10 @@ class TestvLLM:
                 logger.info("Run vllm in subprocess.Popen with podman using vllm:")
                 logger.info(self.vllm_env)
                 result = subprocess.Popen(
-                    ["podman", "run --rm -it --device nvidia.com/gpu=0",
-                     "--security-opt=label=disable --userns=keep-id:uid=1001",
-                     "--env=VLLM_NO_USAGE_STATS=1 --entrypoint=self.vllm_bash",
-                     "-v RUN_SAVE_DIR:VLLM_VOLUME_MOUNT_DIR ${VLLM_PYTHON_ENV}"],
+                    ["podman", "run --rm -it --device nvidia.com/gpu=0
+                     --security-opt=label=disable --userns=keep-id:uid=1001
+                     --env=VLLM_NO_USAGE_STATS=1 --entrypoint=self.vllm_bash
+                     -v RUN_SAVE_DIR:VLLM_VOLUME_MOUNT_DIR ${VLLM_PYTHON_ENV}"],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
