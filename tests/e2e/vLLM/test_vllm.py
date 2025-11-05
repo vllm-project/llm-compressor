@@ -250,7 +250,21 @@ class TestvLLM:
             if IS_VLLM_IMAGE_DEPLOYED:
                 logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
             else:
-                logger.info("use vllm image directly. Run vllm cmd with podman.")
+                logger.info("Run vllm in subprocess.Popen with podman using vllm:")
+                logger.info(self.vllm_env)
+                result = subprocess.Popen(
+                    ["podman", "run --rm -it --device nvidia.com/gpu=0",
+                     "--security-opt=label=disable --userns=keep-id:uid=1001",
+                     "--env=VLLM_NO_USAGE_STATS=1 --entrypoint=self.vllm_bash",
+                     "-v RUN_SAVE_DIR:VLLM_VOLUME_MOUNT_DIR ${VLLM_PYTHON_ENV}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+            )
+            stdout, stderr = result.communicate()
+            logger.info(stdout)
+            error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+            assert result.returncode == 0, error_msg
         else:
             run_file_path = os.path.join(test_file_dir, "run_vllm.py")
             logger.info("Run vllm in subprocess.Popen using python env:")
