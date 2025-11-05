@@ -242,21 +242,30 @@ class TestvLLM:
             cmds = ["python", run_file_path, f"'{json_scheme}'",
                     f"'{json_llm_kwargs}'", f"'{json_prompts}'"]
             vllm_cmd = " ".join(cmds)
-            with open(self.vllm_bash, "a") as cf:
-                cf.write("#!/bin/bash\n\n")
-                cf.write("export VLLM_NO_USAGE_STATS=1\n\n")
-                cf.write(vllm_cmd + "\n")
+            with open(self.vllm_bash, "w") as cf:
+                cf.write(f"#!/bin/bash\n\n
+                           export VLLM_NO_USAGE_STATS=1\n\n")
+                           {vllm_cmd}\n")
             logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
             logger.info(vllm_cmd)
             if IS_VLLM_IMAGE_DEPLOYED:
                 logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
             else:
-                logger.info("Run vllm in subprocess.Popen with podman using vllm:")
-                logger.info(self.vllm_env)
+                podman_cmd = " ".join("podman",
+                    "run", "--rm", "--device",
+                    "nvidia.com/gpu=all",
+                    "--security-opt=label=disable",
+                    "--userns=keep-id:uid=1001",
+                    "--entrypoint",
+                    self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
+                    "-v", f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
+                    VLLM_PYTHON_ENV)
+                logger.info("podman command:")
+                logger.info(podman_cmd)
                 result = subprocess.Popen(
                     [
                      "podman", "run", "--rm",
-                     "--device", "nvidia.com/gpu=0",
+                     "--device", "nvidia.com/gpu=all",
                      "--security-opt=label=disable",
                      "--userns=keep-id:uid=1001",
                      "--entrypoint",
@@ -267,10 +276,6 @@ class TestvLLM:
                    stdout=subprocess.PIPE,
                    stderr=subprocess.PIPE,
                    text=True)
-                stdout, stderr = result.communicate()
-                logger.info(stdout)
-                error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
-                assert result.returncode == 0, error_msg
         else:
             run_file_path = os.path.join(test_file_dir, "run_vllm.py")
             logger.info("Run vllm in subprocess.Popen using python env:")
@@ -281,11 +286,12 @@ class TestvLLM:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            stdout, stderr = result.communicate()
-            logger.info(stdout)
 
-            error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
-            assert result.returncode == 0, error_msg
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+        assert result.returncode == 0, error_msg
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
