@@ -83,7 +83,7 @@ class Subgraph:
         nodes = self.graph.find_nodes(op="call_module")
         modules = set(model.get_submodule(node.target) for node in nodes)
         if recurse:
-            modules = {submodule for module in modules for submodule in module.modules()}
+            modules = set(m for module in modules for m in module.modules())
 
         return modules
 
