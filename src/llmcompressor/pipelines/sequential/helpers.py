@@ -281,8 +281,8 @@ def safe_dispatch(model: torch.nn.Module):
 
     for module in model.modules():
         if len(list(module.children())) <= 0:
-            module.cpu_params = {name: param for name, param in module.named_parameters()}
-            for name, param in list(module.named_parameters()):
+            module.cpu_params = {name: param for name, param in module.named_parameters(recurse=False)}
+            for name, param in list(module.named_parameters(recurse=False)):
                 delattr(module, name)
 
             module._asdf_forward = module.forward
