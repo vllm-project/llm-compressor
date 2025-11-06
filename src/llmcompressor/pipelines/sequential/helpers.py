@@ -82,19 +82,13 @@ class Subgraph:
 from torch._ops import HigherOrderOperator
 from torch._higher_order_ops.wrap import wrap as hop_wrap
 from torch._dynamo import allow_in_graph, nonstrict_trace
+from torch.compiler import disable
+from torch.utils import _pytree as pytree
+from torch._C import DispatchKey
 
-class LCWrap(HigherOrderOperator):
-    def __init__(self) -> None:
-        super().__init__("lcwrap")
-
-    def __call__(self, func):
-        def wrapper(*args, **kwargs):
-            return hop_wrap(func, *args, **kwargs)
-
-        return wrapper
-    
-lc_wrap = LCWrap()
-
+@torch.ops.higher_order._export_tracepoint.py_impl(DispatchKey.CUDA)
+def export_tracepoint_cuda(*args, **kwargs):
+    return args
 
 
 def trace_subgraphs(
@@ -158,6 +152,15 @@ def trace_subgraphs(
             opname = f"sequential::{base}"                    # sequential::model_layers_0
             orig_forward = module.forward
 
+
+            def pre_hook(module, args, kwargs):
+                flat_args, in_spec = pytree.tree_flatten((args, kwargs))
+                flat_args = torch.ops.higher_order._export_tracepoint(*flat_args, kind="module_call_inputs", path="path")
+                args, kwargs = pytree.tree_unflatten(flat_args, in_spec)
+                return args, kwargs
+
+            pre_handle = module.register_forward_pre_hook(pre_hook, with_kwargs=True)
+
             #module.forward = lc_wrap(module.forward)
         
     #     else:
@@ -186,6 +189,7 @@ def trace_subgraphs(
         stack.enter_context(HooksMixin.disable_hooks())
 
         torch.compile(fullgraph=True, backend=custom_backend)(model.forward)(**sample_input)
+        #program = torch.export.export(model, tuple(), kwargs=sample_input)
         #model.forward(**sample_input)
     # ----- run torch compile -----
 
