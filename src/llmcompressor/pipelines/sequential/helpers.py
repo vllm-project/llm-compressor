@@ -158,7 +158,7 @@ def trace_subgraphs(
             opname = f"sequential::{base}"                    # sequential::model_layers_0
             orig_forward = module.forward
 
-            module.forward = lc_wrap(module.forward)
+            #module.forward = lc_wrap(module.forward)
         
     #     else:
     #         print(f"skipping: {name}")
@@ -266,7 +266,8 @@ def safe_dispatch(model: torch.nn.Module):
 
     # seems like byte compiled, maybe trying wrapping now?
     def new_forward(self, *args, **kwargs):
-        pre_forward(self)
+        for name, param in self.cpu_params.items():
+            setattr(self, name, param.to("cuda"))
 
         ret = self._asdf_forward(*args, **kwargs)
 
@@ -276,6 +277,10 @@ def safe_dispatch(model: torch.nn.Module):
 
     for module in model.modules():
         if len(list(module.children())) <= 0:
+            module.cpu_params = {name: param for name, param in module.named_parameters()}
+            for name, param in list(module.named_parameters()):
+                delattr(module, name)
+
             module._asdf_forward = module.forward
             module.forward = new_forward.__get__(module)
 
