@@ -19,6 +19,9 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    untie_if_target_shared_embedding,
+)
 
 __all__ = ["AutoRoundModifier"]
 
@@ -151,6 +154,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param model: model to prepare for calibration
         """
+        untie_if_target_shared_embedding(model, self._module_names.values())
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round
