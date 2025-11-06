@@ -5,7 +5,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization.autoround import AutoRoundModifier
+from llmcompressor.modifiers import AutoRoundModifier
 
 recipe_str = """
 quant_stage:

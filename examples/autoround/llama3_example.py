@@ -2,7 +2,7 @@ from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import AutoRoundModifier
+from llmcompressor.modifiers import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.

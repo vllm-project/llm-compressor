@@ -7,6 +7,7 @@ networks. Includes base classes, factory patterns, and interfaces for
 extensible compression workflows.
 """
 
+from .autoround import AutoRoundModifier
 from .factory import ModifierFactory
 from .interface import ModifierInterface
 from .modifier import Modifier
@@ -15,4 +16,5 @@ __all__ = [
     "ModifierFactory",
     "ModifierInterface",
     "Modifier",
+    "AutoRoundModifier",
 ]
