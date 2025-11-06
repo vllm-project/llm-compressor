@@ -274,6 +274,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 iters=self.iters,
                 enable_quanted_input=False,
                 enable_torch_compile=self.enable_torch_compile,
+                batch_dim=0,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config()
