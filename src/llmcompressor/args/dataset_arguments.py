@@ -188,8 +188,7 @@ class DatasetArguments(CustomDatasetArguments):
         default="independent",
         metadata={
             "help": "Calibration pipeline used to calibrate model"
-            "Options: ['basic', 'datafree', 'sequential', 'layer_sequential', "
-            "independent]"
+            "Options: ['basic', 'datafree', 'sequential', independent]"
         },
     )
     tracing_ignore: list[str] = field(
