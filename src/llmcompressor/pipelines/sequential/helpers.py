@@ -78,6 +78,23 @@ class Subgraph:
             ) from exception
 
         return outputs
+    
+from torch._ops import HigherOrderOperator
+from torch._higher_order_ops.wrap import wrap as hop_wrap
+from torch._dynamo import allow_in_graph, nonstrict_trace
+
+class LCWrap(HigherOrderOperator):
+    def __init__(self) -> None:
+        super().__init__("lcwrap")
+
+    def __call__(self, func):
+        def wrapper(*args, **kwargs):
+            return hop_wrap(func, *args, **kwargs)
+
+        return allow_in_graph(wrapper)
+    
+lc_wrap = LCWrap()
+
 
 
 def trace_subgraphs(
@@ -98,39 +115,83 @@ def trace_subgraphs(
     :param ignore: function and method names to skip during tracing
     :return: a list of Subgraphs in order of execution
     """
+    from torch.library import register_fake
+    from torch.library import custom_op
+    from torch._dynamo import allow_in_graph, nonstrict_trace
+    from torch.compiler import disable
+    from torch._higher_order_ops.wrap import wrap as hop_wrap
+
+    dispatch_for_sequential(model)
+    #safe_dispatch(model)
+    #model.to("cuda")
+    
     # find modules
     targets = match_modules(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
-    offloaded = set(m for m in model.modules() if has_offloaded_params(m))
+    offloaded = set(m for m in model.modules() if len(list(m.parameters(recurse=False))) > 0)
 
-    # initialize arguments
-    tracer = SequentialTracer(ancestors, offloaded)
-    concrete_args = populate_concrete_args(model, sample_input)
+    # replace modules in custom ops
+    # optionally do a forward pass to capture custom op outputs
+    # and set the fake ops to have those return values
 
+    for name, module in model.named_modules():
+        if has_offloaded_params(module):
+            base = name.replace(".", "_")
+            opname = f"sequential::{base}"
+
+            print(name)
+            print(module.__class__.forward.__annotations__)
+            module.forward.__globals__ = module.forward.func.__globals__
+            module.forward.__annotations__ = module.__class__.forward.__annotations__
+
+            if "RMSNorm" in module.__class__.__name__:
+                module.forward.__annotations__ = {"hidden_states": torch.Tensor, "return": torch.Tensor}
+
+            module.forward = custom_op(opname, mutates_args=tuple())(module.forward)
+
+    # for name, module in model.named_modules():
+    #     if module in targets or has_offloaded_params(module):
+    #         base = name.replace(".", "_")                     # model_layers_0
+    #         opname = f"sequential::{base}"                    # sequential::model_layers_0
+    #         orig_forward = module.forward
+
+    #         module.forward = lc_wrap(module.forward)
+        
+    #     else:
+    #         print(f"skipping: {name}")
+
+    #         # # 1) Define op (Tensor -> Tensor schema shown; adjust as needed)
+    #         # schema = "(Tensor x) -> Tensor"  # totally fake. This doesn't work because errors if schema doesn't match
+    #         # # and we can't use schema because decoder layers have kwargs, cache, ect in the schema, incompatible
+    #         # module.forward = custom_op(opname, mutates_args=tuple(), schema=schema)(module.forward)
+    #         # #module.forward._opoverload = orig_forward
+
+    # ----- run torch compile -----
+    sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+
+    graph = None
+    def custom_backend(gm, example_inputs):
+        print("make graph")
+        nonlocal graph
+        graph = gm
+        # maybe return an empty callable
+        return graph.forward
+    
     with contextlib.ExitStack() as stack:
         # calibration context
         stack.enter_context(calibration_forward_context(model))
         stack.enter_context(HooksMixin.disable_hooks())
 
-        # flags useful for tracing
-        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
-        stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+        torch.compile(fullgraph=True, backend=custom_backend)(model.forward)(**sample_input)
+        #model.forward(**sample_input)
+    # ----- run torch compile -----
 
-        # autowrap forwards
-        stack.enter_context(autowrap_forwards(ancestors, ignore))
-        stack.enter_context(patch_attr(type(model), "forward", model.forward.__func__))
+    output = graph.print_readable(print_output=False)
+    with open("output.py", "w") as file:
+        file.write(output)
+    exit(0)
 
-        graph = GraphModule(
-            model,
-            tracer.trace(
-                model,
-                dummy_inputs=sample_input,
-                concrete_args=concrete_args,
-                complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
-                # bug in trace throws an error for variadic
-                # args and kwargs in function signature
-            ),
-        )
+
 
     # copy metadata
     graph.config = model.config
@@ -152,6 +213,29 @@ def trace_subgraphs(
         )
 
     return subgraphs
+
+
+def safe_dispatch(model: torch.nn.Module):
+    from accelerate.hooks import set_module_tensor_to_device
+    from torch.fx import wrap
+
+    # seems like byte compiled, maybe trying wrapping now?
+    def new_forward(*args, **kwargs):
+        for name, param in module.named_parameters(recurse=False):
+            getattr(module, name).data = param.data.to("cuda")
+            #set_module_tensor_to_device(module, name, "cuda")
+
+        ret = module._asdf_forward(*args, **kwargs)
+
+        for name, param in module.named_parameters(recurse=False):
+            getattr(module, name).data = param.data.to("cpu")
+            #set_module_tensor_to_device(module, name, "cpu")
+
+        return ret
+
+    for module in model.modules():
+        module._asdf_forward = module.forward
+        module.forward = new_forward
 
 
 class SequentialTracer(HFTracer):

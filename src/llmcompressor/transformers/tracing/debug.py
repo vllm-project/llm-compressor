@@ -61,13 +61,13 @@ def trace(
         --modality text
     """
     # Load model
-    with skip_weights_download(model_class) if skip_weights else nullcontext():
-        model = model_class.from_pretrained(
-            model_id,
-            device_map=device_map,
-            torch_dtype="auto",
-            trust_remote_code=trust_remote_code,
-        )
+    #with skip_weights_download(model_class) if skip_weights else nullcontext():
+    model = model_class.from_pretrained(
+        model_id,
+        device_map=device_map,
+        torch_dtype="auto",
+        trust_remote_code=trust_remote_code,
+    )
     processor = AutoProcessor.from_pretrained(
         model_id, trust_remote_code=trust_remote_code
     )
