@@ -12,7 +12,7 @@ from transformers.models.granitemoehybrid.modeling_granitemoehybrid import (
 
 
 #for fp8 block quantization
-def replace_granite_moe_with_linear(model):
+def replace_granite_moe_with_linear_experts(model):
     """
     Convert GraniteMoeHybridParallelExperts modules into individual expert layers.
     Each expert will be stored as a separate nn.Linear module.
