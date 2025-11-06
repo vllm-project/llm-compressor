@@ -91,7 +91,7 @@ class LCWrap(HigherOrderOperator):
         def wrapper(*args, **kwargs):
             return hop_wrap(func, *args, **kwargs)
 
-        return allow_in_graph(wrapper)
+        return wrapper
     
 lc_wrap = LCWrap()
 
@@ -152,13 +152,13 @@ def trace_subgraphs(
 
     #         module.forward = custom_op(opname, mutates_args=tuple())(module.forward)
 
-    # for name, module in model.named_modules():
-    #     if module in targets or has_offloaded_params(module):
-    #         base = name.replace(".", "_")                     # model_layers_0
-    #         opname = f"sequential::{base}"                    # sequential::model_layers_0
-    #         orig_forward = module.forward
+    for name, module in model.named_modules():
+        if module in targets or has_offloaded_params(module):
+            base = name.replace(".", "_")                     # model_layers_0
+            opname = f"sequential::{base}"                    # sequential::model_layers_0
+            orig_forward = module.forward
 
-    #         module.forward = lc_wrap(module.forward)
+            module.forward = lc_wrap(module.forward)
         
     #     else:
     #         print(f"skipping: {name}")
@@ -217,6 +217,46 @@ def trace_subgraphs(
 
     return subgraphs
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.library import Library, impl, register_fake, impl_abstract, register_autograd
+
+# --- 1) Define an opaque op: offload::to_cuda(Tensor x) -> Tensor ---
+lib = Library("offload", "DEF")
+lib.define("to_cuda(Tensor x) -> Tensor")
+
+# --- 2) Tell the compiler what the *fake/meta* output looks like (CUDA, same size/stride/dtype) ---
+@register_fake("offload::to_cuda")          # works for FakeTensor mode
+def _to_cuda_fake(x):
+    return x.new_empty_strided(x.size(), x.stride(), device="cuda", dtype=x.dtype)
+
+# --- 3) Real kernels for eager/runtime (no decomposition during fake tracing) ---
+@impl("offload::to_cuda", "CPU")
+def _to_cuda_cpu(x: torch.Tensor):
+    # Runtime path: materialize temporary CUDA copy
+    # Avoid .set_ on inputs; just return a fresh CUDA tensor
+    return x.to(device="cuda", non_blocking=True)
+
+@impl("offload::to_cuda", "CUDA")
+def _to_cuda_cuda(x: torch.Tensor):
+    # If someone passes a CUDA tensor already, just return it (no copy)
+    return x
+
+
+import functools
+from torch.compiler import disable
+from torch._dynamo import allow_in_graph, nonstrict_trace
+
+def pre_forward(self):
+    for name, param in self.named_parameters(recurse=False):
+        getattr(self, name).data = torch.ops.offload.to_cuda(getattr(self, name))#getattr(self, name).data.to("cuda")
+
+def post_forward(self):
+    for name, param in self.named_parameters(recurse=False):
+        getattr(self, name).data = torch.ops.offload.to_cuda(getattr(self, name))
+
+
 
 def safe_dispatch(model: torch.nn.Module):
     from accelerate.hooks import set_module_tensor_to_device
@@ -224,29 +264,20 @@ def safe_dispatch(model: torch.nn.Module):
     from torch.compiler import disable
     from torch._dynamo import allow_in_graph, nonstrict_trace
 
-    def pre_thing(module: torch.nn.Module):
-        for name, param in module.named_parameters(recurse=False):
-            getattr(module, name).data = param.data.to("cuda")
-
-    def post_thing(module: torch.nn.Module):        
-        for name, param in module.named_parameters(recurse=False):
-            getattr(module, name).data = param.data.to("cuda")
-
-
     # seems like byte compiled, maybe trying wrapping now?
-    @nonstrict_trace
-    def new_forward(*args, **kwargs):
-        pre_thing(module)
+    def new_forward(self, *args, **kwargs):
+        pre_forward(self)
 
-        ret = module._asdf_forward(*args, **kwargs)
+        ret = self._asdf_forward(*args, **kwargs)
 
-        post_thing(module)
+        #post_forward(self)
 
         return ret
 
     for module in model.modules():
-        module._asdf_forward = module.forward
-        module.forward = new_forward
+        if len(list(module.children())) <= 0:
+            module._asdf_forward = module.forward
+            module.forward = new_forward.__get__(module)
 
 
 class SequentialTracer(HFTracer):
