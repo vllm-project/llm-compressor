@@ -121,8 +121,8 @@ def trace_subgraphs(
     from torch.compiler import disable
     from torch._higher_order_ops.wrap import wrap as hop_wrap
 
-    dispatch_for_sequential(model)
-    #safe_dispatch(model)
+    #dispatch_for_sequential(model)
+    safe_dispatch(model)
     #model.to("cuda")
     
     # find modules
@@ -134,20 +134,23 @@ def trace_subgraphs(
     # optionally do a forward pass to capture custom op outputs
     # and set the fake ops to have those return values
 
-    for name, module in model.named_modules():
-        if has_offloaded_params(module):
-            base = name.replace(".", "_")
-            opname = f"sequential::{base}"
+    # for name, module in model.named_modules():
+    #     if has_offloaded_params(module):
+    #         base = name.replace(".", "_")
+    #         opname = f"sequential::{base}"
 
-            print(name)
-            print(module.__class__.forward.__annotations__)
-            module.forward.__globals__ = module.forward.func.__globals__
-            module.forward.__annotations__ = module.__class__.forward.__annotations__
+    #         if "RMSNorm" in module.__class__.__name__:
+    #             module.__class__.forward.__annotations__ = {"hidden_states": torch.Tensor, "return": torch.Tensor}
 
-            if "RMSNorm" in module.__class__.__name__:
-                module.forward.__annotations__ = {"hidden_states": torch.Tensor, "return": torch.Tensor}
+    #         module.forward.__globals__ = module.forward.func.__globals__
+    #         module.forward.__annotations__ = module.__class__.forward.__annotations__
 
-            module.forward = custom_op(opname, mutates_args=tuple())(module.forward)
+    #         print(name)
+    #         print(module.__class__.forward.__annotations__)
+    #         print(module.__class__.__name__)
+    #         print("RMSNorm" in module.__class__.__name__)
+
+    #         module.forward = custom_op(opname, mutates_args=tuple())(module.forward)
 
     # for name, module in model.named_modules():
     #     if module in targets or has_offloaded_params(module):
@@ -218,18 +221,26 @@ def trace_subgraphs(
 def safe_dispatch(model: torch.nn.Module):
     from accelerate.hooks import set_module_tensor_to_device
     from torch.fx import wrap
+    from torch.compiler import disable
+    from torch._dynamo import allow_in_graph, nonstrict_trace
 
-    # seems like byte compiled, maybe trying wrapping now?
-    def new_forward(*args, **kwargs):
+    def pre_thing(module: torch.nn.Module):
         for name, param in module.named_parameters(recurse=False):
             getattr(module, name).data = param.data.to("cuda")
-            #set_module_tensor_to_device(module, name, "cuda")
+
+    def post_thing(module: torch.nn.Module):        
+        for name, param in module.named_parameters(recurse=False):
+            getattr(module, name).data = param.data.to("cuda")
+
+
+    # seems like byte compiled, maybe trying wrapping now?
+    @nonstrict_trace
+    def new_forward(*args, **kwargs):
+        pre_thing(module)
 
         ret = module._asdf_forward(*args, **kwargs)
 
-        for name, param in module.named_parameters(recurse=False):
-            getattr(module, name).data = param.data.to("cpu")
-            #set_module_tensor_to_device(module, name, "cpu")
+        post_thing(module)
 
         return ret
 
