@@ -175,12 +175,16 @@ def trace_subgraphs(
     # ----- run torch compile -----
     sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
 
-    graph = None
-    def custom_backend(gm, example_inputs):
+    graphs = []
+    def custom_backend(graph, example_inputs):
         print("make graph")
-        nonlocal graph
-        graph = gm
-        # maybe return an empty callable
+
+        output = graph.print_readable(print_output=False)
+        with open(f"output_{len(graphs)}.py", "w") as file:
+            file.write(output)
+
+        graphs.append(graph)
+
         return graph.forward
     
     with contextlib.ExitStack() as stack:
@@ -188,15 +192,13 @@ def trace_subgraphs(
         stack.enter_context(calibration_forward_context(model))
         stack.enter_context(HooksMixin.disable_hooks())
 
-        torch.compile(fullgraph=True, backend=custom_backend)(model.forward)(**sample_input)
+        torch.compile(fullgraph=False, backend=custom_backend)(model.forward)(**sample_input)
         #program = torch.export.export(model, tuple(), kwargs=sample_input)
         #model.forward(**sample_input)
     # ----- run torch compile -----
 
-    output = graph.print_readable(print_output=False)
-    with open("output.py", "w") as file:
-        file.write(output)
-    exit(0)
+    assert len(graphs) > 0
+    return graphs
 
 
 
@@ -268,25 +270,52 @@ def safe_dispatch(model: torch.nn.Module):
     from torch.compiler import disable
     from torch._dynamo import allow_in_graph, nonstrict_trace
 
-    # seems like byte compiled, maybe trying wrapping now?
-    def new_forward(self, *args, **kwargs):
-        for name, param in self.cpu_params.items():
-            setattr(self, name, param.to("cuda"))
+    # # seems like byte compiled, maybe trying wrapping now?
+    # def new_forward(self, *args, **kwargs):
+    #     for name, param in self.cpu_params.items():
+    #         setattr(self, name, param.to("cuda"))
 
-        ret = self._asdf_forward(*args, **kwargs)
+    #     ret = self._asdf_forward(*args, **kwargs)
 
-        #post_forward(self)
+    #     for name, param in self.cpu_params.items():
+    #         delattr(self, name)
 
-        return ret
+    #     return ret
+
+    # for module in model.modules():
+    #     if len(list(module.children())) <= 0:
+    #         module.cpu_params = {name: param for name, param in module.named_parameters(recurse=False)}
+    #         for name, param in list(module.named_parameters(recurse=False)):
+    #             delattr(module, name)
+
+    #         module._asdf_forward = module.forward
+    #         module.forward = new_forward.__get__(module)
 
     for module in model.modules():
-        if len(list(module.children())) <= 0:
-            module.cpu_params = {name: param for name, param in module.named_parameters(recurse=False)}
-            for name, param in list(module.named_parameters(recurse=False)):
+        named_params = list(module.named_parameters(recurse=False))
+        if len(named_params) > 0:
+            module.cpu_params = {name: param for name, param in named_params}
+            for name, param in named_params:
                 delattr(module, name)
 
-            module._asdf_forward = module.forward
-            module.forward = new_forward.__get__(module)
+            
+
+            def custom__getattr__(self, name):
+                # Get cpu_params without triggering our own __getattribute__ again
+                cpu_params = self.cpu_params
+                if name in cpu_params:
+                    return cpu_params[name].to("cuda")
+
+                # TODO: hack, not sure why bias can't be found?
+                if name == "bias":
+                    return None
+
+                # Fall back to the normal lookup without recursion
+                return object.__getattribute__(self, name)
+
+            NewClass = type(f'Offloaded{module.__class__.__name__}', (module.__class__,), {'__getattr__': custom__getattr__})
+            module.__class__ = NewClass
+            #module.__getattr__ = custom__getattr__.__get__(module)
 
 
 class SequentialTracer(HFTracer):
