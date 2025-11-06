@@ -2,7 +2,17 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 import torch
 from accelerate.hooks import remove_hook_from_module
@@ -78,6 +88,19 @@ class Subgraph:
             ) from exception
 
         return outputs
+
+    def get_modules(
+        self, model: Module, recurse: bool = True
+    ) -> Generator[Module, None, None]:
+        memo = set()
+        for node in self.graph.find_nodes(op="call_module"):
+            submodule = model.get_submodule(node.target)
+
+            modules = submodule.modules() if recurse else (submodule,)
+            for m in modules:
+                if m not in memo:
+                    memo.add(m)
+                    yield m
 
 
 def trace_subgraphs(

@@ -1,6 +1,6 @@
 import ast
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
@@ -101,12 +101,28 @@ class AutoWrapper(ast.NodeTransformer):
             `if` statement with the condition replaced by `True` or `False`.
             Otherwise, return a wrapper function call
         """
+        # HACK: common case where vision models will have code that looks like this:
+        # ```
+        # if pixel_values is not None:
+        #     image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+        # ```
+        # if the body or else body calls `get_image_features`, do not autowrap
+        for subnode in ast.walk(node):
+            if (
+                isinstance(subnode, ast.Call)
+                and self._get_caller_name(subnode) == "get_image_features"
+            ):
+                return super().generic_visit(node)
+
+        # try to evaluate condition statically
         try:
             value = bool(self._eval_expr(node.test))
 
+        # wrap if cannot be evaluated statically
         except Exception:
             return self._wrap_if_possible(node)
 
+        # replace with evaluated value
         else:
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
@@ -129,18 +145,8 @@ class AutoWrapper(ast.NodeTransformer):
             return self._wrap_if_possible(node)
 
         # attempt to evaluate caller and check against ignore list
-        try:
-            caller = self._eval_expr(node.func)
-
-        except Exception:
-            caller = None
-
-        finally:
-            if (
-                isinstance(caller, (FunctionType, MethodType))
-                and caller.__name__ in self.ignore
-            ):
-                return self._wrap_if_possible(node)
+        if self._get_caller_name(node) in self.ignore:
+            return self._wrap_if_possible(node)
 
         return super().generic_visit(node)
 
@@ -276,3 +282,15 @@ class AutoWrapper(ast.NodeTransformer):
         fn_call = wrapped.value
 
         return fn_call
+
+    def _get_caller_name(self, node: ast.Call) -> Optional[str]:
+        try:
+            caller = self._eval_expr(node.func)
+
+        except Exception:
+            caller = None
+
+        finally:
+            if isinstance(caller, (FunctionType, MethodType)):
+                return caller.__name__
+            return None
