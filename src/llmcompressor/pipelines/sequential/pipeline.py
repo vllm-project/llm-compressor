@@ -99,7 +99,7 @@ class SequentialPipeline(CalibrationPipeline):
                         inputs = activations.fetch(batch_idx, subgraph.input_names)
                         subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end()
+                    LifecycleCallbacks.sequential_epoch_end(subgraph)
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
