@@ -97,6 +97,10 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/gptq
+      - name: Running AutoRound Tests
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        run: |
+          pytest -v tests/llmcompressor/transformers/autoround
       - name: Running ONESHOT Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
