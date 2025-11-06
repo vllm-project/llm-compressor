@@ -129,7 +129,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize and run the AutoRound algorithm on the current state
+        Initialize the model state for quantization and calibration.
 
         :param state: session state storing input model and calibration data
         """
