@@ -255,7 +255,7 @@ class TestvLLM:
             logger.info(vllm_cmd)
             if IS_VLLM_IMAGE_DEPLOYED:
                 logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
-                cmds = [f"kubectl exec -it VLLM_PYTHON_ENV -n arc-runners",
+                cmds = [f"kubectl exec -it {VLLM_PYTHON_ENV} -n arc-runners",
                         f"-- /bin/bash {RUN_SAVE_DIR}/run-vllm.bash"]
                 kubectl_cmd = " ".join(cmds)
                 logger.info(f"kubectl command: {kubectl_cmd}")
@@ -263,8 +263,8 @@ class TestvLLM:
                     [
                      "kubectl", "exec", "-it",
                      VLLM_PYTHON_ENV, "-n arc-runners",
-                     "-- /bin/bash", f"{RUN_SAVE_DIR}/run-vllm.bash"
-                    ]
+                     "-- /bin/bash", f"{RUN_SAVE_DIR}/run-vllm.bash",
+                    ],
                    stdout=subprocess.PIPE,
                    stderr=subprocess.PIPE,
                    text=True)
