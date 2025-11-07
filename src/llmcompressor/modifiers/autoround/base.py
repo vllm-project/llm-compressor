@@ -192,12 +192,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             loss.backward()
             optimizer.step()
             if loss < best_loss:
-                best_params = save_params(layer)
-
-        This method retrieves the current decoding layer, wraps it for
-        compatibility with AutoRound, and performs iterative optimization
-        to minimize the quantization error. The best parameters are tracked
-        and applied to the layer after tuning.
+                best_params = update_params(layer)
 
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
