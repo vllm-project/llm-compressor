@@ -255,22 +255,30 @@ class TestvLLM:
             logger.info(vllm_cmd)
             if IS_VLLM_IMAGE_DEPLOYED:
                 logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
+                cmds = [f"kubectl exec -it VLLM_PYTHON_ENV -n arc-runners",
+                        f"-- /bin/bash {RUN_SAVE_DIR}/run-vllm.bash"]
+                kubectl_cmd = " ".join(cmds)
+                logger.info(f"kubectl command: {kubectl_cmd}")
+                result = subprocess.Popen(
+                    [
+                     "kubectl", "exec", "-it",
+                     VLLM_PYTHON_ENV, "-n arc-runners",
+                     "-- /bin/bash", f"{RUN_SAVE_DIR}/run-vllm.bash"
+                    ]
+                   stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE,
+                   text=True)
             else:
-                cmds = ["podman run --rm --device nvidia.com/gpu=all",
-                    "--security-opt=label=disable",
-                    "--userns=keep-id:uid=1001",
-                    "--entrypoint",
+                cmds = ["podman run --rm --device nvidia.com/gpu=all --entrypoint",
                     self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
                     "-v", f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
                     VLLM_PYTHON_ENV]
                 podman_cmd = " ".join(cmds)
-                logger.info("podman command:")
-                logger.info(podman_cmd)
+                logger.info(f"podman command: {podman_cmd}")
                 result = subprocess.Popen(
                     [
                      "podman", "run", "--rm",
-                     "--device", "nvidia.com/gpu=all",
-                     "--entrypoint",
+                     "--device", "nvidia.com/gpu=all", "--entrypoint",
                      self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
                      "-v", f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
                      VLLM_PYTHON_ENV,
