@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Tuple, Union, Any, Sequence
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -472,6 +472,27 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
+        print("BEGINNING SMOOTHING", self._model_kwargs_cache.size())
+        for batch_idx, batch in enumerate(self._model_kwargs_cache.iter()):
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    print(batch_idx, k, v.shape, v.device)
+                elif isinstance(v, dict):
+                    for k2, v2 in v.items():
+                        if isinstance(v2, torch.Tensor):
+                            print(batch_idx, k, k2, v2.shape, v2.device)
+                        else:
+                            print(batch_idx, k, k2, v2)
+                elif isinstance(v, Sequence):
+                    for k2, v2 in enumerate(v):
+                        if isinstance(v2, torch.Tensor):
+                            print(batch_idx, k, k2, v2.shape, v2.device)
+                        else:
+                            print(batch_idx, k, k2, v2)
+                else:
+                    print(batch_idx, k, type(v))
+            if batch_idx>=1:
+                break
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being udpated
         mappings_to_smooth = [
@@ -655,7 +676,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     min=1e-4
                 )
             else:
-                scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
+                scales = w_mean.pow(ratio).clamp(min=1e-4).view(-1)
             scales = scales / (scales.max() * scales.min()).sqrt()
             _scalesview = scales.view(1, -1).to(device)
 

@@ -1,5 +1,7 @@
+import os
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
@@ -36,7 +38,6 @@ def preprocess(example):
 
 ds = ds.map(preprocess)
 
-
 # Tokenize inputs.
 def tokenize(sample):
     return tokenizer(
@@ -54,8 +55,10 @@ recipe = [
     AWQModifier(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
+        duo_scaling=False,
+        offload_device=torch.device("cpu"),
         targets=["Linear"],
-        use_auto_awq_mem_hack=False,  # GPU VRAM 37784MiB
+        use_auto_awq_mem_hack=os.getenv("USE_HACK", "false").lower()=="true",  # GPU VRAM 37784MiB
         # use_auto_awq_mem_hack=True, # GPU VRAM 37792MiB
     ),
 ]

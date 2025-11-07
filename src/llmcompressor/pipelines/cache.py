@@ -1,8 +1,9 @@
 import sys
 import warnings
 from collections import defaultdict
+from collections.abc import Generator
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from tqdm import tqdm
@@ -82,7 +83,10 @@ class IntermediatesCache:
             values = {}
             for key, value in batch.items():
                 if mask_padding and (key == "input_ids") and "attention_mask" in batch:
-                    value = cls._mask_padding(value, batch["attention_mask"])
+                    if isinstance(value, list):
+                        value = [cls._mask_padding(value[idx], batch["attention_mask"][idx]) for idx in range(len(value))]
+                    else:    
+                        value = cls._mask_padding(value, batch["attention_mask"])
                 values[key] = IntermediateValue(value=value, device=model_device)
 
             batch_intermediates.append(values)
@@ -187,11 +191,11 @@ class IntermediatesCache:
 
     def iter(
         self, input_names: Optional[List[str]] = None
-    ) -> Generator[Any, None, None]:
+    ) -> Generator[dict[str, Any]]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
-    def __iter__(self) -> Generator[Any, None, None]:
+    def __iter__(self) -> Generator[dict[str, Any]]:
         yield from self.iter()
 
     def __len__(self) -> int:

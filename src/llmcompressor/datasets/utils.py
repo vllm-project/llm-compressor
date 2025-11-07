@@ -162,7 +162,7 @@ def format_calibration_data(
         )
         num_workers = 0
     dataloader_params = {
-        "batch_size": 1,
+        "batch_size": 64,
         "sampler": RandomSampler(tokenized_calibration)
         if do_shuffle
         else SequentialSampler(tokenized_calibration),
