@@ -104,7 +104,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     # AutoRound modifier arguments
     iters: Optional[int] = 200
-    enable_torch_compile: Optional[bool] = True
+    enable_torch_compile: bool = True
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
