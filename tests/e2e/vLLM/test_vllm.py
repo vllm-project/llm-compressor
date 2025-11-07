@@ -262,8 +262,8 @@ class TestvLLM:
                 result = subprocess.Popen(
                     [
                      "kubectl", "exec", "-it",
-                     VLLM_PYTHON_ENV, "-n arc-runners",
-                     "-- /bin/bash", f"{RUN_SAVE_DIR}/run-vllm.bash",
+                     VLLM_PYTHON_ENV, "-n", "arc-runners",
+                     "--", "/bin/bash", f"{RUN_SAVE_DIR}/run-vllm.bash",
                     ],
                    stdout=subprocess.PIPE,
                    stderr=subprocess.PIPE,
