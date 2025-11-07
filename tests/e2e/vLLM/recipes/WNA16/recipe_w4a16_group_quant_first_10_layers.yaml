@@ -12,7 +12,7 @@ quant_stage:
           weights:
             num_bits: 4
             type: "int"
-            symmetric: False
+            symmetric: True
             strategy: "group"
             group_size: 128
           input_activations: null
