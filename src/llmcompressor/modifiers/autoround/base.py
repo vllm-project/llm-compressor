@@ -11,7 +11,6 @@ from compressed_tensors.utils import (
     match_named_modules,
     update_offload_parameter,
 )
-from llmcompressor.utils.pytorch.module import get_no_split_params
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -22,6 +21,7 @@ from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     untie_if_target_shared_embedding,
 )
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
 __all__ = ["AutoRoundModifier"]
 
@@ -100,6 +100,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         dictionary that supports all keys from QuantizationScheme except targets, which
         will be set to the targets parameter set at the modifier level.
     """
+
     sequential_targets: Union[str, List[str], None] = None
     # AutoRound modifier arguments
     iters: Optional[int] = 200
@@ -129,7 +130,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # freeze all model parameters
         for _, param in state.model.named_parameters():
             param.requires_grad_(False)
-        
+
         self.sequential_targets = self._infer_sequential_targets(state.model)
         return True
 
@@ -219,11 +220,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         with torch.enable_grad(), align_module_device(decoding_layer):
             import auto_round
 
-            parsed_scheme = self._mapping_config_to_autoround()
+            ar_quant_scheme = self._mapping_config_to_autoround()
             ar = auto_round.AutoRound(
                 model=wrapped_model,
                 tokenizer="",
-                scheme=parsed_scheme,
+                scheme=ar_quant_scheme,
                 iters=self.iters,
                 enable_quanted_input=False,
                 enable_torch_compile=self.enable_torch_compile,
