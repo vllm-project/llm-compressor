@@ -114,9 +114,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _cur_layer_idx = PrivateAttr(default=0)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
 
-    def resolve_quantization_config(self) -> QuantizationConfig:
-        config = super().resolve_quantization_config()
-        return config
 
     def _add_temporary_names(self, model: torch.nn.Module):
         for name, mod in model.named_modules():
