@@ -133,7 +133,7 @@ def moe_calibration_context(
         yield
     finally:
         # Step 2: Restore non-permanent modules
-        for name, (_original, replacement) in replaced.items():
+        for name, (original, replacement) in replaced.items():
             if not replacement.is_permanent:
                 restored = replacement.restore(original)
                 model.set_submodule(name, restored)

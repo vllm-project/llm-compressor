@@ -15,6 +15,8 @@ class CalibrateQwen3VLMoeTextSparseMoeBlock(MoECalibrationModule):
     experts.
     """
 
+    is_permanent = True
+
     def __init__(
         self,
         original: OriginalQwen3VLMoeTextSparseMoeBlock,
@@ -81,6 +83,9 @@ class CalibrateQwen3VLMoeTextSparseMoeBlock(MoECalibrationModule):
 
         next_states = next_states.reshape(batch_size, sequence_length, hidden_dim)
         return next_states, router_logits
+
+    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
+        return original
 
 
 class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
