@@ -1,4 +1,5 @@
 import inspect
+from itertools import product
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -610,60 +611,59 @@ class AWQModifier(Modifier, QuantizationMixin):
         w_mean = w_mean.view(-1).to(device)
 
         if self.duo_scaling is None:
-            # if self.duo_scaling is unsert, perform half the grid search with
+            # if self.duo_scaling is unset, perform half the grid search with
             # duo_scaling off and half with duo_scaling on
             n_grid = int(self.n_grid / 2)
             duo_scalings = [False, True]
         else:
             n_grid = self.n_grid
             duo_scalings = [self.duo_scaling]
-        for ratio in range(n_grid):
-            for duo_scaling in duo_scalings:
-                # create new scales
-                ratio = ratio / n_grid
+        for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+            # create new scales
+            ratio = grid_idx / n_grid
 
-                # NOTE: s^-1 * x is fused here, according to paper
-                if duo_scaling:
-                    scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
-                        min=1e-4
-                    )
-                else:
-                    scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
-                scales = scales / (scales.max() * scales.min()).sqrt()
-                _scalesview = scales.view(1, -1).to(device)
+            # NOTE: s^-1 * x is fused here, according to paper
+            if use_duo_scaling:
+                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
+                    min=1e-4
+                )
+            else:
+                scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
+            scales = scales / (scales.max() * scales.min()).sqrt()
+            _scalesview = scales.view(1, -1).to(device)
 
-                # avoid scaling values that overflow
-                scales[torch.isinf(scales)] = 1
-                scales[torch.isnan(scales)] = 1
+            # avoid scaling values that overflow
+            scales[torch.isinf(scales)] = 1
+            scales[torch.isnan(scales)] = 1
 
-                # Q(W * s)
-                for linear in linears2scale:
-                    linear.weight.mul_(_scalesview)
-                    update_offload_parameter(
-                        linear,
-                        "weight",
-                        _pseudo_quantize_tensor(
-                            w=linear.weight.data,
-                            symmetric=self._symmetric,
-                            bit_width=self._num_bits,
-                            group_size=self._group_size,
-                        )[0]
-                        / _scalesview,
-                    )
+            # Q(W * s)
+            for linear in linears2scale:
+                linear.weight.mul_(_scalesview)
+                update_offload_parameter(
+                    linear,
+                    "weight",
+                    _pseudo_quantize_tensor(
+                        w=linear.weight.data,
+                        symmetric=self._symmetric,
+                        bit_width=self._num_bits,
+                        group_size=self._group_size,
+                    )[0]
+                    / _scalesview,
+                )
 
-                # W * X
-                int_w_outputs = self._run_samples(parent_module)
+            # W * X
+            int_w_outputs = self._run_samples(parent_module)
 
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
+            # compute mean squared error (L2 norm)
+            loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
 
-                history.append(loss)
-                if loss < best_error:
-                    best_error = loss
-                    best_ratio = ratio
-                    best_scales = scales.clone()
+            history.append(loss)
+            if loss < best_error:
+                best_error = loss
+                best_ratio = ratio
+                best_scales = scales.clone()
 
-                parent_module.load_state_dict(org_sd, strict=False)
+            parent_module.load_state_dict(org_sd, strict=False)
 
         if best_ratio == -1:
             logger.debug(history)
