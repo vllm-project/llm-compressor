@@ -1,8 +1,7 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
-    QuantizationConfig,
     QuantizationScheme,
     QuantizationStrategy,
     enable_quantization,
@@ -12,6 +11,7 @@ from compressed_tensors.utils import (
     match_named_modules,
     update_offload_parameter,
 )
+from llmcompressor.utils.pytorch.module import get_no_split_params
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -24,10 +24,6 @@ from llmcompressor.transformers.compression.compressed_tensors_utils import (
 )
 
 __all__ = ["AutoRoundModifier"]
-
-
-def _is_decoding_layer(module, name):
-    return "decoderlayer" in module.__class__.__name__.lower()
 
 
 class _LLModelWrapper(torch.nn.Module):
@@ -104,7 +100,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         dictionary that supports all keys from QuantizationScheme except targets, which
         will be set to the targets parameter set at the modifier level.
     """
-
+    sequential_targets: Union[str, List[str], None] = None
     # AutoRound modifier arguments
     iters: Optional[int] = 200
     enable_torch_compile: Optional[bool] = True
@@ -113,16 +109,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _cur_layer_idx = PrivateAttr(default=0)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
-
-
-    def _add_temporary_names(self, model: torch.nn.Module):
-        for name, mod in model.named_modules():
-            mod._tmp_name = name
-
-    def _remove_temporary_names(self, model: torch.nn.Module):
-        for _, mod in model.named_modules():
-            if hasattr(mod, "_tmp_name"):
-                del mod._tmp_name
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -141,8 +127,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         }
         self._add_temporary_names(state.model)
         # freeze all model parameters
-        for name, param in state.model.named_parameters():
+        for _, param in state.model.named_parameters():
             param.requires_grad_(False)
+        
+        self.sequential_targets = self._infer_sequential_targets(state.model)
         return True
 
     def start_calibration(self, model: torch.nn.Module):
@@ -171,8 +159,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
-        for name, module in state.model.named_modules():
-            if _is_decoding_layer(module, name):
+        for _, module in state.model.named_modules():
+            if self._is_decoding_layer(module):
                 # register input capture hook for decoding layers
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
@@ -184,52 +172,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.apply_autoround(state)
+            subgraph = kwargs.pop("subgraph", None)
+            self.apply_autoround(state, subgraph)
             self.post_autoround_cleanup()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
                 self.on_end(state, None)
 
-    def _mapping_config_to_autoround(self):
-        from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
-
-        resolved_config = self.resolved_config
-        quant_scheme = None
-        # TODO: release below constraint in later PRs
-        assert len(resolved_config.config_groups) == 1, (
-            "AutoRoundModifier only supports one quantization scheme for now, "
-            f"got {len(resolved_config.config_groups)}"
-        )
-
-        for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
-            quant_scheme = scheme
-        weight_args = quant_scheme.weights
-        assert weight_args.strategy == QuantizationStrategy.GROUP, (
-            "Only group-wise quantization is supported in AutoRoundModifier for now, "
-            f"got {weight_args.strategy}"
-        )
-        assert quant_scheme.input_activations is None, (
-            "Input activation quantization is not supported in AutoRoundModifier, "
-            f"got {quant_scheme.input_activations}"
-        )
-        assert quant_scheme.output_activations is None, (
-            "Output activation quantization is not supported in AutoRoundModifier, "
-            f"got {quant_scheme.output_activations}"
-        )
-        ar_quant_scheme = ARQuantizationScheme(
-            bits=weight_args.num_bits,
-            sym=weight_args.symmetric,
-            group_size=weight_args.group_size,
-            data_type=weight_args.type,
-            act_bits=16,
-        )
-        return ar_quant_scheme
-
-    def apply_autoround(self, state):
+    def apply_autoround(self, state, subgraph):
         """
         Applies AutoRound quantization tuning on the current decoding layer.
 
@@ -250,13 +201,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
         """
-        cur_layer_idx = self._cur_layer_idx
-        logger.info("Applying AutoRound to layer index: {}", cur_layer_idx)
-        self._cur_layer_idx += 1
-        if cur_layer_idx >= len(state.model.model.layers):
-            # skip the lm_head layer
+        modules = list(subgraph.submodules(model=state.model))
+
+        decoding_layers = [m for m in modules if self._is_decoding_layer(m)]
+        if len(decoding_layers) == 0:
             return
-        decoding_layer = state.model.model.layers[cur_layer_idx]
+        assert len(decoding_layers) == 1, (
+            "Only one decoding layer is expected in the subgraph, "
+            f"found {len(decoding_layers)}."
+        )
+        decoding_layer = decoding_layers[0]
+
+        logger.info("Applying AutoRound on layer {}", decoding_layer._tmp_name)
 
         wrapped_model = _wrap_decoding_layer(decoding_layer)
 
@@ -277,8 +233,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ar.configure_layer_config()
             first_param = next(decoding_layer.parameters())
             device = first_param.device
-            input_name = f"model.layers.{cur_layer_idx}"
-            cur_inputs = self._all_module_input[input_name]
+            cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             decoding_layer.tuning_device = device
 
             ar.quantize_block(
@@ -323,3 +278,62 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         return True
+
+    def _add_temporary_names(self, model: torch.nn.Module):
+        for name, mod in model.named_modules():
+            mod._tmp_name = name
+
+    def _remove_temporary_names(self, model: torch.nn.Module):
+        for _, mod in model.named_modules():
+            if hasattr(mod, "_tmp_name"):
+                del mod._tmp_name
+
+    def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
+        return module.__class__.__name__ in self.sequential_targets
+
+    def _infer_sequential_targets(self, model: torch.nn.Module) -> str | list[str]:
+        match self.sequential_targets:
+            case None:
+                return get_no_split_params(model)
+            case str():
+                return [self.sequential_targets]
+            case _:
+                return self.sequential_targets
+
+    def _mapping_config_to_autoround(self):
+        from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
+
+        resolved_config = self.resolved_config
+        quant_scheme = None
+        # TODO: release below constraint in later PRs
+        assert len(resolved_config.config_groups) == 1, (
+            "AutoRoundModifier only supports one quantization scheme for now, "
+            f"got {len(resolved_config.config_groups)}"
+        )
+
+        for scheme in resolved_config.config_groups.values():
+            assert isinstance(
+                scheme, QuantizationScheme
+            ), f"Expected QuantizationScheme, got {type(scheme)}"
+            quant_scheme = scheme
+        weight_args = quant_scheme.weights
+        assert weight_args.strategy == QuantizationStrategy.GROUP, (
+            "Only group-wise quantization is supported in AutoRoundModifier for now, "
+            f"got {weight_args.strategy}"
+        )
+        assert quant_scheme.input_activations is None, (
+            "Input activation quantization is not supported in AutoRoundModifier, "
+            f"got {quant_scheme.input_activations}"
+        )
+        assert quant_scheme.output_activations is None, (
+            "Output activation quantization is not supported in AutoRoundModifier, "
+            f"got {quant_scheme.output_activations}"
+        )
+        ar_quant_scheme = ARQuantizationScheme(
+            bits=weight_args.num_bits,
+            sym=weight_args.symmetric,
+            group_size=weight_args.group_size,
+            data_type=weight_args.type,
+            act_bits=16,
+        )
+        return ar_quant_scheme
