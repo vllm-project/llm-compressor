@@ -105,7 +105,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     sequential_targets: Union[str, List[str], None] = None
     # AutoRound modifier arguments
-    iters: Optional[int] = 200
+    iters: int = 200
     enable_torch_compile: bool = True
 
     # private variables
