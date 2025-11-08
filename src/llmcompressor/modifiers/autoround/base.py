@@ -1,6 +1,8 @@
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from auto_round import AutoRound
+from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
@@ -213,10 +215,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         wrapped_model = _wrap_decoding_layer(decoding_layer)
 
         with torch.enable_grad(), align_module_device(decoding_layer):
-            import auto_round
-
             ar_quant_scheme = self._mapping_config_to_autoround()
-            ar = auto_round.AutoRound(
+            ar = AutoRound(
                 model=wrapped_model,
                 tokenizer="",
                 scheme=ar_quant_scheme,
@@ -297,8 +297,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 return self.sequential_targets
 
     def _mapping_config_to_autoround(self):
-        from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
-
         resolved_config = self.resolved_config
         quant_scheme = None
         # TODO: release below constraint in later PRs
