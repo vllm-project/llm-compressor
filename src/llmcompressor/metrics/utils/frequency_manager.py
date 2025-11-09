@@ -256,7 +256,7 @@ def log_ready(
     current_log_step: LogStepType | None,
     last_log_step: LogStepType | None,
     log_frequency: LogStepType | None,
-    last_model_update_step: LogStepType | None = None,
+    last_model_update_step: LogStepType = None,
     check_model_update: bool = False,
 ):
     """

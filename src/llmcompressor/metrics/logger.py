@@ -223,7 +223,7 @@ class LambdaLogger(BaseLogger):
 
     def log_hyperparams(
         self,
-        params: dict,
+        params: dict[str, float],
         level: int | str | None = None,
     ) -> bool:
         """
@@ -931,7 +931,7 @@ class LoggerManager(ABC):
         value: float,
         step: int | None = None,
         wall_time: float | None = None,
-        log_types: str | list[str] | None = ALL_TOKEN,
+        log_types: str | list[str] = ALL_TOKEN,
         level: int | str | None = None,
     ):
         """
@@ -962,7 +962,7 @@ class LoggerManager(ABC):
         values: dict[str, float],
         step: int | None = None,
         wall_time: float | None = None,
-        log_types: str | list[str] | None = ALL_TOKEN,
+        log_types: str | list[str] = ALL_TOKEN,
         level: int | str | None = None,
     ):
         """
@@ -990,7 +990,7 @@ class LoggerManager(ABC):
     def log_hyperparams(
         self,
         params: dict,
-        log_types: str | list[str] | None = ALL_TOKEN,
+        log_types: str | list[str] = ALL_TOKEN,
         level: int | str | None = None,
     ):
         """
@@ -1210,7 +1210,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
 
     def log_hyperparams(
         self,
-        params: dict,
+        params: dict[str, float],
         log_types: str | list[str] = ALL_TOKEN,
         level: int | str | None = None,
     ):
