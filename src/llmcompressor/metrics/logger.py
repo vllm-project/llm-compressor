@@ -389,11 +389,13 @@ class PythonLogger(LambdaLogger):
         def is_higher_than_debug(lev: int | str | None = None) -> bool:
             """Check if the given level is higher than DEBUG level."""
             debug_level_no = logger.level("DEBUG").no
-            if isinstance(lev, int):
-                return level > debug_level_no
-            elif isinstance(lev, str):
-                return logger.level(lev).no > debug_level_no
-            return False
+            match lev:
+                case int():
+                    return lev > debug_level_no
+                case str():
+                    return logger.level(lev).no > debug_level_no
+                case _:
+                    return False
 
         if is_higher_than_debug(level):
             if step is not None:
