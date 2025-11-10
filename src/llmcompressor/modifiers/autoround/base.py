@@ -223,10 +223,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 scheme=ar_quant_scheme,
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
-                batch_dim=0,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config()
+            ar.batch_dim = 0
             first_param = next(decoding_layer.parameters())
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
