@@ -6,6 +6,8 @@ post-training techniques.
 The library is designed to be flexible and easy to use on top of
 PyTorch and HuggingFace Transformers, allowing for quick experimentation.
 """
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # ruff: noqa
 
