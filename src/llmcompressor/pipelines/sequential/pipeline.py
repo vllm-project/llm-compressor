@@ -112,7 +112,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
-                    if not dataset_args.propagate_error:
+                    if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
                         # and is only used for capturing outputs of compressed modules
                         with HooksMixin.disable_hooks():
