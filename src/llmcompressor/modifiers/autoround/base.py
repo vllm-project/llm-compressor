@@ -110,7 +110,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _cur_layer_idx = PrivateAttr(default=0)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
     _q_input: Optional[torch.Tensor] = PrivateAttr(default=None)
 
@@ -236,7 +235,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 block=decoding_layer,
                 inputs=cur_inputs,
                 q_input=self._q_input,
-                normalize_inputs=True,
                 device=device,
                 # Leave offload for LLMC
                 auto_offload=False,
