@@ -243,43 +243,6 @@ def pack_3d_experts(source_dir):
     # Rename temporary index file
     temp_index_file.rename(index_file)
     print(f"  Renamed model.safetensors.index.json.tmp -> model.safetensors.index.json")
-    
-    # Update config.json to rename mamba layers to mixer
-    print("\nUpdating config.json to rename mamba layers to mixer...")
-    config_file = source_dir / "config.json"
-    if config_file.exists():
-        with open(config_file, "r") as f:
-            config_data = json.load(f)
-        
-        # Check if quantization_config exists and has ignore list
-        if "quantization_config" in config_data and "ignore" in config_data["quantization_config"]:
-            ignore_list = config_data["quantization_config"]["ignore"]
-            updated_count = 0
-            
-            # Replace mamba.in_proj with mixer.in_proj and mamba.out_proj with mixer.out_proj
-            for i, entry in enumerate(ignore_list):
-                if "mamba.in_proj" in entry or "mamba.out_proj" in entry:
-                    new_entry = entry.replace("mamba.in_proj", "mixer.in_proj").replace("mamba.out_proj", "mixer.out_proj")
-                    ignore_list[i] = new_entry
-                    updated_count += 1
-                    print(f"  Updated: {entry} -> {new_entry}")
-            
-            # Save updated config
-            with open(config_file, "w") as f:
-                json.dump(config_data, f, indent=2)
-            
-            print(f"  Updated {updated_count} entries in config.json")
-        else:
-            print("  No quantization_config.ignore found in config.json")
-    else:
-        print("  config.json not found")
-    
-    # Print summary
-    num_stacked = len(grouped_tensors)
-    num_other = len(other_tensors)
-    print(f"\n📊 Summary:")
-    print(f"   Stacked expert groups: {num_stacked}")
-    print(f"   Non-expert tensors: {num_other}")
     print(f"\nCheckpoint Updated for vLLM Compatibility")
 
 
