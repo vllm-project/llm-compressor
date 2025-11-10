@@ -112,6 +112,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _cur_layer_idx = PrivateAttr(default=0)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
+    _q_input: Optional[torch.Tensor] = PrivateAttr(default=None)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -221,7 +222,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 tokenizer="",
                 scheme=ar_quant_scheme,
                 iters=self.iters,
-                enable_quanted_input=False,
                 enable_torch_compile=self.enable_torch_compile,
                 batch_dim=0,
             )
@@ -232,14 +232,16 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             decoding_layer.tuning_device = device
 
-            ar.quantize_block(
+            q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=cur_inputs,
+                q_input=self._q_input,
                 normalize_inputs=True,
                 device=device,
                 # Leave offload for LLMC
                 auto_offload=False,
             )
+            self._q_input = q_input
             # Update offload parameters and remove temporary attributes
             for _, module in decoding_layer.named_modules():
                 if hasattr(module, "weight_scale") and hasattr(
