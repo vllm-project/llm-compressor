@@ -213,6 +213,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         logger.info("Applying AutoRound on layer {}", decoding_layer._tmp_name)
 
         wrapped_model = _wrap_decoding_layer(decoding_layer)
+        wrapped_model.name_or_path = state.model.name_or_path
 
         with torch.enable_grad(), align_module_device(decoding_layer):
             ar_quant_scheme = self._mapping_config_to_autoround()
