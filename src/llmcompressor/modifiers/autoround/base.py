@@ -265,6 +265,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(self, state.model)
         self._remove_temporary_names(state.model)
         self.remove_hooks()
+        self._q_input = None
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
