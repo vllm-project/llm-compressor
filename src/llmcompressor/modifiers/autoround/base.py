@@ -225,7 +225,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 enable_torch_compile=self.enable_torch_compile,
             )
             # TODO: configure layer-wise config based on self.resolved_config
-            ar.configure_layer_config()
+            ar.configure_layer_config(enable_gguf_official_mixed=False)
             ar.batch_dim = 0
             first_param = next(decoding_layer.parameters())
             device = first_param.device
