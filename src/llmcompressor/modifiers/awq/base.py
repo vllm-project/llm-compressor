@@ -111,9 +111,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         device. Defaults to None, so cached args are not offloaded. Consider setting
         to torch.device("cpu") if you are encountering OOM errors
     :param duo_scaling: whether to use duo scaling, which uses both input activations
-        and weights to determine the scaling factor. Defaults to None
-        If False, only activations are used.
+        and weights to determine the scaling factor. Defaults to True
         If True, both activations and weights are used.
+        If False, only activations are used.
         If None, half the grid search is performed with duo_scaling=False and the
         other half is performed with duo_scaling=True.
     :param n_grid: when performing the best scales grid search for each mapping,
@@ -129,7 +129,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None = None
-    duo_scaling: bool | None = None
+    duo_scaling: bool | None = True
     n_grid: int = 20
 
     # Private vars set during validation
