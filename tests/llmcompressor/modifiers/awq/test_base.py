@@ -228,3 +228,9 @@ def test_get_lowest_common_parent():
         ["embed_tokens", "decoder.self_attn.v_proj"], model
     )
     assert parent_name == "" and parent == model
+
+
+def test_awq_supports_disabling_quantization():
+    awq = AWQModifier(scheme="W4A16", targets=None)
+
+    assert len(awq.resolved_config.config_groups) == 0

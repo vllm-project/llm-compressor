@@ -3,7 +3,7 @@ from contextlib import nullcontext
 import pytest
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 
 
 @pytest.fixture
@@ -211,3 +211,11 @@ def test_resolved_targets(
         )
 
         assert modifier.resolved_targets == resolved_targets
+
+
+def test_does_not_support_disabling_quantization():
+    with pytest.raises(ValueError):
+        GPTQModifier(scheme="W4A16", targets=None).resolve_quantization_config()
+
+    with pytest.raises(ValueError):
+        QuantizationModifier(scheme="W4A16", targets=None).resolve_quantization_config()

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 from loguru import logger
 from torch.nn import Module
@@ -143,7 +142,7 @@ _bloom_mappings = [
     #     ["re:.*dense$"]
     # ),
 ]
-AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
+AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
@@ -186,13 +185,13 @@ class ResolvedMapping:
 
     smooth_name: str
     smooth_layer: Module
-    balance_layers: List[Module]
-    balance_names: Optional[List[str]] = None
-    parent: Optional[Module] = None
-    parent_name: Optional[str] = None
+    balance_layers: list[Module]
+    balance_names: list[str]
+    parent: Module
+    parent_name: str
 
 
-def get_layer_mappings_from_architecture(architecture: str) -> List[AWQMapping]:
+def get_layer_mappings_from_architecture(architecture: str) -> list[AWQMapping]:
     """
     :param architecture: str: The architecture of the model
     :return: list: The layer mappings for the given architecture
