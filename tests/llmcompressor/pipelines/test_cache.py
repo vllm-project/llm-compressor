@@ -156,8 +156,8 @@ def deep_equal(a, b) -> bool:
                 return False
             return all(deep_equal(a[key], b[key]) for key in a.keys())
         case _ if is_dataclass(a):
-            a_dict = {field.name: getattr(a, field.name) for field in fields(a)}
-            b_dict = {field.name: getattr(b, field.name) for field in fields(b)}
+            a_dict = {field: getattr(a, field.name) for field in fields(a)}
+            b_dict = {field: getattr(b, field.name) for field in fields(b)}
 
             return deep_equal(a_dict, b_dict)
         case _:
