@@ -11,6 +11,7 @@ import torch
 import yaml
 from loguru import logger
 from pydantic import BaseModel
+from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
@@ -152,11 +153,12 @@ class TestLMEval:
     @log_time
     def _eval_base_model(self):
         """Evaluate the base (uncompressed) model."""
-        model_args = {**self.lmeval.model_args, "pretrained": self.model}
-
         results = lm_eval.simple_evaluate(
-            model=self.lmeval.model,
-            model_args=model_args,
+            model=lm_eval.models.huggingface.HFLM(
+                pretrained=AutoModelForCausalLM.from_pretrained(self.model),
+                batch_size=self.lmeval.batch_size,
+                **self.lmeval.model_args,
+            ),
             tasks=[self.lmeval.task],
             num_fewshot=self.lmeval.num_fewshot,
             limit=self.lmeval.limit,
@@ -183,11 +185,12 @@ class TestLMEval:
 
     @log_time
     def _run_lm_eval(self):
-        model_args = {"pretrained": self.save_dir}
-        model_args.update(self.lmeval.model_args)
         results = lm_eval.simple_evaluate(
-            model=self.lmeval.model,
-            model_args=model_args,
+            model=lm_eval.models.huggingface.HFLM(
+                pretrained=AutoModelForCausalLM.from_pretrained(self.save_dir),
+                batch_size=self.lmeval.batch_size,
+                **self.lmeval.model_args,
+            ),
             tasks=[self.lmeval.task],
             num_fewshot=self.lmeval.num_fewshot,
             limit=self.lmeval.limit,
