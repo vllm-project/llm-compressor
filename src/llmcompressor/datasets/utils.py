@@ -129,7 +129,7 @@ def format_calibration_data(
     num_calibration_samples: int | None = None,
     do_shuffle: bool = True,
     collate_fn: Callable = default_data_collator,
-) -> list[torch.Tensor]:
+) -> DataLoader:
     """
     Creates a dataloader out of the calibration dataset split, trimming it to
     the desired number of calibration samples
