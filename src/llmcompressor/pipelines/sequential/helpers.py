@@ -20,10 +20,10 @@ from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
-from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
@@ -72,6 +72,14 @@ class Subgraph:
 
         with append_autowrap_source_on_fail():
             return forward_fn(*args, **kwargs)
+
+    def submodules(self, model: Module, recurse: bool = False) -> Set[Module]:
+        nodes = self.graph.find_nodes(op="call_module")
+        modules = set(model.get_submodule(node.target) for node in nodes)
+        if recurse:
+            modules = set(m for module in modules for m in module.modules())
+
+        return modules
 
 
 def trace_subgraphs(

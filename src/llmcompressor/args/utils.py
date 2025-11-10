@@ -7,8 +7,6 @@ LLM compression workflows. Handles argument validation, deprecation
 warnings, and processor resolution.
 """
 
-from typing import Tuple
-
 from loguru import logger
 from transformers import HfArgumentParser
 
@@ -23,7 +21,13 @@ from llmcompressor.transformers.utils.helpers import resolve_processor_from_mode
 
 def parse_args(
     include_training_args: bool = False, **kwargs
-) -> Tuple[ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments, str]:
+) -> tuple[
+    ModelArguments,
+    DatasetArguments,
+    RecipeArguments,
+    TrainingArguments | None,
+    str | None,
+]:
     """
     Keyword arguments passed in from `oneshot` or `train` will
     separate the arguments into the following:

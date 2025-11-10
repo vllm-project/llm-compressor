@@ -20,13 +20,25 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeSparseMoeBlock as OriginalQwen3MoeSparseMoeBlock,
 )
 
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 
-class Qwen3MoeSparseMoeBlock(torch.nn.Module):
+
+@register_moe_calibration("Qwen3MoeSparseMoeBlock")
+class CalibrationQwen3MoeSparseMoeBlock(MoECalibrationModule):
+    """
+    Calibration version of Qwen3MoeSparseMoeBlock that sends all tokens to all experts.
+    """
+
+    is_permanent = False
+
     def __init__(
         self,
-        config: Qwen3MoeConfig,
         original: OriginalQwen3MoeSparseMoeBlock,
-        calibrate_all_experts: bool,
+        config: Qwen3MoeConfig,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.num_experts = config.num_experts
@@ -37,7 +49,7 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         self.gate = original.gate
         self.experts = original.experts
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
@@ -86,12 +98,22 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         )
         return final_hidden_states, router_logits
 
+    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
+        return original
 
+
+# Legacy function for backward compatibility
 def replace(
     config: Qwen3MoeConfig,
     module: OriginalQwen3MoeSparseMoeBlock,
     calibrate_all_experts: bool,
 ):
-    return Qwen3MoeSparseMoeBlock(
-        config=config, original=module, calibrate_all_experts=calibrate_all_experts
+    """
+    Legacy replacement function.
+    Use CalibrationQwen3MoeSparseMoeBlock instead.
+    """
+    return CalibrationQwen3MoeSparseMoeBlock(
+        module,
+        config,
+        calibrate_all_experts=calibrate_all_experts,
     )

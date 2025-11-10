@@ -7,7 +7,6 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.prepare import moe_calibration_context
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -85,9 +84,6 @@ class SequentialPipeline(CalibrationPipeline):
             if not dataset_args.quantization_aware_calibration or disable_qac:
                 stack.enter_context(DisableQuantization(model))
 
-            if dataset_args.calibrate_moe_context:
-                moe_calibration_context(model, stack)
-
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
 
@@ -103,7 +99,7 @@ class SequentialPipeline(CalibrationPipeline):
                         inputs = activations.fetch(batch_idx, subgraph.input_names)
                         subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end()
+                    LifecycleCallbacks.sequential_epoch_end(subgraph)
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules

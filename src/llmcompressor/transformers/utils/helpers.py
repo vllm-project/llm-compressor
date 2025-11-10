@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
 import requests
-from huggingface_hub import HUGGINGFACE_CO_URL_HOME, hf_hub_download
+from huggingface_hub import (
+    _CACHED_NO_EXIST,
+    HfApi,
+    hf_hub_download,
+    try_to_load_from_cache,
+)
 from loguru import logger
 from transformers import AutoConfig
 from transformers.trainer_utils import get_last_checkpoint
@@ -105,6 +110,18 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         logger.debug(f"No recipe found in the model_path: {model_path}")
         return None
 
+    # Try to resolve HF model ID to cached location first
+    cached_recipe = try_to_load_from_cache(
+        repo_id=model_path,
+        filename=RECIPE_FILE_NAME,
+    )
+
+    if cached_recipe and cached_recipe is not _CACHED_NO_EXIST:
+        # Recipe found in cached model
+        logger.info(f"Found recipe in cached model: {cached_recipe}")
+        return cached_recipe
+    # No recipe in cache - fall through to network check
+
     # If the model path is a Hugging Face model ID
     recipe = recipe_from_huggingface_model_id(hf_stub=model_path)
 
@@ -127,7 +144,14 @@ def recipe_from_huggingface_model_id(
         - The path to the recipe file if found, None otherwise.
         - True if hf_stub is a valid Hugging Face model ID, False otherwise.
     """
-    model_id_url = os.path.join(HUGGINGFACE_CO_URL_HOME, hf_stub)
+    # Check if offline mode is enabled
+    if os.getenv("HF_HUB_OFFLINE") == "1":
+        logger.debug("HF_HUB_OFFLINE is set, skipping recipe download from HuggingFace")
+        return None
+
+    # Use custom HF_ENDPOINT
+    hf_api = HfApi()
+    model_id_url = f"{hf_api.endpoint.rstrip('/')}/{hf_stub}"
     request = requests.head(model_id_url)
 
     if request.status_code != 200:
