@@ -1,3 +1,5 @@
+from typing import Optional
+
 from dataclasses import dataclass, fields, is_dataclass
 
 import pytest
@@ -7,10 +9,11 @@ from torch.utils.data import DataLoader, StackDataset
 from llmcompressor.pipelines.cache import IntermediatesCache
 
 
-@dataclass
+@dataclass(frozen=True)
 class SampleDataclass:
-    a: torch.Tensor
-    b: int
+    a: int
+    b: Optional[torch.Tensor] = None 
+    c: Optional["SampleDataclass"] = None
 
 
 @pytest.fixture
@@ -36,7 +39,7 @@ def sample_cache(sample_dataloader):
 
 values_to_test = [
     torch.randn(2, 3).to("cpu"),
-    SampleDataclass(a=torch.randn(2, 3), b=42),
+    SampleDataclass(a=42, b=torch.randn(2, 3), c=SampleDataclass(a=64)),
     torch.float32,
     [1, 2, 3],
 ]
