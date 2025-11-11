@@ -31,7 +31,7 @@ VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
 IS_VLLM_IMAGE_DEPLOYED=False
 RUN_SAVE_DIR=os.environ.get("RUN_SAVE_DIR", "none")
-VLLM_VOLUME_MOUNT_DIR=os.environ.get("VLLM_VOLUME_MOUNT_DIR", "/opt/app-root/runs")
+#VLLM_VOLUME_MOUNT_DIR=os.environ.get("VLLM_VOLUME_MOUNT_DIR", "/opt/app-root/runs")
 # when using vllm image, needs to save the generated model and vllm command
 if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
     IS_VLLM_IMAGE = True
@@ -221,9 +221,9 @@ class TestvLLM:
         import subprocess
 
         llm_kwargs = {"model": self.save_dir}
-        if IS_VLLM_IMAGE:
-            llm_kwargs = {"model":
-                self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR)}
+        #if IS_VLLM_IMAGE:
+        #    llm_kwargs = {"model":
+        #        self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR)}
 
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
@@ -238,7 +238,7 @@ class TestvLLM:
         logger.info(self.vllm_env)
 
         if IS_VLLM_IMAGE:
-            run_file_path = os.path.join(VLLM_VOLUME_MOUNT_DIR, "run_vllm.py")
+            #run_file_path = os.path.join(VLLM_VOLUME_MOUNT_DIR, "run_vllm.py")
             shutil.copy(os.path.join(test_file_dir, "run_vllm.py"), 
                 os.path.join(RUN_SAVE_DIR, "run_vllm.py"))
             cmds = ["python", run_file_path, f"'{json_scheme}'",
@@ -270,8 +270,10 @@ class TestvLLM:
                    text=True)
             else:
                 cmds = ["podman run --rm --device nvidia.com/gpu=all --entrypoint",
-                    self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
-                    "-v", f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
+                    #self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
+                    self.vllm_bash,
+                    "-v", #f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
+                    f"{RUN_SAVE_DIR}:{RUN_SAVE_DIR}",
                     VLLM_PYTHON_ENV]
                 podman_cmd = " ".join(cmds)
                 logger.info(f"podman command: {podman_cmd}")
@@ -279,8 +281,10 @@ class TestvLLM:
                     [
                      "podman", "run", "--rm",
                      "--device", "nvidia.com/gpu=all", "--entrypoint",
-                     self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
-                     "-v", f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
+                     #self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
+                     self.vllm_bash,
+                     "-v", #f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
+                     f"{RUN_SAVE_DIR}:{RUN_SAVE_DIR}",
                      VLLM_PYTHON_ENV,
                    ],
                    stdout=subprocess.PIPE,
