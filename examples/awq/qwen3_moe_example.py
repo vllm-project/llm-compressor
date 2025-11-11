@@ -56,10 +56,8 @@ recipe = [
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
-        use_auto_awq_mem_hack=False,  # GPU VRAM 37784MiB
-        # use_auto_awq_mem_hack=True, # GPU VRAM 37792MiB
-        # use_auto_awq_mem_hack=os.getenv("USE_HACK", "") == "yes",  # GPU VRAM 37784MiB
-        # use_auto_awq_mem_hack=True, # GPU VRAM 37792MiB
+        # use_auto_awq_mem_hack=os.getenv("USE_HACK", "") == "yes",
+        # GPU VRAM consistently peakds at ~37784MiB regardless
     ),
 ]
 
