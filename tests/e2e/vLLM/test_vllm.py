@@ -31,13 +31,12 @@ VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
 IS_VLLM_IMAGE_DEPLOYED=False
 RUN_SAVE_DIR=os.environ.get("RUN_SAVE_DIR", "none")
-#VLLM_VOLUME_MOUNT_DIR=os.environ.get("VLLM_VOLUME_MOUNT_DIR", "/opt/app-root/runs")
-# when using vllm image, needs to save the generated model and vllm command
+# when using vllm image, needs to save the generated model
 if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
     IS_VLLM_IMAGE = True
     if not is_quay_image(VLLM_PYTHON_ENV):
         IS_VLLM_IMAGE_DEPLOYED = True
-        assert RUN_SAVE_DIR != "none", "To use vllm image must set RUN_SAVE_DIR too!"
+        assert RUN_SAVE_DIR != "none", "To use vllm image, RUN_SAVE_DIR must be set!"
 
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -92,7 +91,6 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
-        #self.is_vllm_image = IS_VLLM_IMAGE
         if VLLM_PYTHON_ENV.lower() == "same":
             self.vllm_env = sys.executable
         else:
@@ -101,7 +99,7 @@ class TestvLLM:
         if RUN_SAVE_DIR != "none":
             assert Path(RUN_SAVE_DIR).exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
             self.run_save_dir = RUN_SAVE_DIR
-            # RUN_SAVE_DIR overwrites config save_dir
+            # RUN_SAVE_DIR overwrites config save_dir if specified
             self.save_dir = os.path.join(RUN_SAVE_DIR, self.model.split("/")[1] + f"-{self.scheme}")
 
         if not self.save_dir:
@@ -112,6 +110,7 @@ class TestvLLM:
 
         # script to run vllm if using vllm image
         if IS_VLLM_IMAGE:
+            # script file containing vllm commands to run in the image
             self.vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm.bash")
             logger.info(f"vllm bash save dir: {self.vllm_bash}")
 
@@ -126,9 +125,6 @@ class TestvLLM:
         # Run vLLM with saved model
 
         self.set_up(test_data_file)
-        # not need this anymore?
-        #if not self.save_dir:
-        #    self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
@@ -221,9 +217,6 @@ class TestvLLM:
         import subprocess
 
         llm_kwargs = {"model": self.save_dir}
-        #if IS_VLLM_IMAGE:
-        #    llm_kwargs = {"model":
-        #        self.save_dir.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR)}
 
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
@@ -238,7 +231,6 @@ class TestvLLM:
         logger.info(self.vllm_env)
 
         if IS_VLLM_IMAGE:
-            #run_file_path = os.path.join(VLLM_VOLUME_MOUNT_DIR, "run_vllm.py")
             run_file_path = os.path.join(RUN_SAVE_DIR, "run_vllm.py")
             shutil.copy(os.path.join(test_file_dir, "run_vllm.py"), 
                 os.path.join(RUN_SAVE_DIR, "run_vllm.py"))
@@ -253,38 +245,24 @@ class TestvLLM:
                     """)
             os.chmod(self.vllm_bash, 0o755)
             logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
-            logger.info(vllm_cmd)
             if IS_VLLM_IMAGE_DEPLOYED:
                 logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
-                cmds = [f"kubectl exec -it {VLLM_PYTHON_ENV} -n arc-runners",
-                        f"-- /bin/bash {RUN_SAVE_DIR}/run-vllm.bash"]
-                kubectl_cmd = " ".join(cmds)
-                logger.info(f"kubectl command: {kubectl_cmd}")
                 result = subprocess.Popen(
                     [
                      "kubectl", "exec", "-it",
                      VLLM_PYTHON_ENV, "-n", "arc-runners",
-                     "--", "/bin/bash", f"{RUN_SAVE_DIR}/run-vllm.bash",
+                     "--", "/bin/bash", self.vllm_bash,
                     ],
                    stdout=subprocess.PIPE,
                    stderr=subprocess.PIPE,
                    text=True)
             else:
-                cmds = ["podman run --rm --device nvidia.com/gpu=all --entrypoint",
-                    #self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
-                    self.vllm_bash,
-                    "-v", #f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
-                    f"{RUN_SAVE_DIR}:{RUN_SAVE_DIR}",
-                    VLLM_PYTHON_ENV]
-                podman_cmd = " ".join(cmds)
-                logger.info(f"podman command: {podman_cmd}")
+                logger.info("vllm image is pulled. Run vllm cmd with podman.")
                 result = subprocess.Popen(
                     [
                      "podman", "run", "--rm",
                      "--device", "nvidia.com/gpu=all", "--entrypoint",
-                     #self.vllm_bash.replace(RUN_SAVE_DIR, VLLM_VOLUME_MOUNT_DIR),
-                     self.vllm_bash,
-                     "-v", #f"{RUN_SAVE_DIR}:{VLLM_VOLUME_MOUNT_DIR}",
+                     self.vllm_bash, "-v",
                      f"{RUN_SAVE_DIR}:{RUN_SAVE_DIR}",
                      VLLM_PYTHON_ENV,
                    ],
