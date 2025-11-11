@@ -16,13 +16,10 @@
 
 import torch
 
-from llmcompressor.modeling.moe_context import (
-    MoECalibrationModule,
-    register_moe_calibration,
-)
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 
 
-@register_moe_calibration("Qwen3NextSparseMoeBlock")
+@MoECalibrationModule.register("Qwen3NextSparseMoeBlock")
 class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
     from transformers import Qwen3NextConfig
     from transformers.models.qwen3_next.modeling_qwen3_next import (
