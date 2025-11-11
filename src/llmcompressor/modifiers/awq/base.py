@@ -464,9 +464,11 @@ class AWQModifier(Modifier, QuantizationMixin):
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
 
-            with align_modules(
-                [parent_module, smooth_layer, *balance_layers]
-            ), calibration_forward_context(model), HooksMixin.disable_hooks():
+            with (
+                align_modules([parent_module, smooth_layer, *balance_layers]),
+                calibration_forward_context(model),
+                HooksMixin.disable_hooks(),
+            ):
                 # [STEP 1]: Compute per-channel mean of normalised weights
                 # All layer weights are concatted together
                 weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
@@ -611,14 +613,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
-        if self.duo_scaling.lower() == "both":
-            # if self.duo_scaling is unset, perform half the grid search with
+        match self.duo_scaling:
+            # if self.duo_scaling is "both", perform half the grid search with
             # duo_scaling off and half with duo_scaling on
-            n_grid = int(self.n_grid / 2)
-            duo_scalings = [False, True]
-        else:
-            n_grid = self.n_grid
-            duo_scalings = [self.duo_scaling]
+            case "both":
+                n_grid = int(self.n_grid / 2)
+                duo_scalings = [False, True]
+            case _:
+                n_grid = self.n_grid
+                duo_scalings = [self.duo_scaling]
         for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
             # create new scales
             ratio = grid_idx / n_grid
