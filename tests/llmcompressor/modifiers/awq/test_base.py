@@ -171,6 +171,12 @@ def test_validate():
         }
     )
 
+    AWQModifier(scheme="W4A16", duo_scaling="both")
+    with pytest.raises(ValidationError):
+        AWQModifier(scheme="W4A16", duo_scaling="Both")
+    with pytest.raises(ValidationError):
+        AWQModifier(scheme="W4A16", duo_scaling="x")
+
 
 @pytest.mark.unit
 def test_get_lowest_common_parent():
