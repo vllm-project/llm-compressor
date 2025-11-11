@@ -41,7 +41,7 @@ recipe = [
 ]
 ```
 
-Note that `QuIPModifier` can be customized. For a full list of the available arguments, see the [docstring](/src/llmcompressor/modifiers/transform/spinquant/base.py) or documentation.
+Note that `QuIPModifier` can be customized. For a full list of the available arguments, see the [docstring](/src/llmcompressor/modifiers/transform/quip/base.py) or documentation.
 
 * `rotations` determines which of the input rotation (v) or output rotations (u) should be used.
 * `transform_block_size` determines the size of the hadamard. Smaller hadamards require less cost at runtime.

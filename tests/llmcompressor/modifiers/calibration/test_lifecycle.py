@@ -1,6 +1,7 @@
 import pytest
 import torch
 from compressed_tensors.quantization import (
+    FP8_E4M3_DATA,
     QuantizationScheme,
     forward_quantize,
     initialize_module_for_quantization,
@@ -83,6 +84,7 @@ from llmcompressor.modifiers.quantization.calibration import initialize_observer
                 symmetric=True,
                 strategy="tensor_group",  # requires float4
                 group_size=3,
+                scale_dtype=FP8_E4M3_DATA.dtype,
             ),
             torch.tensor([[0, 3], [6, 9], [12, 15], [18, 21]]),
             torch.tensor([[2, 5], [8, 11], [14, 17], [20, 23]]),
@@ -195,6 +197,7 @@ def test_static_weight_quantization(
                 strategy="tensor_group",
                 dynamic="local",
                 group_size=3,
+                scale_dtype=FP8_E4M3_DATA.dtype,
             ),
             None,
             None,
