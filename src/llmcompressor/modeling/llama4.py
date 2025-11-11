@@ -11,14 +11,11 @@ from transformers.models.llama4.modeling_llama4 import (
     Llama4TextMoe,
 )
 
-from llmcompressor.modeling.moe_context import (
-    MoECalibrationModule,
-    register_moe_calibration,
-)
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
-@register_moe_calibration("Llama4TextMoe")
+@MoECalibrationModule.register("Llama4TextMoe")
 class SequentialLlama4TextMoe(MoECalibrationModule):
     """
     Calibration version of Llama4TextMoe that unpacks experts for sequential processing.
@@ -38,10 +35,8 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
         calibrate_all_experts: bool = True,
     ):
         super().__init__()
-        # Extract text config from multimodal config if needed
-        text_config = (
-            config.get_text_config() if hasattr(config, "get_text_config") else config
-        )
+        # Extract text config from multimodal config
+        text_config: Llama4TextConfig = config.get_text_config()
         self.top_k = text_config.num_experts_per_tok
         self.hidden_dim = text_config.hidden_size
         self.num_experts = text_config.num_local_experts
