@@ -1,3 +1,4 @@
+import os
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -57,6 +58,8 @@ recipe = [
         targets=["Linear"],
         use_auto_awq_mem_hack=False,  # GPU VRAM 37784MiB
         # use_auto_awq_mem_hack=True, # GPU VRAM 37792MiB
+        # use_auto_awq_mem_hack=os.getenv("USE_HACK", "") == "yes",  # GPU VRAM 37784MiB
+        # use_auto_awq_mem_hack=True, # GPU VRAM 37792MiB
     ),
 ]
 
@@ -67,6 +70,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    moe_calibrate_all_experts=False,
 )
 
 # Confirm generations of the quantized model look sane.

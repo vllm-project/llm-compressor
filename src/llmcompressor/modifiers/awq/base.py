@@ -416,12 +416,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             values.arguments.pop(first_param_name)
 
-            if len(self._model_kwargs_cache) < batch_idx:
-                raise ValueError("THIS SHOULDNT HAPPEN")
-            elif len(self._model_kwargs_cache) == batch_idx:
+            if len(self._model_kwargs_cache) == 0:
                 self._model_kwargs_cache.append(values.arguments)
             else:
-                self._model_kwargs_cache.update(batch_idx, values.arguments)
+                self._model_kwargs_cache.update(0, values.arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -474,6 +472,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being udpated
+
+        print("SIZE", self._model_kwargs_cache.size())
+        try:
+            cache = self._model_kwargs_cache.fetch(0)
+            for k, v in cache.items():
+                print(k, f"{v.shape} {v.device}" if isinstance(v, torch.Tensor) else v)
+        except:
+            pass
+
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
@@ -587,25 +594,24 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         for v in self._parent_kwargs_cache.values():
             v.batch_intermediates.clear()
+
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: Module) -> List[torch.Tensor]:
-        outputs = []
+    def _run_samples(self, module: Module) -> list[torch.Tensor]:
         parameter_keys = inspect.signature(module.forward).parameters.keys()
 
+        outputs = []
         for batch_idx in range(len(self._parent_kwargs_cache[module])):
-            batch_kwargs = self._model_kwargs_cache.fetch(
-                batch_idx, ignore_missing=True
-            )
+            batch_kwargs = self._model_kwargs_cache.fetch(0, ignore_missing=True)
             batch_kwargs.update(self._parent_kwargs_cache[module].fetch(batch_idx))
             batch_kwargs = {
                 k: v for k, v in batch_kwargs.items() if k in parameter_keys
             }
 
             output = module(**batch_kwargs)
-            # If Tuple, assume that first argument is the input
-            outputs.append(output[0] if isinstance(output, Tuple) else output)
+            # If tuple, assume that first argument is the input
 
+            outputs.append(output[0] if isinstance(output, tuple) else output)
         return outputs
 
     def _compute_best_scale(
