@@ -1,5 +1,6 @@
 import inspect
 from itertools import product
+from typing import Literal
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -114,7 +115,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         and weights to determine the scaling factor. Defaults to True
         If True, both activations and weights are used.
         If False, only activations are used.
-        If None, half the grid search is performed with duo_scaling=False and the
+        If "both", half the grid search is performed with duo_scaling=False and the
         other half is performed with duo_scaling=True.
     :param n_grid: when performing the best scales grid search for each mapping,
         this specifies how many grid points should be used. To decrease the runtime,
@@ -129,7 +130,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None = None
-    duo_scaling: bool | None = True
+    duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
 
     # Private vars set during validation
@@ -610,7 +611,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
-        if self.duo_scaling is None:
+        if self.duo_scaling.lower() == "both":
             # if self.duo_scaling is unset, perform half the grid search with
             # duo_scaling off and half with duo_scaling on
             n_grid = int(self.n_grid / 2)
