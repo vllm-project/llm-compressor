@@ -53,8 +53,7 @@ def test_observers_update(shape, group_size, actorder):
         updated_scale, updated_zero_point = observer(value)
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
-        # zp params are initialized using the compressed dtype
-        updated_zero_point.shape == getattr(module, f"{location}_zero_point").shape
+        assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))
 
 
 def assert_alike(a, b):

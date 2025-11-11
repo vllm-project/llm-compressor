@@ -2,6 +2,7 @@ from llmcompressor import model_free_ptq
 
 MODEL_ID = "unsloth/Kimi-K2-Thinking-BF16"
 SAVE_DIR = "Kimi-K2-Thinking-FP8-Block"
+
 # Apply quantization.
 model_free_ptq(
     model_stub=MODEL_ID,
