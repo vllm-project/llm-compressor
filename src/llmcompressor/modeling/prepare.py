@@ -10,30 +10,12 @@ import tqdm
 from compressed_tensors.utils import deprecated, replace_module
 from transformers import PreTrainedModel
 
-# Import MoE calibration modules to trigger registration
-from llmcompressor.modeling.deepseek_v3 import (  # noqa: F401
-    CalibrationDeepseekV3MoE,
-)
-from llmcompressor.modeling.deepseek_v3 import (
-    replace as replace_deepseekv3,
-)
-from llmcompressor.modeling.llama4 import (  # noqa: F401
-    SequentialLlama4TextMoe,
-)
-from llmcompressor.modeling.llama4 import (
-    replace as replace_llama4,
-)
-from llmcompressor.modeling.moe_context import (  # noqa: F401
-    moe_calibration_context,
-)
-from llmcompressor.modeling.qwen3_moe import (  # noqa: F401
-    CalibrationQwen3MoeSparseMoeBlock,
-)
-from llmcompressor.modeling.qwen3_vl_moe import (
-    replace as replace_Qwen3VLMoE,
-)
+# deprecated replacement functions
+from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
+from llmcompressor.modeling.llama4 import replace as replace_llama4
+from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
 
-__all__ = ["moe_calibration_context", "replace_modules_for_calibration"]
+__all__ = ["replace_modules_for_calibration"]
 
 # ---------------------- module replacements; permanent -------------------------
 replacements = {

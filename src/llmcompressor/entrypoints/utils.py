@@ -10,7 +10,6 @@ workflows.
 import inspect
 import os
 from pathlib import PosixPath
-from typing import Optional, Tuple
 
 from compressed_tensors.utils import remove_dispatch
 from loguru import logger
@@ -47,7 +46,7 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 def pre_process(
     model_args: ModelArguments,
     dataset_args: DatasetArguments,
-    output_dir: Optional[str],
+    output_dir: str | None,
 ):
     """
     Prepares the model and tokenizer/processor for calibration.
@@ -59,7 +58,6 @@ def pre_process(
     Raises:
         FileNotFoundError: If the model or processor path is invalid.
     """
-    _warn_tied_embeddings(model_args.tie_word_embeddings)
 
     # Initialize model
     if isinstance(model_args.model, (str, PosixPath)):
@@ -103,9 +101,9 @@ def pre_process(
 
 
 def post_process(
-    model_args: Optional["ModelArguments"] = None,
-    recipe_args: Optional["RecipeArguments"] = None,
-    output_dir: Optional[str] = None,
+    model_args: ModelArguments | None = None,
+    recipe_args: RecipeArguments | None = None,
+    output_dir: str | None = None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -150,25 +148,10 @@ def post_process(
         reset_session()
 
 
-def _warn_tied_embeddings(tie_word_embeddings: bool = False):
-    """
-    Logs a warning if the model has tied word embeddings.
-    The `tie_word_embeddings` flag may cause issues during saving in the one-shot
-    calibration workflow due to shared tensor addresses.
-    """
-    if tie_word_embeddings:
-        logger.debug(
-            "The tie_word_embeddings flag is by default set to False. "
-            "This guarantees that the one-shot algorithm saves the final "
-            "weights without errors. Detected tie_word_embeddings=True. "
-            "This may cause issues with the one-shot algorithm on save."
-        )
-
-
 def initialize_model_from_path(
     model_args: ModelArguments,
-    training_args: Optional[TrainingArguments] = None,
-) -> Tuple[PreTrainedModel, Optional[PreTrainedModel]]:
+    training_args: TrainingArguments | None = None,
+) -> tuple[PreTrainedModel, PreTrainedModel | None]:
     # Load pretrained model
     # The .from_pretrained methods guarantee that only one local process can
     # concurrently download model & vocab.
@@ -256,7 +239,7 @@ def initialize_model_from_path(
 def initialize_processor_from_path(
     model_args: ModelArguments,
     model: PreTrainedModel,
-    teacher: Optional[PreTrainedModel] = None,
+    teacher: PreTrainedModel | None = None,
 ) -> Processor:
     processor_src = model_args.processor or get_processor_name_from_model(
         model, teacher
@@ -295,7 +278,7 @@ def initialize_processor_from_path(
     return processor
 
 
-def get_processor_name_from_model(student: Module, teacher: Optional[Module]) -> str:
+def get_processor_name_from_model(student: Module, teacher: Module | None) -> str:
     """
     Get a processor/tokenizer source used for both student and teacher, assuming
     that they could be shared

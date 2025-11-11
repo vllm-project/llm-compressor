@@ -65,6 +65,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         splits=splits,
         precision=dtype,
         clear_sparse_session=False,
+        tie_word_embeddings=False,
     )
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -295,6 +296,9 @@ def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp
     ],
 )
 def test_model_shared_tensors(offload, torch_dtype, tie_word_embeddings, device):
+    """
+    Test whether model offloading breaks tied/untied embeddings
+    """
     # load model
     model_path = "nm-testing/tinysmokellama-3.2"
     model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch_dtype)
@@ -310,14 +314,15 @@ def test_model_shared_tensors(offload, torch_dtype, tie_word_embeddings, device)
     with torch.no_grad(), align_module_device(model.lm_head):
         update_offload_parameter(model.lm_head, "weight", model.lm_head.weight + 1)
 
-    # check that embed_tokens is not modified
-    model_dict = get_state_dict_offloaded_model(model)
-    lm_head = model_dict["lm_head.weight"]
-    embed_tokens = model_dict["model.embed_tokens.weight"]
-    if tie_word_embeddings:
-        assert torch.equal(lm_head, embed_tokens)
-    else:
-        assert not torch.equal(lm_head, embed_tokens)
+    with align_module_device(model.lm_head), align_module_device(
+        model.model.embed_tokens
+    ):
+        if tie_word_embeddings:
+            assert model.lm_head.weight is model.model.embed_tokens.weight
+            assert model.config.tie_word_embeddings
+        else:
+            assert model.lm_head.weight is not model.model.embed_tokens.weight
+            assert not model.config.tie_word_embeddings
 
 
 @requires_gpu

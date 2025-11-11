@@ -1,19 +1,39 @@
 import torch
+from transformers import Qwen3VLMoeConfig, Qwen3VLMoeTextConfig
+from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
+    Qwen3VLMoeTextSparseMoeBlock as OriginalQwen3VLMoeTextSparseMoeBlock,
+)
 
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
-class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
-    def __init__(self, config, original, calibrate_all_experts):
+@MoECalibrationModule.register("Qwen3VLMoeTextSparseMoeBlock")
+class CalibrateQwen3VLMoeTextSparseMoeBlock(MoECalibrationModule):
+    """
+    Calibration version of Qwen3VLMoeTextSparseMoeBlock that sends all tokens to all
+    experts.
+    """
+
+    is_permanent = True
+
+    def __init__(
+        self,
+        original: OriginalQwen3VLMoeTextSparseMoeBlock,
+        config: Qwen3VLMoeConfig,
+        calibrate_all_experts: bool,
+    ):
         super().__init__()
-        self.hidden_size = config.hidden_size
-        self.num_experts = config.num_experts
+        text_config: Qwen3VLMoeTextConfig = config.get_text_config()
+
+        self.hidden_size = text_config.hidden_size
+        self.num_experts = text_config.num_experts
         self.top_k = original.top_k
         # Note: gate was changed to be a Linear layer in transformers==4.57.0
         # https://github.com/JJJYmmm/transformers/commit/f5dea1c694af8c994c769170813a8702332119ee
         self.gate = original.gate
         self.calibrate_all_experts = calibrate_all_experts
-        self.experts = SequentialQwen3VLMoeTextExperts(config, original.experts)
+        self.experts = SequentialQwen3VLMoeTextExperts(text_config, original.experts)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -64,6 +84,9 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
         next_states = next_states.reshape(batch_size, sequence_length, hidden_dim)
         return next_states, router_logits
 
+    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
+        return original
+
 
 class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
     def __init__(self, config, original):
@@ -91,9 +114,13 @@ class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
             self[i].down_proj.weight.data = down.t().clone().contiguous()
 
 
-def replace(config, module, calibrate_all_experts):
-    return LinearQwen3VLMoeTextSparseMoeBlock(
-        config=config.get_text_config(),
-        original=module,
+def replace(
+    config: Qwen3VLMoeConfig,
+    original: OriginalQwen3VLMoeTextSparseMoeBlock,
+    calibrate_all_experts: bool,
+):
+    return CalibrateQwen3VLMoeTextSparseMoeBlock(
+        original=original,
+        config=config,
         calibrate_all_experts=calibrate_all_experts,
     )

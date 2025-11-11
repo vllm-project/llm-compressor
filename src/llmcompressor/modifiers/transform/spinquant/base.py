@@ -9,13 +9,16 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from compressed_tensors.utils import TorchDtype
+from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, ValidationInfo, field_validator
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    untie_word_embeddings,
+)
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -126,16 +129,17 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self.mappings = infer_mapping_from_model(state.model)
         self.norm_mappings = infer_norm_mapping_from_model(state.model)
+        head_dim = get_head_dim(state.model.config)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
-            config_groups["R2"] = self._create_r2_scheme(state.model)
+            config_groups["R2"] = self._create_r2_scheme(head_dim)
 
         if SpinquantRotation.R3 in self.rotations:
-            config_groups["R3"] = self._create_r3_scheme()
+            config_groups["R3"] = self._create_r3_scheme(head_dim)
 
         if SpinquantRotation.R4 in self.rotations:
             config_groups["R4"] = self._create_r4_scheme()
@@ -144,9 +148,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         return True
 
+    @torch.no_grad()
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
+        # needed any time embeddings/lm_head is modified
+        untie_word_embeddings(state.model)
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
         self._center_embeddings(state.model)
@@ -217,24 +224,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r2_scheme(self, model: PreTrainedModel) -> TransformScheme:
-        config = model.config
-
-        if hasattr(config, "head_dim"):
-            head_dim = config.head_dim
-        elif hasattr(config, "hidden_size") and hasattr(config, "num_attention_heads"):
-            head_dim = config.hidden_size // config.num_attention_heads
-        else:
-            raise NotImplementedError()
-
-        if self.transform_block_size:
-            if head_dim % self.transform_block_size != 0:
-                raise ValueError(
-                    f"transform_block_size {self.transform_block_size} must be set "
-                    f"such that model's head_dim {head_dim} is evenly divisible by it"
-                )
-            head_dim = self.transform_block_size
-
+    def _create_r2_scheme(self, head_dim: int) -> TransformScheme:
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
@@ -251,9 +241,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r3_scheme(self) -> TransformScheme:
-        raise NotImplementedError(
-            "SpinQuant R3 rotations will be added in a future release"
+    def _create_r3_scheme(self, head_dim: int) -> TransformScheme:
+        return TransformScheme(
+            type=self.transform_type,
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+            head_dim=head_dim,
+            apply=[
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="q_attn",
+                ),
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="k_cache",
+                ),
+            ],
         )
 
     def _create_r4_scheme(self) -> TransformScheme:

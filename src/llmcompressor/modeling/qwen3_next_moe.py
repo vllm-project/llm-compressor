@@ -16,17 +16,31 @@
 
 import torch
 
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 
-class Qwen3NextSparseMoeBlock(torch.nn.Module):
+
+@MoECalibrationModule.register("Qwen3NextSparseMoeBlock")
+class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
+    from transformers import Qwen3NextConfig
+    from transformers.models.qwen3_next.modeling_qwen3_next import (
+        Qwen3NextSparseMoeBlock,
+    )
+
+    """
+    Calibration version of Qwen3NextSparseMoeBlock that sends all tokens to all experts.
+    """
+
+    is_permanent = False
+
     def __init__(
         self,
-        config,
-        original,
-        calibrate_all_experts: bool,
+        original: Qwen3NextSparseMoeBlock,
+        config: Qwen3NextConfig,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.num_experts = config.num_experts
-        self.top_k = config.top_k
+        self.top_k = config.num_experts_per_tok
         self.norm_topk_prob = config.norm_topk_prob
 
         # gating
@@ -44,7 +58,7 @@ class Qwen3NextSparseMoeBlock(torch.nn.Module):
         router_logits = self.gate(hidden_states)
 
         routing_weights = torch.nn.functional.softmax(
-            router_logits, dim=1, dtype=torch.float
+            router_logits, dim=-1, dtype=torch.float
         )
         routing_weights, selected_experts = torch.topk(
             routing_weights, self.top_k, dim=-1
@@ -103,12 +117,15 @@ class Qwen3NextSparseMoeBlock(torch.nn.Module):
         )
         return final_hidden_states, router_logits
 
+    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
+        return original
+
 
 def replace(
     config,
     module,
     calibrate_all_experts,
 ):
-    return Qwen3NextSparseMoeBlock(
+    return CalibrationQwen3NextSparseMoeBlock(
         config=config, original=module, calibrate_all_experts=calibrate_all_experts
     )
