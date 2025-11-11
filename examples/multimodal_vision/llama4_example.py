@@ -19,7 +19,7 @@ processor = Llama4Processor.from_pretrained(model_id)
 # NOTE: This restructuring is specifically required for vLLM compatibility.
 # To define custom calibration logic, create a new calibration module in
 # modeling/llama4.py that inherits from `MoECalibrationModule`, and register
-# it using the `@register_moe_calibration` decorator with the appropriate
+# it using the `@MoECalibrationModule.register` decorator with the appropriate
 # module class name (e.g., "Llama4TextMoe").
 
 DATASET_ID = "neuralmagic/calibration"
