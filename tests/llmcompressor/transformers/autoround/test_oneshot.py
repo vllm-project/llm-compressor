@@ -6,6 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
+from tests.testing_utils import requires_gpu
 
 recipe_str = """
 quant_stage:
@@ -39,6 +40,7 @@ recipe_modifier_full = AutoRoundModifier(
 )
 
 
+@requires_gpu(1)
 @pytest.mark.parametrize(
     "recipe",
     [
