@@ -10,13 +10,11 @@ from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 
-@log_time
-def load_model(
-    model: str,
-    model_class: str,
-):
+def load_model(model: str, model_class: str, device_map: str | None = None):
     pretrained_model_class = getattr(transformers, model_class)
-    loaded_model = pretrained_model_class.from_pretrained(model, torch_dtype="auto")
+    loaded_model = pretrained_model_class.from_pretrained(
+        model, torch_dtype="auto", device_map=device_map
+    )
     return loaded_model
 
 

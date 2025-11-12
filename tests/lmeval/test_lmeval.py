@@ -124,7 +124,7 @@ class TestLMEval:
 
         # Always evaluate base model for recovery testing
         logger.info("================= Evaluating BASE model ======================")
-        base_results = self._eval_model(self.model)
+        base_results = self._eval_base_model()
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -149,7 +149,7 @@ class TestLMEval:
         self._handle_recipe()
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
-        compressed_results = self._eval_model(self.save_dir)
+        compressed_results = self._eval_compressed_model()
 
         # Always use recovery testing
         self._validate_recovery(base_results, compressed_results)
@@ -161,20 +161,29 @@ class TestLMEval:
         self.tear_down()
 
     @log_time
-    def _eval_model(self, model: str) -> dict:
+    def _eval_base_model(self) -> dict:
         """Evaluate the base (uncompressed) model."""
+        return self._eval_model(self.model)
+
+    @log_time
+    def _eval_compressed_model(self) -> dict:
+        """Evaluate the compressed model."""
+        return self._eval_model(self.save_dir)
+
+    def _eval_model(self, model: str) -> dict:
+        # NOTE: pass in PreTrainedModel to avoid lm_eval's model-loading logic
+        # https://github.com/EleutherAI/lm-evaluation-harness/pull/3393
         lm_eval_cls = lm_eval.api.registry.get_model(self.lmeval.model)
 
         results = lm_eval.simple_evaluate(
             model=lm_eval_cls(
-                pretrained=load_model(model, self.model_class),
+                pretrained=load_model(model, self.model_class, device_map="cuda:0"),
                 batch_size=self.lmeval.batch_size,
                 **self.lmeval.model_args,
             ),
             tasks=[self.lmeval.task],
             num_fewshot=self.lmeval.num_fewshot,
             limit=self.lmeval.limit,
-            device="cuda:0",
             apply_chat_template=self.lmeval.apply_chat_template,
             batch_size=self.lmeval.batch_size,
         )
