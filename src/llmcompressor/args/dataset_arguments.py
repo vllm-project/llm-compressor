@@ -188,8 +188,7 @@ class DatasetArguments(CustomDatasetArguments):
         default="independent",
         metadata={
             "help": "Calibration pipeline used to calibrate model"
-            "Options: ['basic', 'datafree', 'sequential', 'layer_sequential', "
-            "independent]"
+            "Options: ['basic', 'datafree', 'sequential', independent]"
         },
     )
     tracing_ignore: list[str] = field(
@@ -205,6 +204,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_fsmt_decoder_inputs",
             "_prepare_4d_causal_attention_mask_with_cache_position",
             "_update_linear_attn_mask",
+            "project_per_layer_inputs",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "
