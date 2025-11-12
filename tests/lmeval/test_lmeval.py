@@ -161,7 +161,7 @@ class TestLMEval:
         self.tear_down()
 
     @log_time
-    def _eval_model(self, model: str):
+    def _eval_model(self, model: str) -> dict:
         """Evaluate the base (uncompressed) model."""
         lm_eval_cls = lm_eval.api.registry.get_model(self.lmeval.model)
 
