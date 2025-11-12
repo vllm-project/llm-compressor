@@ -1,45 +1,13 @@
-# Quantizing Models with Activation-Aware Quantization (AWQ) #
+# Quantizing Models with Activation-Aware Quantization (AWQ)
 
-Activation Aware Quantization (AWQ) is a state-of-the-art technique to quantize the weights of large language models which involves using a small calibration dataset to calibrate the model. The AWQ algorithm utilizes calibration data to derive scaling factors which reduce the dynamic range of weights while minimizing accuracy loss to the most salient weight values.
+This guide provides a comprehensive overview and practical instructions for performing Activation-Aware Quantization (AWQ) using the `llm-compressor` library. AWQ is a state-of-the-art post-training quantization technique that leverages a small calibration dataset to determine optimal scaling factors. By minimizing accuracy loss to the most salient weight values, AWQ enables efficient 4-bit weight quantization, leading to significant model size reduction and accelerated inference with `vLLM`.
 
-The AWQ implementation found in LLM Compressor is derived from the pioneering work of [AutoAWQ](https://github.com/casper-hansen/AutoAWQ) and with assistance from its original maintainer, [@casper-hansen](https://github.com/casper-hansen).
+## AWQ Recipe
 
-## AWQ Recipe ##
+The `llmcompressor.modifiers.awq.AWQModifier` is used to apply AWQ. It adjusts model scales ahead of efficient weight quantization, which is then handled automatically by `llm-compressor`'s underlying quantization infrastructure. Below are the key parameters for configuring the `AWQModifier`:
 
-The AWQ recipe has been inferfaced as follows, where the `AWQModifier` adjusts model scales ahead of efficient weight quantization by the `QuantizationModifier`
-
-```python
-recipe = [
-    AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
-]
-```
-
-## Compressing Your Own Model ##
-To use your own model, start with an existing example change the `model_id` to match your own model stub.
-```python
-model_id = "path/to/your/model"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
-```
-
-## Adding Mappings ##
-In order to target weight and activation scaling locations within the model, the `AWQModifier` must be provided an AWQ mapping. For example, the AWQ mapping for the Llama family of models looks like this:
-
-```python
-[
-    AWQMapping(
-        "re:.*input_layernorm",
-        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-    ),
-    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-    AWQMapping(
-        "re:.*post_attention_layernorm",
-        ["re:.*gate_proj", "re:.*up_proj"],
-    ),
-    AWQMapping(
-        "re:.*up_proj",
-        ["re:.*down_proj"],
-    ),
-]
-```
-
-To support other model families, you can add supply your own mappings via the `mappings` argument with instantiating the `AWQModifier`, or you can add them to the registry [here](/src/llmcompressor/modifiers/awq/mappings.py) (contributions are welcome!)
+*   **`scheme`**: (`str`) Defines the quantization scheme. Examples include `"W4A16_ASYM"` for 4-bit asymmetric weights and 16-bit floating-point activations, or `"W4A16_SYM"` for symmetric quantization. These schemes ensure compatibility with vLLM's optimized kernels.
+*   **`targets`**: (`Union[str, List[str]]`) Specifies the modules within the model to be quantized. This typically targets `Linear` layers using regular expressions. For instance, `["Linear"]` targets all `Linear` layers, while `r"re:.*layers\.\d+\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"` targets specific projection layers in a transformer block.
+*   **`ignore`**: (`Union[str, List[str]]`) Lists modules to exclude from quantization. Common exclusions include the `lm_head` (output layer) due to its sensitivity, or specific MoE gate layers. Example: `["lm_head", "re:.*mlp.gate$"]`.
+*   **`duo_scaling`**: (`bool`, optional) If `True` (default), enables duo scaling, a technique where two scaling factors are applied to each weight tensor. This often improves accuracy for certain models, especially those with varying weight distributions.
+*   **`mappings`**: (`List[AWQMapping]`, optional) A list of `AWQMapping` objects that define how input and output activations are grouped for scaling. These mappings are crucial for aligning normalization layers with their corresponding linear layers to optimize scaling and preserve accuracy. `llm-compressor` provides default mappings for popular architectures (e.g., Llama). For custom models, you might need to define your own. For example, a common mapping structure for Llama-like models looks like this:
