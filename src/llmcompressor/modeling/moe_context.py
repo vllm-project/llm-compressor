@@ -105,8 +105,8 @@ def moe_calibration_context(
         ):
             replacement = MoECalibrationModule.load_from_registry(
                 class_name,
-                module,
-                model.config,
+                original=module,
+                config=model.config,
                 calibrate_all_experts=calibrate_all_experts,
             )
             model.set_submodule(name, replacement)
