@@ -55,7 +55,7 @@ jobs:
 
   transformers-tests:
     needs: [detect-changes]
-    runs-on: gcp-k8s-vllm-l4-solo
+    runs-on: ibm-wdc-k8s-vllm-h100-solo
     if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.matched-changes != ''
     steps:
       - uses: actions/setup-python@v5
