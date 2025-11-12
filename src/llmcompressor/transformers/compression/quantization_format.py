@@ -49,6 +49,8 @@ def _get_quant_compression_format(
             and weight_args.num_bits == 8
         ):
             return CompressionFormat.float_quantized
+        if weight_args.type == QuantizationType.INT.value and weight_args.num_bits == 4 and weight_args.strategy is QuantizationStrategy.TENSOR_GROUP.value:
+            return CompressionFormat.int4_quantized
         if weight_args.type == QuantizationType.INT.value:
             return CompressionFormat.int_quantized
 
