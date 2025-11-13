@@ -26,7 +26,7 @@ TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
-# vllm environment: image url, deployed runner name, same (default), or the path of vllm virtualenv
+# vllm environment: same (default), the path of vllm virtualenv, image url, deployed runner name
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
 IS_VLLM_IMAGE_DEPLOYED=False
@@ -231,6 +231,7 @@ class TestvLLM:
         logger.info(self.vllm_env)
 
         if IS_VLLM_IMAGE:
+            # generate python command to run in the vllm image
             run_file_path = os.path.join(RUN_SAVE_DIR, "run_vllm.py")
             shutil.copy(os.path.join(test_file_dir, "run_vllm.py"), 
                 os.path.join(RUN_SAVE_DIR, "run_vllm.py"))
@@ -257,7 +258,7 @@ class TestvLLM:
                    stderr=subprocess.PIPE,
                    text=True)
             else:
-                logger.info("vllm image is pulled. Run vllm cmd with podman.")
+                logger.info("vllm image is pulled locally. Run vllm cmd with podman.")
                 result = subprocess.Popen(
                     [
                      "podman", "run", "--rm",
