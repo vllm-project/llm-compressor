@@ -16,27 +16,20 @@ from tests.test_timer.timer_utils import get_singleton_manager, log_time
 from tests.testing_utils import requires_gpu
 
 
-def is_quay_image(url: str) -> bool:
-    pattern = r"^quay\.io/[a-z0-9][a-z0-9-_]*/[a-z0-9][a-z0-9-_/]*:[\w][\w.-]*$"
-    return re.match(pattern, url) is not None
-
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
-# vllm environment: same (default), the path of vllm virtualenv, image url, deployed runner name
+# vllm environment: same (default), the path of vllm virtualenv, deployed runner name
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
-IS_VLLM_IMAGE_DEPLOYED=False
 RUN_SAVE_DIR=os.environ.get("RUN_SAVE_DIR", "none")
 # when using vllm image, needs to save the generated model
 if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
     IS_VLLM_IMAGE = True
-    if not is_quay_image(VLLM_PYTHON_ENV):
-        IS_VLLM_IMAGE_DEPLOYED = True
-        assert RUN_SAVE_DIR != "none", "To use vllm image, RUN_SAVE_DIR must be set!"
+    assert RUN_SAVE_DIR != "none", "To use vllm image, RUN_SAVE_DIR must be set!"
 
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -246,30 +239,16 @@ class TestvLLM:
                     """)
             os.chmod(self.vllm_bash, 0o755)
             logger.info(f"Wrote vllm cmd into {self.vllm_bash}:")
-            if IS_VLLM_IMAGE_DEPLOYED:
-                logger.info("vllm image is deployed. Run vllm cmd with kubectl.")
-                result = subprocess.Popen(
-                    [
-                     "kubectl", "exec", "-it",
-                     VLLM_PYTHON_ENV, "-n", "arc-runners",
-                     "--", "/bin/bash", self.vllm_bash,
-                    ],
-                   stdout=subprocess.PIPE,
-                   stderr=subprocess.PIPE,
-                   text=True)
-            else:
-                logger.info("vllm image is pulled locally. Run vllm cmd with podman.")
-                result = subprocess.Popen(
-                    [
-                     "podman", "run", "--rm",
-                     "--device", "nvidia.com/gpu=all", "--entrypoint",
-                     self.vllm_bash, "-v",
-                     f"{RUN_SAVE_DIR}:{RUN_SAVE_DIR}",
-                     VLLM_PYTHON_ENV,
-                   ],
-                   stdout=subprocess.PIPE,
-                   stderr=subprocess.PIPE,
-                   text=True)
+            logger.info("vllm image. Run vllm cmd with kubectl.")
+            result = subprocess.Popen(
+                [
+                 "kubectl", "exec", "-it",
+                 VLLM_PYTHON_ENV, "-n", "arc-runners",
+                 "--", "/bin/bash", self.vllm_bash,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
         else:
             run_file_path = os.path.join(test_file_dir, "run_vllm.py")
             logger.info("Run vllm in subprocess.Popen using python env:")
