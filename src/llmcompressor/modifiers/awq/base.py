@@ -614,6 +614,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             torch.isnan(best_scales).sum() == 0
         ), f"Nan found in scales: {best_scales}"
 
+        print("BEST CONFIGURATION", best_duo_scaling, best_ratio)
+
         return best_scales.detach().cpu()
 
     @torch.no_grad()
@@ -650,9 +652,12 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _compute_layer_means(self, layers: list[Module]) -> torch.Tensor:
         """
-        Compute per-channel mean of normalised weights for all passed in layers
-        Each layer is processed separately rather than copying all weights
-        into a single tensor,
+        Compute per-channel mean of normalised weights for all passed in layers.
+        Layers with group-wise quantization will be normalized against the group
+            abs max instead of the abs max of the channel.
+
+        To minimize memory requirements, layers are reduced to a running total
+            of sums and counts when calculating mean
         """
         group_size = None
 
@@ -667,17 +672,15 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = layer.weight
             org_shape = weight.shape
 
-            group_size = _infer_group_size(layer)
-
-            # The weights are reshaped to be organised by quantization group
-            if group_size > 0:
+            # If group-wise, calculate abs max based on group
+            # abs max, rather than channel
+            if (group_size := _infer_group_size(layer)) > 0:
                 weight = weight.view(-1, group_size)
-            # Calculates the relative magnitude of the weights within
-            # each of the quantization groups, and rescales each group
-            # individually so that each group has weights on a 0-1 scale.
+
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-            # Resizes the rescaled weight matrix back up to its original dimensions
+
+            # Reshape back to original dimensions
             weight = weight.view(org_shape)
 
             # Gets the average rescaled magnitude for each output channel
