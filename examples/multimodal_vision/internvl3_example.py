@@ -37,13 +37,12 @@ ds = ds.map(preprocess_and_tokenize)
 def data_collator(batch):
     assert len(batch) == 1
     item = {key: value for key, value in batch[0].items()}
-    #item["pixel_values"] =  torch.tensor([item["pixel_values"]]),
     item["attention_mask"] = torch.tensor([item["attention_mask"]])
     item["input_ids"] = torch.LongTensor([item["input_ids"]])
 
     return item
 
-# Recipe dampening_frac
+# Recipe
 recipe = GPTQModifier(
         targets="Linear",
         scheme="FP8",
