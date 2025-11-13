@@ -16,11 +16,11 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 model = replace_modules_for_calibration(model)
 
-ignore_lay = ["lm_head", "re:.*block_sparse_moe.router", "re:.*mamba.in_proj", "re:.*shared_mlp.input_linear"]
+ignore_lay = ["lm_head"]
 
 recipe = QuantizationModifier(
     targets=["Linear"],
-    scheme="FP8_BLOCK",
+    scheme="FP8_DYNAMIC",
     ignore=ignore_lay,
 )
 
