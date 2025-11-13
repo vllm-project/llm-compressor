@@ -63,7 +63,7 @@ recipe = GPTQModifier(
     )
 ```
 Note: We also tried `ignore=["re:.*lm_head",  "re:.*multi_modal_projector.*"]`. However, this quantized model did not produce meaningful output for prompts with images. Therefore, we only quantize the LLM part.
-## step 6: Oneshot and save
+## Step 6: Oneshot and save
 ```python
 oneshot(
     model=model,
