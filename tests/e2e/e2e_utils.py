@@ -10,15 +10,12 @@ from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 
-@log_time
-def _load_model_and_processor(
-    model: str,
-    model_class: str,
-):
+def load_model(model: str, model_class: str, device_map: str | None = None):
     pretrained_model_class = getattr(transformers, model_class)
-    loaded_model = pretrained_model_class.from_pretrained(model, torch_dtype="auto")
-    processor = AutoProcessor.from_pretrained(model)
-    return loaded_model, processor
+    loaded_model = pretrained_model_class.from_pretrained(
+        model, torch_dtype="auto", device_map=device_map
+    )
+    return loaded_model
 
 
 @log_time
@@ -41,9 +38,8 @@ def run_oneshot_for_e2e_testing(
     # Load model.
     oneshot_kwargs = {}
 
-    loaded_model, processor = _load_model_and_processor(
-        model=model, model_class=model_class
-    )
+    loaded_model = load_model(model=model, model_class=model_class)
+    processor = AutoProcessor.from_pretrained(model)
 
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
