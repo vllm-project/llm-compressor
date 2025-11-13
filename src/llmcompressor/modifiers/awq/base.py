@@ -14,6 +14,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
+from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
@@ -26,7 +27,10 @@ from llmcompressor.modifiers.awq.mappings import (
     get_layer_mappings_from_architecture,
 )
 from llmcompressor.observers.helpers import _flatten_weight
-from llmcompressor.modifiers.quantization.calibration import call_observer, update_weight_zp_scale
+from llmcompressor.modifiers.quantization.calibration import (
+    call_observer,
+    update_weight_zp_scale,
+)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -380,9 +384,12 @@ class AWQModifier(Modifier, QuantizationMixin):
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
 
-            with align_modules(
-                [parent_module, smooth_layer, *balance_layers]
-            ), calibration_forward_context(model), HooksMixin.disable_hooks():
+            with (
+                align_modules([parent_module, smooth_layer, *balance_layers]),
+                calibration_forward_context(model),
+                HooksMixin.disable_hooks(),
+            ):
+
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
                 fp16_outputs = self._run_samples(parent_module)
@@ -410,9 +417,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     continue
 
                 # [STEP 4]: Compute loss
-                best_scales = self._compute_best_scale(
-                    parent_module, mapping, fp16_outputs
-                )
+                best_scales = self._compute_best_scale(mapping, fp16_outputs)
 
                 @torch.no_grad()
                 def _smooth(module):
@@ -468,45 +473,60 @@ class AWQModifier(Modifier, QuantizationMixin):
             module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
         ]
         return [
-            # If Tuple, assume that first argument is the input
+            # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
             for output in outputs
         ]
 
     def _compute_best_scale(
         self,
-        parent_module: torch.nn.Module,
         mapping: ResolvedMapping,
-        fp16_outputs: List[torch.Tensor],
+        fp16_outputs: list[torch.Tensor],
     ) -> torch.Tensor:
         """
-        Compute loss and select best scales
+        Select best scales for a given mapping in a grid search
+        Best scales are those that minimize MSE loss of quantized weight
+            outputs compared to fp16_outputs
 
         L(s) = || Q(W * s) (s^-1 * X) - W * X ||
         Q: weight quantization function | _pseudo_quantize_tensor(W * s)
         X: inputs from calib dataset    | X
         W: original weights in FP16     | layer
         s: per channel scaling factor   | s^-1 * X
+
+        :param mapping: best scales will be found for thi ResolvedMapping.
+        :param fp16_outputs: output of mapping.parent in unquantized case,
+            one tensor for each batch.
+        :return: tensor of best scales, one for each channel
         """
         history = []
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
 
-        linears2scale = mapping.balance_layers
-
         org_sd = {
             k: v.cpu()
-            for k, v in parent_module.state_dict().items()
+            for k, v in mapping.parent.state_dict().items()
             if v.device != torch.device("meta")
         }
 
-        device = get_execution_device(parent_module)
+        device = get_execution_device(mapping.parent)
 
+        x_mean = self._smooth_activation_means[mapping.smooth_name][0]
         if self.duo_scaling:
-            x_mean, w_mean = self._compute_duo_scaling_means(mapping)
+            w_mean = self._compute_layer_means(mapping.balance_layers)
 
-        for ratio in range(n_grid):
+        match self.duo_scaling:
+            # if self.duo_scaling is "both", perform half the grid search with
+            # duo_scaling off and half with duo_scaling on
+            case "both":
+                n_grid = int(self.n_grid / 2)
+                duo_scalings = [False, True]
+            case _:
+                n_grid = self.n_grid
+                duo_scalings = [self.duo_scaling]
+
+        for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
             # create new scales
             ratio = grid_idx / n_grid
 
@@ -525,14 +545,16 @@ class AWQModifier(Modifier, QuantizationMixin):
             scales[torch.isnan(scales)] = 1
 
             # Q(W * s)
-            for linear in linears2scale:
-                linear.weight.mul_(_scalesview)
-                call_observer(linear, "weight", linear.weight)  # assert is memoryless observer
-                linear.weight = forward_quantize(linear.weight)
-                linear.weight.div_(_scalesview)
+            for balance_layer in mapping.balance_layers:
+                balance_layer.weight.mul_(_scalesview)
+                call_observer(
+                    balance_layer, "weight", balance_layer.weight
+                )  # assert is memoryless observer
+                balance_layer.weight = forward_quantize(balance_layer.weight)
+                balance_layer.weight.div_(_scalesview)
 
             # W * X
-            int_w_outputs = self._run_samples(parent_module)
+            int_w_outputs = self._run_samples(mapping.parent)
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
@@ -543,7 +565,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_ratio = ratio
                 best_scales = scales.clone()
 
-            parent_module.load_state_dict(org_sd, strict=False)
+            mapping.parent.load_state_dict(org_sd, strict=False)
 
         if best_ratio == -1:
             logger.debug(history)
@@ -566,7 +588,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
         device: torch.device,
-    ) -> torch.Tensor:
+    ) -> float:
         loss = 0.0
         num_elements = 0
 
@@ -595,20 +617,22 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
-        
-    def _compute_duo_scaling_means(self, mapping: ResolvedMapping):
-        balance_layers = mapping.balance_layers
+
+    def _compute_layer_means(
+        self, balance_layers: list[torch.nn.Module]
+    ) -> torch.Tensor:
 
         # TODO: validate that all layers have the same quantization_scheme.weights
         # either generalize this to compute means with different strategy shapes
         # or throw error if strategy is not channel/group
+        _group_size = 128
 
         # [STEP 1]: Compute per-channel mean of normalised weights
         # All layer weights are concatted together
         weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
         org_shape = weight.shape
         # The weights are reshaped to be organised by quantization group
-        weight = weight.view(-1, self._group_size)
+        weight = weight.view(-1, _group_size)
         # Calculates the relative magnitude of the weights within
         # each of the quantization groups, and rescales each group
         # individually so that each group has weights on a 0-1 scale.
@@ -619,9 +643,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Gets the average rescaled magnitude for each output channel
         w_mean = weight.mean(0)
 
-        x_mean = self._smooth_activation_means[mapping.smooth_name][0]
-
-        return x_mean, w_mean
+        return w_mean
 
 
 def _check_layers_are_compatible(
