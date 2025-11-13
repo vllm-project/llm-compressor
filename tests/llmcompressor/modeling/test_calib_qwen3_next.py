@@ -23,6 +23,10 @@ except ImportError:
 
 @requires_cadence("weekly")
 @pytest.mark.parametrize("model_stub", ["Qwen/Qwen3-Next-80B-A3B-Instruct"])
+@pytest.mark.skipif(
+    Qwen3NextConfig is None,
+    reason="Qwen3Next not available in this version of transformers",
+)
 def test_calib_replace_qwen3moe_all_experts(model_stub):
     with skip_weights_download():
         model = AutoModelForCausalLM.from_pretrained(model_stub)
