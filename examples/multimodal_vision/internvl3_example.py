@@ -10,7 +10,7 @@ model = AutoModelForImageTextToText.from_pretrained(model_id, torch_dtype=torch.
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Load datasets
-DATASET_ID = "/datasets/ultrachat_200k"
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
