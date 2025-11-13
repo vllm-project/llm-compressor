@@ -614,8 +614,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             torch.isnan(best_scales).sum() == 0
         ), f"Nan found in scales: {best_scales}"
 
-        print("BEST CONFIGURATION", best_duo_scaling, best_ratio)
-
         return best_scales.detach().cpu()
 
     @torch.no_grad()
