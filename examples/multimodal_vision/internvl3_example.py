@@ -63,6 +63,6 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = "OpenGVLab/InternVL3-8B-hf-FP8-GPTQ"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

@@ -1,5 +1,5 @@
 # Quantizing InternVL3-8B-hf
-This file shows the example of quantizing InternVL3-8B-hf. If you want to quantize InternVL3 model, you can convert internvl-chat format to internvl-hf format with the script [internvl_custom2hf.py](https://github.com/OpenGVLab/InternVL/blob/main/internvl_chat/tools/internvl_custom2hf.py).
+This file shows the example of quantizing InternVL3-8B-hf. 
 
 ## Step 1: Compressing Your Own Model
 
@@ -46,7 +46,6 @@ We need custom data collation to satisfy the model-specific requirements.
 def data_collator(batch):
     assert len(batch) == 1
     item = {key: value for key, value in batch[0].items()}
-    #item["pixel_values"] =  torch.tensor([item["pixel_values"]]),
     item["attention_mask"] = torch.tensor([item["attention_mask"]])
     item["input_ids"] = torch.LongTensor([item["input_ids"]])
 
@@ -97,7 +96,7 @@ vllm serve OpenGVLab/InternVL3-8B-hf-FP8-GPTQ \
         --uvicorn_log_level error \
         --disable-log-stats \
         --trust-remote-code \
-        --allowed-local-media-path /root \
+        --allowed-local-media-path /path/to/sharegpt4v/images \
         --limit-mm-per-prompt '{"image": 20}'  \
         --mm-processor-kwargs '{"max_dynamic_patch": 1}' \
         --no-enable-prefix-caching \
@@ -109,7 +108,7 @@ Second, use vllm bench serve.
 vllm bench serve \
     --backend openai-chat \
     --dataset-name sharegpt \
-    --dataset-path /dataset/ShareGPT4V/sharegpt4v_instruct_gpt4-vision_cap100k_coco.json  \
+    --dataset-path /path/to//ShareGPT4V/sharegpt4v_instruct_gpt4-vision_cap100k_coco.json  \
     --num-prompts 500 \
     --endpoint /v1/chat/completions  \
     --max-concurrency 100 \
