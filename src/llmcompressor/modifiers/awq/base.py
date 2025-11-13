@@ -3,7 +3,11 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
-from compressed_tensors.quantization import disable_quantization, forward_quantize
+from compressed_tensors.quantization import (
+    disable_quantization,
+    forward_quantize,
+    QuantizationStrategy,
+)
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
@@ -11,7 +15,10 @@ from compressed_tensors.utils import (
     match_modules_set,
     match_named_modules,
     update_offload_parameter,
+    patch_attrs,
 )
+from llmcompressor.observers.base import Observer
+
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from pydantic import ConfigDict, PrivateAttr, model_validator
@@ -26,7 +33,6 @@ from llmcompressor.modifiers.awq.mappings import (
     ResolvedMapping,
     get_layer_mappings_from_architecture,
 )
-from llmcompressor.observers.helpers import _flatten_weight
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
     update_weight_zp_scale,
@@ -318,7 +324,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
 
         def cache_parent_kwargs_hook(
-            module: torch.nn.Module,
+            module: Module,
             args: tuple[torch.Tensor, ...],
             kwargs,
         ):
@@ -327,7 +333,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
-                _module: torch.nn.Module,
+                _module: Module,
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
@@ -390,8 +396,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 HooksMixin.disable_hooks(),
             ):
 
-                # [STEP 3]: Compute output of module
-                # could cache from hook, rather than recomputing here
+                # Compute output of unquantized module
                 fp16_outputs = self._run_samples(parent_module)
                 if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
                     logger.info(
@@ -416,11 +421,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
 
-                # [STEP 4]: Compute loss
                 best_scales = self._compute_best_scale(mapping, fp16_outputs)
 
                 @torch.no_grad()
-                def _smooth(module):
+                def _smooth(module: Module):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
                         update_offload_parameter(
@@ -501,6 +505,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         history = []
         best_ratio = -1
+        best_duo_scaling = -1
         best_scales = None
         best_error = float("inf")
 
@@ -512,9 +517,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_mean = self._smooth_activation_means[mapping.smooth_name][0]
+        x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
         if self.duo_scaling:
-            w_mean = self._compute_layer_means(mapping.balance_layers)
+            w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
         match self.duo_scaling:
             # if self.duo_scaling is "both", perform half the grid search with
@@ -526,46 +531,75 @@ class AWQModifier(Modifier, QuantizationMixin):
                 n_grid = self.n_grid
                 duo_scalings = [self.duo_scaling]
 
-        for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
-            # create new scales
-            ratio = grid_idx / n_grid
-
-            # NOTE: s^-1 * x is fused here, according to paper
-            if use_duo_scaling:
-                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
-                    min=1e-4
+        # Replace observers with memoryless_minmax for duration of grid search
+        with patch_attrs(
+            mapping.balance_layers,
+            "weight_observer",
+            [
+                Observer.load_from_registry(
+                    "memoryless_minmax",
+                    base_name="weight",
+                    args=balance_layer.quantization_scheme.weights,
+                    module=balance_layer,
                 )
-            else:
-                scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
-            scales = scales / (scales.max() * scales.min()).sqrt()
-            _scalesview = scales.view(1, -1).to(device)
+                for balance_layer in mapping.balance_layers
+                if hasattr(balance_layer, "quantization_scheme")
+                and hasattr(balance_layer.quantization_scheme, "weights")
+            ],
+        ):
+            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+                # create new scales
+                ratio = grid_idx / n_grid
 
-            # avoid scaling values that overflow
-            scales[torch.isinf(scales)] = 1
-            scales[torch.isnan(scales)] = 1
+                # NOTE: s^-1 * x is fused here, according to paper
+                if use_duo_scaling:
+                    scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
+                        min=1e-4
+                    )
+                else:
+                    scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
+                scales = scales / (scales.max() * scales.min()).sqrt()
+                _scalesview = scales.view(1, -1).to(device)
 
-            # Q(W * s)
-            for balance_layer in mapping.balance_layers:
-                balance_layer.weight.mul_(_scalesview)
-                call_observer(
-                    balance_layer, "weight", balance_layer.weight
-                )  # assert is memoryless observer
-                balance_layer.weight = forward_quantize(balance_layer.weight)
-                balance_layer.weight.div_(_scalesview)
+                # avoid scaling values that overflow
+                scales[torch.isinf(scales)] = 1
+                scales[torch.isnan(scales)] = 1
 
-            # W * X
-            int_w_outputs = self._run_samples(mapping.parent)
+                # Q(W * s)
+                for balance_layer in mapping.balance_layers:
+                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
+                        balance_layer.quantization_scheme, "weights"
+                    ):
+                        continue
 
-            # compute mean squared error (L2 norm)
-            loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
+                    balance_layer.weight.mul_(_scalesview)
+                    call_observer(balance_layer, "weight", balance_layer.weight)
+                    update_offload_parameter(
+                        balance_layer,
+                        "weight",
+                        forward_quantize(
+                            balance_layer,
+                            balance_layer.weight.data,
+                            "weight",
+                            balance_layer.quantization_scheme.weights,
+                        )
+                        / _scalesview,
+                    )
 
-            history.append(loss)
-            if loss < best_error:
-                best_error = loss
-                best_ratio = ratio
-                best_scales = scales.clone()
+                # W * X
+                int_w_outputs = self._run_samples(mapping.parent)
 
-            mapping.parent.load_state_dict(org_sd, strict=False)
+                # compute mean squared error (L2 norm)
+                loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
+
+                history.append(loss)
+                if loss < best_error:
+                    best_error = loss
+                    best_duo_scaling = use_duo_scaling
+                    best_ratio = ratio
+                    best_scales = scales.clone()
+
+                mapping.parent.load_state_dict(org_sd, strict=False)
 
         if best_ratio == -1:
             logger.debug(history)
@@ -594,14 +628,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # Compute the MSE loss for each batch
         for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            batch_loss = (
-                (fp16_batch.to(device) - int_w_batch.to(device))
-                .view(-1)
-                .float()
-                .pow(2)
-                .sum()
-                .item()
-            )
+            batch_loss = torch.nn.functional.mse_loss(
+                fp16_batch.to(device), int_w_batch.to(device)
+            ).item()
+
             loss += batch_loss
             num_elements += fp16_batch.numel()
 
@@ -618,32 +648,60 @@ class AWQModifier(Modifier, QuantizationMixin):
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
 
-    def _compute_layer_means(
-        self, balance_layers: list[torch.nn.Module]
-    ) -> torch.Tensor:
+    def _compute_layer_means(self, layers: list[Module]) -> torch.Tensor:
+        """
+        Compute per-channel mean of normalised weights for all passed in layers
+        Each layer is processed separately rather than copying all weights
+        into a single tensor,
+        """
+        group_size = None
 
-        # TODO: validate that all layers have the same quantization_scheme.weights
-        # either generalize this to compute means with different strategy shapes
-        # or throw error if strategy is not channel/group
-        _group_size = 128
+        # to calculate mean without having to carry full population
+        weight_total_count = 0
+        weight_total_sum = None
 
-        # [STEP 1]: Compute per-channel mean of normalised weights
-        # All layer weights are concatted together
-        weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
-        org_shape = weight.shape
-        # The weights are reshaped to be organised by quantization group
-        weight = weight.view(-1, _group_size)
-        # Calculates the relative magnitude of the weights within
-        # each of the quantization groups, and rescales each group
-        # individually so that each group has weights on a 0-1 scale.
-        weight.abs_()
-        weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-        # Resizes the rescaled weight matrix back up to its original dimensions
-        weight = weight.view(org_shape)
-        # Gets the average rescaled magnitude for each output channel
-        w_mean = weight.mean(0)
+        for layer in layers:
+            if not hasattr(layer, "weight"):
+                continue
 
-        return w_mean
+            weight = layer.weight
+            org_shape = weight.shape
+
+            group_size = _infer_group_size(layer)
+
+            # The weights are reshaped to be organised by quantization group
+            if group_size > 0:
+                weight = weight.view(-1, group_size)
+            # Calculates the relative magnitude of the weights within
+            # each of the quantization groups, and rescales each group
+            # individually so that each group has weights on a 0-1 scale.
+            weight.abs_()
+            weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+            # Resizes the rescaled weight matrix back up to its original dimensions
+            weight = weight.view(org_shape)
+
+            # Gets the average rescaled magnitude for each output channel
+            weight_total_count += weight.size(0)
+            weight_sum = weight.sum(0, dtype=torch.float64)
+            if weight_total_sum is None:
+                weight_total_sum = weight_sum
+            else:
+                weight_total_sum += weight_sum
+
+        return weight_total_sum / weight_total_count
+
+
+def _infer_group_size(layer: Module) -> int:
+    """
+    Returns group_size of layer if applicable, otherwise -1
+    """
+    if (
+        hasattr(layer, "quantization_scheme")
+        and hasattr(layer.quantization_scheme, "weights")
+        and layer.quantization_scheme.weights.strategy == QuantizationStrategy.GROUP
+    ):
+        return layer.quantization_scheme.weights.group_size
+    return -1
 
 
 def _check_layers_are_compatible(
