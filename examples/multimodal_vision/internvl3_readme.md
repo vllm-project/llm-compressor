@@ -62,7 +62,7 @@ recipe = GPTQModifier(
         ignore=["re:.*lm_head",  "re:.*vision_tower.*",  "re:.*multi_modal_projector.*"]
     )
 ```
-Note:We tried `ignore=["re:.*lm_head",  "re:.*multi_modal_projector.*"]`. But this quantized model dose not have any sense for the  output of prompt with image. So we just quantize the llm.
+Note: We also tried `ignore=["re:.*lm_head",  "re:.*multi_modal_projector.*"]`. However, this quantized model did not produce meaningful output for prompts with images. Therefore, we only quantize the LLM part.
 ## step 6: Oneshot and save
 ```python
 oneshot(
