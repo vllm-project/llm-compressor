@@ -12,7 +12,7 @@ processor = AutoProcessor.from_pretrained(model_id)
 ## Step 2: Load datasets
 Use the `ultrachat_200k` datasets.
 ```python
-DATASET_ID = "/root/workspace/datasets/ultrachat_200k"
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
