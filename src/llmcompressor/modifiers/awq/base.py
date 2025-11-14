@@ -611,6 +611,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             torch.isnan(best_scales).sum() == 0
         ), f"Nan found in scales: {best_scales}"
 
+        print("BEST CONFIGURATION", best_duo_scaling, best_ratio)
+
         return best_scales.detach().cpu()
 
     @torch.no_grad()
@@ -645,7 +647,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
 
-    def _compute_layer_means(self, layers: list[Module]) -> torch.Tensor:
+    @staticmethod
+    def _compute_layer_means(layers: list[Module]) -> torch.Tensor:
         """
         Compute per-channel mean of normalised weights for all passed in layers.
         Layers with group-wise quantization will be normalized against the group

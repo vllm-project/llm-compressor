@@ -1,8 +1,16 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from pydantic import ValidationError
+<<<<<<< HEAD
 from torch.nn import Linear
+=======
+from torch.testing import assert_close
+>>>>>>> 6d6feded (unit test for compute layer means)
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.factory import ModifierFactory
@@ -261,5 +269,73 @@ def test_moe_multiple_balance_layers():
     }
     assert set(mapping.balance_names) == expected_balance_names
 
-    assert mapping.parent_name == "layer.mlp"
-    assert mapping.parent == mlp
+    parent_name, parent = get_lowest_common_parent(
+        ["embed_tokens", "decoder.self_attn.v_proj"], model
+    )
+    assert parent_name == "" and parent == model
+
+
+@torch.no_grad
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "n_balance_layers, group_size, n_input_features",
+    [
+        (5, None, 32),
+        (4, 10, 40),
+    ],
+)
+def test_awq_compute_layer_means(n_balance_layers, group_size, n_input_features):
+    """
+    Confirm our logic to compute duo_scaling layer means via a running tally
+    matches the original memory-intensive AutoAWQ implementation, which concats
+    all balance layers into a single tensor before reducing to mean
+    Large models were prone to fail at this step.
+    """
+    balance_layers = [
+        torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
+    ]
+    for balance_layer in balance_layers:
+        setattr(
+            balance_layer,
+            "quantization_scheme",
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    strategy=(
+                        QuantizationStrategy.GROUP
+                        if group_size is not None
+                        else QuantizationStrategy.CHANNEL
+                    ),
+                    group_size=group_size,
+                ),
+            ),
+        )
+
+    #####
+    ##### Original AutoAwq implementation
+    #####
+    # [STEP 1]: Compute per-channel mean of normalised weights
+    # All layer weights are concatted together
+    weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
+    org_shape = weight.shape
+    # The weights are reshaped to be organised by quantization group
+    if group_size is not None:
+        weight = weight.view(-1, group_size)
+    # Calculates the relative magnitude of the weights within
+    # each of the quantization groups, and rescales each group
+    # individually so that each group has weights on a 0-1 scale.
+    weight.abs_()
+    weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+    weight = weight.view(org_shape)
+    # Gets the average rescaled magnitude for each output channel
+    w_mean_auto_awq = weight.mean(0)
+    del weight
+    #####
+    ##### Original AutoAwq implementation
+    #####
+
+    w_mean_awq = AWQModifier._compute_layer_means(balance_layers).to(
+        w_mean_auto_awq.dtype
+    )
+
+    assert_close(w_mean_auto_awq, w_mean_awq)
