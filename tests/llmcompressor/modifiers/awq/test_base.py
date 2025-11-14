@@ -284,7 +284,7 @@ def test_moe_multiple_balance_layers():
         (4, 10, 40),
     ],
 )
-def test_awq_compute_layer_means(n_balance_layers, group_size, n_input_features):
+def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
     """
     Confirm our logic to compute duo_scaling layer means via a running tally
     matches the original memory-intensive AutoAWQ implementation, which concats
@@ -311,28 +311,27 @@ def test_awq_compute_layer_means(n_balance_layers, group_size, n_input_features)
             ),
         )
 
-    #####
-    ##### Original AutoAwq implementation
-    #####
-    # [STEP 1]: Compute per-channel mean of normalised weights
-    # All layer weights are concatted together
-    weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
-    org_shape = weight.shape
-    # The weights are reshaped to be organised by quantization group
-    if group_size is not None:
-        weight = weight.view(-1, group_size)
-    # Calculates the relative magnitude of the weights within
-    # each of the quantization groups, and rescales each group
-    # individually so that each group has weights on a 0-1 scale.
-    weight.abs_()
-    weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-    weight = weight.view(org_shape)
-    # Gets the average rescaled magnitude for each output channel
-    w_mean_auto_awq = weight.mean(0)
-    del weight
-    #####
-    ##### Original AutoAwq implementation
-    #####
+    def _auto_awq_compute_layer_means(layers: list[torch.nn.Module]) -> torch.Tensor:
+        """
+        Original AutoAwq implementation
+        """
+        # [STEP 1]: Compute per-channel mean of normalised weights
+        # All layer weights are concatted together
+        weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
+        org_shape = weight.shape
+        # The weights are reshaped to be organised by quantization group
+        if group_size is not None:
+            weight = weight.view(-1, group_size)
+        # Calculates the relative magnitude of the weights within
+        # each of the quantization groups, and rescales each group
+        # individually so that each group has weights on a 0-1 scale.
+        weight.abs_()
+        weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+        weight = weight.view(org_shape)
+        # Gets the average rescaled magnitude for each output channel
+        return weight.mean(0)
+
+    w_mean_auto_awq = _auto_awq_compute_layer_means(balance_layers)
 
     w_mean_awq = AWQModifier._compute_layer_means(balance_layers).to(
         w_mean_auto_awq.dtype
