@@ -528,9 +528,16 @@ class AWQModifier(Modifier, QuantizationMixin):
                 n_grid = self.n_grid
                 duo_scalings = [self.duo_scaling]
 
-        # Replace observers with memoryless_minmax for duration of grid search
+        # Where appropriate, replace observers with memoryless_minmax
+        # for duration of grid search
+        balance_layers_to_patch = [
+            balance_layer
+            for balance_layer in mapping.balance_layers
+            if hasattr(balance_layer, "quantization_scheme")
+            and hasattr(balance_layer.quantization_scheme, "weights")
+        ]
         with patch_attrs(
-            mapping.balance_layers,
+            balance_layers_to_patch,
             "weight_observer",
             [
                 Observer.load_from_registry(
@@ -539,9 +546,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     args=balance_layer.quantization_scheme.weights,
                     module=balance_layer,
                 )
-                for balance_layer in mapping.balance_layers
-                if hasattr(balance_layer, "quantization_scheme")
-                and hasattr(balance_layer.quantization_scheme, "weights")
+                for balance_layer in balance_layers_to_patch
             ],
         ):
             for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
@@ -563,7 +568,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isnan(scales)] = 1
 
                 # Q(W * s)
-                for balance_layer in mapping.balance_layers:
+                for balance_layer in balance_layers_to_patch:
                     if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                         balance_layer.quantization_scheme, "weights"
                     ):
