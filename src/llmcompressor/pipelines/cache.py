@@ -83,7 +83,7 @@ class IntermediatesCache:
             for key, value in batch.items():
                 if mask_padding and (key == "input_ids") and "attention_mask" in batch:
                     value = cls._mask_padding(value, batch["attention_mask"])
-                values[key] = IntermediateValue(value=value, device=model_device)
+                values[key] = cls._offload_value(value, offload_device, model_device)
 
             batch_intermediates.append(values)
 
@@ -114,7 +114,8 @@ class IntermediatesCache:
         :param batch_index: index of batch whose values will be updated
         :param values: dictionary mapping keys to values used for update
         """
-        intermediates = {k: self._offload_value(v) for k, v in values.items()}
+        device = self.offload_device
+        intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
     def delete(self, batch_index: int, consumed_names: Optional[List[str]] = None):
@@ -189,7 +190,14 @@ class IntermediatesCache:
     def __len__(self) -> int:
         return len(self.batch_intermediates)
 
-    def _onload_value(self, intermediate: IntermediateValue) -> Any:
+    @classmethod
+    def _onload_value(cls, intermediate: IntermediateValue) -> Any:
+        """
+        Onload a value's tensors to the onload device
+
+        :param intermediate: intermediates value representation to onload
+        :return: original value with tensors onloaded to the onload device
+        """
         value = intermediate.value
         device = intermediate.device
 
@@ -197,51 +205,65 @@ class IntermediatesCache:
             case torch.Tensor():
                 return value.to(device=device)
             case list():
-                return [self._onload_value(v) for v in value]
+                return [cls._onload_value(v) for v in value]
             case tuple():
-                return tuple(self._onload_value(v) for v in value)
+                return tuple(cls._onload_value(v) for v in value)
             case dict():
-                return {k: self._onload_value(v) for k, v in value.items()}
+                return {k: cls._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
                 for field in fields(value):
                     v = getattr(value, field.name)
-                    setattr(value, field.name, self._onload_value(v))
+                    setattr(value, field.name, cls._onload_value(v))
                 return value
             case _:
                 # handles primitive values that should be returned as is.
                 # without this, a MatchError would be raised for unhandled types.
                 return value
 
-    def _offload_value(self, value: Any) -> IntermediateValue:
+    @classmethod
+    def _offload_value(
+        cls,
+        value: Any,
+        offload_device: torch.device | None,
+        onload_device: Optional[torch.device] = None,
+    ) -> IntermediateValue:
+        """
+        Offload a value's tensors to the offload device
+
+        :param value: value to offload
+        :param offload_device: device to offload `torch.Tensor` values to
+        :param onload_device: device used when onloading `torch.Tensor` values.
+            If None is provided, use the tensor's current device
+        :return: Instance of IntermediateValue representing the offloaded value
+        """
+        kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
                 return IntermediateValue(
-                    value=(
-                        value
-                        if self.offload_device is None
-                        else value.to(device=self.offload_device)
-                    ),
-                    device=value.device,
+                    value=value.to(device=offload_device),
+                    device=(onload_device if onload_device else value.device),
                 )
             case list():
                 return IntermediateValue(
-                    value=[self._offload_value(v) for v in value],
+                    value=[cls._offload_value(v, **kwargs) for v in value],
                     device=None,
                 )
             case tuple():
                 return IntermediateValue(
-                    value=tuple(self._offload_value(v) for v in value),
+                    value=tuple(cls._offload_value(v, **kwargs) for v in value),
                     device=None,
                 )
             case dict():
                 return IntermediateValue(
-                    value={k: self._offload_value(v) for k, v in value.items()},
+                    value={
+                        k: cls._offload_value(v, **kwargs) for k, v in value.items()
+                    },
                     device=None,
                 )
             case _ if is_dataclass(value):
                 for field in fields(value):
                     v = getattr(value, field.name)
-                    setattr(value, field.name, self._offload_value(v))
+                    setattr(value, field.name, cls._offload_value(v, **kwargs))
                 return IntermediateValue(value=value, device=None)
             case _:
                 # handles primitive values and provides a warning for unsupported types.
