@@ -10,7 +10,7 @@ for fine-tuning workflows.
 import inspect
 from functools import cached_property
 from inspect import _ParameterKind as Kind
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
@@ -202,7 +202,7 @@ class TextGenerationDataset(RegistryMixin):
         )
 
     @cached_property
-    def preprocess(self) -> Union[Callable[[LazyRow], Any], None]:
+    def preprocess(self) -> Callable[[LazyRow], Any] | None:
         """
         The function must return keys which correspond to processor/tokenizer kwargs,
         optionally including PROMPT_KEY
@@ -225,7 +225,7 @@ class TextGenerationDataset(RegistryMixin):
         return self.dataset_template
 
     @property
-    def dataset_template(self) -> Union[Callable[[Any], Any], None]:
+    def dataset_template(self) -> Callable[[Any], Any] | None:
         return None
 
     def rename_columns(self, dataset: DatasetType) -> DatasetType:
@@ -254,7 +254,7 @@ class TextGenerationDataset(RegistryMixin):
             list(set(column_names) - set(tokenizer_args) - set([self.PROMPT_KEY]))
         )
 
-    def tokenize(self, data: LazyRow) -> Dict[str, Any]:
+    def tokenize(self, data: LazyRow) -> dict[str, Any]:
         # separate prompt
         prompt = data.pop(self.PROMPT_KEY, None)
 
@@ -276,7 +276,7 @@ class TextGenerationDataset(RegistryMixin):
 
         return data
 
-    def group_text(self, data: LazyRow) -> Dict[str, Any]:
+    def group_text(self, data: LazyRow) -> dict[str, Any]:
         concatenated_data = {k: sum(data[k], []) for k in data.keys()}
         total_length = len(concatenated_data[list(data.keys())[0]])
         total_length = (total_length // self.max_seq_length) * self.max_seq_length
@@ -311,10 +311,10 @@ class TextGenerationDataset(RegistryMixin):
 
     def map(
         self,
-        dataset: Union[Dataset, IterableDataset],
+        dataset: Dataset | IterableDataset,
         function: Callable[[Any], Any],
         **kwargs,
-    ) -> Union[Dataset, IterableDataset]:
+    ) -> Dataset | IterableDataset:
         """
         Wrapper function around Dataset.map and IterableDataset.map.
 
@@ -336,7 +336,7 @@ class TextGenerationDataset(RegistryMixin):
         return dataset
 
 
-def get_columns(dataset: DatasetType) -> List[str]:
+def get_columns(dataset: DatasetType) -> list[str]:
     column_names = dataset.column_names
     if isinstance(column_names, dict):
         column_names = sum(column_names.values(), [])

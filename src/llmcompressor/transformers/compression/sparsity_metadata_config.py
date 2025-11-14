@@ -1,5 +1,3 @@
-from typing import Dict, List, Optional
-
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationType
@@ -30,7 +28,7 @@ class SparsityConfigMetadata:
 
     @staticmethod
     def infer_global_sparsity(
-        model: Module, state_dict: Optional[Dict[str, Tensor]] = None
+        model: Module, state_dict: dict[str, Tensor] | None = None
     ) -> float:
         """
         Calculates the global percentage of sparse zero weights in the model
@@ -47,12 +45,12 @@ class SparsityConfigMetadata:
 
     @staticmethod
     def infer_sparsity_structure(
-        model: Optional[Module] = None, check_only_modifiers: Optional[bool] = False
+        model: Module | None = None, check_only_modifiers: bool | None = False
     ) -> str:
         """
         Determines what sparsity structure, if any, was applied.
 
-        First, there is an attempt to dedue the sparsity structure
+        First, there is an attempt to deduce the sparsity structure
         from the currently active sparse session.
 
         If that fails, the sparsity structure is inferred from the
@@ -83,12 +81,12 @@ class SparsityConfigMetadata:
     @staticmethod
     def from_pretrained(
         model: Module,
-        state_dict: Optional[Dict[str, Tensor]] = None,
+        state_dict: dict[str, Tensor] | None = None,
         compress: bool = False,
-        quantization_format: Optional[CompressionFormat] = None,
+        quantization_format: CompressionFormat | None = None,
         disable_sparse_compression: bool = False,
-        sparsity_structure: Optional[str] = None,
-    ) -> Optional["SparsityCompressionConfig"]:
+        sparsity_structure: str | None = None,
+    ) -> "SparsityCompressionConfig" | None:
         """
         Determines compression type and informational parameters for a given model
 
@@ -155,7 +153,7 @@ class SparsityConfigMetadata:
     def fill_config_details(
         config: SparsityCompressionConfig,
         model: Module,
-        state_dict: Optional[Dict[str, Tensor]] = None,
+        state_dict: dict[str, Tensor] | None = None,
     ):
         """
         Fills in informational sparsity parameters from a given model
@@ -173,7 +171,7 @@ class SparsityConfigMetadata:
     @staticmethod
     def is_sparse24_bitmask_supported(
         model: Module,
-        sparsity_structure: Optional[str] = None,
+        sparsity_structure: str | None = None,
     ) -> bool:
         """
         Determines if sparse 24 bitmask sparse compressor is supported for a given model
@@ -202,7 +200,7 @@ class SparsityConfigMetadata:
 
         # when model is quantized, and has 2:4 sparsity
 
-        supported_scheme_types: List[str] = [
+        supported_scheme_types: list[str] = [
             QuantizationType.INT.value,
             QuantizationType.FLOAT.value,
         ]
