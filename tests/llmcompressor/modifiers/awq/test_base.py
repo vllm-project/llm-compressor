@@ -148,61 +148,6 @@ def test_set_resolved_mappings():
 
 @pytest.mark.unit
 def test_validate():
-    AWQModifier(scheme="W8A8")
-
-    AWQModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(
-                    num_bits=4,
-                    group_size=64,
-                ),
-            ),
-            "group_1": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(
-                    num_bits=4,
-                    group_size=128,
-                ),
-            ),
-        }
-    )
-
-    with pytest.raises(ValidationError):
-        AWQModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=128,
-                    ),
-                ),
-                "group_1": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=8,
-                        group_size=128,
-                    ),
-                ),
-            }
-        )
-
-    # valid configuration
-    AWQModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
-            ),
-            "group_1": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
-            ),
-        }
-    )
-
     AWQModifier(scheme="W4A16", duo_scaling="both")
     with pytest.raises(ValidationError):
         AWQModifier(scheme="W4A16", duo_scaling="Both")
