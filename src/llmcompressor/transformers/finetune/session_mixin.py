@@ -2,7 +2,7 @@ import inspect
 import math
 import os
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Tuple
 
 import torch
 from loguru import logger
@@ -56,9 +56,9 @@ class SessionManagerMixIn:
         self,
         recipe: str,
         model_args: "ModelArguments",
-        dataset_args: Optional["DatasetArguments"] = None,
-        teacher: Optional[Union[Module, str]] = None,
-        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
+        dataset_args: "DatasetArguments" | None = None,
+        teacher: Module | str | None = None,
+        recipe_args: dict[str, Any] | str | None = None,
         **kwargs,
     ):
         self.recipe = recipe
@@ -125,8 +125,8 @@ class SessionManagerMixIn:
     def initialize_session(
         self,
         epoch: float,
-        checkpoint: Optional[str] = None,
-        stage: Optional[str] = None,
+        checkpoint: str | None = None,
+        stage: str | None = None,
     ):
         """
         Initialize the CompressionSession from the specified epoch, evaluates the recipe
@@ -251,8 +251,8 @@ class SessionManagerMixIn:
     def training_step(
         self,
         model: torch.nn.Module,
-        inputs: Dict[str, Union[torch.Tensor, Any]],
-        num_items_in_batch: Optional[int] = None,
+        inputs: dict[str, torch.Tensor | Any],
+        num_items_in_batch: int | None = None,
     ) -> torch.Tensor:
         """
         Overrides the Trainer's training step to trigger the batch_start callback to
@@ -274,10 +274,10 @@ class SessionManagerMixIn:
     def compute_loss(
         self,
         model: Module,
-        inputs: Dict[str, Any],
+        inputs: dict[str, Any],
         return_outputs: bool = False,
-        num_items_in_batch: Optional[torch.Tensor] = None,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
+        num_items_in_batch: torch.Tensor | None = None,
+    ) ->torch.Tensor | Tuple[torch.Tensor, Any]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
 
@@ -326,7 +326,7 @@ class SessionManagerMixIn:
 
         return loss
 
-    def train(self, *args, stage: Optional[str] = None, **kwargs):
+    def train(self, *args, stage: str | None = None, **kwargs):
         """
         Run a sparsification training cycle. Runs initialization for the sparse session
         before calling super().train() and finalization of the session after.
@@ -370,7 +370,7 @@ class SessionManagerMixIn:
         self,
         output_dir: str,
         _internal_call: bool = False,
-        skip_sparsity_compression_stats: Optional[bool] = True,
+        skip_sparsity_compression_stats: bool | None = True,
     ):
         """
         Override of the save_model function and expects it to exist in the parent.
@@ -478,10 +478,10 @@ class SessionManagerMixIn:
 
     def _extract_metadata(
         self,
-        metadata_args: List[str],
-        training_args_dict: Dict[str, Any],
-        dataset_args_dict: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        metadata_args: list[str],
+        training_args_dict: dict[str, Any],
+        dataset_args_dict: dict[str, Any],
+    ) -> dict[str, Any]:
         metadata = {}
         if not training_args_dict.keys().isdisjoint(dataset_args_dict.keys()):
             raise ValueError(
@@ -509,7 +509,7 @@ class SessionManagerMixIn:
                 f"The super class for SessionManagerMixIn must define a {func} function"
             )
 
-    def _calculate_checkpoint_info(self, kwargs) -> Tuple[Optional[str], float]:
+    def _calculate_checkpoint_info(self, kwargs) -> Tuple[str | None, float]:
         """
         If resuming from checkpoint is set, get checkpoint and epoch to resume from
         """

@@ -5,7 +5,6 @@ huggingface/transformers flows
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
 
 import requests
 from huggingface_hub import (
@@ -32,7 +31,7 @@ RECIPE_FILE_NAME = "recipe.yaml"
 
 def detect_last_checkpoint(
     training_args: "TrainingArguments",
-    model_args: Optional["ModelArguments"] = None,
+    model_args: "ModelArguments" | None = None,
 ):
     last_checkpoint = None
     if (
@@ -85,7 +84,7 @@ def is_model_ct_quantized_from_path(path: str) -> bool:
     return False
 
 
-def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
+def infer_recipe_from_model_path(model_path: str | Path) -> str | None:
     """
     Infer the recipe from the model_path.
 
@@ -133,7 +132,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
 
 def recipe_from_huggingface_model_id(
     hf_stub: str, recipe_file_name: str = RECIPE_FILE_NAME
-) -> Optional[str]:
+) -> str | None:
     """
     Attempts to download the recipe from the Hugging Face model ID.
 
