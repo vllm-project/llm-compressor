@@ -1,4 +1,4 @@
-from typing import List, Type, Union, Optional, Dict, Tuple, Any
+from typing import Type, Tuple, Any
 
 import argparse
 from contextlib import nullcontext
@@ -33,13 +33,13 @@ def parse_args():
 def trace(
     model_id: str,
     model_class: Type[PreTrainedModel],
-    sequential_targets: Optional[Union[List[str], str]] = None,
-    ignore: Union[List[str], str] = DatasetArguments().tracing_ignore,
+    sequential_targets: list[str] | str | None = None,
+    ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
     trust_remote_code: bool = True,
     skip_weights: bool = True,
-    device_map: Union[str, Dict] = "cpu",
-) -> Tuple[PreTrainedModel, List[Subgraph], Dict[str, torch.Tensor]]:
+    device_map: str | dict = "cpu",
+) -> Tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
 
@@ -110,7 +110,7 @@ def trace(
     return model, subgraphs, sample
 
 
-def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
+def get_dataset_kwargs(modality: str, ignore: list[str]) -> dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
@@ -139,7 +139,7 @@ def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
     return dataset_kwargs[modality] | common_kwargs
 
 
-def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
+def collate_sample(sample: dict[str, Any], device: str) -> dict[str, torch.Tensor]:
     for name, value in sample.items():
         if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
             sample[name] = torch.tensor([value], device=device)
