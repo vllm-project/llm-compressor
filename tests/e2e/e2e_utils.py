@@ -88,7 +88,9 @@ def run_oneshot_for_e2e_testing(
             )
         else:
             oneshot_kwargs["recipe"] = QuantizationModifier(
-                targets="Linear", scheme=scheme, ignore=["lm_head", "re:.*mlp.gate[.].*"]
+                targets="Linear",
+                scheme=scheme,
+                ignore=["lm_head", "re:.*mlp.gate[.].*"],
             )
 
     # Apply quantization.
