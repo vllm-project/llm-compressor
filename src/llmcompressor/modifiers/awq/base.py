@@ -662,6 +662,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         To minimize memory requirements, layers are reduced to a running total
             of sums and counts when calculating mean
         """
+        # TODO: allow for block-wise layer means as well
+
         group_size = None
 
         # to calculate mean without having to carry full population
