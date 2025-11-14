@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
@@ -51,8 +51,8 @@ def tensor_follows_mask_structure(tensor: torch.Tensor, mask: str = "2:4") -> bo
 
 
 def infer_sparsity_structure_from_modifiers(
-    modifiers: List[Modifier],  # noqa E501
-) -> Optional[str]:
+    modifiers: list[Modifier],  # noqa E501
+) -> str | None:
     """
     Determines the sparsity structure, if any exists, given the list of modifiers.
 
@@ -65,7 +65,7 @@ def infer_sparsity_structure_from_modifiers(
     return None
 
 
-def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]:
+def infer_sparsity_structure_from_model(model: torch.nn.Module) -> str | None:
     """
     Determines the sparsity structure, if any exists, given the model
 
@@ -104,7 +104,7 @@ def infer_sparse_targets_and_ignores(
     model: torch.nn.Module,
     sparsity_structure: str,
     sparsity_threshold: float,
-) -> Tuple[List[str], List[str]]:
+) -> Tuple[list[str], list[str]]:
     """
     Infers the target and ignore layers in the given model
     to be used for sparsity compression
@@ -151,7 +151,7 @@ def is_sparse_compression_target(
 
 def _get_sparse_targets_ignore_dicts(
     module: torch.nn.Module, sparsity_structure: str, sparsity_threshold: float
-) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+) -> Tuple[dict[str, list[str]], dict[str, list[str]]]:
     """
     Get sparse targets and ignore dictionaries
 
@@ -176,8 +176,8 @@ def _get_sparse_targets_ignore_dicts(
 
 
 def _reduce_targets_and_ignores_into_lists(
-    exhaustive_targets: Dict[str, List[str]], exhaustive_ignore: Dict[str, List[str]]
-) -> Tuple[List[str], List[str]]:
+    exhaustive_targets: dict[str, list[str]], exhaustive_ignore: dict[str, list[str]]
+) -> Tuple[list[str], list[str]]:
     """
     Reduces the targets and ignores dictionaries into lists
 
