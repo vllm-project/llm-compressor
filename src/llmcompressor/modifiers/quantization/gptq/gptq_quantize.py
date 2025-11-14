@@ -40,12 +40,6 @@ def accumulate_hessian(
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
-    if len(inp.shape) == 4:
-        N, C, H_dim, W_dim = inp.shape
-        inp = inp.reshape(N, C, -1)
-        inp = inp.permute(0, 2, 1)
-        inp = inp.reshape(-1, C)
-
     num_added = inp.shape[0]
 
     match module:
