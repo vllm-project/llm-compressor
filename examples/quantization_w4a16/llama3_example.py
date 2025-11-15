@@ -54,7 +54,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
-model = dispatch_model(model, "cuda:0")
+#model = dispatch_model(model, "cuda:0")
 oneshot(
     model=model,
     dataset=ds,

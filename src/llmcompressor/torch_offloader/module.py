@@ -22,6 +22,7 @@ class OffloadMixin(torch.nn.Module):
         "_disable_offloading",
         "disable_offloading",
         "disable_onloading",
+        "execution_device",
 
         # these functions will return the wrapped `_module` unless we call with self
         "modules",

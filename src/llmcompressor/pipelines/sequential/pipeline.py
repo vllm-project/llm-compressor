@@ -2,7 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 import torch
-from llmcompressor.torch_offloader.dispatch import get_execution_device
+from llmcompressor.torch_offloader.dispatch import get_execution_device, dispatch_model
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -60,6 +60,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         #model = dispatch_for_sequential(model.to("cpu"))
+        model = dispatch_model(model, "cuda:0")
         model_device = get_execution_device(model)
         session.state.model = model
 

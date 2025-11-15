@@ -7,6 +7,7 @@ import torch
 import transformers
 from transformers import AutoProcessor, PreTrainedModel
 
+from llmcompressor.torch_offloader.dispatch import dispatch_model
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
 from llmcompressor.transformers import TextGenerationDataset
@@ -102,6 +103,7 @@ def trace(
         f"    sequential_targets={sequential_targets}\n"
         f"    ignore={dataset_args.tracing_ignore}\n"
     )
+    model = dispatch_model(model, "cuda:0")
     subgraphs = trace_subgraphs(
         model, sample, sequential_targets, dataset_args.tracing_ignore
     )
