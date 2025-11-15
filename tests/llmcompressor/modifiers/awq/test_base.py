@@ -1,7 +1,12 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from pydantic import ValidationError
+from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import get_lowest_common_parent
@@ -114,63 +119,6 @@ def test_set_resolved_mappings():
 
 @pytest.mark.unit
 def test_validate():
-    with pytest.raises(ValidationError):
-        AWQModifier(scheme="W8A8")
-
-    with pytest.raises(ValidationError):
-        AWQModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=64,
-                    ),
-                ),
-                "group_1": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=128,
-                    ),
-                ),
-            }
-        )
-
-    with pytest.raises(ValidationError):
-        AWQModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=128,
-                    ),
-                ),
-                "group_1": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=8,
-                        group_size=128,
-                    ),
-                ),
-            }
-        )
-
-    # valid configuration
-    AWQModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
-            ),
-            "group_1": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
-            ),
-        }
-    )
-
     AWQModifier(scheme="W4A16", duo_scaling="both")
     with pytest.raises(ValidationError):
         AWQModifier(scheme="W4A16", duo_scaling="Both")
@@ -234,3 +182,68 @@ def test_get_lowest_common_parent():
         ["embed_tokens", "decoder.self_attn.v_proj"], model
     )
     assert parent_name == "" and parent == model
+
+
+@torch.no_grad
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "n_balance_layers, group_size, n_input_features",
+    [
+        (5, None, 32),
+        (4, 10, 40),
+    ],
+)
+def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
+    """
+    Confirm our logic to compute duo_scaling layer means via a running tally
+    matches the original memory-intensive AutoAWQ implementation, which concats
+    all balance layers into a single tensor before reducing to mean
+    Large models were prone to fail at this step.
+    """
+    balance_layers = [
+        torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
+    ]
+    for balance_layer in balance_layers:
+        setattr(
+            balance_layer,
+            "quantization_scheme",
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    strategy=(
+                        QuantizationStrategy.GROUP
+                        if group_size is not None
+                        else QuantizationStrategy.CHANNEL
+                    ),
+                    group_size=group_size,
+                ),
+            ),
+        )
+
+    def _auto_awq_compute_layer_means(layers: list[torch.nn.Module]) -> torch.Tensor:
+        """
+        Original AutoAwq implementation
+        """
+        # [STEP 1]: Compute per-channel mean of normalised weights
+        # All layer weights are concatted together
+        weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
+        org_shape = weight.shape
+        # The weights are reshaped to be organised by quantization group
+        if group_size is not None:
+            weight = weight.view(-1, group_size)
+        # Calculates the relative magnitude of the weights within
+        # each of the quantization groups, and rescales each group
+        # individually so that each group has weights on a 0-1 scale.
+        weight.abs_()
+        weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+        weight = weight.view(org_shape)
+        # Gets the average rescaled magnitude for each output channel
+        return weight.mean(0)
+
+    w_mean_auto_awq = _auto_awq_compute_layer_means(balance_layers)
+
+    w_mean_awq = AWQModifier._compute_layer_means(balance_layers).to(
+        w_mean_auto_awq.dtype
+    )
+
+    assert_close(w_mean_auto_awq, w_mean_awq)
