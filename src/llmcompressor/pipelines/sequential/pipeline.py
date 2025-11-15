@@ -2,7 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import disable_offloading, get_execution_device
+from llmcompressor.torch_offloader.dispatch import get_execution_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -11,7 +11,6 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
-    dispatch_for_sequential,
     get_sequential_targets,
     trace_subgraphs,
 )
@@ -60,8 +59,9 @@ class SequentialPipeline(CalibrationPipeline):
         session = active_session()
 
         # prepare model for sequential onloading
-        model = dispatch_for_sequential(model)
-        model_device = torch.device("cuda:0")#get_execution_device(model)
+        #model = dispatch_for_sequential(model.to("cpu"))
+        model_device = get_execution_device(model)
+        session.state.model = model
 
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers

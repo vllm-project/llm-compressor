@@ -9,7 +9,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
-from compressed_tensors.utils import update_offload_parameter
+from llmcompressor.torch_offloader.dispatch import update_offload_parameter
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -21,12 +21,9 @@ GPTQ_PRECISION = torch.float32
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
 
 
-def make_empty_hessian(
-    module: torch.nn.Module, device: torch.device | None = None
-) -> torch.Tensor:
+def make_empty_hessian(module: torch.nn.Module, device: torch.device) -> torch.Tensor:
     weight = module.weight
     num_columns = weight.shape[1]
-    device = device if device is not None else weight.device
     return torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
 
 
@@ -36,7 +33,6 @@ def accumulate_hessian(
     H: torch.Tensor | None,
     num_samples: int,
 ) -> tuple[torch.Tensor, int]:
-    inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 

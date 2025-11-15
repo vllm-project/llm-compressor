@@ -3,10 +3,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.torch_offloader.dispatch import dispatch_model, get_execution_device
 
 # Select model and load it.
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "Llama-3.2-1B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -54,25 +54,29 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
+model = dispatch_model(model, "cuda:0")
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    pipeline="sequential",
 )
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+#model = dispatch_model(model, "cuda:0", ["LlamaDecoderLayer"])
+model = model.to("cuda:0")
+print(get_execution_device(model))
 sample = tokenizer("Hello my name is", return_tensors="pt")
-sample = {key: value.to(model.device) for key, value in sample.items()}
+sample = {key: value.to(get_execution_device(model)) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+# SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+# model.save_pretrained(SAVE_DIR, save_compressed=True)
+# tokenizer.save_pretrained(SAVE_DIR)

@@ -10,11 +10,10 @@ from compressed_tensors.quantization import (
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
-    get_execution_device,
     getattr_chain,
     match_named_modules,
-    update_offload_parameter,
 )
+from llmcompressor.torch_offloader.dispatch import update_offload_parameter, get_execution_device
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -159,6 +158,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
 
+        return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        self.started_ = True
+
         # prepare module names
         self._module_names = {
             m: name
@@ -166,11 +170,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 state.model, self.resolved_targets, self.ignore
             )
         }
-
-        return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
