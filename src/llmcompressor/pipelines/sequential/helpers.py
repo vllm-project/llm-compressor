@@ -24,6 +24,7 @@ from transformers.configuration_utils import PretrainedConfig
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+from llmcompressor.torch_offloader.dispatch import dispatch_model
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
@@ -534,16 +535,7 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     :param model: model to dispatch
     :return: dispatched model
     """
-    remove_dispatch(model)
-
-    if torch.cuda.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
-    else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
-
-    return model
+    return dispatch_model(model, "cuda:0")
 
 
 def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:

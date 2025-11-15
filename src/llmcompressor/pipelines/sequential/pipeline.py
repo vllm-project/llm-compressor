@@ -60,8 +60,8 @@ class SequentialPipeline(CalibrationPipeline):
         session = active_session()
 
         # prepare model for sequential onloading
-        dispatch_for_sequential(model)
-        model_device = get_execution_device(model)
+        model = dispatch_for_sequential(model)
+        model_device = torch.device("cuda:0")#get_execution_device(model)
 
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers
@@ -98,7 +98,7 @@ class SequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # reduce memory movement by keeping modules onloaded
-                with disable_offloading():
+                with model.disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = activations.fetch(batch_idx, subgraph.input_names)
