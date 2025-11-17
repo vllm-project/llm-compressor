@@ -4,7 +4,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -12,7 +12,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights to fp4 with per group 16 via ptq
+#   * quantize the weights to fp4 with per group 32 via ptq
 recipe = QuantizationModifier(targets="Linear", scheme="MXFP4", ignore=["lm_head"])
 
 # Apply quantization.
