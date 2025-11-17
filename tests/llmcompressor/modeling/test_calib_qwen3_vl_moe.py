@@ -5,20 +5,16 @@ from llmcompressor.modeling.qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoe
 from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_gpu
 
-try:
-    from transformers import Qwen3VLMoeConfig
-    from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
-        Qwen3VLMoeTextSparseMoeBlock,
-    )
-except ImportError:
-    Qwen3VLMoeConfig = None
-    Qwen3VLMoeTextSparseMoeBlock = None
+Qwen3VLMoeConfig = pytest.importorskip(
+    "transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe",
+    reason="Qwen3VLMoeConfig not available in this version of transformers",
+).Qwen3VLMoeConfig
+Qwen3VLMoeTextSparseMoeBlock = pytest.importorskip(
+    "transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe",
+    reason="Qwen3VLMoeTextSparseMoeBlock not available in this version of transformers",
+).Qwen3VLMoeTextSparseMoeBlock
 
 
-@pytest.mark.skipif(
-    Qwen3VLMoeConfig is None,
-    reason="Qwen3VLMoe not available in this version of transformers",
-)
 @requires_gpu
 def test_calib_qwen3_vl_moe_module():
     config = Qwen3VLMoeConfig()
