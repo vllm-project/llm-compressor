@@ -1,3 +1,4 @@
+import json
 import os
 import weakref
 from collections.abc import Generator
@@ -19,6 +20,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.transformers.compression.lora_utils import get_lora_metadata
 from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
 )
@@ -342,14 +344,6 @@ def save_lora_metadata(model: torch.nn.Module, save_directory: str):
     :param model: compressed model to extract metadata from
     :param save_directory: directory where model is being saved
     """
-    import json
-
-    try:
-        from llmcompressor.transformers.compression.lora_utils import get_lora_metadata
-    except ImportError:
-        logger.warning("Could not import lora_utils, skipping LoRA metadata generation")
-        return
-
     try:
         # Extract LoRA metadata from model
         metadata = get_lora_metadata(model)
