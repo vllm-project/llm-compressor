@@ -15,7 +15,11 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_sequential_targets,
     trace_subgraphs,
 )
-from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
+from llmcompressor.utils.helpers import (
+    DISABLE_QAC_MODIFIERS,
+    DisableQuantization,
+    calibration_forward_context,
+)
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -72,9 +76,10 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        # TODO: remove this to enable quantization aware calibration for GPTQ and AWQ
+        # TODO: remove this to enable quantization aware calibration
+        # for GPTQ, AWQ and AutoRound.
         disable_qac = any(
-            type(mod).__name__ in ["GPTQModifier", "AWQModifier"]
+            type(mod).__name__ in DISABLE_QAC_MODIFIERS
             for mod in session.lifecycle.recipe.modifiers
         )
 
