@@ -1,11 +1,17 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
-from transformers import Qwen3VLMoeConfig, Qwen3VLMoeTextConfig
-from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
-    Qwen3VLMoeTextSparseMoeBlock as OriginalQwen3VLMoeTextSparseMoeBlock,
-)
 
 from llmcompressor.modeling.moe_context import MoECalibrationModule
 from llmcompressor.utils.dev import skip_weights_initialize
+
+if TYPE_CHECKING:
+    from transformers import Qwen3VLMoeConfig, Qwen3VLMoeTextConfig
+    from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
+        Qwen3VLMoeTextSparseMoeBlock,
+    )
 
 
 @MoECalibrationModule.register("Qwen3VLMoeTextSparseMoeBlock")
@@ -19,7 +25,7 @@ class CalibrateQwen3VLMoeTextSparseMoeBlock(MoECalibrationModule):
 
     def __init__(
         self,
-        original: OriginalQwen3VLMoeTextSparseMoeBlock,
+        original: Qwen3VLMoeTextSparseMoeBlock,
         config: Qwen3VLMoeConfig,
         calibrate_all_experts: bool,
     ):
@@ -116,7 +122,7 @@ class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
 
 def replace(
     config: Qwen3VLMoeConfig,
-    original: OriginalQwen3VLMoeTextSparseMoeBlock,
+    original: Qwen3VLMoeTextSparseMoeBlock,
     calibrate_all_experts: bool,
 ):
     return CalibrateQwen3VLMoeTextSparseMoeBlock(
