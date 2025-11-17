@@ -35,10 +35,10 @@ def get_fused_names(tensors: dict[str, torch.Tensor]) -> dict[str, list[str]]:
                 assert parent_name not in fused_names
                 fused_names[parent_name] = submodule_names
 
-        if "mlp" in parent and module == "gate_proj" and param == "weight":
+        if "vision" not in parts[0] and module == "w1" and param == "weight":
             parent_name = ".".join((*parts[:-3], parent))
-            gate_name = ".".join((parent_name, "gate_proj", param))
-            up_name = ".".join((parent_name, "up_proj", param))
+            gate_name = ".".join((parent_name, "w1", param))
+            up_name = ".".join((parent_name, "w3", param))
 
             submodule_names = [gate_name, up_name]
 
