@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import torch
@@ -25,12 +23,12 @@ class CalibrateQwen3VLMoeTextSparseMoeBlock(MoECalibrationModule):
 
     def __init__(
         self,
-        original: Qwen3VLMoeTextSparseMoeBlock,
-        config: Qwen3VLMoeConfig,
+        original: "Qwen3VLMoeTextSparseMoeBlock",
+        config: "Qwen3VLMoeConfig",
         calibrate_all_experts: bool,
     ):
         super().__init__()
-        text_config: Qwen3VLMoeTextConfig = config.get_text_config()
+        text_config: "Qwen3VLMoeTextConfig" = config.get_text_config()
 
         self.hidden_size = text_config.hidden_size
         self.num_experts = text_config.num_experts
@@ -121,8 +119,8 @@ class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
 
 
 def replace(
-    config: Qwen3VLMoeConfig,
-    original: Qwen3VLMoeTextSparseMoeBlock,
+    config: "Qwen3VLMoeConfig",
+    original: "Qwen3VLMoeTextSparseMoeBlock",
     calibrate_all_experts: bool,
 ):
     return CalibrateQwen3VLMoeTextSparseMoeBlock(
