@@ -1050,8 +1050,11 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
     """
-    with torch.no_grad(), disable_cache(model), eval_context(model), disable_hf_kernels(
-        model
+    with (
+        torch.no_grad(),
+        disable_cache(model),
+        eval_context(model),
+        disable_hf_kernels(model),
     ):
         yield
 
