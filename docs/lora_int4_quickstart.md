@@ -141,6 +141,7 @@ from llmcompressor.transformers.compression.lora_utils import (
     get_lora_metadata,
 )
 from transformers import AutoModelForCausalLM
+import torch
 
 # Load quantized model
 model = AutoModelForCausalLM.from_pretrained("./model-int4")
