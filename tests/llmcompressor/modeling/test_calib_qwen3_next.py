@@ -11,9 +11,22 @@ from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from tests.testing_utils import requires_cadence, requires_gpu
 
+try:
+    from transformers import Qwen3NextConfig
+    from transformers.models.qwen3_next.modeling_qwen3_next import (
+        Qwen3NextSparseMoeBlock,
+    )
+except ImportError:
+    Qwen3NextConfig = None
+    Qwen3NextSparseMoeBlock = None
+
 
 @requires_cadence("weekly")
 @pytest.mark.parametrize("model_stub", ["Qwen/Qwen3-Next-80B-A3B-Instruct"])
+@pytest.mark.skipif(
+    Qwen3NextConfig is None,
+    reason="Qwen3Next not available in this version of transformers",
+)
 def test_calib_replace_qwen3moe_all_experts(model_stub):
     with skip_weights_download():
         model = AutoModelForCausalLM.from_pretrained(model_stub)
@@ -60,12 +73,11 @@ def test_calib_replace_qwen3moe_all_experts(model_stub):
 
 
 @requires_gpu
+@pytest.mark.skipif(
+    Qwen3NextConfig is None,
+    reason="Qwen3Next not available in this version of transformers",
+)
 def test_calib_qwen3_moe_module():
-    from transformers import Qwen3NextConfig
-    from transformers.models.qwen3_next.modeling_qwen3_next import (
-        Qwen3NextSparseMoeBlock,
-    )
-
     config = Qwen3NextConfig()
     with torch.device("cuda"):
         original = Qwen3NextSparseMoeBlock(config).eval()

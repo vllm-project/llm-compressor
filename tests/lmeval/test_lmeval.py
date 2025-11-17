@@ -13,7 +13,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from llmcompressor.core import active_session
-from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
+from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
 from tests.testing_utils import requires_gpu
 
@@ -35,6 +35,10 @@ class LmEvalConfig(BaseModel):
 
 try:
     import lm_eval
+    import lm_eval.api.registry
+
+    # needed to populate model registry
+    import lm_eval.models  # noqa
 
     lm_eval_installed = True
 except ImportError:
@@ -120,7 +124,7 @@ class TestLMEval:
 
         # Always evaluate base model for recovery testing
         logger.info("================= Evaluating BASE model ======================")
-        self.base_results = self._eval_base_model()
+        base_results = self._eval_base_model()
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -145,22 +149,41 @@ class TestLMEval:
         self._handle_recipe()
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
-        self._run_lm_eval()
+        compressed_results = self._eval_compressed_model()
+
+        # Always use recovery testing
+        self._validate_recovery(base_results, compressed_results)
+
+        # If absolute metrics provided, show warnings (not failures)
+        if self.lmeval.metrics:
+            self._check_absolute_warnings(compressed_results)
 
         self.tear_down()
 
     @log_time
-    def _eval_base_model(self):
+    def _eval_base_model(self) -> dict:
         """Evaluate the base (uncompressed) model."""
-        model_args = {**self.lmeval.model_args, "pretrained": self.model}
+        return self._eval_model(self.model)
+
+    @log_time
+    def _eval_compressed_model(self) -> dict:
+        """Evaluate the compressed model."""
+        return self._eval_model(self.save_dir)
+
+    def _eval_model(self, model: str) -> dict:
+        # NOTE: pass in PreTrainedModel to avoid lm_eval's model-loading logic
+        # https://github.com/EleutherAI/lm-evaluation-harness/pull/3393
+        lm_eval_cls = lm_eval.api.registry.get_model(self.lmeval.model)
 
         results = lm_eval.simple_evaluate(
-            model=self.lmeval.model,
-            model_args=model_args,
+            model=lm_eval_cls(
+                pretrained=load_model(model, self.model_class, device_map="cuda:0"),
+                batch_size=self.lmeval.batch_size,
+                **self.lmeval.model_args,
+            ),
             tasks=[self.lmeval.task],
             num_fewshot=self.lmeval.num_fewshot,
             limit=self.lmeval.limit,
-            device="cuda:0",
             apply_chat_template=self.lmeval.apply_chat_template,
             batch_size=self.lmeval.batch_size,
         )
@@ -181,31 +204,9 @@ class TestLMEval:
             fp.write(recipe_yaml_str)
         session.reset()
 
-    @log_time
-    def _run_lm_eval(self):
-        model_args = {"pretrained": self.save_dir}
-        model_args.update(self.lmeval.model_args)
-        results = lm_eval.simple_evaluate(
-            model=self.lmeval.model,
-            model_args=model_args,
-            tasks=[self.lmeval.task],
-            num_fewshot=self.lmeval.num_fewshot,
-            limit=self.lmeval.limit,
-            device="cuda:0",
-            apply_chat_template=self.lmeval.apply_chat_template,
-            batch_size=self.lmeval.batch_size,
-        )
-
-        # Always use recovery testing
-        self._validate_recovery(results)
-
-        # If absolute metrics provided, show warnings (not failures)
-        if self.lmeval.metrics:
-            self._check_absolute_warnings(results)
-
-    def _validate_recovery(self, compressed_results):
+    def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""
-        base_metrics = self.base_results["results"][self.lmeval.task]
+        base_metrics = base_results["results"][self.lmeval.task]
         compressed_metrics = compressed_results["results"][self.lmeval.task]
         higher_is_better_map = compressed_results.get("higher_is_better", {}).get(
             self.lmeval.task, {}
