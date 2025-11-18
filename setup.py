@@ -184,6 +184,7 @@ setup(
     entry_points={
         "console_scripts": [
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
+            "llmcompressor.reindex_fused_weights=llmcompressor.entrypoints.model_free.reindex_fused_weights:main",
         ]
     },
     python_requires=">=3.10",
