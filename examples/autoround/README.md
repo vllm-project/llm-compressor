@@ -1,8 +1,7 @@
 # `AutoRound` Quantization
 
-`llm-compressor` supports quantizing weights to `int4` using [AutoRound](https://aclanthology.org/2024.findings-emnlp.662.pdf), 
-an advanced quantization algorithm for achieving high accuracy with low-bit quantization, and inference acceleration with `vLLM`
-
+`llm-compressor` supports [AutoRound]((https://aclanthology.org/2024.findings-emnlp.662.pdf)), an advanced quantization technique that delivers high-accuracy, low-bit quantization. The quantized results are fully compatible with `compressed-tensor` and can be served directly with vLLM.
+AutoRound introduces three trainable parameters (V, α, and β) to optimize rounding values and clipping ranges during quantization. The method processes each decoder layer sequentially, using block-wise output reconstruction error as the training objective to fine-tuning these parameters. This approach combines the efficiency of post-training quantization with the adaptability of parameter tuning, delivering robust compression for large language models while maintaining strong performance.
 
 ## Installation
 
@@ -46,16 +45,11 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 ### 2) Prepare Calibration Data
 
-Prepare the calibration data. When quantizing weigths of a model using AutoRound, we need some sample data to run the AutoRound algorithms.
-To quantize a given tensor, Auto-Round introduces three trainable parameters (V, α and β) to adjust the rounding value and clipping range.
-For a given model, Auto-Round quantizes the decoder layer one by one, using block-wise output reconstruction error as loss to train these parameters.
-More specifically, AutoRound introduces a trainable parameter V to adjust the rounding values, 
-As a result, it is very useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea.
-
-In our case, we are using [NeelNanda/pile-10k](https://huggingface.co/datasets/NeelNanda/pile-10k) as our default calibration dataset. Some best practices include:
-* 128 samples is a good place to start (increase if accuracy drops)
-* 2048 sequence length is a good place to start
-* 200 tuning steps is a good place to start (increase if accuracy drops)
+When quantizing model weights with AutoRound, you’ll need a small set of sample data to run the algorithm. By default, we are using [NeelNanda/pile-10k](https://huggingface.co/datasets/NeelNanda/pile-10k) as our calibration dataset.
+Recommended starting points:
+- 128 samples — typically sufficient for stable calibration (increase if accuracy degrades).
+- 2048 sequence length — a good baseline for most LLMs.
+- 200 tuning steps — usually enough to converge (increase if accuracy drops).
 
 ```python
 # Select calibration dataset.
@@ -63,8 +57,8 @@ from auto_round.calib_dataset import get_dataset
 
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
-# Get aligned calibration dataset.
 
+# Get aligned calibration dataset.
 ds = get_dataset(
     tokenizer=tokenizer,
     seqlen=MAX_SEQUENCE_LENGTH,
@@ -81,7 +75,9 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import AutoRoundModifier
 
 # Configure the quantization algorithm to run.
-recipe = AutoRoundModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=200)
+recipe = AutoRoundModifier(
+    targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=200
+)
 
 # Apply quantization.
 oneshot(
@@ -130,13 +126,11 @@ We can see the resulting scores look good!
 | gsm8k |       3 | flexible-extract |      5 | exact_match | ↑   | 0.737 | ±   | 0.0139 |
 |       |         | strict-match     |      5 | exact_match | ↑   | 0.736 | ±   | 0.0139 |
 ```
-> Note: please be aware that quantized model accuracy may fluctuate due to non-deterministic factors.
-
+> Note: quantized model accuracy may vary slightly due to nondeterminism.
 
 ### Known Issues
-Currently, `AutoRound` quantization only supports `wNa16` quantization, more quantization schemes will be supported in the near future.
-Please refer to the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968) for the latest updates.
+Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quantization scheme. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
 ### Questions or Feature Request?
 
-Please open up an issue on `vllm-project/llm-compressor`
+Please open up an issue on `vllm-project/llm-compressor` or `intel/auto-round`.
