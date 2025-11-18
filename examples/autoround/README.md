@@ -133,4 +133,4 @@ Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quan
 
 ### Questions or Feature Request?
 
-Please open up an issue on `vllm-project/llm-compressor` or `intel/auto-round`.
+Please open up an issue on [vllm-project/llm-compressor](https://github.com/vllm-project/llm-compressor/issues) or [intel/auto-roun](https://github.com/intel/auto-round/issues).
