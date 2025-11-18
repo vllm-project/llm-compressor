@@ -1,12 +1,18 @@
+import pytest
 import torch
-from transformers import Qwen3VLMoeConfig
-from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
-    Qwen3VLMoeTextSparseMoeBlock,
-)
 
 from llmcompressor.modeling.qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock
 from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_gpu
+
+Qwen3VLMoeConfig = pytest.importorskip(
+    "transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe",
+    reason="Qwen3VLMoeConfig not available in this version of transformers",
+).Qwen3VLMoeConfig
+Qwen3VLMoeTextSparseMoeBlock = pytest.importorskip(
+    "transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe",
+    reason="Qwen3VLMoeTextSparseMoeBlock not available in this version of transformers",
+).Qwen3VLMoeTextSparseMoeBlock
 
 
 @requires_gpu
