@@ -93,10 +93,10 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/compression
-      - name: Run Finetune Tests
+      - name: Run Data Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/finetune
+          pytest -v tests/llmcompressor/transformers/data
       - name: Running GPTQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
