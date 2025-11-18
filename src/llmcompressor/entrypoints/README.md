@@ -262,10 +262,3 @@ with create_session():
         recipe=recipe,  # The recipe to use
     )
 ```
-
-### SFT Trainer
-
-TRL's SFT Trainer can be used for sparse fine-tuning or applying sparse knowledge distillation. Examples are available in the `examples/` folder.
-
-- [Sparse-fine-tune a 50% sparse Llama-7b model](../../../examples/trl_mixin/README.md)
-- [Sparse-fine-tune a 50% sparse Llama-7b model using knowledge distillation](../../../examples/trl_mixin/README.md)
