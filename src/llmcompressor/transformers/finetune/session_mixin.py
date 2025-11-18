@@ -2,7 +2,7 @@ import inspect
 import math
 import os
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Any
 
 import torch
 from loguru import logger
@@ -277,7 +277,7 @@ class SessionManagerMixIn:
         inputs: dict[str, Any],
         return_outputs: bool = False,
         num_items_in_batch: torch.Tensor | None = None,
-    ) ->torch.Tensor | Tuple[torch.Tensor, Any]:
+    ) ->torch.Tensor | tuple[torch.Tensor, Any]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
 
@@ -509,7 +509,7 @@ class SessionManagerMixIn:
                 f"The super class for SessionManagerMixIn must define a {func} function"
             )
 
-    def _calculate_checkpoint_info(self, kwargs) -> Tuple[str | None, float]:
+    def _calculate_checkpoint_info(self, kwargs) -> tuple[str | None, float]:
         """
         If resuming from checkpoint is set, get checkpoint and epoch to resume from
         """
