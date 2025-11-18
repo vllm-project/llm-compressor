@@ -229,7 +229,6 @@ class Oneshot:
 def oneshot(
     # Model arguments
     model: str | PreTrainedModel,
-    distill_teacher: str | None = None,
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,
