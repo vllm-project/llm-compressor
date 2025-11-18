@@ -2,7 +2,7 @@
 
 `llm-compressor` supports [AutoRound](https://aclanthology.org/2024.findings-emnlp.662.pdf), an advanced quantization technique that delivers **high-accuracy**, **low-bit quantization**. The quantized results are fully compatible with `compressed-tensors` and can be served directly with vLLM.
 
-AutoRound introduces three trainable parameters (V, α, and β) to optimize rounding values and clipping ranges during quantization. The method processes each decoder layer sequentially, using block-wise output reconstruction error as the training objective to fine-tuning these parameters. This approach combines the efficiency of post-training quantization with the adaptability of parameter tuning, delivering robust compression for large language models while maintaining strong performance.
+AutoRound introduces three trainable parameters (V, α, and β) to optimize rounding values and clipping ranges during quantization. The method processes each decoder layer sequentially, using block-wise output reconstruction error as the training objective to fine-tune these parameters. This approach combines the efficiency of post-training quantization with the adaptability of parameter tuning, delivering robust compression for large language models while maintaining strong performance.
 
 ## Installation
 
@@ -24,9 +24,9 @@ python3 llama3_example.py
 
 The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound` is ready to be loaded into vLLM.
 
-## Code Walkthough
+## Code Walkthrough
 
-Now, we will step though the code in the example. There are four steps:
+Now, we will step through the code in the example. There are four steps:
 1) Load model
 2) Prepare calibration data
 3) Apply quantization
@@ -73,7 +73,7 @@ With the dataset ready, we will now apply AutoRound quantization to the model.
 
 ```python
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import AutoRoundModifier
+from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Configure the quantization algorithm to run.
 recipe = AutoRoundModifier(
@@ -82,11 +82,15 @@ recipe = AutoRoundModifier(
 
 # Apply quantization.
 oneshot(
-    model=model, dataset=ds,
+    model=model,
+    dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    # disable shuffling to get slightly better mmlu score
+    shuffle_calibration_samples=False,
 )
+
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
