@@ -1,5 +1,4 @@
 from collections import defaultdict
-from typing import Tuple
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
@@ -104,7 +103,7 @@ def infer_sparse_targets_and_ignores(
     model: torch.nn.Module,
     sparsity_structure: str,
     sparsity_threshold: float,
-) -> Tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str]]:
     """
     Infers the target and ignore layers in the given model
     to be used for sparsity compression
@@ -151,7 +150,7 @@ def is_sparse_compression_target(
 
 def _get_sparse_targets_ignore_dicts(
     module: torch.nn.Module, sparsity_structure: str, sparsity_threshold: float
-) -> Tuple[dict[str, list[str]], dict[str, list[str]]]:
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """
     Get sparse targets and ignore dictionaries
 
@@ -177,7 +176,7 @@ def _get_sparse_targets_ignore_dicts(
 
 def _reduce_targets_and_ignores_into_lists(
     exhaustive_targets: dict[str, list[str]], exhaustive_ignore: dict[str, list[str]]
-) -> Tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str]]:
     """
     Reduces the targets and ignores dictionaries into lists
 
