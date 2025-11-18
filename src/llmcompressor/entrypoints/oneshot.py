@@ -140,7 +140,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
-        model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
+        model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
         self.dataset_args = dataset_args
