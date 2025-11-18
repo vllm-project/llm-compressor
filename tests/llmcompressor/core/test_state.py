@@ -1,10 +1,7 @@
-import pytest
-
 from llmcompressor.core.state import Data, Hardware, ModifiedState, State
 from llmcompressor.metrics import BaseLogger, LoggerManager
 
 
-@pytest.mark.smoke
 def test_state_initialization():
     state = State()
     assert state.model is None
@@ -20,7 +17,6 @@ def test_state_initialization():
     assert state._last_log_step is None
 
 
-@pytest.mark.smoke
 def test_modified_state_initialization():
     mod_state = ModifiedState(
         model="model",
@@ -34,7 +30,6 @@ def test_modified_state_initialization():
     assert mod_state.modifier_data == [{"key": "value"}]
 
 
-@pytest.mark.smoke
 def test_state_update():
     state = State()
     updated_data = {
@@ -63,7 +58,6 @@ def test_state_update():
     assert state.model_log_cadence == 2
 
 
-@pytest.mark.regression
 def test_state_sparsification_ready():
     state = State()
     assert not state.compression_ready
@@ -73,7 +67,6 @@ def test_state_sparsification_ready():
     assert state.compression_ready
 
 
-@pytest.mark.regression
 def test_state_update_loggers():
     state = State()
     logger1 = BaseLogger("test1", False)
