@@ -1,8 +1,8 @@
 """
 Utility functions for entrypoint pre and post-processing operations.
 
-Provides common utility functions used by training and one-shot
-compression entrypoints. Includes model loading, configuration setup,
+Provides common utility functions used by the one-shot
+entrypoint. Includes model loading, configuration setup,
 preprocessing steps, and post-processing operations for compression
 workflows.
 """
@@ -19,7 +19,6 @@ from transformers import (
     AutoModelForCausalLM,
     AutoProcessor,
     PreTrainedModel,
-    set_seed,
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
@@ -27,7 +26,6 @@ from llmcompressor.args import (
     DatasetArguments,
     ModelArguments,
     RecipeArguments,
-    TrainingArguments,
 )
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
@@ -36,7 +34,6 @@ from llmcompressor.transformers.compression.compressed_tensors_utils import (
     untie_word_embeddings,
 )
 from llmcompressor.transformers.utils.helpers import (
-    detect_last_checkpoint,
     is_model_ct_quantized_from_path,
 )
 from llmcompressor.typing import Processor
@@ -109,8 +106,6 @@ def post_process(
     Saves the model and tokenizer/processor to the output directory if model_args,
     output_dir is provided.
 
-    Save is skipped for stage runs for `train` - saves using the trainer.save_model()
-
     If the `output_dir` is not the default directory, the method resets lifecycle
     actions. The model is saved in a compressed format if specified in `model_args`.
     Additionally, the tokenizer or processor, if available, is also saved.
@@ -150,7 +145,6 @@ def post_process(
 
 def initialize_model_from_path(
     model_args: ModelArguments,
-    training_args: TrainingArguments | None = None,
 ) -> tuple[PreTrainedModel, PreTrainedModel | None]:
     # Load pretrained model
     # The .from_pretrained methods guarantee that only one local process can
@@ -166,47 +160,6 @@ def initialize_model_from_path(
 
     last_checkpoint = None
     teacher = None
-
-    if training_args is not None:
-        # Load teacher configuration if applicable
-        teacher_config = (
-            AutoConfig.from_pretrained(
-                model_args.distill_teacher,
-                use_auth_token=True if model_args.use_auth_token else None,
-                trust_remote_code=model_args.trust_remote_code_model,
-            )
-            if model_args.distill_teacher
-            else None
-        )
-
-        # Detect last checkpoint
-        last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
-
-        # Set seed before initializing model
-        set_seed(training_args.seed)
-
-        # Initialize teacher model if teacher path is provided
-        if model_args.distill_teacher is not None:
-            teacher_device_map = (
-                None
-                if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-                else "auto"
-            )
-            teacher_kwargs = {
-                "config": teacher_config,
-                "cache_dir": None,
-                "use_auth_token": True if model_args.use_auth_token else None,
-                "torch_dtype": parse_dtype(model_args.precision),
-                "device_map": teacher_device_map,
-                "trust_remote_code": model_args.trust_remote_code_model,
-            }
-
-            teacher = AutoModelForCausalLM.from_pretrained(
-                model_args.distill_teacher,
-                **teacher_kwargs,
-            )
-            if "sequence_length" in teacher_kwargs:
-                teacher.seqlen = teacher_kwargs["sequence_length"]
 
     model_path = (
         last_checkpoint or model_args.model
