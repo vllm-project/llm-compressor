@@ -40,7 +40,7 @@ jobs:
         run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
-          repository: "vllm/compressed-tensors"
+          repository: "vllm-project/compressed-tensors"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true
@@ -95,7 +95,7 @@ jobs:
         run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
-          repository: "vllm/compressed-tensors"
+          repository: "vllm-project/compressed-tensors"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true
