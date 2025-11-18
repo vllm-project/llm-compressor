@@ -1,4 +1,4 @@
-# Input arguments for `oneshot` and `eval` entrypoints
+# Input arguments for the `oneshot` entrypoint
 
 Parsers in `llm-compressor` define the input arguments required for various entry points, including `oneshot`, `train`, and `eval`.
 
