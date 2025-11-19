@@ -5,7 +5,7 @@
 > `2:4 sparisty + int4/int8` mixed precision computation is supported in vLLM on Nvidia capability > 8.0 (Ampere, Ada Lovelace, Hopper).
 
 ## NOTE: The following example no longer includes finetuning as training
-training support has been deprecated as of v0.9.0. To apply finetuning
+Training support has been deprecated as of v0.9.0. To apply finetuning
 to your sparse model, see the Axolotl integration blog post for best  
 fine tuning practices
 https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open
