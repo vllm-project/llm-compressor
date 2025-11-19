@@ -27,7 +27,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("model_stub", type=str, help="huggingface model hub or path to local weights files")  # noqa: E501
     parser.add_argument("save_directory", type=str, help="output directory for reindexed weights files")  # noqa: E501
-    parser.add_argument("num_workers", type=int, help="number of worker threads to save files with")  # noqa: E501
+    parser.add_argument("--num_workers", type=int, default=5, help="number of worker threads to save files with")  # noqa: E501
     # fmt: on
     return parser.parse_args()
 
@@ -35,7 +35,7 @@ def parse_args():
 def reindex_fused_weights(
     model_stub: str,
     save_directory: str,
-    num_workers: int = 1,
+    num_workers: int = 5,
 ):
     """
     Script used to reindex the safetensors files of a model such that all fused modules
