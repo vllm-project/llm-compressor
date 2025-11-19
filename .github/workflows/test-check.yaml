@@ -13,6 +13,8 @@ on:
 
 env:
   CADENCE: "commit"
+  UV_SYSTEM_PYTHON: 1
+  UV_TORCH_BACKEND: "auto"
 
 jobs:
 
@@ -28,8 +30,10 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
+        run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -38,10 +42,10 @@ jobs:
           fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors
+          uv pip uninstall compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=nightly uv pip install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
@@ -77,8 +81,10 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
+        run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -87,10 +93,10 @@ jobs:
           fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors
+          uv pip uninstall compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=nightly uv pip install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
@@ -131,11 +137,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
       - name: "Install dependencies"
         run: |
-          pip3 install -U pip setuptools
-          pip3 install coverage setuptools-scm
+          uv pip install -U setuptools
+          uv pip install coverage setuptools-scm
           make build  # need to build to generate the version.py file
 
       - name: "Combine and report coverage"

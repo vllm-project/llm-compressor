@@ -67,6 +67,7 @@ __all__ = [
     "calibration_forward_context",
     "patch_attr",
     "disable_hf_kernels",
+    "DISABLE_QAC_MODIFIERS",
 ]
 
 
@@ -1082,3 +1083,6 @@ def patch_attr(base: object, attr: str, value: Any):
             setattr(base, attr, original_value)
         else:
             delattr(base, attr)
+
+
+DISABLE_QAC_MODIFIERS = ["GPTQModifier", "AWQModifier", "AutoRoundModifier"]
