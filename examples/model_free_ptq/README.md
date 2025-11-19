@@ -51,7 +51,7 @@ Then, call `model_free_ptq` on the reindex files
 model_free_ptq(
     model_stub="Kimi-K2-Thinking-BF16-reindexed",
     save_directory="Kimi-K2-Thinking-BF16-NVFP4A16",
-    scheme="FP8_BLOCK",
+    scheme="NVFP4A16",
     ignore=[
         "re:.*gate$",
         "lm_head",

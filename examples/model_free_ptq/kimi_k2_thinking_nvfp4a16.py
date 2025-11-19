@@ -23,7 +23,7 @@ SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16"
 model_free_ptq(
     model_stub=REINDEX_DIR,
     save_directory=SAVE_DIR,
-    scheme="FP8_BLOCK",
+    scheme="NVFP4A16",
     ignore=[
         "re:.*gate$",
         "lm_head",
