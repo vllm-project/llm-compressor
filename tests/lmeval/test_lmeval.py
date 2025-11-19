@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import cached_lm_eval_run, requires_gpu
 
 
 class LmEvalConfig(BaseModel):
@@ -161,8 +161,9 @@ class TestLMEval:
         self.tear_down()
 
     @log_time
+    @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
-        """Evaluate the base (uncompressed) model."""
+        """Evaluate the base (uncompressed) model with caching."""
         return self._eval_model(self.model)
 
     @log_time
