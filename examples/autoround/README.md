@@ -134,7 +134,7 @@ We can see the resulting scores look good!
 > Note: quantized model accuracy may vary slightly due to nondeterminism.
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quantization scheme. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
 ### Questions or Feature Request?
 
