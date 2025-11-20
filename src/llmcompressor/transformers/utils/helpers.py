@@ -16,54 +16,16 @@ from huggingface_hub import (
 )
 from loguru import logger
 from transformers import AutoConfig
-from transformers.trainer_utils import get_last_checkpoint
 
 if TYPE_CHECKING:
-    from llmcompressor.args import ModelArguments, TrainingArguments
+    from llmcompressor.args import ModelArguments
 
 __all__ = [
     "RECIPE_FILE_NAME",
-    "detect_last_checkpoint",
     "is_model_ct_quantized_from_path",
 ]
 
 RECIPE_FILE_NAME = "recipe.yaml"
-
-
-def detect_last_checkpoint(
-    training_args: "TrainingArguments",
-    model_args: Optional["ModelArguments"] = None,
-):
-    last_checkpoint = None
-    if (
-        os.path.isdir(training_args.output_dir)
-        and training_args.do_train
-        and not training_args.overwrite_output_dir
-    ):
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-        if training_args.run_stages and model_args is not None:
-            model = (
-                model_args.model
-                if hasattr(model_args, "model")
-                else model_args.model_name_or_path
-            )
-            if os.path.isdir(model):
-                last_checkpoint = get_last_checkpoint(model_args.model_name_or_path)
-        if last_checkpoint is None and (len(os.listdir(training_args.output_dir)) > 0):
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already "
-                "exists and is not empty. Use --overwrite_output_dir to overcome."
-            )
-        elif (
-            last_checkpoint is not None and training_args.resume_from_checkpoint is None
-        ):
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}. To "
-                "avoid this behavior, change  the `--output_dir` or add "
-                "`--overwrite_output_dir` to train from scratch."
-            )
-
-    return last_checkpoint
 
 
 def is_model_ct_quantized_from_path(path: str) -> bool:

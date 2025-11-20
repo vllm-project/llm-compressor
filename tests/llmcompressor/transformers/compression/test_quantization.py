@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollato
 from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.utils.dev import dispatch_for_generation
 from tests.testing_utils import parse_params, requires_gpu
 

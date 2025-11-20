@@ -7,7 +7,7 @@ flexible data formats and custom preprocessing pipelines for
 user-provided datasets.
 """
 
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.data import TextGenerationDataset
 
 
 @TextGenerationDataset.register(name="custom", alias=["json", "csv"])
