@@ -114,4 +114,13 @@ This hessian matrix is used to increase the accuracy recovery of the algorithm, 
 | **DeepSeek-R1-0528-BF16** | mem(684B params) ~= 1368Gb | mem(1 Layer) * 2 ~= 44.8Gb |
 | **Qwen2.5-VL-7B-Instruct** | mem(7B params) ~= 14Gb | max(mem(1 Text Layer)~= 0.4B, mem(Vision tower)~=1.3B)*2 ~= 2.6Gb |
 
+## Runtime requirements for LLM Compressor
 
+The following are typical runtimes for each LLM Compressor algorithm based on runs using Meta-Llama-3-8B-Instruct on a NVIDIA A100 Tensor Core GPU.   
+
+| Algorithm| Estimated Time 
+|--------|-------------|
+| **RTN (QuantizationModifier)** <br> Weights only (no activation quant) | ~ 1 minutes |
+| **RTN (QuantizationModifier)** <br> Weights and activations | ~ 20 minutes  |
+| **GPTQ** (weights only) | ~ 30 minutes | 
+| **AWQ** (weights only) | ~ 30 minutes | 
