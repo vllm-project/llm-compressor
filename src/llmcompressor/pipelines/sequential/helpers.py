@@ -538,7 +538,7 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
 
     if torch.cuda.is_available():
         offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
-    elif torch.npu.is_available():
+    elif hasattr(torch, "npu") and torch.npu.is_available():
         offloaded_dispatch(model, execution_device=torch.device("npu:0"))
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
