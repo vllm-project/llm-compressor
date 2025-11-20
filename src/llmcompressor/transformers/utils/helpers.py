@@ -14,7 +14,6 @@ from huggingface_hub import (
     hf_hub_download,
     try_to_load_from_cache,
 )
-from huggingface_hub.errors import HFValidationError
 from loguru import logger
 from transformers import AutoConfig
 
