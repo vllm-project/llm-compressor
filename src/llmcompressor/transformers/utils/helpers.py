@@ -14,6 +14,7 @@ from huggingface_hub import (
     hf_hub_download,
     try_to_load_from_cache,
 )
+from huggingface_hub.errors import HFValidationError
 from loguru import logger
 from transformers import AutoConfig
 
@@ -58,7 +59,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
     :return: The path to the recipe file if found, None otherwise.
     """
     model_path = model_path.as_posix() if isinstance(model_path, Path) else model_path
-
+    print("DD", model_path,  os.path.isdir(model_path) , os.path.isfile(model_path))
     if os.path.isdir(model_path) or os.path.isfile(model_path):
         # Model path is a local path to the model directory or file
         model_path = (
@@ -73,10 +74,14 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         return None
 
     # Try to resolve HF model ID to cached location first
-    cached_recipe = try_to_load_from_cache(
-        repo_id=model_path,
-        filename=RECIPE_FILE_NAME,
-    )
+    cached_recipe = None
+    try:
+        cached_recipe = try_to_load_from_cache(
+            repo_id=model_path,
+            filename=RECIPE_FILE_NAME,
+        )
+    except HFValidationError as e:
+        logger.info(f"unable to get recipe from hf_hub, raised:\n{e}")
 
     if cached_recipe and cached_recipe is not _CACHED_NO_EXIST:
         # Recipe found in cached model

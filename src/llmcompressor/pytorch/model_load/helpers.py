@@ -144,7 +144,8 @@ def load_safetensors_state_dict(file_path: str) -> Dict[str, torch.Tensor]:
 def copy_python_files_from_model_cache(model, save_path: str):
     config = model.config
     cache_path = None
-    if hasattr(config, "_name_or_path"):
+    print("GGG", config._name_or_path)
+    if hasattr(config, "_name_or_path") and len(config._name_or_path)>0:
         import os
         import shutil
 
