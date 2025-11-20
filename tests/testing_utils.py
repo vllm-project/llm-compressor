@@ -321,12 +321,21 @@ class LMEvalCacheKey:
     limit: int
     batch_size: int
     model_args_hash: str
+    lmeval_version: str
+    seed: Optional[int]
 
     @classmethod
     def from_test_instance(cls, test_instance: Any) -> "LMEvalCacheKey":
         """Create cache key from test instance."""
+        try:
+            import lm_eval
+            lmeval_version = lm_eval.__version__
+        except (ImportError, AttributeError):
+            lmeval_version = "unknown"
+
         lmeval = test_instance.lmeval
         model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
+        seed = getattr(test_instance, "seed", None)
 
         return cls(
             model=test_instance.model,
@@ -335,10 +344,17 @@ class LMEvalCacheKey:
             limit=lmeval.limit,
             batch_size=lmeval.batch_size,
             model_args_hash=_sha256_hash(model_args_json, 16),
+            lmeval_version=lmeval_version,
+            seed=seed,
         )
 
     def _matches(self, row: pd.Series) -> bool:
         """Check if a DataFrame row matches this cache key."""
+        # Handle NaN for seed comparison (pandas reads None as NaN)
+        seed_matches = (
+            (pd.isna(row["seed"]) and self.seed is None)
+            or (row["seed"] == self.seed)
+        )
         return (
             row["model"] == self.model
             and row["task"] == self.task
@@ -346,6 +362,8 @@ class LMEvalCacheKey:
             and row["limit"] == self.limit
             and row["batch_size"] == self.batch_size
             and row["model_args_hash"] == self.model_args_hash
+            and row["lmeval_version"] == self.lmeval_version
+            and seed_matches
         )
 
     def get_cached_result(self) -> Optional[Dict]:
@@ -378,6 +396,8 @@ class LMEvalCacheKey:
                 "limit": self.limit,
                 "batch_size": self.batch_size,
                 "model_args_hash": self.model_args_hash,
+                "lmeval_version": self.lmeval_version,
+                "seed": self.seed,
                 "result": json.dumps(result, default=str),
             }
 

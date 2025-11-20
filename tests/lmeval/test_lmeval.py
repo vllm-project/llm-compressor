@@ -100,12 +100,12 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+        self.seed = eval_config.get("seed", None)
 
-        seed = eval_config.get("seed", None)
-        if seed is not None:
-            random.seed(seed)
-            numpy.random.seed(seed)
-            torch.manual_seed(seed)
+        if self.seed is not None:
+            random.seed(self.seed)
+            numpy.random.seed(self.seed)
+            torch.manual_seed(self.seed)
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
