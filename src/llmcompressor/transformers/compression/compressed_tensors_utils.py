@@ -2,16 +2,14 @@ import os
 import weakref
 from collections.abc import Generator
 from functools import wraps
-from typing import Optional
+from typing import Optional, Iterable
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
     ModelCompressor,
     SparsityCompressionConfig,
-    delete_offload_parameter,
     has_offloaded_params,
-    register_offload_parameter,
 )
 from compressed_tensors.config import CompressionFormat
 from loguru import logger
@@ -25,7 +23,7 @@ from llmcompressor.transformers.compression.sparsity_metadata_config import (
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
-__all__ = ["modify_save_pretrained", "untie_word_embeddings"]
+__all__ = ["modify_save_pretrained", "untie_word_embeddings", "get_input_embeddings", "targets_embeddings"]
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -119,87 +117,64 @@ def modify_save_pretrained(model: PreTrainedModel):
 
 
 def untie_word_embeddings(model: PreTrainedModel):
-    """
-    Patches bug where HF transformers will fail to untie weights under specific
-    circumstances (https://github.com/huggingface/transformers/issues/33689).
-
-    This function detects those cases and unties the tensors if applicable
-
-    :param model: model to fix
-    """
-    try:
-        input_embed = model.get_input_embeddings()
-        output_embed = model.get_output_embeddings()
-    except NotImplementedError as e:
-        logger.warning(
-            f"cannot untie model of type {model.__class__} which doesn't have "
-            f"get_input_embeddings and get_output_embeddings implmented\n{e}"
-        )
+    """ Untie word embeddings, if possible. """
+    input_embed, output_embed = get_embeddings(model)
+    if input_embed is None or output_embed is None:
+        logger.warning("Unable to find embeddings to untie")
         return
 
     for module in (input_embed, output_embed):
-        if module is None or not hasattr(module, "weight"):
-            logger.warning(f"Cannot untie {module} which does not have weight param")
-            continue
-
-        # this could be replaced by a `get_offloaded_parameter` util
         if not has_offloaded_params(module):
-            untied_data = module.weight.data.clone()
+            module.weight.data = module.weight.data.clone()
         else:
-            untied_data = module._hf_hook.weights_map["weight"].clone()
-
-        requires_grad = module.weight.requires_grad
-        new_parameter = torch.nn.Parameter(untied_data, requires_grad=requires_grad)
-        delete_offload_parameter(module, "weight")
-        register_offload_parameter(module, "weight", new_parameter)
+            weights_map = module._hf_hook.weights_map
+            weights_map["weight"] = weights_map["weight"].clone()
 
     if hasattr(model.config, "tie_word_embeddings"):
         model.config.tie_word_embeddings = False
 
 
-def _get_embeddings_or_warn(
-    model: torch.nn.Module,
-) -> tuple[torch.nn.Module | None, torch.nn.Module | None]:
-    if not (
-        hasattr(model, "get_input_embeddings")
-        and hasattr(model, "get_output_embeddings")
-    ):
-        logger.warning(
-            f"{model.__class__} doesn't have attribute get_input_embeddings and"
-            " get_output_embeddings implemented."
-            "\nThis can cause"
-            " problems when quantizing layers with shared weights"
-        )
-        return None, None
-
+def get_embeddings(
+    model: torch.nn.Module
+) -> tuple[torch.nn.Module, torch.nn.Module] | tuple[None, None]:
+    """ Get word embeddings of model, otherwise return Nones """
     try:
-        input_embeddings, output_embeddings = (
-            model.get_input_embeddings(),
-            model.get_output_embeddings(),
-        )
-    except NotImplementedError as e:
+        input_embed = model.get_input_embeddings()
+        output_embed = model.get_output_embeddings()
+
+        if input_embed is None or output_embed is None:
+            raise NotImplementedError("Embeddings are `None`")
+        
+        if not hasattr(input_embed, "weight") or hasattr(output_embed, "weight"):
+            raise NotImplementedError("Embeddings do not have weight attributes")
+        
+    except (AttributeError, NotImplementedError) as exception:
         logger.warning(
-            f"{model.__class__} doesn't have get_input_embeddings and "
-            "get_output_embeddings implemented."
-            "\nThis can cause"
-            " problems when quantizing layers with shared weights"
-            f"\n{e}"
+            f"{model.__class__} does not have get_input_embeddings and "
+            "get_output_embeddings implemented. \nThis can cause problems when "
+            f"quantizing layers with shared weights\n{exception}"
         )
         return None, None
 
-    if not (
-        isinstance(input_embeddings, torch.nn.Module)
-        and isinstance(output_embeddings, torch.nn.Module)
-    ):
-        logger.warning(
-            f"expected modules from {model.__class__} get_input_embeddings and"
-            f" get_output_embeddings but got {type(input_embeddings)}"
-            f"  and {type(output_embeddings)}."
-            "\nThis can cause"
-            " problems when quantizing layers with shared weights"
-        )
-        return None, None
-    return input_embeddings, output_embeddings
+    return input_embed, output_embed
+
+
+def targets_embeddings(
+    model: torch.nn.Module,
+    targets: Iterable[torch.nn.Module],
+    check_input: bool = True,
+    check_output: bool = True
+) -> bool:
+    input_embed, output_embed = get_embeddings(model)
+    if input_embed is None or output_embed is None:
+        return False
+    
+    targets = set(targets)
+    return (
+        not check_input or input_embed in targets
+        and (not check_output or output_embed in targets)
+    )
+
 
 
 def untie_if_target_shared_embedding(
@@ -214,21 +189,8 @@ def untie_if_target_shared_embedding(
     :param matched_module_generator: Generator of all modules (not names) which
             will be modified by quantization or transformation
     """
-    input_embeddings, output_embeddings = _get_embeddings_or_warn(model)
-
-    if None in (input_embeddings, output_embeddings):  # if couldn't find embeddings
-        return
-
-    if (
-        input_embeddings.weight is not output_embeddings.weight
-    ):  # if not shared, can ignore
-        return
-
-    # if shared, check if either is targeted
-    for module in matched_module_generator:
-        if module in (input_embeddings, output_embeddings):
-            untie_word_embeddings(model)
-            return
+    if targets_embeddings(model, matched_module_generator):
+        untie_word_embeddings(model)
 
 
 def get_model_compressor(

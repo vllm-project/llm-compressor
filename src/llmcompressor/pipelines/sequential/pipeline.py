@@ -14,6 +14,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
     trace_subgraphs,
+    targets_lm_head,
 )
 from llmcompressor.utils.helpers import (
     DISABLE_QAC_MODIFIERS,
@@ -82,9 +83,10 @@ class SequentialPipeline(CalibrationPipeline):
             type(mod).__name__ in DISABLE_QAC_MODIFIERS
             for mod in session.lifecycle.recipe.modifiers
         )
+        skip_lm_head = targets_lm_head(model, modifiers)
 
         with contextlib.ExitStack() as stack:
-            stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(calibration_forward_context(model, skip_lm_head))
             # Optionally disable quantization
             if not dataset_args.quantization_aware_calibration or disable_qac:
                 stack.enter_context(DisableQuantization(model))

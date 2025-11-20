@@ -183,6 +183,12 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
+    batch_size: int = field(
+        default=1,
+        metadata={
+            "help": "TODO"
+        }
+    )
     # --- pipeline arguments --- #
     pipeline: str | None = field(
         default="independent",

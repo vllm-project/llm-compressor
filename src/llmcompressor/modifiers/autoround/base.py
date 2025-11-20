@@ -142,7 +142,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param model: model to prepare for calibration
         """
-        untie_if_target_shared_embedding(model, self._module_names.values())
+        untie_if_target_shared_embedding(model, self._module_names.keys())
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round

@@ -37,6 +37,7 @@ __all__ = [
     "Subgraph",
     "get_sequential_targets",
     "dispatch_for_sequential",
+    "targets_lm_head",
 ]
 
 
@@ -424,6 +425,7 @@ def graph_is_well_formed(graph: Graph) -> bool:
     return True
 
 
+# TODO: deprecate
 def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
     """
     Find modules whose names match the patterns given by `target_names`
@@ -492,6 +494,11 @@ def get_sequential_targets(
         return [sequential_targets]
     else:
         return sequential_targets
+    
+
+def targets_lm_head(modifiers: list[Modifier], model: PreTrainedModel):
+    targets = get_modifier_targets(modifiers)
+    return targets_embeddings(model, targets, check_input=False, check_output=True):
 
 
 def add_line_numbers(text: str) -> str:

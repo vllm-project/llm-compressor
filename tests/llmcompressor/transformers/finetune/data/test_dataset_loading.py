@@ -259,6 +259,7 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
 
     calib_dataloader = format_calibration_data(
         tokenized_dataset=calib_dataset,
+        batch_size=1,
         num_calibration_samples=num_calibration_samples,
         do_shuffle=dataset_args.shuffle_calibration_samples,
     )

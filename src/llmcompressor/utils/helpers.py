@@ -3,6 +3,8 @@ General utility helper functions.
 Common functions for interfacing with python primitives and directories/files.
 """
 
+from typing import Optional
+
 import contextlib
 import errno
 import fnmatch
@@ -24,6 +26,7 @@ from urllib.parse import urlparse
 import numpy
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
+from compressed_tensors.utils.offload import has_offloaded_params
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -1041,7 +1044,7 @@ def disable_hf_kernels(module: torch.nn.Module):
 
 
 @contextlib.contextmanager
-def calibration_forward_context(model: torch.nn.Module):
+def calibration_forward_context(model: torch.nn.Module, skip_lm_head: bool = False):
     """
     Context in which all calibration forward passes should occur.
 
@@ -1049,13 +1052,47 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable the KV cache
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
+    - Disable lm_head of model (optional)
     """
-    with torch.no_grad(), disable_cache(model), eval_context(model), disable_hf_kernels(
-        model
-    ):
+    with contextlib.ExitStack() as stack:
+        stack.push(torch.no_grad())
+        stack.push(disable_cache(model))
+        stack.push(eval_context(model))
+        stack.push(disable_hf_kernels(model))
+        if skip_lm_head:
+            stack.push(disable_lm_head(model))
+
         yield
 
 
+@contextlib.contextmanager
+def disable_lm_head(model: torch.nn.Module):
+    """
+    Disable the lm_head of a model by moving it to the meta device. This function
+    does not untie parameters and restores the model proper loading upon exit
+    """
+    from llmcompressor.transformers.compression.compressed_tensors_utils import (
+        get_embeddings
+    )
+
+    _embed_tokens, lm_head = get_embeddings(model)
+    if lm_head is not None:
+        if has_offloaded_params(lm_head):
+            with patch_attr(lm_head._hf_hook, "execution_device", torch.device("meta")):
+                yield
+        else:
+            with patch_attr(lm_head, "weight", lm_head.weight.to("meta")):
+                yield
+
+    else:
+        logger.warning(
+            f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
+            "but was unable to to find lm_head. This may lead to unexpected OOM."
+        )
+        yield
+
+
+# TODO: deprecate
 @contextlib.contextmanager
 def patch_attr(base: object, attr: str, value: Any):
     """

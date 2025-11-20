@@ -7,10 +7,13 @@ detection. Supports MoE (Mixture of Experts) models and specialized
 tensor operations for compression workflows.
 """
 
-from typing import Dict
+from typing import Dict, TYPE_CHECKING
 
 import torch
 from torch.nn import Module
+
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
 
 __all__ = [
     "apply_pad_mask_to_batch",
@@ -60,3 +63,24 @@ def is_moe_model(model: Module) -> bool:
             return True
 
     return False
+
+
+def get_modifier_targets(model: torch.nn.Module, modifier: "Modifier") -> list[torch.nn.Module]:
+    """
+    Get all modules which will be modified by the given modifier
+    """
+    from llmcompressor.modifiers.quantization import QuantizationMixin
+    from llmcompressor.modifiers.transform import SpinQuantModifier
+
+    for modifier in modifiers:
+        if not modifier.initialized:
+            # TODO
+            pass
+
+        if isinstance(modifier, QuantizationMixin):
+            modifier.resolved_targets
+        elif isinstance(modifier, SpinQuantModifier):
+            modifier.mappings.
+            
+        else:
+            raise NotImplementedError(f"Unsupported modifier {modifier.__class__}")

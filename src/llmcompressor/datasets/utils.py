@@ -119,6 +119,7 @@ def get_calibration_dataloader(
     return format_calibration_data(
         tokenized_dataset=calibration_dataset,
         num_calibration_samples=dataset_args.num_calibration_samples,
+        batch_size=dataset_args.batch_size,
         do_shuffle=dataset_args.shuffle_calibration_samples,
         collate_fn=dataset_args.data_collator,
     )
@@ -127,6 +128,7 @@ def get_calibration_dataloader(
 def format_calibration_data(
     tokenized_dataset: Dataset,
     num_calibration_samples: int | None = None,
+    batch_size: int = 1,
     do_shuffle: bool = True,
     collate_fn: Callable = default_data_collator,
 ) -> list[torch.Tensor]:
@@ -162,7 +164,7 @@ def format_calibration_data(
         )
         num_workers = 0
     dataloader_params = {
-        "batch_size": 1,
+        "batch_size": batch_size,
         "sampler": RandomSampler(tokenized_calibration)
         if do_shuffle
         else SequentialSampler(tokenized_calibration),
