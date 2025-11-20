@@ -140,7 +140,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
-        model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
+        model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
         self.dataset_args = dataset_args
@@ -229,7 +229,6 @@ class Oneshot:
 def oneshot(
     # Model arguments
     model: str | PreTrainedModel,
-    distill_teacher: str | None = None,
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,
