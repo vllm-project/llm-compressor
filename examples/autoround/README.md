@@ -109,7 +109,7 @@ from vllm import LLM
 model = LLM("./Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound")
 ```
 
-We can evaluate accuracy with `lm_eval` (`pip install lm_eval==v0.4.9.1`):
+We can evaluate accuracy with `lm_eval` (`pip install lm-eval==0.4.9.1`):
 > Note: quantized models can be sensitive to the presence of the `bos` token. `lm_eval` does not add a `bos` token by default, so make sure to include the `add_bos_token=True` argument when running your evaluations.
 
 Run the following to test accuracy on GSM-8K:
