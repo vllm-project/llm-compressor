@@ -79,14 +79,10 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         return None
 
     # Try to resolve HF model ID to cached location first
-    cached_recipe = None
-    try:
-        cached_recipe = try_to_load_from_cache(
-            repo_id=model_path,
-            filename=RECIPE_FILE_NAME,
-        )
-    except HFValidationError as e:
-        logger.debug(f"unable to get recipe from hf_hub, raised:\n{e}")
+    cached_recipe = try_to_load_from_cache(
+        repo_id=model_path,
+        filename=RECIPE_FILE_NAME,
+    )
 
     if cached_recipe and cached_recipe is not _CACHED_NO_EXIST:
         # Recipe found in cached model
