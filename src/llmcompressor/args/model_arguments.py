@@ -26,12 +26,6 @@ class ModelArguments:
             )
         },
     )
-    distill_teacher: str | None = field(
-        default=None,
-        metadata={
-            "help": "Teacher model (a trained text generation model)",
-        },
-    )
     config_name: str | None = field(
         default=None,
         metadata={

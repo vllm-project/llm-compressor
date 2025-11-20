@@ -14,18 +14,16 @@ from llmcompressor.args import (
     DatasetArguments,
     ModelArguments,
     RecipeArguments,
-    TrainingArguments,
 )
 from llmcompressor.transformers.utils.helpers import resolve_processor_from_model_args
 
 
 def parse_args(
-    include_training_args: bool = False, **kwargs
+    **kwargs,
 ) -> tuple[
     ModelArguments,
     DatasetArguments,
-    RecipeArguments,
-    TrainingArguments | None,
+    RecipeArguments | None,
     str | None,
 ]:
     """
@@ -38,31 +36,18 @@ def parse_args(
             src/llmcompressor/args/dataset_args.py
         * RecipeArguments in
             src/llmcompressor/args/recipe_args.py
-        * TrainingArguments in
-            src/llmcompressor/args/training_args.py
 
-    ModelArguments, DatasetArguments, and RecipeArguments are used for both
-    `oneshot` and `train`. TrainingArguments is only used for `train`.
+    ModelArguments, DatasetArguments, and RecipeArguments used for
+    oneshot.
 
     """
-
-    # pop output_dir, used as an attr in TrainingArguments, where oneshot is not used
     output_dir = kwargs.pop("output_dir", None)
 
     parser_args = (ModelArguments, DatasetArguments, RecipeArguments)
-    if include_training_args:
-        parser_args += (TrainingArguments,)
-
     parser = HfArgumentParser(parser_args)
     parsed_args = parser.parse_dict(kwargs)
 
-    training_args = None
-    if include_training_args:
-        model_args, dataset_args, recipe_args, training_args = parsed_args
-        if output_dir is not None:
-            training_args.output_dir = output_dir
-    else:
-        model_args, dataset_args, recipe_args = parsed_args
+    model_args, dataset_args, recipe_args = parsed_args
 
     if recipe_args.recipe_args is not None:
         if not isinstance(recipe_args.recipe_args, dict):
@@ -83,4 +68,4 @@ def parse_args(
     # silently assign tokenizer to processor
     resolve_processor_from_model_args(model_args)
 
-    return model_args, dataset_args, recipe_args, training_args, output_dir
+    return model_args, dataset_args, recipe_args, output_dir

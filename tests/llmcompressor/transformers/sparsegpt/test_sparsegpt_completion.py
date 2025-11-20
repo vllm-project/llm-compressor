@@ -10,7 +10,7 @@ from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     get_model_compressor,
 )
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.data import TextGenerationDataset
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = (
