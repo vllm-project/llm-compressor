@@ -22,10 +22,14 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       COVERAGE_FILE: ".coverage.base"
+    strategy:
+      matrix:
+        python: ["3.10", "3.13"]
     steps:
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -36,7 +40,7 @@ jobs:
         run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
-          repository: "neuralmagic/compressed-tensors"
+          repository: "vllm-project/compressed-tensors"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true
@@ -73,10 +77,14 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       COVERAGE_FILE: ".coverage.pytorch"
+    strategy:
+      matrix:
+        python: ["3.10", "3.13"]
     steps:
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -87,7 +95,7 @@ jobs:
         run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
-          repository: "neuralmagic/compressed-tensors"
+          repository: "vllm-project/compressed-tensors"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true

@@ -1,7 +1,7 @@
 import pytest
 
 from llmcompressor.args import DatasetArguments
-from llmcompressor.transformers.finetune.data import (
+from llmcompressor.transformers.data import (
     C4Dataset,
     OpenPlatypusDataset,
     TextGenerationDataset,

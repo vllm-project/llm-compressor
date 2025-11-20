@@ -2,7 +2,7 @@ import pytest
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.datasets import make_dataset_splits
-from llmcompressor.transformers.finetune.data.data_helpers import get_raw_dataset
+from llmcompressor.transformers.data.data_helpers import get_raw_dataset
 
 
 @pytest.mark.unit

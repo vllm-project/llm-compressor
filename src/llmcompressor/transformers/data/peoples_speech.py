@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any, Dict
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.base import get_columns
+from llmcompressor.transformers.data import TextGenerationDataset
+from llmcompressor.transformers.data.base import get_columns
 from llmcompressor.typing import DatasetType, Processor
 
 if TYPE_CHECKING:

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:

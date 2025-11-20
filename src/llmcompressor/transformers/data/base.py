@@ -18,7 +18,7 @@ from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
 from llmcompressor.args import DatasetArguments
-from llmcompressor.transformers.finetune.data.data_helpers import (
+from llmcompressor.transformers.data.data_helpers import (
     LABELS_MASK_VALUE,
     get_custom_datasets_from_path,
     get_raw_dataset,
