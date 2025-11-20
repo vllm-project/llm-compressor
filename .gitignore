@@ -805,6 +805,9 @@ timings/
 output_finetune/
 env_log.json
 
+# LM Eval cache
+.lmeval_cache/
+
 # uv artifacts
 uv.lock
 .venv/
