@@ -329,6 +329,7 @@ class LMEvalCacheKey:
         """Create cache key from test instance."""
         try:
             import lm_eval
+
             lmeval_version = lm_eval.__version__
         except (ImportError, AttributeError):
             lmeval_version = "unknown"
@@ -351,9 +352,8 @@ class LMEvalCacheKey:
     def _matches(self, row: pd.Series) -> bool:
         """Check if a DataFrame row matches this cache key."""
         # Handle NaN for seed comparison (pandas reads None as NaN)
-        seed_matches = (
-            (pd.isna(row["seed"]) and self.seed is None)
-            or (row["seed"] == self.seed)
+        seed_matches = (pd.isna(row["seed"]) and self.seed is None) or (
+            row["seed"] == self.seed
         )
         return (
             row["model"] == self.model
