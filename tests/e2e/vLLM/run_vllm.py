@@ -18,7 +18,7 @@ def parse_args():
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON input: {e}")
 
-    if "W4A16_2of4" in scheme:
+    if scheme is not None and "W4A16_2of4" in scheme:
         # required by the kernel
         llm_kwargs["dtype"] = torch.float16
 

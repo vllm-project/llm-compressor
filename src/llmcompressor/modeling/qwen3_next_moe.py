@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # coding=utf-8
 # Copyright 2025 The Qwen team, Alibaba Group and the HuggingFace Inc. team.
 # All rights reserved.
@@ -13,19 +15,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from typing import TYPE_CHECKING
 
 import torch
 
 from llmcompressor.modeling.moe_context import MoECalibrationModule
 
-
-@MoECalibrationModule.register("Qwen3NextSparseMoeBlock")
-class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
+if TYPE_CHECKING:
     from transformers import Qwen3NextConfig
     from transformers.models.qwen3_next.modeling_qwen3_next import (
         Qwen3NextSparseMoeBlock,
     )
 
+
+@MoECalibrationModule.register("Qwen3NextSparseMoeBlock")
+class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
     """
     Calibration version of Qwen3NextSparseMoeBlock that sends all tokens to all experts.
     """
