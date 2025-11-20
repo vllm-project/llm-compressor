@@ -81,7 +81,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
             filename=RECIPE_FILE_NAME,
         )
     except HFValidationError as e:
-        logger.info(f"unable to get recipe from hf_hub, raised:\n{e}")
+        logger.debug(f"unable to get recipe from hf_hub, raised:\n{e}")
 
     if cached_recipe and cached_recipe is not _CACHED_NO_EXIST:
         # Recipe found in cached model
