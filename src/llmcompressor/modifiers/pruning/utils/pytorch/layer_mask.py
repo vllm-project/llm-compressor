@@ -23,7 +23,7 @@ def setup_mask_for_param(param: Parameter, mask: torch.Tensor) -> torch.Tensor:
 
     if mask.shape != param.data.shape:
         raise ValueError(
-            f"Mask shape {mask.shape} does not match " f"param shape {param.data.shape}"
+            f"Mask shape {mask.shape} does not match param shape {param.data.shape}"
         )
 
     if mask.dtype != torch.bool:

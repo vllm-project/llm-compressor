@@ -31,7 +31,7 @@ MAX_SEQUENCE_LENGTH = 2048
 def get_calib_dataset(tokenizer):
     ds = load_dataset(
         DATASET_ID,
-        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES*10}]",
+        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES * 10}]",
     )
 
     def preprocess(example):

@@ -1,3 +1,4 @@
+import json
 import os
 import weakref
 from collections.abc import Generator
@@ -19,13 +20,18 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.transformers.compression.lora_utils import get_lora_metadata
 from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
-__all__ = ["modify_save_pretrained", "untie_word_embeddings"]
+__all__ = [
+    "modify_save_pretrained",
+    "untie_word_embeddings",
+    "save_lora_metadata",
+]
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -103,6 +109,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             # update config to reflect compression
             if compressor is not None:
                 compressor.update_config(save_directory)
+
+            # save LoRA metadata for quantized models
+            if save_compressed and compressor is not None:
+                save_lora_metadata(model, save_directory)
 
             # update existing recipe
             update_and_save_recipe(model.name_or_path, save_directory)
@@ -322,6 +332,45 @@ def get_model_compressor(
         sparsity_config_or_format=sparsity_config,
         quantization_format=quantization_format,
     )
+
+
+def save_lora_metadata(model: torch.nn.Module, save_directory: str):
+    """
+    Save LoRA compatibility metadata for compressed models.
+
+    This function extracts and saves metadata that will help downstream frameworks
+    (like vLLM) understand how to unpack INT4 weights for LoRA adapter injection.
+
+    :param model: compressed model to extract metadata from
+    :param save_directory: directory where model is being saved
+    """
+    try:
+        # Extract LoRA metadata from model
+        metadata = get_lora_metadata(model)
+
+        # Only save if model has quantized modules
+        if metadata["num_quantized_modules"] > 0:
+            metadata_path = os.path.join(save_directory, "lora_metadata.json")
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+            logger.info(f"Saved LoRA metadata to {metadata_path}")
+
+            # Also add to model config if possible
+            config_path = os.path.join(save_directory, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+
+                # Add LoRA compatibility flag
+                config["lora_compatible"] = metadata["lora_compatible"]
+                config["lora_target_modules"] = metadata["suggested_lora_targets"]
+
+                with open(config_path, "w") as f:
+                    json.dump(config, f, indent=2)
+                logger.info("Added LoRA compatibility info to model config")
+
+    except Exception as e:
+        logger.warning(f"Failed to save LoRA metadata: {e}")
 
 
 def update_and_save_recipe(model_stub: str, save_directory: str):

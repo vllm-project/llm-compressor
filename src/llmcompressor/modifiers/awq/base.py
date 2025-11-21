@@ -165,9 +165,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             for group in config.config_groups.values()
             if group.weights is not None
         )
-        assert (
-            len(num_bits_set) == 1
-        ), "In AWQ, all config groups must use the same configuration for num_bits"
+        assert len(num_bits_set) == 1, (
+            "In AWQ, all config groups must use the same configuration for num_bits"
+        )
 
         model._num_bits = next(iter(num_bits_set))
 
@@ -176,9 +176,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             for group in config.config_groups.values()
             if group.weights is not None
         )
-        assert (
-            len(symmetric_set) == 1
-        ), "In AWQ, all config groups must use the same configuration for symmetric"
+        assert len(symmetric_set) == 1, (
+            "In AWQ, all config groups must use the same configuration for symmetric"
+        )
 
         model._symmetric = next(iter(symmetric_set))
 
@@ -187,9 +187,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             for group in config.config_groups.values()
             if group.weights is not None
         )
-        assert (
-            len(group_size_set) == 1
-        ), "In AWQ, all config groups must use the same configuration for group_size"
+        assert len(group_size_set) == 1, (
+            "In AWQ, all config groups must use the same configuration for group_size"
+        )
 
         model._group_size = next(iter(group_size_set))
         if model._group_size is None:
@@ -328,7 +328,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
             ):
                 pbar.set_description(
-                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
+                    f"Resolving mapping {mapping_idx + 1}/{len(self.mappings)}"
                     f" ({num_skipped_mappings} skipped)"
                 )
 
@@ -678,9 +678,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
 
-        assert (
-            torch.isnan(best_scales).sum() == 0
-        ), f"Nan found in scales: {best_scales}"
+        assert torch.isnan(best_scales).sum() == 0, (
+            f"Nan found in scales: {best_scales}"
+        )
 
         return best_scales.detach().cpu()
 

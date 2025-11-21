@@ -17,9 +17,9 @@ def test_smooth_quant_is_registered():
         mappings=mappings,
     )
 
-    assert isinstance(
-        modifier, SmoothQuantModifier
-    ), "PyTorch SmoothQuant not registered"
+    assert isinstance(modifier, SmoothQuantModifier), (
+        "PyTorch SmoothQuant not registered"
+    )
     assert modifier.smoothing_strength == smoothing_strength
     assert modifier.mappings == mappings
 
