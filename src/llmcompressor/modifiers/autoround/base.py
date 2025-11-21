@@ -236,7 +236,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 block=decoding_layer,
                 inputs=cur_inputs,
                 q_input=self._q_input,
-                device=device,
+                device=str(device),
                 # Leave offload for LLMC
                 auto_offload=False,
             )
