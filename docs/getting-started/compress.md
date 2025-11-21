@@ -33,6 +33,7 @@ Compression schemes use quantization methods including the following:
 | **AWQ** | Uses channelwise scaling to better preserve important outliers in weights and activations | Better accuracy recovery with faster runtime than GPTQ |
 | **SmoothQuant** | Smooths outliers in activations by folding them into weights, ensuring better accuracy for weight and activation quantized models | Good accuracy recovery with minimal calibration time; composable with other methods |
 | **Round-To-Nearest (RTN)** | Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments. |
+| **AutoRound** | AutoRound optimizes rounding and clipping ranges via sign-gradient descent. | Delivers leading 4-bit and superior sub-4-bit accuracy compared to GPTQ/AWQ, with runtime faster than GPTQ and on par with AWQ. |
 
 For this guide, we'll use `GPTQ` composed with `SmoothQuant` to create an `INT W8A8` quantized model. This combination provides a good balance for performance, accuracy, and compatability across a wide range of hardware.
 
