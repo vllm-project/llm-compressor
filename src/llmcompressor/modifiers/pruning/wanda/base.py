@@ -26,23 +26,27 @@ class WandaPruningModifier(SparsityModifierBase):
     Modifier for applying the one-shot WANDA algorithm to a model
     from the paper: https://arxiv.org/abs/2306.11695
 
-    | Sample yaml:
-    |   test_stage:
-    |       sparsity_modifiers:
-    |           WandaPruningModifier:
-    |               sparsity: 0.5
-    |               mask_structure: "2:4"
+    Sample yaml:
+
+    ```yaml
+    test_stage:
+      sparsity_modifiers:
+        WandaPruningModifier:
+          sparsity: 0.5
+          mask_structure: "2:4"
+    ```
 
     Lifecycle:
-        - on_initialize
-            - register_hook(module, calibrate_module, "forward")
-            - run_sequential / run_basic
-                - make_empty_row_scalars
-                - accumulate_row_scalars
-        - on_sequential_batch_end
-            - sparsify_weight
-        - on_finalize
-            - remove_hooks()
+
+    - on_initialize
+        - register_hook(module, calibrate_module, "forward")
+        - run_sequential / run_basic
+            - make_empty_row_scalars
+            - accumulate_row_scalars
+    - on_sequential_batch_end
+        - sparsify_weight
+    - on_finalize
+        - remove_hooks()
 
     :param sparsity: Sparsity to compress model to
     :param sparsity_profile: Can be set to 'owl' to use Outlier Weighed
@@ -78,7 +82,7 @@ class WandaPruningModifier(SparsityModifierBase):
 
         :param module: module being calibrated
         :param args: inputs to the module, the first element of which is the
-            cannonical input
+            canonical input
         :param _output: uncompressed module output, unused
         """
         # Assume that the first argument is the input
