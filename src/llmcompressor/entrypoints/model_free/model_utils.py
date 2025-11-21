@@ -18,7 +18,7 @@ def is_weights_file(file_name: str) -> bool:
     return any(file_name.endswith(suffix) for suffix in weights_files)
 
 
-def get_checkpoint_files(model_stub: str | os.PathLike) -> list[str]:
+def get_checkpoint_files(model_stub: str | os.PathLike) -> dict[str, str]:
     # In the future, this function can accept and pass download kwargs to cached_file
 
     if os.path.exists(model_stub):
@@ -26,7 +26,7 @@ def get_checkpoint_files(model_stub: str | os.PathLike) -> list[str]:
     else:
         file_paths = list_repo_files(model_stub)
 
-    return [(file_path, cached_file(model_stub, file_path)) for file_path in file_paths]
+    return {file_path: cached_file(model_stub, file_path) for file_path in file_paths}
 
 
 def walk_file_paths(root_dir: str, ignore: str | None = None) -> list[str]:
