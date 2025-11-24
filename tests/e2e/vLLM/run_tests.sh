@@ -16,18 +16,8 @@ while getopts "c:t:" OPT; do
   esac
 done
 
-script_path=$(dirname "${BASH_SOURCE[0]}")
-if [ -d "$CONFIG" ]; then
-    echo "Config is provided as a folder: $CONFIG"
-    CONFIGS=`ls "$CONFIG"`
-elif [ -f "$CONFIG" ]; then
-    echo "Config is provided as a file: $CONFIG"
-    CONFIGS=`cat "$CONFIG"`
-fi
-echo "$CONFIGS"
-
 # Parse list of configs.
-for MODEL_CONFIG in $(echo -e "$CONFIGS" | sed "s|^|${script_path}/configs/|")
+for MODEL_CONFIG in "$CONFIG"/*
 do
     LOCAL_SUCCESS=0
 
