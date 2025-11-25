@@ -157,11 +157,11 @@ class TestvLLM:
 
     def test_vllm(self, test_data_file: str):
 
-        self.set_up(self, test_data_file)
+        self.set_up(test_data_file)
 
-        self.compress_model(self, test_data_file)
+        self.compress_model(test_data_file)
 
-        self.save_compressed_model(self)
+        self.save_compressed_model()
 
         # Run vLLM with saved model
         if IS_VLLM_IMAGE:
