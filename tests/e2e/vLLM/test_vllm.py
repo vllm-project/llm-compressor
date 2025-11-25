@@ -155,9 +155,15 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-    def test_vllm(self):
-        # Run vLLM with saved model
+    def test_vllm(self, test_data_file: str):
 
+        self.set_up(self, test_data_file)
+
+        self.compress_model(self, test_data_file)
+
+        self.save_compressed_model(self)
+
+        # Run vLLM with saved model
         if IS_VLLM_IMAGE:
             logger.info("========== RUNNING vLLM in RHAIIS vllm image ==========")
         elif VLLM_PYTHON_ENV.lower() == "same":
