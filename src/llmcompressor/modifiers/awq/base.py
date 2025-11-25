@@ -327,9 +327,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             target_patterns = (mapping.smooth_layer, *mapping.balance_layers)
 
             for modules_set in (
-                pbar := tqdm(
-                    match_modules_set(model, target_patterns, self.ignore)
-                )
+                pbar := tqdm(match_modules_set(model, target_patterns, self.ignore))
             ):
                 pbar.set_description(
                     f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
