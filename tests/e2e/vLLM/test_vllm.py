@@ -123,7 +123,8 @@ class TestvLLM:
     def save_compressed_model(self):
 
         logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(oneshot_model=self.oneshot_model, tokenizer=self.tokenizer)
+        self._save_compressed_model(oneshot_model=self.oneshot_model,
+            tokenizer=self.tokenizer)
 
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
