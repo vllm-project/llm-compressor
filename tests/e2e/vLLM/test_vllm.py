@@ -156,7 +156,6 @@ class TestvLLM:
             )
 
     def test_vllm(self, test_data_file: str):
-
         self.compress_model(test_data_file)
 
         self.save_compressed_model()
