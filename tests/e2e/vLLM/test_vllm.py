@@ -1,4 +1,3 @@
-
 import os
 import re
 import shutil
@@ -121,10 +120,10 @@ class TestvLLM:
         self._check_session_contains_recipe()
 
     def save_compressed_model(self):
-
         logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(oneshot_model=self.oneshot_model,
-            tokenizer=self.tokenizer)
+        self._save_compressed_model(
+            oneshot_model=self.oneshot_model, tokenizer=self.tokenizer
+        )
 
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
@@ -157,8 +156,6 @@ class TestvLLM:
             )
 
     def test_vllm(self, test_data_file: str):
-
-        self.set_up(test_data_file)
 
         self.compress_model(test_data_file)
 
@@ -214,9 +211,6 @@ class TestvLLM:
         json_prompts = json.dumps(self.prompts)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
-
-        logger.info("Run vllm in subprocess.Popen() using python env:")
-        logger.info(self.vllm_env)
 
         if IS_VLLM_IMAGE:
             # generate python command to run in the vllm image

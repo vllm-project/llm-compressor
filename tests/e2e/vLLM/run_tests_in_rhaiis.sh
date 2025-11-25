@@ -57,8 +57,6 @@ do
       { cat $MODEL_CONFIG | grep -v 'save_dir'; echo "save_dir: $SAVE_DIR/$save_dir"; } > $CONFIG_FILE
     fi
 
-    #{ cat $MODEL_CONFIG | grep -v 'save_dir'; echo "save_dir: $SAVE_DIR"; } > $CONFIG_FILE
-
     echo "=== RUNNING MODEL: $CONFIG_FILE ==="
     cat $CONFIG_FILE
 
