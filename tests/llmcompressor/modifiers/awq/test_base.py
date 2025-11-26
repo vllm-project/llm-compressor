@@ -85,10 +85,12 @@ def test_set_resolved_mappings():
             assert set(mapping.balance_names) == {"decoder.mlp.down_proj"}
             assert mapping.parent_name == "decoder.mlp.down_proj"
 
-    # make sure we exclude case where o_proj/v_proj shapes are mismatched
     awq = AWQModifier(
         mappings=[
+            # make sure we exclude case where o_proj/v_proj shapes are mismatched
             AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+            # make sure we exclude mapping if any balance layers are skipped
+            AWQMapping("re:.*v_proj", ["re:.*z_proj", "re:.*o_proj"]),
         ],
         scheme="W4A16_ASYM",
     )
@@ -101,6 +103,7 @@ def test_set_resolved_mappings():
                             "q_proj": torch.nn.Linear(4, 2),
                             "k_proj": torch.nn.Linear(4, 2),
                             "v_proj": torch.nn.Linear(4, 2),
+                            "z_proj": torch.nn.Linear(2, 4),
                             "o_proj": torch.nn.Linear(4, 4),
                         }
                     )
@@ -109,6 +112,16 @@ def test_set_resolved_mappings():
         }
     )
     awq._set_resolved_mappings(model)
+    if len(awq._resolved_mappings) > 0:
+        assert all(
+            "o_proj" not in name for name in awq._resolved_mappings[0].balance_names
+        ), "should have skipped v->o mapping because o is incompatible"
+        assert all(
+            "z_proj" not in name for name in awq._resolved_mappings[0].balance_names
+        ), (
+            "should have skipped v->[z,o] mapping because o is incompatible even though"
+            "z is compatible"
+        )
     assert len(awq._resolved_mappings) == 0
 
 
