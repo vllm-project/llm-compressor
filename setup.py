@@ -144,7 +144,7 @@ setup(
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.12.3a2"
         ),
-        ("auto-round==0.9.1"),
+        "auto-round==0.9.1",
     ],
     extras_require={
         "dev": [
