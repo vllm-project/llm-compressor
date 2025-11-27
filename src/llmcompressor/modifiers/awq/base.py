@@ -320,21 +320,26 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        module_to_name = {module: name for name, module in model.named_modules()}
-        for mapping_idx, mapping in enumerate(self.mappings):
-            num_skipped_mappings = 0
+        
+        module_to_name = {}
+        for name, module in model.named_modules():
+            if module in module_to_name:
+                logger.info(
+                    f"Warning, {name} and {module_to_name[module]} both "
+                    "share the same module the same module, "
+                    "may have trouble resolving mappings."
+                )
+            module_to_name[module] = name
 
-            # Use match_modules_set to find coherent sets of modules
+
+
+        for mapping in self.mappings:
+
             target_patterns = (mapping.smooth_layer, *mapping.balance_layers)
 
             for smooth_layer, *balance_layers in (
-                pbar := tqdm(match_modules_set(model, target_patterns, self.ignore))
+                match_modules_set(model, target_patterns, self.ignore)
             ):
-                pbar.set_description(
-                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
-                    f" ({num_skipped_mappings} skipped)"
-                )
-
                 smooth_name = module_to_name.get(smooth_layer)
                 balance_names = [
                     module_to_name.get(balance_layer)
@@ -347,14 +352,18 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # skip mapping if any of the balance layers are incompatible
                 if not all_compatible or len(balance_layers) == 0:
-                    num_skipped_mappings += 1
+                    logger.info(
+                        f"skipping AWQ for {smooth_name} for mapping {mapping}" + (
+                            " because found incompatible balance layers" 
+                            if not all_compatible else 
+                            f" because no balance layers were found"
+                        )
+                    )
+
                     continue
-                elif len(balance_layers) == 1:
-                    # for single balance layer, parent is the balance layer
-                    parent_name, parent = balance_names[0], balance_layers[0]
                 else:
                     # for multiple balance layers, find lowest common parent
-                    parent_name, parent = get_lowest_common_parent(balance_names, model)
+                    parent_name, parent = get_lowest_common_module(balance_names, model)
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -788,29 +797,41 @@ def _accumulate_mean(
     return (prev_sum + sum_added) / new_count, new_count
 
 
-def get_lowest_common_parent(names: list[str], module: Module) -> tuple[str, Module]:
+def get_lowest_common_module(names: list[str], module: Module) -> tuple[str, Module]:
     """
-    Given a list of names, returns the lowest-scope common parent.
+    Given a list of names, returns the lowest-scope common module.
 
-    NOTE: function excludes parents of type ModuleList, which don't play
+    NOTE: function excludes modules of type ModuleList, which don't play
     nicely with hooks because their forward method is never directly
     called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
     are selected based on router output and their forward method is called.
     https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
 
-    Returns name of parent and pointer to parent module
+    Returns name of module and pointer to module
 
     Implementation is a small alteration of os.path.commonprefix
     https://docs.python.org/3/library/os.path.html#os.path.commonprefix
     """
-    s1 = min(names)
-    s2 = max(names)
-    parent_name = ""
+    # adding "." before and after allows for handling a lot of corner 
+    # cases which were previously mishandled ([case]->prefix->result)
+    # case 0: single module: [.abc.] -> .abc. -> abc
+    # case 1: substring modules: [.abc., .ab.] -> .ab -> ""
+    # case 2: parent & child: [.ab., .ab.a.] -> .ab. -> ab
+    s1 = min(names) + "."
+    s2 = max(names) + "."
+
+    # 1) find longest shared prefix
+    parent_name = "."
     for i, c in enumerate(s1):
         if c != s2[i]:
-            parent_name = s1[:i].rstrip(".")
             break
+        parent_name += c
 
+    # 2) throw away module name fragment and leading dot
+    # ".keep.thro" -> "keep"
+    parent_name = parent_name[1:parent_name.rfind(".")]
+
+    # 3) return first parent that is not a module list
     while True:
         if parent_name == "":
             return "", module
