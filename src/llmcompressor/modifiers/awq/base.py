@@ -320,7 +320,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        
+
         module_to_name = {}
         for name, module in model.named_modules():
             if module in module_to_name:
@@ -331,14 +331,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
             module_to_name[module] = name
 
-
-
         for mapping in self.mappings:
-
             target_patterns = (mapping.smooth_layer, *mapping.balance_layers)
 
-            for smooth_layer, *balance_layers in (
-                match_modules_set(model, target_patterns, self.ignore)
+            for smooth_layer, *balance_layers in match_modules_set(
+                model, target_patterns, self.ignore
             ):
                 smooth_name = module_to_name.get(smooth_layer)
                 balance_names = [
@@ -353,10 +350,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # skip mapping if any of the balance layers are incompatible
                 if not all_compatible or len(balance_layers) == 0:
                     logger.info(
-                        f"skipping AWQ for {smooth_name} for mapping {mapping}" + (
-                            " because found incompatible balance layers" 
-                            if not all_compatible else 
-                            f" because no balance layers were found"
+                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                        + (
+                            " because found incompatible balance layers"
+                            if not all_compatible
+                            else " because no balance layers were found"
                         )
                     )
 
@@ -812,7 +810,7 @@ def get_lowest_common_module(names: list[str], module: Module) -> tuple[str, Mod
     Implementation is a small alteration of os.path.commonprefix
     https://docs.python.org/3/library/os.path.html#os.path.commonprefix
     """
-    # adding "." before and after allows for handling a lot of corner 
+    # adding "." before and after allows for handling a lot of corner
     # cases which were previously mishandled ([case]->prefix->result)
     # case 0: single module: [.abc.] -> .abc. -> abc
     # case 1: substring modules: [.abc., .ab.] -> .ab -> ""
@@ -829,9 +827,9 @@ def get_lowest_common_module(names: list[str], module: Module) -> tuple[str, Mod
 
     # 2) throw away module name fragment and leading dot
     # ".keep.thro" -> "keep"
-    parent_name = parent_name[1:parent_name.rfind(".")]
+    parent_name = parent_name[1 : parent_name.rfind(".")]
 
-    # 3) return first parent that is not a module list
+    # 3) return first common module that is not a module list
     while True:
         if parent_name == "":
             return "", module

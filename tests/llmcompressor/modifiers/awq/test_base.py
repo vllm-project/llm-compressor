@@ -3,6 +3,7 @@ import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from pydantic import ValidationError
 from torch.nn import Linear
+
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import get_lowest_common_module
 from llmcompressor.modifiers.factory import ModifierFactory
@@ -250,9 +251,9 @@ def test_get_lowest_common_module():
 
     m = torch.nn.ModuleDict(
         {
-            "abc": Linear(3,3),
-            "ab": torch.nn.ModuleDict({"a": Linear(3,3)}),
-            "z": Linear(3,3)
+            "abc": Linear(3, 3),
+            "ab": torch.nn.ModuleDict({"a": Linear(3, 3)}),
+            "z": Linear(3, 3),
         }
     )
     parent_name, parent = get_lowest_common_module(["abc", "ab"], m)
@@ -261,4 +262,3 @@ def test_get_lowest_common_module():
     assert parent_name == "ab"
     parent_name, parent = get_lowest_common_module(["z"], m)
     assert parent_name == "z"
-
