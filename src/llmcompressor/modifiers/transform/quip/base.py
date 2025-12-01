@@ -104,7 +104,7 @@ class QuIPModifier(Modifier):
         model = state.model
 
         # Untie embeddings if they will be targeted by transforms
-        if targets_embeddings(model, self.get_targets()):
+        if targets_embeddings(model, self._get_targets(model)):
             untie_word_embeddings(model)
 
         apply_transform_config(model, self.transform_config)
@@ -130,7 +130,7 @@ class QuIPModifier(Modifier):
 
         return True
 
-    def get_targets(self, model: torch.nn.Module) -> NamedModules:
+    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
         if not self.initialized_:
             raise ValueError("Cannot get targets before modifier has been initialized")
 

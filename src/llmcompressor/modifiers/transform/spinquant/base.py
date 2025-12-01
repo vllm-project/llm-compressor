@@ -16,7 +16,8 @@ from transformers import PreTrainedModel
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
-from llmcompressor.utils import untie_word_embeddings
+from llmcompressor.typing import NamedModules
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -151,8 +152,10 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         self.started_ = True
         model = state.model
 
-        # needed any time embeddings/lm_head is modified
-        untie_word_embeddings(model)
+        # untie embeddings and lm_head so they can be rotated separately
+        # in the future, these can remain tied to save memory
+        if targets_embeddings(model, self._get_targets(model)):
+            untie_word_embeddings(model)
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
@@ -180,6 +183,17 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             self.on_end(state, None)
 
         return True
+
+    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+        if not self.initialized_:
+            raise ValueError("Cannot get targets before modifier has been initialized")
+
+        return [
+            (name, module)
+            for scheme in self.transform_config.config_groups.values()
+            for arg in scheme.apply
+            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+        ]
 
     def _center_embeddings(self, model: PreTrainedModel):
         for _, embedding in match_named_modules(
