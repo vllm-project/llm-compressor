@@ -253,7 +253,189 @@ def replace_granite_moe_with_linear_experts(model):
     return model
 
 
+def pack_3d_experts(
+    source_dir,
+    validate=True,
+    backup=True,
+    allow_missing_experts=False,
+    verbose=True
+):
+    """
+    Transform MoE model from per-expert storage to 3D stacked tensors.
+    
+    From: model.layers.{L}.block_sparse_moe.{linear_type}.experts.{E}.{param}
+    To:   model.layers.{L}.block_sparse_moe.{linear_type}.{param}
+    
+    Args:
+        source_dir: Model directory path
+        validate: Validate shapes and expert continuity
+        backup: Create backup before modification (RECOMMENDED)
+        allow_missing_experts: Don't fail if some experts are missing
+        verbose: Print progress messages
+    """
+    source_dir = Path(source_dir)
+    index_file = source_dir / "model.safetensors.index.json"
+    backup_dir = None
+    temp_files = []
+    
+    def log(msg):
+        if verbose: print(msg)
+    
+    try:
+        # === BACKUP ===
+        if backup:
+            backup_dir = source_dir.parent / f"{source_dir.name}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backup_dir.mkdir(parents=True)
+            for f in source_dir.glob("*.safetensors*"):
+                shutil.copy2(f, backup_dir / f.name)
+            log(f"✓ Backup created at {backup_dir}")
+        
+        # === LOAD INDEX ===
+        with open(index_file) as f:
+            index_data = json.load(f)
+        weight_map = index_data["weight_map"]
+        
+        # === GROUP TENSORS ===
+        grouped = defaultdict(dict)  # {(layer, linear_type, param): {expert_num: (name, file)}}
+        other = {}
+        
+        for name, file in weight_map.items():
+            if ".block_sparse_moe." in name and ".experts." in name:
+                parts = name.split(".")
+                try:
+                    layer = int(parts[parts.index("layers") + 1])
+                    expert = int(parts[parts.index("experts") + 1])
+                    linear_type = parts[parts.index("experts") - 1]
+                    param = ".".join(parts[parts.index("experts") + 2:])
+                    grouped[(layer, linear_type, param)][expert] = (name, file)
+                except (ValueError, IndexError):
+                    other[name] = file
+            else:
+                other[name] = file
+        
+        log(f"✓ Found {len(grouped)} expert groups, {len(other)} other tensors")
+        
+        # === LOAD FILES ===
+        log("Loading files...")
+        loaded = {}
+        old_files = set(weight_map.values())
+        for file in old_files:
+            loaded[file] = load_file(str(source_dir / file))
+        
+        # === STACK EXPERTS ===
+        log("Stacking experts...")
+        new_tensors = {}
+        
+        for (layer, linear_type, param), experts in sorted(grouped.items()):
+            expert_nums = sorted(experts.keys())
+            
+            # Validate
+            if validate:
+                # Check continuity
+                expected = list(range(len(expert_nums)))
+                if expert_nums != expected:
+                    missing = set(expected) - set(expert_nums)
+                    if missing and not allow_missing_experts:
+                        raise ValueError(f"Missing experts {missing} in layer {layer}, {linear_type}.{param}")
+                
+                # Check shapes and dtypes
+                shapes = [loaded[experts[e][1]][experts[e][0]].shape for e in expert_nums]
+                dtypes = [loaded[experts[e][1]][experts[e][0]].dtype for e in expert_nums]
+                if len(set(shapes)) > 1:
+                    raise ValueError(f"Shape mismatch in layer {layer}, {linear_type}.{param}: {set(shapes)}")
+                if len(set(dtypes)) > 1:
+                    raise ValueError(f"Dtype mismatch in layer {layer}, {linear_type}.{param}: {set(dtypes)}")
+            
+            # Stack
+            tensors = [loaded[experts[e][1]][experts[e][0]] for e in expert_nums]
+            stacked = torch.stack(tensors, dim=0)
+            new_name = f"model.layers.{layer}.block_sparse_moe.{linear_type}.{param}"
+            new_tensors[new_name] = stacked
+            log(f"  Layer {layer} {linear_type}.{param}: {list(stacked.shape)}")
+        
+        # Copy other tensors
+        for name, file in other.items():
+            new_tensors[name] = loaded[file][name]
+        
+        # === DISTRIBUTE ACROSS FILES ===
+        log("Distributing tensors...")
+        num_files = len(old_files)
+        tensor_sizes = [(n, t.numel() * t.element_size()) for n, t in new_tensors.items()]
+        tensor_sizes.sort(key=lambda x: x[1], reverse=True)
+        
+        file_tensors = [{} for _ in range(num_files)]
+        file_sizes = [0] * num_files
+        new_weight_map = {}
+        
+        for name, size in tensor_sizes:
+            min_idx = file_sizes.index(min(file_sizes))
+            file_tensors[min_idx][name] = new_tensors[name]
+            file_sizes[min_idx] += size
+            new_weight_map[name] = f"model-{min_idx+1:05d}-of-{num_files:05d}.safetensors"
+        
+        # === SAVE FILES (TEMP) ===
+        log("Saving files...")
+        saved_files = []
+        for i, tensors in enumerate(file_tensors):
+            if tensors:
+                file_name = f"model-{i+1:05d}-of-{num_files:05d}.safetensors"
+                temp_name = f"{file_name}.tmp"
+                temp_path = source_dir / temp_name
+                save_file(tensors, str(temp_path))
+                temp_files.append(temp_path)
+                saved_files.append((temp_name, file_name))
+        
+        # Save index (temp)
+        temp_index = source_dir / "model.safetensors.index.json.tmp"
+        with open(temp_index, "w") as f:
+            json.dump({"metadata": index_data.get("metadata", {}), "weight_map": new_weight_map}, f, indent=2)
+        temp_files.append(temp_index)
+        
+        # === FINALIZE (DELETE OLD, RENAME TEMP) ===
+        log("Finalizing...")
+        # Delete old
+        for old in old_files:
+            (source_dir / old).unlink()
+        index_file.unlink()
+        
+        # Rename temp
+        for temp, final in saved_files:
+            (source_dir / temp).rename(source_dir / final)
+        temp_index.rename(index_file)
+        temp_files.clear()
+        
+        # === VERIFY ===
+        if validate:
+            with open(index_file) as f:
+                check = json.load(f)
+            remaining_experts = [n for n in check["weight_map"] if ".experts." in n]
+            if remaining_experts:
+                raise ValueError(f"Verification failed: {len(remaining_experts)} unpacked experts remain")
+        
+        log(f"✓ Success! Transformed {len(grouped)} expert groups")
+        
+    except Exception as e:
+        log(f"✗ Error: {e}")
+        
+        # === ROLLBACK ===
+        if backup and backup_dir and backup_dir.exists():
+            log("Rolling back...")
+            for temp in temp_files:
+                if temp.exists(): temp.unlink()
+            for f in source_dir.glob("*.safetensors*"):
+                f.unlink()
+            for f in backup_dir.glob("*"):
+                shutil.copy2(f, source_dir / f.name)
+            log("✓ Rolled back to backup")
+        
+        raise
+    
+    finally:
+        # Cleanup temp files
+        for temp in temp_files:
+            if temp.exists(): temp.unlink()
 
+            
 class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
     def __init__(self, num_experts: int, input_size: int, output_size: int) -> None:
         """Use a real Linear so that llmcompressor and vllm can handle it easier.
