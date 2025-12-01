@@ -17,7 +17,7 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils import untie_word_embeddings
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -152,10 +152,8 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         self.started_ = True
         model = state.model
 
-        # untie embeddings and lm_head so they can be rotated separately
-        # in the future, these can remain tied to save memory
-        if targets_embeddings(model, self._get_targets(model)):
-            untie_word_embeddings(model)
+        # untie embeddings to avoid unintended effects of `_center_embeddings`
+        untie_word_embeddings(model)
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
