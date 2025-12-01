@@ -1103,7 +1103,7 @@ def requires_lm_head_calibration(
         if isinstance(mod, QuantizationMixin):
             targets |= set(match_named_modules(model, mod.resolved_targets, mod.ignore))
 
-    return targets_embeddings(model, targets, check_input=True, check_output=False)
+    return targets_embeddings(model, targets, check_input=False, check_output=True)
 
 
 @contextlib.contextmanager
