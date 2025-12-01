@@ -1074,11 +1074,19 @@ def disable_lm_head(model: torch.nn.Module):
     """
     _, lm_head = get_embeddings(model)
     if lm_head is not None:
-        if not isinstance(lm_head, torch.nn.Linear):
-            raise NotImplementedError(
-                f"Cannot disable LM head of type {lm_head.__class__.__name__}"
-            )
+        logger.warning(
+            f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
+            "but was unable to to find lm_head. This may lead to unexpected OOM."
+        )
+        yield
+        return
 
+    elif not isinstance(lm_head, torch.nn.Linear):
+        logger.warning(f"Cannot disable LM head of type {lm_head.__class__.__name__}")
+        yield
+        return
+
+    else:
         dummy_weight = lm_head.weight.to("meta")
 
         def dummy_forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -1086,13 +1094,6 @@ def disable_lm_head(model: torch.nn.Module):
 
         with patch_attr(lm_head, "forward", dummy_forward.__get__(lm_head)):
             yield
-
-    else:
-        logger.warning(
-            f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
-            "but was unable to to find lm_head. This may lead to unexpected OOM."
-        )
-        yield
 
 
 @contextlib.contextmanager
