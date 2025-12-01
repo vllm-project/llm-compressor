@@ -1,5 +1,5 @@
 import torch
-from compressed_tensors import has_offloaded_params
+from compressed_tensors import has_offloaded_params, register_offload_parameter
 from loguru import logger
 from torch.nn import Parameter
 from transformers import PreTrainedModel
@@ -29,11 +29,13 @@ def untie_word_embeddings(model: PreTrainedModel):
     # clone data to untie
     for module in (input_embed, output_embed):
         if not has_offloaded_params(module):
-            requires_grad = module.weight.requires_grad
-            module.weight = Parameter(module.weight.data, requires_grad=requires_grad)
+            data = module.weight.data
         else:
-            weights_map = module._hf_hook.weights_map
-            weights_map["weight"] = weights_map["weight"].clone()
+            data = module._hf_hook.weights_map["weight"]
+
+        requires_grad = module.weight.requires_grad
+        untied_param = Parameter(data.clone(), requires_grad=requires_grad)
+        register_offload_parameter(module, "weight", untied_param)
 
     # modify model config
     if hasattr(model.config, "tie_word_embeddings"):
