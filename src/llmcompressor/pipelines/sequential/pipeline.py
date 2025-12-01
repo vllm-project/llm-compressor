@@ -88,7 +88,6 @@ class SequentialPipeline(CalibrationPipeline):
             # Optionally disable quantization
             if not dataset_args.quantization_aware_calibration or disable_qac:
                 stack.enter_context(DisableQuantization(model))
-            # Optionally disable lm_head
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
