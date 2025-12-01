@@ -57,7 +57,12 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         - Hugging face model ID
     :return: The path to the recipe file if found, None otherwise.
     """
-    model_path = model_path.as_posix() if isinstance(model_path, Path) else model_path
+    model_path = (
+        model_path.as_posix() if isinstance(model_path, Path) else model_path.strip()
+    )
+    if model_path == "":
+        logger.debug("got path_or_name=<empty string>" "unable to find recipe")
+        return None
 
     if os.path.isdir(model_path) or os.path.isfile(model_path):
         # Model path is a local path to the model directory or file
