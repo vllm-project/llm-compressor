@@ -5,23 +5,23 @@ import torch
 from transformers import (
     AutoModelForCausalLM,
     MllamaForConditionalGeneration,
-    PretrainedConfig,
-    PreTrainedModel,
 )
 
+from llmcompressor.pipelines.sequential.helpers import dispatch_for_sequential
 from llmcompressor.utils import (
     ALL_TOKEN,
     DisableQuantization,
     calibration_forward_context,
     convert_to_bool,
     disable_cache,
+    disable_lm_head,
     flatten_iterable,
     getattr_chain,
     interpolate,
     patch_attr,
     validate_str_iterable,
 )
-from llmcompressor.utils.dev import skip_weights_download
+from llmcompressor.utils.dev import dispatch_for_generation, skip_weights_download
 from tests.testing_utils import requires_gpu
 
 
@@ -149,10 +149,8 @@ def test_DisableQuantization():
 
 @pytest.mark.unit
 def test_calibration_forward_context():
-    class DummyModel(PreTrainedModel):
-        config_class = PretrainedConfig
-
-    model = DummyModel(PretrainedConfig())
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
     model.config.use_cache = True
     model.train()
 
@@ -160,9 +158,12 @@ def test_calibration_forward_context():
         assert not torch.is_grad_enabled()
         assert not model.config.use_cache
         assert not model.training
+        assert model.lm_head.forward.__name__ == "dummy_forward"
+
     assert torch.is_grad_enabled()
     assert model.config.use_cache
     assert model.training
+    assert model.lm_head.forward.__name__ == "forward"
 
 
 @pytest.mark.unit
@@ -203,3 +204,29 @@ def test_disable_cache(model_cls, model_stub):
 
     output = model(**inputs)
     assert output.past_key_values is not None
+
+
+@requires_gpu
+@pytest.mark.parametrize("offload", ["sequential", "basic", "none"])
+def test_disable_lm_head(offload):
+    model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
+    if offload == "sequential":
+        dispatch_for_sequential(model)
+    if offload == "basic":
+        dispatch_for_generation(model)
+    if offload == "none":
+        model = model.to("cuda")
+
+    lm_input_device = None
+
+    def hook(module, args):
+        nonlocal lm_input_device
+        lm_input_device = args[0].device
+
+    model.lm_head.register_forward_pre_hook(hook)
+
+    with disable_lm_head(model):
+        input = {key: value.to("cuda") for key, value in model.dummy_inputs.items()}
+        output = model(**input)
+        assert lm_input_device == torch.device("cuda:0")
+        assert output.logits.device == torch.device("meta")

@@ -23,15 +23,14 @@ from urllib.parse import urlparse
 
 import numpy
 import torch
-from compressed_tensors import has_offloaded_params, match_named_modules
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 from transformers import PreTrainedModel
 
-from llmcompressor.utils import get_embeddings, targets_embeddings
+from llmcompressor.utils import get_embeddings
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+    pass
 
 __all__ = [
     "ALL_TOKEN",
@@ -72,7 +71,6 @@ __all__ = [
     "eval_context",
     "calibration_forward_context",
     "disable_lm_head",
-    "requires_lm_head_calibration",
     "patch_attr",
     "disable_hf_kernels",
     "DISABLE_QAC_MODIFIERS",
@@ -1057,12 +1055,14 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable the KV cache
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
+    - Disable lm head (input and weights can still be calibrated, output will be meta)
     """
     with contextlib.ExitStack() as stack:
         stack.enter_context(torch.no_grad())
         stack.enter_context(disable_cache(model))
         stack.enter_context(eval_context(model))
         stack.enter_context(disable_hf_kernels(model))
+        stack.enter_context(disable_lm_head(model))
         yield
 
 
@@ -1074,13 +1074,18 @@ def disable_lm_head(model: torch.nn.Module):
     """
     _, lm_head = get_embeddings(model)
     if lm_head is not None:
-        if has_offloaded_params(lm_head):
-            # keep weight on meta device
-            with patch_attr(lm_head._hf_hook, "offload", False):
-                yield
-        else:
-            with patch_attr(lm_head, "weight", lm_head.weight.to("meta")):
-                yield
+        if not isinstance(lm_head, torch.nn.Linear):
+            raise NotImplementedError(
+                f"Cannot disable LM head of type {lm_head.__class__.__name__}"
+            )
+
+        dummy_weight = lm_head.weight.to("meta")
+
+        def dummy_forward(self, input: torch.Tensor) -> torch.Tensor:
+            return input.to("meta") @ dummy_weight.T
+
+        with patch_attr(lm_head, "forward", dummy_forward.__get__(lm_head)):
+            yield
 
     else:
         logger.warning(
@@ -1088,22 +1093,6 @@ def disable_lm_head(model: torch.nn.Module):
             "but was unable to to find lm_head. This may lead to unexpected OOM."
         )
         yield
-
-
-def requires_lm_head_calibration(
-    model: PreTrainedModel, modifiers: Iterable["Modifier"]
-) -> bool:
-    """Returns True if any of the quantization modifers target the lm_head"""
-    from llmcompressor.modifiers.quantization.quantization.mixin import (
-        QuantizationMixin,
-    )
-
-    targets = set()
-    for mod in modifiers:
-        if isinstance(mod, QuantizationMixin):
-            targets |= set(match_named_modules(model, mod.resolved_targets, mod.ignore))
-
-    return targets_embeddings(model, targets, check_input=False, check_output=True)
 
 
 @contextlib.contextmanager
