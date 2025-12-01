@@ -19,6 +19,8 @@ from llmcompressor.utils.helpers import (
     DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
+    disable_lm_head,
+    requires_lm_head_calibration,
 )
 
 if TYPE_CHECKING:
@@ -88,6 +90,9 @@ class SequentialPipeline(CalibrationPipeline):
             # Optionally disable quantization
             if not dataset_args.quantization_aware_calibration or disable_qac:
                 stack.enter_context(DisableQuantization(model))
+            # Optionally disable lm_head
+            if not requires_lm_head_calibration(model, modifiers):
+                stack.enter_context(disable_lm_head(model))
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)

@@ -18,14 +18,20 @@ import warnings
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
 import torch
+from compressed_tensors import has_offloaded_params, match_named_modules
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 from transformers import PreTrainedModel
+
+from llmcompressor.utils import get_embeddings, targets_embeddings
+
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
 
 __all__ = [
     "ALL_TOKEN",
@@ -65,6 +71,8 @@ __all__ = [
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
+    "disable_lm_head",
+    "requires_lm_head_calibration",
     "patch_attr",
     "disable_hf_kernels",
     "DISABLE_QAC_MODIFIERS",
@@ -1050,10 +1058,52 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
     """
-    with torch.no_grad(), disable_cache(model), eval_context(model), disable_hf_kernels(
-        model
-    ):
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(torch.no_grad())
+        stack.enter_context(disable_cache(model))
+        stack.enter_context(eval_context(model))
+        stack.enter_context(disable_hf_kernels(model))
         yield
+
+
+@contextlib.contextmanager
+def disable_lm_head(model: torch.nn.Module):
+    """
+    Disable the lm_head of a model by moving it to the meta device. This function
+    does not untie parameters and restores the model proper loading upon exit
+    """
+    _, lm_head = get_embeddings(model)
+    if lm_head is not None:
+        if has_offloaded_params(lm_head):
+            # keep weight on meta device
+            with patch_attr(lm_head._hf_hook, "offload", False):
+                yield
+        else:
+            with patch_attr(lm_head, "weight", lm_head.weight.to("meta")):
+                yield
+
+    else:
+        logger.warning(
+            f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
+            "but was unable to to find lm_head. This may lead to unexpected OOM."
+        )
+        yield
+
+
+def requires_lm_head_calibration(
+    model: PreTrainedModel, modifiers: Iterable["Modifier"]
+) -> bool:
+    """Returns True if any of the quantization modifers target the lm_head"""
+    from llmcompressor.modifiers.quantization.quantization.mixin import (
+        QuantizationMixin,
+    )
+
+    targets = set()
+    for mod in modifiers:
+        if isinstance(mod, QuantizationMixin):
+            targets |= set(match_named_modules(model, mod.resolved_targets, mod.ignore))
+
+    return targets_embeddings(model, targets, check_input=True, check_output=False)
 
 
 @contextlib.contextmanager
