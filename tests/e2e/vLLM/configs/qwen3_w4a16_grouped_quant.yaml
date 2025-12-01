@@ -5,5 +5,4 @@ dataset_id: HuggingFaceH4/ultrachat_200k
 dataset_split: train_sft
 scheme: W4A16_group
 num_calibration_samples: 20
-save_dir: "Qwen3-30B-A3B-W4A16-first-10-e2e"
 recipe: tests/e2e/vLLM/recipes/WNA16/recipe_w4a16_group_quant_first_10_layers.yaml
