@@ -5,6 +5,7 @@ quant_stage:
         "lm_head",
         # Ignore layers (10+)
         "re:.*model\\.layers\\.([1-9][0-9])\\..*",
+        "re:.*mlp[.]gate[.].*"
       ]
       actorder: null
       config_groups:
