@@ -58,7 +58,7 @@ def targets_embeddings(
     :return: True if embeddings are targeted, False otherwise
     """
     input_embed, output_embed = get_embeddings(model)
-    if check_input and input_embed is None or check_output and output_embed is None:
+    if (check_input and input_embed) is None or (check_output and output_embed is None):
         logger.warning(
             "Cannot check embeddings. If this model has word embeddings, please "
             "implement `get_input_embeddings` and `get_output_embeddings`"
