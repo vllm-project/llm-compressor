@@ -1,6 +1,8 @@
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from compressed_tensors.quantization import (
@@ -56,6 +58,36 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     return wrapped_model
 
 
+import torch.nn as nn
+
+
+@contextmanager
+def suspend_accelerate_hooks(model: nn.Module):
+    """
+    Context manager to temporarily detach Accelerate hooks (e.g., offloading,
+    casting) and automatically restore them upon exit.
+    """
+    saved_hooks = {}
+
+    # 1. Capture existing hooks
+    for _, module in model.named_modules():
+        if hasattr(module, "_hf_hook"):
+            saved_hooks[module] = module._hf_hook
+
+    # 2. Detach hooks for the duration of the context
+    remove_hook_from_submodules(model)
+
+    try:
+        yield
+    finally:
+        # 3. Ensure a clean slate (remove any hooks added inside the block)
+        remove_hook_from_submodules(model)
+
+        # 4. Re-attach the original hooks
+        for module, hook in saved_hooks.items():
+            add_hook_to_module(module, hook, append=True)
+
+
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
     Implements the AutoRound algorithm from https://aclanthology.org/2024.findings-emnlp.662.pdf.
@@ -108,6 +140,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
+    device_map: str = "0"
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -216,8 +249,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         wrapped_model = _wrap_decoding_layer(decoding_layer)
         wrapped_model.name_or_path = state.model.name_or_path
 
-        with torch.enable_grad(), align_module_device(decoding_layer):
+        with torch.enable_grad(), align_module_device(
+            decoding_layer
+        ), suspend_accelerate_hooks(wrapped_model):
             ar_quant_scheme = self._mapping_config_to_autoround()
+
             ar = AutoRound(
                 model=wrapped_model,
                 tokenizer="",
@@ -225,6 +261,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
                 batch_size=self.batch_size,
+                device_map=self.device_map,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
@@ -240,7 +277,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 q_input=self._q_input,
                 device=str(device),
                 # Leave offload for LLMC
-                auto_offload=False,
+                auto_offload=True,
             )
             self._q_input = q_input
             # Update offload parameters and remove temporary attributes
