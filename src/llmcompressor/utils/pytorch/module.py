@@ -361,8 +361,11 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 def get_layer_by_name(layer_name: str, module: Module) -> Module:
     """
     Get the layer of a module by name.
-    :param layer_name: Name of the layer to find.
+    :param layer_name: Name of the layer to find. Empty string returns the
+        module itself.
     :param module: Module in which to search for layer_name
     :return: Module, the layer with name layer_name
     """
+    if not layer_name:
+        return module
     return attrgetter(layer_name)(module)
