@@ -294,7 +294,7 @@ def pack_3d_experts(
             backup_dir = source_dir.parent / f"{source_dir.name}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             backup_dir.mkdir(parents=True)
             for f in source_dir.glob("*.safetensors*"):
-                shutil.copy2(f, backup_dir / f.name)
+                shutil.copy(f, backup_dir / f.name)  # FIXED: Changed from copy2 to copy
             log(f"✓ Backup created at {backup_dir}")
         
         # === LOAD INDEX ===
@@ -432,7 +432,7 @@ def pack_3d_experts(
             for f in source_dir.glob("*.safetensors*"):
                 f.unlink()
             for f in backup_dir.glob("*"):
-                shutil.copy2(f, source_dir / f.name)
+                shutil.copy(f, source_dir / f.name)  # FIXED: Changed from copy2 to copy
             log("✓ Rolled back to backup")
         
         raise
