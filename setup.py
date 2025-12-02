@@ -123,7 +123,7 @@ setup(
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.7.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.7.0"),
         (
-            "transformers>=4.54.0,<=4.57.3"
+            "transformers>=4.54.0,<=5.0.0"
             if BUILD_TYPE == "release"
             else "transformers>=4.54.0"
         ),
@@ -145,9 +145,11 @@ setup(
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.12.3a2"
         ),
-        ("auto-round==0.9.1" if BUILD_TYPE == "release" else "auto-round==0.9.1"),
     ],
     extras_require={
+        "autoround": [
+            "auto-round==0.9.1",
+        ],
         "dev": [
             # testing framework
             "pytest>=6.0.0",
