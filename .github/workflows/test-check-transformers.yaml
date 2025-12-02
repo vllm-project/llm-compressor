@@ -70,7 +70,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - name: "⚙️ Install dependencies"
-        run: uv pip install .[dev]
+        run: uv pip install .[dev,autoround]
       - uses: actions/checkout@v4
         with:
           repository: "vllm-project/compressed-tensors"
