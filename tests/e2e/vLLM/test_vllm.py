@@ -36,7 +36,7 @@ EXPECTED_SAVED_FILES = [
 ]
 
 
-# Will run each test case in its own process through run_tests.sh
+# Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
 @requires_gpu(1)
 @pytest.mark.parametrize(
