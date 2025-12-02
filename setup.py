@@ -181,7 +181,7 @@ setup(
             "mkdocstrings-python",
             "mkdocs-gen-files",
             "mkdocs-nav-weight",
-        ]
+        ],
     },
     entry_points={
         "console_scripts": [
