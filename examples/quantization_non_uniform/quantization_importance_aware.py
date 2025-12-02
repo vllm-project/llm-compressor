@@ -11,7 +11,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the importance-aware mixed-precision quantization recipe.
 # In this case, we:
-#   * Keep the first 3 layers (0,1,2) and last 3 layers (62,63,51) in full precision
+#   * Keep the first 3 layers (0,1,2) and last 3 layers (51,62,63) in full precision
 #       (not quantized) due to their high sensitivity.
 #   * Exclude lm_head from quantization to preserve output quality.
 #   * Quantize weights of specific middle layers' self-attention and MLP blocks to fp4:
@@ -19,7 +19,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #       - Modules: k_proj, o_proj, q_proj, v_proj, down_proj, gate_proj, up_proj
 #       - Scheme: fp4, symmetric, per-group (group_size=16), static (PTQ)
 #   * Quantize weights of other intermediate layers to fp8:
-#       - Layers: 3-14, 25-30, 32-36, 37-55, 61 (excluding already covered or ignored)
+#       - Layers: 3-14, 25-30, 32-45, 49, 52-55, 61
 #       - Same modules as above
 #       - Scheme: fp8, symmetric, per-channel, static (PTQ)
 #   * Additionally, dynamically quantize input activations for fp8-weighted layers:
@@ -29,8 +29,8 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 fp4_group = "15|16|17|18|19|20|21|22|23|24|31|46|47|48|50|56|57|58|59|60"
 fp8_group = (
-    "7|37|11|35|3|4|5|6|8|9|10|12|13|14|25|26|27|28|29|30|"
-    "32|33|34|36|38|39|40|41|42|43|44|45|49|52|53|54|55|61"
+    "3|4|5|6|7|8|9|10|11|12|13|14|25|26|27|28|29|30|"
+    "32|33|34|35|36|37|38|39|40|41|42|43|44|45|49|52|53|54|55|61"
 )
 
 recipe = f"""
