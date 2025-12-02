@@ -12,9 +12,8 @@ from pydantic import Field, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_if_target_shared_embedding,
-)
+from llmcompressor.typing import NamedModules
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 
 __all__ = ["QuIPModifier"]
 
@@ -102,18 +101,13 @@ class QuIPModifier(Modifier):
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
-
-        def matched_module_generator():
-            for scheme in self.transform_config.config_groups.values():
-                for arg in scheme.apply:
-                    gen = match_named_modules(state.model, arg.targets, arg.ignore)
-                    for _, module in gen:
-                        yield module
+        model = state.model
 
         # Untie embeddings if they will be targeted by transforms
-        untie_if_target_shared_embedding(state.model, matched_module_generator())
+        if targets_embeddings(model, self._get_targets(model)):
+            untie_word_embeddings(model)
 
-        apply_transform_config(state.model, self.transform_config)
+        apply_transform_config(model, self.transform_config)
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -135,6 +129,17 @@ class QuIPModifier(Modifier):
             self.on_end(state, None)
 
         return True
+
+    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+        if not self.initialized_:
+            raise ValueError("Cannot get targets before modifier has been initialized")
+
+        return [
+            (name, module)
+            for scheme in self.transform_config.config_groups.values()
+            for arg in scheme.apply
+            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+        ]
 
     def _create_config(self) -> TransformConfig:
         config_groups = dict()
