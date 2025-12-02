@@ -107,6 +107,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # AutoRound modifier arguments
     iters: int = 200
     enable_torch_compile: bool = True
+    batch_size: int = 8
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -223,6 +224,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 scheme=ar_quant_scheme,
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
+                batch_size=self.batch_size,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
@@ -236,7 +238,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 block=decoding_layer,
                 inputs=cur_inputs,
                 q_input=self._q_input,
-                device=device,
+                device=str(device),
                 # Leave offload for LLMC
                 auto_offload=False,
             )
