@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 from datasets import Dataset, load_dataset
 
@@ -15,8 +15,8 @@ __all__ = [
 
 def get_raw_dataset(
     dataset_args,
-    cache_dir: Optional[str] = None,
-    streaming: Optional[bool] = False,
+    cache_dir: str | None = None,
+    streaming: bool | None = False,
     **kwargs,
 ) -> Dataset:
     """
@@ -37,7 +37,7 @@ def get_raw_dataset(
     return raw_datasets
 
 
-def get_custom_datasets_from_path(path: str, ext: str = "json") -> Dict[str, str]:
+def get_custom_datasets_from_path(path: str, ext: str = "json") -> dict[str, str]:
     """
     Get a dictionary of custom datasets from a directory path. Support HF's load_dataset
      for local folder datasets https://huggingface.co/docs/datasets/loading
@@ -105,7 +105,7 @@ def get_custom_datasets_from_path(path: str, ext: str = "json") -> Dict[str, str
     return transform_dataset_keys(data_files)
 
 
-def transform_dataset_keys(data_files: Dict[str, Any]):
+def transform_dataset_keys(data_files: dict[str, Any]):
     """
     Transform dict keys to `train`, `val` or `test` for the given input dict
     if matches exist with the existing keys. Note that there can only be one
