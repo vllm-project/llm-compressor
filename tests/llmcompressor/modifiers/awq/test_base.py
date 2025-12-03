@@ -47,18 +47,21 @@ def test_set_resolved_mappings():
             "o_proj": Linear(4, 4),
         }
     )
-    mlp = torch.nn.ModuleList(
-        "experts": torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        "gate_proj": Linear(4, 2),
-                        "down_proj": Linear(4, 2),
-                    }
-                )
-                for _ in range(3)
-            ]
-        )
+    mlp = torch.nn.ModuleDict(
+        {
+            "experts": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "gate_proj": Linear(4, 2),
+                            "up_proj": Linear(4, 2),
+                            "down_proj": Linear(2, 4),
+                        }
+                    )
+                    for _ in range(3)
+                ]
+            )
+        }
     )
     model = torch.nn.ModuleDict(
         {
@@ -89,9 +92,12 @@ def test_set_resolved_mappings():
         if "self_attn.v_proj" in mapping.smooth_name:
             assert set(mapping.balance_names) == {"decoder.self_attn.o_proj"}
             assert mapping.parent_name == "decoder.self_attn.o_proj"
-        if "mlp.up_proj" in mapping.smooth_name:
-            assert set(mapping.balance_names) == {"decoder.mlp.0.down_proj", "decoder.mlp.0.down_proj", "decoder.mlp.0.down_proj"}
-            assert mapping.parent_name == "decoder.mlp.down_proj" # TODODODO
+        if "mlp.experts" in mapping.smooth_name and "up_proj" in mapping.smooth_name:
+            expert_idx = mapping.smooth_name.split(".")[-2]
+            expected_down_proj = f"decoder.mlp.experts.{expert_idx}.down_proj"
+            assert set(mapping.balance_names) == {expected_down_proj}
+            assert mapping.parent_name == expected_down_proj
+            assert mapping.parent == mlp["experts"][int(expert_idx)]["down_proj"]
 
     awq = AWQModifier(
         mappings=[
@@ -223,7 +229,7 @@ def test_get_lowest_non_module_list_ancestor():
     assert ancestor_name == "" and ancestor == model
 
     ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
-        ["experts"], model
+        "experts", model
     )
     assert ancestor_name == "" and ancestor == model
 
@@ -231,4 +237,65 @@ def test_get_lowest_non_module_list_ancestor():
         "experts.1.gate_proj", model
     )
     assert ancestor_name == "experts.1.gate_proj" and ancestor == model["experts"][1]["gate_proj"]
+
+
+@pytest.mark.unit
+def test_moe_multiple_balance_layers():
+    """Test AWQ mapping with multiple balance layers in MoE architecture"""
+    awq = AWQModifier(
+        mappings=[
+            # Map input_layernorm to multiple experts' gate_proj and up_proj
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*gate_proj", "re:.*up_proj"],
+            ),
+        ],
+        scheme="W4A16_ASYM",
+    )
+
+    # Create a simplified MoE model structure
+    mlp = torch.nn.ModuleDict(
+        {
+            "experts": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "gate_proj": Linear(4, 4),
+                            "up_proj": Linear(4, 4),
+                            "down_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "layer": torch.nn.ModuleDict(
+                {
+                    "input_layernorm": torch.nn.LayerNorm(4),
+                    "mlp": mlp,
+                }
+            )
+        }
+    )
+
+    awq._set_resolved_mappings(model)
+
+    # Should have one mapping for input_layernorm
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
+
+    # Should map to all gate_proj and up_proj across all experts
+    expected_balance_names = {
+        "layer.mlp.experts.0.gate_proj",
+        "layer.mlp.experts.0.up_proj",
+        "layer.mlp.experts.1.gate_proj",
+        "layer.mlp.experts.1.up_proj",
+    }
+    assert set(mapping.balance_names) == expected_balance_names
+
+    assert mapping.parent_name == "layer.mlp"
+    assert mapping.parent == mlp
 

@@ -371,7 +371,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     # for multiple balance layers, find lowest common parent
                     ancestor_name = get_lowest_common_ancestor_name(balance_names)
-                    ancestor, ancestor_name = get_lowest_non_module_list_ancestor(ancestor_name, )
+                    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(ancestor_name, model)
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -807,7 +807,8 @@ def _accumulate_mean(
 
 def get_lowest_non_module_list_ancestor(name, module: Module) -> tuple[str, Module]:
     """
-    Given a name: foo.bar.baz, finds lowest ancestor that's not a ModuleList
+    Given a name and a model, finds lowest ancestor of 
+    named module that's not a ModuleList
     i.e. module_list.module_dict.module_list -> module_list.module_dict
     i.e. module_list.module_dict -> module_list.module_dict
     (self is an ancestor of self)
@@ -823,7 +824,7 @@ def get_lowest_non_module_list_ancestor(name, module: Module) -> tuple[str, Modu
     while True:
         if name == "":
             return "", module
-        module = get_layer_by_name(name, module)
-        if not isinstance(module, torch.nn.ModuleList):
-            return name, module
-        name = ".".join(parent_name.split(".")[:-1])
+        current_module = get_layer_by_name(name, module)
+        if not isinstance(current_module, torch.nn.ModuleList):
+            return name, current_module
+        name = ".".join(name.split(".")[:-1])
