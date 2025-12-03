@@ -34,9 +34,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_if_target_shared_embedding,
-)
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 
 __all__ = ["QuantizationMixin"]
 
@@ -182,11 +180,9 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-
-        matched_module_generator = (
-            x[1] for x in match_named_modules(model, self.resolved_targets, self.ignore)
-        )
-        untie_if_target_shared_embedding(model, matched_module_generator)
+        targets = match_named_modules(model, self.resolved_targets, self.ignore)
+        if targets_embeddings(model, targets):
+            untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
