@@ -10,12 +10,13 @@ from compressed_tensors.utils import (
     match_modules_set,
     match_named_modules,
     update_offload_parameter,
+    get_lowest_common_ancestor_name,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
 from tqdm import tqdm
-
+from torch.utils._pytree import tree_flatten
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
@@ -332,12 +333,20 @@ class AWQModifier(Modifier, QuantizationMixin):
             module_to_name[module] = name
 
         for mapping in self.mappings:
-            target_patterns = (mapping.smooth_layer, *mapping.balance_layers)
-
-            for smooth_layer, *balance_layers in match_modules_set(
-                model, target_patterns, self.ignore
+            for smooth_layers, *nested_balance_layers in match_modules_set(
+                model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
             ):
+                assert len(smooth_layers)==1, (
+                    "AWQ mappings need to match a single smoothlayer for each mapping but got "
+                    f"{[module_to_name.get(smooth_layer) for smooth_layer in smooth_layers]} "
+                    f"when matching {mapping.smooth_layer}"
+                )
+                smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layer)
+
+                #[[b00, b01, b02...], [b10, b11, b12,...], ...] v
+                #                             [b00, b01, b02, ..., b10, b11, b12, ...]
+                balance_layers = tree_flatten(nested_balance_layers)[0]
                 balance_names = [
                     module_to_name.get(balance_layer)
                     for balance_layer in balance_layers
@@ -361,7 +370,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                     continue
                 else:
                     # for multiple balance layers, find lowest common parent
-                    parent_name, parent = get_lowest_common_module(balance_names, model)
+                    ancestor_name = get_lowest_common_ancestor_name(balance_names)
+                    ancestor, ancestor_name = get_lowest_non_module_list_ancestor(ancestor_name, )
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -369,8 +379,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_layer,
                         balance_layers,
                         balance_names=balance_names,
-                        parent=parent,
-                        parent_name=parent_name,
+                        parent=ancestor,
+                        parent_name=ancestor_name,
                     )
                 )
         self._resolved_mappings = resolved_mappings
@@ -795,45 +805,25 @@ def _accumulate_mean(
     return (prev_sum + sum_added) / new_count, new_count
 
 
-def get_lowest_common_module(names: list[str], module: Module) -> tuple[str, Module]:
+def get_lowest_non_module_list_ancestor(name, module: Module) -> tuple[str, Module]:
     """
-    Given a list of names, returns the lowest-scope common module.
+    Given a name: foo.bar.baz, finds lowest ancestor that's not a ModuleList
+    i.e. module_list.module_dict.module_list -> module_list.module_dict
+    i.e. module_list.module_dict -> module_list.module_dict
+    (self is an ancestor of self)
 
-    NOTE: function excludes modules of type ModuleList, which don't play
+    NOTE: This is needed because ModuleLists don't play
     nicely with hooks because their forward method is never directly
     called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
     are selected based on router output and their forward method is called.
     https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
 
     Returns name of module and pointer to module
-
-    Implementation is a small alteration of os.path.commonprefix
-    https://docs.python.org/3/library/os.path.html#os.path.commonprefix
     """
-    # adding "." before and after allows for handling a lot of corner
-    # cases which were previously mishandled ([case]->prefix->result)
-    # case 0: single module: [.abc.] -> .abc. -> abc
-    # case 1: substring modules: [.abc., .ab.] -> .ab -> ""
-    # case 2: parent & child: [.ab., .ab.a.] -> .ab. -> ab
-    s1 = min(names) + "."
-    s2 = max(names) + "."
-
-    # 1) find longest shared prefix
-    parent_name = "."
-    for i, c in enumerate(s1):
-        if c != s2[i]:
-            break
-        parent_name += c
-
-    # 2) throw away module name fragment and leading dot
-    # ".keep.thro" -> "keep"
-    parent_name = parent_name[1 : parent_name.rfind(".")]
-
-    # 3) return first common module that is not a module list
     while True:
-        if parent_name == "":
+        if name == "":
             return "", module
-        parent = get_layer_by_name(parent_name, module)
-        if not isinstance(parent, torch.nn.ModuleList):
-            return parent_name, parent
-        parent_name = ".".join(parent_name.split(".")[:-1])
+        module = get_layer_by_name(name, module)
+        if not isinstance(module, torch.nn.ModuleList):
+            return name, module
+        name = ".".join(parent_name.split(".")[:-1])
