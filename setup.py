@@ -128,6 +128,7 @@ setup(
             else "transformers>=4.54.0"
         ),
         ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("auto-round==0.9.1" if BUILD_TYPE == "release" else "auto-round==0.9.1"),
         # auto-round 0.9.1 requires accelerate >= 1.10.0
         (
             "accelerate>=1.10.0,<=1.12.0"
@@ -147,9 +148,6 @@ setup(
         ),
     ],
     extras_require={
-        "autoround": [
-            "auto-round==0.9.1",
-        ],
         "dev": [
             # testing framework
             "pytest>=6.0.0",
