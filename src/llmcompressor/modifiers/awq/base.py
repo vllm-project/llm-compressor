@@ -364,9 +364,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                     continue
 
                 ancestor_name = get_lowest_common_ancestor_name(balance_names)
-                ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
-                    ancestor_name, model
-                )
+                # no ModuleList ancestors
+                while not isinstance((ancestor := model.get_submodule(ancestor_name)), torch.nn.ModuleList):
+                    ancestor_name = ancestor_name.rsplit(".", 1)[0]
 
                 resolved_mappings.append(
                     ResolvedMapping(
