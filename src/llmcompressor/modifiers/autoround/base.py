@@ -20,10 +20,8 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_if_target_shared_embedding,
-)
-from llmcompressor.utils.pytorch.module import get_no_split_params
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils.pytorch import get_no_split_params
 
 __all__ = ["AutoRoundModifier"]
 
@@ -107,9 +105,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # AutoRound modifier arguments
     iters: int = 200
     enable_torch_compile: bool = True
+    batch_size: int = 8
 
     # private variables
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
     _q_input: Optional[torch.Tensor] = PrivateAttr(default=None)
 
@@ -124,10 +122,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
-        self._module_names = {
-            m: name
-            for name, m in match_named_modules(state.model, self.targets, self.ignore)
-        }
         self._add_temporary_names(state.model)
         # freeze all model parameters
         for _, param in state.model.named_parameters():
@@ -142,7 +136,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param model: model to prepare for calibration
         """
-        untie_if_target_shared_embedding(model, self._module_names.values())
+        targets = match_named_modules(model, self.targets, self.ignore)
+        if targets_embeddings(model, targets):
+            untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round
@@ -223,6 +219,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 scheme=ar_quant_scheme,
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
+                batch_size=self.batch_size,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
@@ -236,7 +233,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 block=decoding_layer,
                 inputs=cur_inputs,
                 q_input=self._q_input,
-                device=device,
+                device=str(device),
                 # Leave offload for LLMC
                 auto_offload=False,
             )

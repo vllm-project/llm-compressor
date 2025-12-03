@@ -29,12 +29,12 @@ from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
-    untie_word_embeddings,
 )
 from llmcompressor.transformers.utils.helpers import (
     is_model_ct_quantized_from_path,
 )
 from llmcompressor.typing import Processor
+from llmcompressor.utils import untie_word_embeddings
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 

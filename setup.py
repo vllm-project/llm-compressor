@@ -144,8 +144,7 @@ setup(
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.12.3a2"
         ),
-        # TODO: replace it with the release version
-        ("auto_round @ git+https://github.com/intel/auto-round.git@llmc"),
+        ("auto-round==0.9.1"),
     ],
     extras_require={
         "dev": [
