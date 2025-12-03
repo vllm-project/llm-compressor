@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from torch.nn import Linear
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import get_lowest_common_module
+from llmcompressor.modifiers.awq.base import get_lowest_non_module_list_ancestor
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -47,11 +47,18 @@ def test_set_resolved_mappings():
             "o_proj": Linear(4, 4),
         }
     )
-    mlp = torch.nn.ModuleDict(
-        {
-            "up_proj": Linear(4, 10),
-            "down_proj": Linear(10, 4),
-        }
+    mlp = torch.nn.ModuleList(
+        "experts": torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        "gate_proj": Linear(4, 2),
+                        "down_proj": Linear(4, 2),
+                    }
+                )
+                for _ in range(3)
+            ]
+        )
     )
     model = torch.nn.ModuleDict(
         {
@@ -83,8 +90,8 @@ def test_set_resolved_mappings():
             assert set(mapping.balance_names) == {"decoder.self_attn.o_proj"}
             assert mapping.parent_name == "decoder.self_attn.o_proj"
         if "mlp.up_proj" in mapping.smooth_name:
-            assert set(mapping.balance_names) == {"decoder.mlp.down_proj"}
-            assert mapping.parent_name == "decoder.mlp.down_proj"
+            assert set(mapping.balance_names) == {"decoder.mlp.0.down_proj", "decoder.mlp.0.down_proj", "decoder.mlp.0.down_proj"}
+            assert mapping.parent_name == "decoder.mlp.down_proj" # TODODODO
 
     awq = AWQModifier(
         mappings=[
@@ -193,15 +200,15 @@ def test_validate():
 
 
 @pytest.mark.unit
-def test_get_lowest_common_module():
-    mlp = torch.nn.ModuleDict(
+def test_get_lowest_non_module_list_ancestor():
+    model = torch.nn.ModuleDict(
         {
             "experts": torch.nn.ModuleList(
                 [
                     torch.nn.ModuleDict(
                         {
                             "gate_proj": Linear(4, 2),
-                            "down_proj": Linear(4, 2),
+                            "down_proj": Linear(2, 4),
                         }
                     )
                     for _ in range(10)
@@ -209,56 +216,19 @@ def test_get_lowest_common_module():
             )
         }
     )
-    self_attn = torch.nn.ModuleDict(
-        {
-            "q_proj": Linear(4, 2),
-            "k_proj": Linear(4, 2),
-            "v_proj": Linear(4, 2),
-            "o_proj": Linear(4, 4),
-        }
+    
+    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
+        "", model
     )
-    model = torch.nn.ModuleDict(
-        {
-            "embed_tokens": Linear(4, 2),
-            "decoder": torch.nn.ModuleDict(
-                {
-                    "self_attn": self_attn,
-                    "mlp": mlp,
-                }
-            ),
-        }
-    )
+    assert ancestor_name == "" and ancestor == model
 
-    parent_name, parent = get_lowest_common_module(
-        ["decoder.mlp.experts.1.gate_proj", "decoder.mlp.experts.4.down_proj"], model
+    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
+        ["experts"], model
     )
-    assert parent_name == "decoder.mlp" and parent == mlp
+    assert ancestor_name == "" and ancestor == model
 
-    parent_name, parent = get_lowest_common_module(
-        ["decoder.self_attn.q_proj", "decoder.self_attn.v_proj"], model
+    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
+        "experts.1.gate_proj", model
     )
-    assert parent_name == "decoder.self_attn" and parent == self_attn
+    assert ancestor_name == "experts.1.gate_proj" and ancestor == model["experts"][1]["gate_proj"]
 
-    parent_name, parent = get_lowest_common_module(
-        ["decoder.mlp.experts.1.gate_proj", "decoder.self_attn.v_proj"], model
-    )
-    assert parent_name == "decoder" and parent == model["decoder"]
-
-    parent_name, parent = get_lowest_common_module(
-        ["embed_tokens", "decoder.self_attn.v_proj"], model
-    )
-    assert parent_name == "" and parent == model
-
-    m = torch.nn.ModuleDict(
-        {
-            "abc": Linear(3, 3),
-            "ab": torch.nn.ModuleDict({"a": Linear(3, 3)}),
-            "z": Linear(3, 3),
-        }
-    )
-    parent_name, parent = get_lowest_common_module(["abc", "ab"], m)
-    assert parent_name == ""
-    parent_name, parent = get_lowest_common_module(["ab", "ab.a"], m)
-    assert parent_name == "ab"
-    parent_name, parent = get_lowest_common_module(["z"], m)
-    assert parent_name == "z"
