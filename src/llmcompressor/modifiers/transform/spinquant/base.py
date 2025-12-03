@@ -9,9 +9,9 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from torch.utils._pytree import tree_flatten
 from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, ValidationInfo, field_validator
+from torch.utils._pytree import tree_flatten
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
@@ -205,7 +205,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         for mapping in self.norm_mappings:
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
-            ): 
+            ):
                 # match_modules_set returns a list of lists
                 assert len(norm) == 1
                 fuse_norm_linears(norm[0], tree_flatten(linears)[0])

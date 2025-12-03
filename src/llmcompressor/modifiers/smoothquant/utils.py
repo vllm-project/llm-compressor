@@ -1,6 +1,6 @@
 import functools
 from collections import namedtuple
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple
 
 from loguru import logger
 
@@ -10,7 +10,7 @@ __all__ = [
     "DEFAULT_SMOOTHQUANT_MAPPINGS",
 ]
 
-LayerMapType = Tuple[Union[List[str], str], Union[List[str], str]]
+LayerMapType = Tuple[List[str], str]
 LayerMap: LayerMapType = namedtuple("LayerMap", ["balance_layers", "smooth_layers"])
 
 DEFAULT_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [

@@ -7,16 +7,17 @@ from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
+    get_lowest_common_ancestor_name,
     match_modules_set,
     match_named_modules,
     update_offload_parameter,
-    get_lowest_common_ancestor_name,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
-from tqdm import tqdm
 from torch.utils._pytree import tree_flatten
+from tqdm import tqdm
+
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
@@ -30,7 +31,10 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layer_by_name
+from llmcompressor.utils.pytorch.module import (
+    get_layer_by_name,
+    get_module_to_name_dict,
+)
 
 __all__ = ["AWQModifier"]
 
@@ -321,30 +325,20 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-
-        module_to_name = {}
-        for name, module in model.named_modules():
-            if module in module_to_name:
-                logger.info(
-                    f"Warning, {name} and {module_to_name[module]} both "
-                    "share the same module the same module, "
-                    "may have trouble resolving mappings."
-                )
-            module_to_name[module] = name
-
+        module_to_name = get_module_to_name_dict(model)
         for mapping in self.mappings:
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
             ):
-                assert len(smooth_layers)==1, (
-                    "AWQ mappings need to match a single smoothlayer for each mapping but got "
-                    f"{[module_to_name.get(smooth_layer) for smooth_layer in smooth_layers]} "
-                    f"when matching {mapping.smooth_layer}"
+                assert len(smooth_layers) == 1, (
+                    "AWQ mappings need to match a single smoothlayer for each "
+                    f"mapping but got {[module_to_name.get(s) for s in smooth_layers]}"
+                    f" for mapping: {mapping}"
                 )
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layer)
 
-                #[[b00, b01, b02...], [b10, b11, b12,...], ...] v
+                # [[b00, b01, b02...], [b10, b11, b12,...], ...] v
                 #                             [b00, b01, b02, ..., b10, b11, b12, ...]
                 balance_layers = tree_flatten(nested_balance_layers)[0]
                 balance_names = [
@@ -371,7 +365,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     # for multiple balance layers, find lowest common parent
                     ancestor_name = get_lowest_common_ancestor_name(balance_names)
-                    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(ancestor_name, model)
+                    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
+                        ancestor_name, model
+                    )
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -807,7 +803,7 @@ def _accumulate_mean(
 
 def get_lowest_non_module_list_ancestor(name, module: Module) -> tuple[str, Module]:
     """
-    Given a name and a model, finds lowest ancestor of 
+    Given a name and a model, finds lowest ancestor of
     named module that's not a ModuleList
     i.e. module_list.module_dict.module_list -> module_list.module_dict
     i.e. module_list.module_dict -> module_list.module_dict
