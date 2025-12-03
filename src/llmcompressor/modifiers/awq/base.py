@@ -362,12 +362,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
 
                     continue
-                else:
-                    # for multiple balance layers, find lowest common parent
-                    ancestor_name = get_lowest_common_ancestor_name(balance_names)
-                    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
-                        ancestor_name, model
-                    )
+
+                ancestor_name = get_lowest_common_ancestor_name(balance_names)
+                ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
+                    ancestor_name, model
+                )
 
                 resolved_mappings.append(
                     ResolvedMapping(
