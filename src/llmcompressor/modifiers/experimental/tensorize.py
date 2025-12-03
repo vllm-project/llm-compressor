@@ -14,14 +14,11 @@ from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, Field
 from torch.nn import Module
 from tqdm import tqdm
+import tensorly as tl
+from tensorly.decomposition import tensor_train
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.awq.mappings import (
-    AWQMapping,
-    ResolvedMapping,
-    get_layer_mappings_from_architecture,
-)
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -29,16 +26,21 @@ from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_layer_by_name
 
-__all__ = ["TensorizeModifier"]
+tl.set_backend("pytorch")
+
+__all__ = ["TensorNetworkModifier"]
 
 
-class TensorizeModifier(Modifier):
+class TensorNetworkModifier(Modifier):
     """
     This experimental module converts all targeted linear layers to
     a tensor network factorization known as a Matrix Product Operator
     (MPO), similar to https://arxiv.org/abs/2305.06058. The paper claims
     that neural networks can be compressed using tensor networks with
     exponentially fewer variational parameters, without loss to accuracy.
+
+    Reference: Section 4.3 of
+      https://tensorly.org/dev/user_guide/tensor_decomposition.html
 
     Because this modifier manipulates the weights and structure of the model,
     it can only be used in one-shot and requires a calibration dataset.
@@ -52,7 +54,7 @@ class TensorizeModifier(Modifier):
 
     Lifecycle:
         - on_initialize
-            - capture kwargs needed for forward passes into modules
+            - nothing
         - on_start
             - set up activation cache hooks to capture input activations
                 to target layers
@@ -72,18 +74,17 @@ class TensorizeModifier(Modifier):
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
     :param targets: list of layer names to quantize if a scheme is provided. If unset,
-        will contain all targets listed in config_groups. If config_groups is also
-        unset, will default to ["Linear"] (i.e. all Linear layers will be targeted).
-        This field is not the source of truth for finding all matching target layers
-        in a model. Additional information can be stored in `config_groups`. Use
-        self.resolved_targets instead.
+        will default to ["Linear"] (i.e. all Linear layers will be targeted).
     :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
         to torch.device("cpu") if you are encountering OOM errors
-    :param n_blocks: Number of blocks to break target linear matrix into. Every
+    :param num_blocks: Number of blocks to break target linear matrix into. Every
         target layer must have row and column size evenly divisible by n_blocks.
+        Value must be an integer squared (e.g. 1, 4, 9, 16, ...)
         Defaults to 1.
+    :param num_cores: Number of cores (also known as sites) in each resultant MPO.
+        Defaults to 3.
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -93,52 +94,26 @@ class TensorizeModifier(Modifier):
     targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
     ignore: list[str] = Field(default_factory=list)
     offload_device: torch.device | None = None
-    n_blocks: int = 1
+    num_blocks: int = 1
+    num_cores: int = 3
 
     # Cache list of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
-        default_factory=dict
-    )
-    # Dict[smooth layer name, (activation means, activation counts)]
-    _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
+    _target_args_cache: dict[tuple[str, Module], IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize AWQ on the given state
-        Initialize quantization, resolve mappings, cache module kwargs
-
-        :param state: state to run AWQ on
+        :param state: state to run TensorNetworkModifier on
         :return: True on a successful run, False otherwise
         """
-
-        # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
-
-        if self.mappings is None:
-            logger.info("No AWQModifier.mappings provided, inferring from model...")
-            self.mappings = get_layer_mappings_from_architecture(
-                architecture=state.model.__class__.__name__
-            )
-
-        self._set_resolved_mappings(state.model)
 
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
-        # register quantization calibration hooks
-        # assume quantization has been initialized by this modifier or one before it
-
-        # AWQ performs forward passes during _apply_smoothing
-        # before any scales or zero points are updated
-        # Quantization must be disabled, otherwise NaNs will
-        # appear in quantized forward method
-        state.model.apply(disable_quantization)
-
+        # register caching hooks
         self._setup_activation_cache_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -148,11 +123,11 @@ class TensorizeModifier(Modifier):
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             # Run smoothing in case of sequential pipeline
-            self._apply_smoothing(state.model)
+            self._tensorize(state.model)
 
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
             # Run smoothing in case of basic pipeline
-            self._apply_smoothing(state.model)
+            self._tensorize(state.model)
 
             if not self.ended_:
                 self.on_end(state, None)
@@ -165,12 +140,6 @@ class TensorizeModifier(Modifier):
         self._assert_all_activations_consumed()
 
         self.ended_ = True
-
-        for _, module in tqdm(
-            match_named_modules(state.model, self.resolved_targets, self.ignore),
-            desc="Calibrating weights",
-        ):
-            update_weight_zp_scale(module)
 
         # remove activation hooks
         self.remove_hooks()
@@ -185,226 +154,81 @@ class TensorizeModifier(Modifier):
         if not self.ended_:
             self.on_end(state, None)
 
-        self._parent_args_cache.clear()
-        self._smooth_activation_means.clear()
-        self._resolved_mappings.clear()
+        self._target_args_cache.clear()
 
         return True
 
-    def _set_resolved_mappings(self, model: Module) -> None:
+    def _setup_activation_cache_hooks(self, model: Module) -> None:
         """
-        Transforms the list of activations to smooth and their corresponding weights
-        into ResolvedMapping objects, resolving regular expressions.
-        Result is stored in _resolved_mappings.
-
-        For each activation in the mapping list, we find the corresponding weight to
-        balance by searching for the longest substring. For instance, if our balance
-        weight is ".*re:.*q_proj" and the activation is "re:.*self_attn_layer_norm" we
-        would match model.layer.0.p_proj to model.layer.0.self_attn_layer_norm and
-        repeat for model.layer.1 and so on
-        """
-        resolved_mappings: list[ResolvedMapping] = []
-        for mapping_idx, mapping in enumerate(self.mappings):
-            num_skipped_mappings = 0
-
-            for smooth_name, smooth_layer in (
-                pbar := tqdm(
-                    match_named_modules(model, [mapping.smooth_layer], self.ignore)
-                )
-            ):
-                pbar.set_description(
-                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
-                    f" ({num_skipped_mappings} skipped)"
-                )
-
-                smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
-                smooth_parent = get_layer_by_name(smooth_parent_name, model)
-
-                balance_layers, balance_names = [], []
-                for balance_regex in mapping.balance_layers:
-                    # find the submodules that match the activation layer
-                    for balance_suffix, balance_layer in match_named_modules(
-                        smooth_parent, [balance_regex], self.ignore
-                    ):
-                        balance_name = f"{smooth_parent_name}.{balance_suffix}"
-
-                        # exclude v_proj->o_proj mappings whose shapes are incompatible
-                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                        if (
-                            isinstance(smooth_layer, torch.nn.Linear)
-                            and isinstance(balance_layer, torch.nn.Linear)
-                            and balance_name.endswith(".o_proj")
-                            and (
-                                (
-                                    smooth_name.endswith(".v_proj")
-                                    and smooth_layer.out_features
-                                    != balance_layer.in_features
-                                )
-                                or (
-                                    smooth_name.endswith(".qkv_proj")
-                                    and smooth_layer.out_features
-                                    != 3 * balance_layer.in_features
-                                )
-                            )
-                        ):
-                            num_skipped_mappings += 1
-                            continue
-
-                        balance_layers.append(balance_layer)
-                        balance_names.append(balance_name)
-
-                if len(balance_layers) == 0:
-                    continue
-
-                elif len(balance_layers) == 1:
-                    # for single balance layer, parent is the balance layer
-                    parent_name, parent = balance_name, balance_layer
-                else:
-                    # for multiple balance layers, find lowest common parent
-                    parent_name, parent = get_lowest_common_parent(balance_names, model)
-
-                resolved_mappings.append(
-                    ResolvedMapping(
-                        smooth_name,
-                        smooth_layer,
-                        balance_layers,
-                        balance_names=balance_names,
-                        parent=parent,
-                        parent_name=parent_name,
-                    )
-                )
-        self._resolved_mappings = resolved_mappings
-        return
-
-    def _setup_activation_cache_hooks(self) -> None:
-        """
-        Attach a forward hook to each activation we want to smooth. This allows us to
-        calculate the dynamic range during calibration
+        Attach a forward hook to each target layer we want to tensorize
         """
 
-        def cache_parent_kwargs_hook(
+        def cache_target_kwargs_hook(
             module: torch.nn.Module,
             args: tuple[torch.Tensor, ...],
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
-            self._parent_args_cache[module].append(values.arguments)
+            self._target_args_cache[module].append(values.arguments)
 
-        def create_cache_smooth_activations_hook_fn(smooth_name):
-            def cache_smooth_activations_hook(
-                _module: torch.nn.Module,
-                args: tuple[torch.Tensor, ...],
-                _output: torch.Tensor,
-            ):
-                self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    # Assume that first argument is the input
-                    args[0].cpu().abs().detach().squeeze(),
-                    self._smooth_activation_means.get(smooth_name, None),
-                )
-
-            return cache_smooth_activations_hook
-
-        for mapping in self._resolved_mappings:
-            # parent kwargs needed for future forward passes
-            # same parent may appear multiple times in resolved mappings
-            if mapping.parent not in self._parent_args_cache:
-                self._parent_args_cache[mapping.parent] = IntermediatesCache(
-                    None,
-                    self.offload_device,
-                )
-                self.register_hook(
-                    mapping.parent,
-                    cache_parent_kwargs_hook,
-                    "forward_pre",
-                    with_kwargs=True,
-                )
-
-            # input activations to balance layers needed for loss function
-            # storing inputs to first balance layer is sufficient
-            # other balance layers get the same input
+        for name, module in match_named_modules(model, self.targets, self.ignore):
+            self._target_args_cache[(name, module)] = IntermediatesCache(
+                None,
+                self.offload_device,
+            )
             self.register_hook(
-                mapping.balance_layers[0],
-                create_cache_smooth_activations_hook_fn(mapping.smooth_name),
-                "forward",
+                module,
+                cache_target_kwargs_hook,
+                "forward_pre",
+                with_kwargs=True,
             )
 
     @torch.no_grad()
-    def _apply_smoothing(self, model: Module) -> None:
+    def _tensorize(self, model: Module) -> None:
         """
-        Calculate the best scaling factors for each layer to smooth activations and
-        apply the scaling factors to the weights of the next layer to offset the
-        smoothing
+        Tensorize any linear layer in model for which an entry in the cache
+        exists. Tensor Network decomposition is applied, and the layer is
+        retrained to match the original linear layer's mapping for the given
+        calibration dataset
 
         :param model: model to apply smoothing to
         """
-        # NOTE: When using SequentialPipeline, not all the mappings
+        # NOTE: When using SequentialPipeline, not all the targeted layers
         # will have cached activations in the segment being udpated
-        mappings_to_smooth = [
-            mapping
-            for mapping in self._resolved_mappings
-            if mapping.smooth_name in self._smooth_activation_means
-        ]
-        for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
-            smooth_layer = mapping.smooth_layer
-            balance_layers = mapping.balance_layers
-            parent_module = mapping.parent
-
+        for name, module in tqdm(self._target_args_cache.keys(), desc="Tensorizing"):
             with (
-                align_modules([parent_module, smooth_layer, *balance_layers]),
+                align_modules([module]),
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                # [STEP 1]: Compute per-channel mean of normalised weights
-                # All layer weights are concatted together
-                weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
-                org_shape = weight.shape
-                # The weights are reshaped to be organised by quantization group
-                if self._group_size > 0:
-                    weight = weight.view(-1, self._group_size)
-                # Calculates the relative magnitude of the weights within
-                # each of the quantization groups, and rescales each group
-                # individually so that each group has weights on a 0-1 scale.
-                weight.abs_()
-                weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-                if self._group_size > 0:
-                    # Resizes the rescaled weight matrix back up to
-                    # its original dimensions
-                    weight = weight.view(org_shape)
-                # Gets the average rescaled magnitude for each output channel
-                w_mean = weight.mean(0)
-                del weight
-
-                # [STEP 3]: Compute output of module
-                # could cache from hook, rather than recomputing here
-                fp16_outputs = self._run_samples(parent_module)
+                # [STEP 1]: Compute output of module
+                fp16_outputs = self._run_samples(module)
                 if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
                     logger.info(
-                        f"Skipping smooth_layer {mapping.smooth_name}, no activations "
+                        f"Skipping layer {name}, no activations "
                         "found to scale. This can occasionally occur in MoE models "
                         "when certain experts are not activated by calibration samples."
                     )
-                    del self._smooth_activation_means[mapping.smooth_name]
+                    del self._target_args_cache[(name, module)]
                     continue
                 if not all(
                     [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
                 ):
                     logger.warning(
-                        f"Skipping smooth_layer {mapping.smooth_name}, NaN or inf "
-                        "outputs found during forward pass of the parent module "
-                        f"{mapping.parent_name}. The model is either generating NaN "
-                        "output with provided calibration data set, or the mappings "
-                        "are incorrectly set and modifying the model in undesired "
-                        "ways. If you encounter this consistently, raise an issue at "
+                        f"Skipping layer {name}, NaN or inf "
+                        "outputs found during forward pass of the module. "
+                        "The model is either generating NaN output with provided "
+                        "calibration data set, or the targets are incorrectly set "
+                        "and modifying the model in undesired ways. "
+                        "If you encounter this consistently, raise an issue at "
                         "https://github.com/vllm-project/llm-compressor/issues"
                     )
-                    del self._smooth_activation_means[mapping.smooth_name]
+                    del self._target_args_cache[(name, module)]
                     continue
 
-                x_mean = self._smooth_activation_means[mapping.smooth_name][0]
-
-                # [STEP 4]: Compute loss
-                best_scales = self._compute_best_scale(
-                    x_mean, w_mean, parent_module, balance_layers, fp16_outputs
+                # [STEP 2]: Tensorize
+                factors = tensor_train(
+                    module.weight.data,
                 )
 
                 @torch.no_grad()
@@ -604,66 +428,6 @@ class TensorizeModifier(Modifier):
         """
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
-
-
-def _pseudo_quantize_tensor(
-    w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
-):
-    org_w_shape = w.shape
-    if group_size > 0:
-        assert org_w_shape[-1] % group_size == 0, (
-            f"org_w_shape ({org_w_shape[-1]}) must be a multiple "
-            + f"of group_size ({group_size})!"
-        )
-        w = w.reshape(-1, group_size)
-    assert w.dim() == 2
-    assert torch.isnan(w).sum() == 0
-
-    # zero point quantization
-    if not symmetric:
-        max_val = w.amax(dim=1, keepdim=True)
-        min_val = w.amin(dim=1, keepdim=True)
-        max_int = 2**bit_width - 1
-        min_int = 0
-        scales = (max_val - min_val).clamp(min=1e-5) / max_int
-        zeros = (-torch.round(min_val / scales)).clamp_(min_int, max_int)
-        w = (
-            torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
-        ) * scales
-        zeros = (zeros - 2 ** (bit_width - 1)).view(org_w_shape[0], -1)
-    else:
-        max_val = w.abs().amax(dim=1, keepdim=True)
-        max_val = max_val.clamp(min=1e-5)
-        max_int = 2 ** (bit_width - 1) - 1
-        min_int = -(2 ** (bit_width - 1))
-        scales = max_val / max_int
-        zeros = None
-        w = torch.clamp(torch.round(w / scales), min_int, max_int) * scales
-
-    assert torch.isnan(scales).sum() == 0
-    assert torch.isnan(w).sum() == 0
-
-    scales = scales.view(org_w_shape[0], -1)
-    w = w.reshape(org_w_shape)
-
-    return w, scales, zeros
-
-
-def _accumulate_mean(
-    inp: torch.Tensor,
-    prev_mean_and_count: tuple[torch.FloatTensor, int] | None,
-) -> tuple[torch.FloatTensor, int]:
-    sum_added = inp.sum(dim=0)
-    num_added = inp.size(0)
-    if prev_mean_and_count is None:
-        return sum_added, num_added
-
-    prev_mean, prev_count = prev_mean_and_count
-
-    prev_sum = prev_mean * prev_count
-    new_count = prev_count + num_added
-
-    return (prev_sum + sum_added) / new_count, new_count
 
 
 def get_lowest_common_parent(names: list[str], module: Module) -> tuple[str, Module]:
