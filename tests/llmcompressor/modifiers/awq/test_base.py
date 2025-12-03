@@ -5,7 +5,6 @@ from pydantic import ValidationError
 from torch.nn import Linear
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import get_lowest_non_module_list_ancestor
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -203,39 +202,6 @@ def test_validate():
         AWQModifier(scheme="W4A16", duo_scaling="Both")
     with pytest.raises(ValidationError):
         AWQModifier(scheme="W4A16", duo_scaling="x")
-
-
-@pytest.mark.unit
-def test_get_lowest_non_module_list_ancestor():
-    model = torch.nn.ModuleDict(
-        {
-            "experts": torch.nn.ModuleList(
-                [
-                    torch.nn.ModuleDict(
-                        {
-                            "gate_proj": Linear(4, 2),
-                            "down_proj": Linear(2, 4),
-                        }
-                    )
-                    for _ in range(10)
-                ]
-            )
-        }
-    )
-
-    ancestor_name, ancestor = get_lowest_non_module_list_ancestor("", model)
-    assert ancestor_name == "" and ancestor == model
-
-    ancestor_name, ancestor = get_lowest_non_module_list_ancestor("experts", model)
-    assert ancestor_name == "" and ancestor == model
-
-    ancestor_name, ancestor = get_lowest_non_module_list_ancestor(
-        "experts.1.gate_proj", model
-    )
-    assert (
-        ancestor_name == "experts.1.gate_proj"
-        and ancestor == model["experts"][1]["gate_proj"]
-    )
 
 
 @pytest.mark.unit
