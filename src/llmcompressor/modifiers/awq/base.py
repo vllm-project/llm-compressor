@@ -32,7 +32,6 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_layer_by_name,
     get_module_to_name_dict,
 )
 
@@ -365,7 +364,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 ancestor_name = get_lowest_common_ancestor_name(balance_names)
                 # no ModuleList ancestors
-                while not isinstance((ancestor := model.get_submodule(ancestor_name)), torch.nn.ModuleList):
+                while not isinstance(
+                    (ancestor := model.get_submodule(ancestor_name)),
+                    torch.nn.ModuleList,
+                ):
                     ancestor_name = ancestor_name.rsplit(".", 1)[0]
 
                 resolved_mappings.append(
@@ -798,28 +800,3 @@ def _accumulate_mean(
     new_count = prev_count + num_added
 
     return (prev_sum + sum_added) / new_count, new_count
-
-
-def get_lowest_non_module_list_ancestor(name, module: Module) -> tuple[str, Module]:
-    """
-    Given a name and a model, finds lowest ancestor of
-    named module that's not a ModuleList
-    i.e. module_list.module_dict.module_list -> module_list.module_dict
-    i.e. module_list.module_dict -> module_list.module_dict
-    (self is an ancestor of self)
-
-    NOTE: This is needed because ModuleLists don't play
-    nicely with hooks because their forward method is never directly
-    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
-    are selected based on router output and their forward method is called.
-    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
-
-    Returns name of module and pointer to module
-    """
-    while True:
-        if name == "":
-            return "", module
-        current_module = get_layer_by_name(name, module)
-        if not isinstance(current_module, torch.nn.ModuleList):
-            return name, current_module
-        name = ".".join(name.split(".")[:-1])
