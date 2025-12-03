@@ -378,8 +378,7 @@ def get_module_to_name_dict(model: Module) -> dict[Module:str]:
         if module in module_to_name:
             logger.info(
                 f"Warning, {name} and {module_to_name[module]} both "
-                "share the same module the same module, "
-                "may have trouble resolving mappings."
+                "share the same module, which can result in unexpected behavior"
             )
         module_to_name[module] = name
     return module_to_name

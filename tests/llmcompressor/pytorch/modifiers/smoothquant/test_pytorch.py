@@ -4,12 +4,6 @@ from torch.nn import Linear
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 
 
-import pytest
-from torch.nn import Linear
-
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-
-
 @pytest.mark.unit
 def test_smooth_quant_mapping(state):
     mappings = [(["seq.fc1"], "seq.fc2")]
