@@ -1,12 +1,8 @@
 import gc
 import torch
 from torch import nn
-import os
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor import oneshot
 from llmcompressor.utils.dev import skip_weights_initialize
-from llmcompressor.modifiers.quantization import QuantizationModifier
 from compressed_tensors.utils import align_module_device, update_offload_parameter
 
 def convert_model_for_quantization_gptoss(model):
@@ -49,8 +45,9 @@ def convert_model_for_quantization_gptoss(model):
     if to_delete:
         gc.collect()
         try:
-            torch.cuda.synchronize() 
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
         except Exception as e:
             print(f"[GPT-OSS] Warning: Failed to empty CUDA cache: {e}", flush=True)
 
@@ -162,55 +159,13 @@ class SequentialGPTOSSMoE(nn.Module):
         # Accumulate expert outputs for chosen experts only
         for j in range(self.top_k):
             idx = router_indices[:, j]
-            w   = router_scores[torch.arange(idx.size(0), device=idx.device), idx].unsqueeze(-1)
-            unique_experts = torch.unique(idx)
-            for e in unique_experts:
+            w   = router_scores[:, j].unsqueeze(-1)
+            for e in range(self.num_experts):
                 mask = (idx == e)
-                out[mask] += self.experts[e](x[mask]) * w[mask]
+                if mask.any():
+                    out[mask] += self.experts[e](x[mask]) * w[mask]
 
         out = out.view(B, T, H)
         router_scores = router_scores.view(B * T, -1)  # shape doesn't matter much; it’s ignored by the decoder
         return out, router_scores
 
-
-model_id = "unsloth/gpt-oss-120b-BF16"
-
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    torch_dtype=torch.bfloat16,
-    device_map="auto",
-    trust_remote_code=True,
-)
-tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-
-convert_model_for_quantization_gptoss(model)
-
-# -----------------------------
-# Quantization recipe
-# -----------------------------
-recipe = QuantizationModifier(
-    targets="Linear",
-    scheme="FP8_DYNAMIC",
-    ignore=[
-        "re:.*lm_head",
-        "re:.*self_attn",
-        "re:.*attn",
-        "re:.*attention.*",
-        "re:.*router",
-    ],
-)
-
-SAVE_DIR = f"{model_id.split('/')[-1]}-FP8-Dynamic"
-
-# Oneshot quantization
-oneshot(
-    model=model,
-    tokenizer=tokenizer,
-    recipe=recipe,
-    trust_remote_code_model=True,
-    output_dir=SAVE_DIR,
-)
-
-# Save compressed
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
