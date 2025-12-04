@@ -312,7 +312,9 @@ class QuantizationMixin(HooksMixin):
             ignore=ignore,
         )
 
-    def _apply_observer_overrides(self, scheme: QuantizationScheme) -> QuantizationScheme:
+    def _apply_observer_overrides(
+        self, scheme: QuantizationScheme
+    ) -> QuantizationScheme:
         """
         Apply observer overrides from weight_observer, input_observer, output_observer,
         or observer dict to the quantization scheme.
