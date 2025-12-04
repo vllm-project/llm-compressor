@@ -18,7 +18,7 @@ import warnings
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
@@ -28,9 +28,6 @@ from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.utils import get_embeddings
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = [
     "ALL_TOKEN",
