@@ -49,7 +49,7 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
-# Will run each test case in its own process through run_tests.sh
+# Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
 @requires_gpu(1)
 @pytest.mark.parametrize(
