@@ -13,15 +13,13 @@ from transformers import PreTrainedModel
 # deprecated replacement functions
 from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
 from llmcompressor.modeling.llama4 import replace as replace_llama4
-from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
 
 __all__ = ["replace_modules_for_calibration"]
 
 # ---------------------- module replacements; permanent -------------------------
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
-    "Llama4TextMoe": replace_llama4,
-    "Qwen3VLMoeTextSparseMoeBlock": replace_Qwen3VLMoE,
+    "Llama4TextMoe": replace_llama4
 }
 
 

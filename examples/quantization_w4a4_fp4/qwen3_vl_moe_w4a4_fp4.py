@@ -15,7 +15,6 @@ MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 # Load model.
 model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
-model = replace_modules_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 20
