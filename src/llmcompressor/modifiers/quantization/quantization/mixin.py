@@ -90,6 +90,20 @@ class QuantizationMixin(HooksMixin):
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
+    :param weight_observer: optional observer name for weight quantization.
+        Overrides the default observer specified in the scheme. Valid values
+        include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
+    :param input_observer: optional observer name for input activation quantization.
+        Overrides the default observer specified in the scheme. Valid values
+        include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
+    :param output_observer: optional observer name for output activation quantization.
+        Overrides the default observer specified in the scheme. Valid values
+        include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
+    :param observer: optional dictionary to specify observers for multiple quantization
+        types at once. Keys can be "weights", "input", or "output". Values are observer
+        names. Example: {"weights": "MSE", "input": "MSE"}. If both individual
+        observer parameters (weight_observer, input_observer, output_observer) and
+        observer dict are provided, the observer dict takes precedence.
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
@@ -100,6 +114,11 @@ class QuantizationMixin(HooksMixin):
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
+    # Observer parameters for easy specification
+    weight_observer: Optional[str] = None
+    input_observer: Optional[str] = None
+    output_observer: Optional[str] = None
+    observer: Optional[Dict[str, str]] = None
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
@@ -127,6 +146,28 @@ class QuantizationMixin(HooksMixin):
 
             for key, target in value.items():
                 value[key] = cls.validate_targets(target)
+
+        return value
+
+    @field_validator("observer", mode="before")
+    def validate_observer(cls, value: Any) -> Optional[Dict[str, str]]:
+        """
+        Validate observer dictionary format. Accepts keys: 'weights', 'input', 'output'
+        """
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise ValueError("`observer` must be a dictionary")
+
+        valid_keys = {"weights", "input", "output"}
+        for key in value.keys():
+            if key not in valid_keys:
+                raise ValueError(
+                    f"Invalid observer key '{key}'. Valid keys are: {valid_keys}"
+                )
+            if not isinstance(value[key], str):
+                raise ValueError(f"Observer value for '{key}' must be a string")
 
         return value
 
@@ -241,18 +282,28 @@ class QuantizationMixin(HooksMixin):
             config_groups = {}
             for idx, key in enumerate(scheme.keys()):
                 if is_preset_scheme(key):
-                    scheme = preset_name_to_scheme(key, scheme[key])
+                    scheme_obj = preset_name_to_scheme(key, scheme[key])
                 else:
-                    scheme = QuantizationScheme.model_validate(
+                    scheme_obj = QuantizationScheme.model_validate(
                         {"targets": scheme[key], **scheme}
                     )
 
+                # Apply observer overrides if specified
+                scheme_obj = self._apply_observer_overrides(scheme_obj)
+
                 group_name = f"group_{idx}"
-                config_groups[group_name] = scheme
+                config_groups[group_name] = scheme_obj
 
         if config_groups is None or len(config_groups) == 0:
             default_quant_scheme = QuantizationScheme(targets=targets)
+            # Apply observer overrides to default scheme as well
+            default_quant_scheme = self._apply_observer_overrides(default_quant_scheme)
             config_groups = {"group_0": default_quant_scheme}
+        elif scheme is None:
+            # Apply observer overrides to all config groups when config_groups
+            # was provided directly (not derived from scheme)
+            for scheme_obj in config_groups.values():
+                self._apply_observer_overrides(scheme_obj)
 
         return QuantizationConfig(
             config_groups=config_groups,
@@ -260,6 +311,54 @@ class QuantizationMixin(HooksMixin):
             quantization_status=QuantizationStatus.INITIALIZED,
             ignore=ignore,
         )
+
+    def _apply_observer_overrides(self, scheme: QuantizationScheme) -> QuantizationScheme:
+        """
+        Apply observer overrides from weight_observer, input_observer, output_observer,
+        or observer dict to the quantization scheme.
+
+        :param scheme: QuantizationScheme to modify
+        :return: Modified QuantizationScheme with observers applied
+        """
+        # Validate that both individual params and dict are not specified
+        has_individual = (
+            self.weight_observer is not None
+            or self.input_observer is not None
+            or self.output_observer is not None
+        )
+        if has_individual and self.observer is not None:
+            raise ValueError(
+                "Cannot specify both individual observer parameters (weight_observer, "
+                "input_observer, output_observer) and observer dict. "
+                "Please use either individual parameters or the observer dict."
+            )
+
+        # Resolve observer values from individual params or dict
+        weight_obs = self.weight_observer
+        input_obs = self.input_observer
+        output_obs = self.output_observer
+
+        # Override with dict values if provided
+        if self.observer is not None:
+            weight_obs = self.observer.get("weights", weight_obs)
+            input_obs = self.observer.get("input", input_obs)
+            output_obs = self.observer.get("output", output_obs)
+
+        # Apply observers to QuantizationArgs if specified
+        update_map = [
+            (weight_obs, "weights"),
+            (input_obs, "input_activations"),
+            (output_obs, "output_activations"),
+        ]
+
+        for obs_value, scheme_attr in update_map:
+            q_args = getattr(scheme, scheme_attr, None)
+            if obs_value is not None and q_args is not None:
+                args_dict = q_args.model_dump()
+                args_dict["observer"] = obs_value
+                setattr(scheme, scheme_attr, QuantizationArgs.model_validate(args_dict))
+
+        return scheme
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
