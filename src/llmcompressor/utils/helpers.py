@@ -1073,7 +1073,7 @@ def disable_lm_head(model: torch.nn.Module):
     does not untie parameters and restores the model proper loading upon exit
     """
     _, lm_head = get_embeddings(model)
-    if lm_head is not None:
+    if lm_head is None:
         logger.warning(
             f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
             "but was unable to to find lm_head. This may lead to unexpected OOM."
