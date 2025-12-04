@@ -7,9 +7,6 @@ from tests.testing_utils import parse_params
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
 
-# TODO: Seems better to mark test type (smoke, sanity, regression) as a marker as
-# opposed to using a field in the config file?
-
 
 @pytest.fixture(params=parse_params(CONFIGS_DIRECTORY))
 def one_shot_args(request):
@@ -45,8 +42,6 @@ def one_shot_args(request):
     return args
 
 
-@pytest.mark.smoke
-@pytest.mark.integration
 def test_one_shot_inputs(one_shot_args, tmp_path):
     oneshot(
         **one_shot_args,
