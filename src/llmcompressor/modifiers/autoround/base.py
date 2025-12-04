@@ -60,35 +60,39 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     This modifier leverages signed gradient descent (SignSGD) optimizer and
     block-wise loss to optimize rounding values and weight clipping in a few steps.
 
-    | Sample yaml:
-    | test_stage:
-    |    modifiers:
-    |      AutoRoundModifier:
-    |          iters: 200
-    |          config_groups:
-    |            group_0:
-    |                targets:
-    |                  - "Linear"
-    |                input_activations: null
-    |                output_activations: null
-    |                weights:
-    |                    num_bits: 4
-    |                    type: "int"
-    |                    symmetric: true
-    |                    strategy: group
-    |                    group_size: 128
+    Sample yaml:
+
+    ```yaml
+    test_stage:
+      modifiers:
+        AutoRoundModifier:
+          iters: 200
+          config_groups:
+            group_0:
+              targets:
+                - "Linear"
+              input_activations: null
+              output_activations: null
+              weights:
+                num_bits: 4
+                type: "int"
+                symmetric: true
+                strategy: group
+                group_size: 128
+    ```
 
     Lifecycle:
-        - on_initialize
-            - apply config to model
-        - on_start
-            - add input capture hooks to decoding layers
-        - on_sequential_epoch_end
-            - apply_autoround
-            - post_autoround_cleanup
-        - on_finalize
-            - remove_hooks()
-            - model.apply(freeze_module_quantization)
+
+    - on_initialize
+        - apply config to model
+    - on_start
+        - add input capture hooks to decoding layers
+    - on_sequential_epoch_end
+        - apply_autoround
+        - post_autoround_cleanup
+    - on_finalize
+        - remove_hooks()
+        - model.apply(freeze_module_quantization)
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.

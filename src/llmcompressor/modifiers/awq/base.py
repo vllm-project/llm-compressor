@@ -58,7 +58,6 @@ class AWQModifier(Modifier, QuantizationMixin):
           balance_layers: ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]
         - smooth_layer: "re:.*final_layer_norm"
           balance_layers: ["re:.*fc1"]
-      ]
       ignore: ["lm_head"]
       config_groups:
         group_0:
@@ -75,25 +74,26 @@ class AWQModifier(Modifier, QuantizationMixin):
     ```
 
     Lifecycle:
-        - on_initialize
-            - resolve mappings
-            - capture kwargs needed for forward passes into modules
-        - on_start
-            - set up activation cache hooks to capture input activations
-                to balance layers
-        - on sequential epoch end
-            - apply smoothing to each smoothing layer
-                - consume cached activations across all batches
-                    - clear cached activations as they are used
-                - find best smoothing scale for each smoothing layer
-                - apply to model weights
-                - raise error if any unused activations remain
-        - on_end
-            - re-run logic of sequential epoch end (in case of basic pipeline)
-            - set scales and zero points
-            - remove activation hooks
-        - on_finalize
-            - clear resolved mappings and captured activations
+
+    - on_initialize
+        - resolve mappings
+        - capture kwargs needed for forward passes into modules
+    - on_start
+        - set up activation cache hooks to capture input activations
+            to balance layers
+    - on sequential epoch end
+        - apply smoothing to each smoothing layer
+            - consume cached activations across all batches
+                - clear cached activations as they are used
+            - find best smoothing scale for each smoothing layer
+            - apply to model weights
+            - raise error if any unused activations remain
+    - on_end
+        - re-run logic of sequential epoch end (in case of basic pipeline)
+        - set scales and zero points
+        - remove activation hooks
+    - on_finalize
+        - clear resolved mappings and captured activations
 
     :param sequential_targets: list of module names to compress in
         the same calibration pass
