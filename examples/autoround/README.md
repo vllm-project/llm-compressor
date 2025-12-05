@@ -157,7 +157,7 @@ w/o kv cache quantization:
 | gsm8k |       3 | flexible-extract |      5 | exact_match | ↑   | 0.737 | ±   | 0.0139 |
 |       |         | strict-match     |      5 | exact_match | ↑   | 0.736 | ±   | 0.0139 |
 
-w/ kv cache quantizzation:
+w/ kv cache quantization:
 
 | Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
 | ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
