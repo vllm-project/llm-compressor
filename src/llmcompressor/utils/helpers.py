@@ -1093,6 +1093,7 @@ def calibration_forward_context(model: torch.nn.Module):
         yield
 
 
+@deprecated()
 @contextlib.contextmanager
 def disable_lm_head(model: torch.nn.Module):
     """
