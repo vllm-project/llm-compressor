@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 import torch
 from transformers import (
@@ -16,7 +14,6 @@ from llmcompressor.utils import (
     convert_to_bool,
     disable_cache,
     flatten_iterable,
-    getattr_chain,
     interpolate,
     validate_str_iterable,
 )
@@ -104,38 +101,6 @@ def test_validate_str_iterable_negative():
 def test_interpolate(x_cur, x0, x1, y0, y1, inter_func, out):
     interpolated = interpolate(x_cur, x0, x1, y0, y1, inter_func)
     assert abs(out - interpolated) < 0.01
-
-
-@pytest.mark.unit
-def test_getattr_chain():
-    base = SimpleNamespace()
-    base.a = None
-    base.b = SimpleNamespace()
-    base.b.c = "value"
-    base.b.d = None
-
-    # test base cases
-    assert getattr_chain(base, "", None) is None
-    with pytest.raises(AttributeError):
-        getattr_chain(base, "")
-
-    # test single layer
-    assert getattr_chain(base, "a") is None
-    assert getattr_chain(base, "a", "default") is None
-    assert getattr_chain(base, "b") == base.b
-
-    assert getattr_chain(base, "dne", None) is None
-    with pytest.raises(AttributeError):
-        getattr_chain(base, "dne")
-
-    # test multi layer
-    assert getattr_chain(base, "b.c") == "value"
-    assert getattr_chain(base, "b.d") is None
-    assert getattr_chain(base, "b.d", "default") is None
-
-    assert getattr_chain(base, "b.d.dne", "default") == "default"
-    with pytest.raises(AttributeError):
-        getattr_chain(base, "b.d.dne")
 
 
 @pytest.mark.unit

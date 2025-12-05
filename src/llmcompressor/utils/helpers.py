@@ -972,6 +972,7 @@ def import_from_path(path: str) -> str:
         raise AttributeError(f"Cannot find {class_name} in {_path}")
 
 
+@deprecated()
 def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
     """
     Chain multiple getattr calls, separated by `.`
