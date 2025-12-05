@@ -33,15 +33,16 @@ class QuIPModifier(Modifier):
     the model weights and two of which remain as online rotations computed at runtime.
 
     Lifecycle:
-        - on_initialize
-            - as needed, create transform schemes for V (input) and U (output)
-        - on_start
-            - apply TransformConfig
-                - fuse transforms into weights for mergeable transforms
-                - add hooks for online transforms
-        - on sequential epoch end
-        - on_end
-        - on_finalize
+
+    - on_initialize
+        - as needed, create transform schemes for V (input) and U (output)
+    - on_start
+        - apply TransformConfig
+            - fuse transforms into weights for mergeable transforms
+            - add hooks for online transforms
+    - on sequential epoch end
+    - on_end
+    - on_finalize
 
     :param rotations: which rotation schemes to apply to the model. Including `"v"` will
         rotate the input side of weights, and including `"u"` will rotate the output
@@ -157,7 +158,7 @@ class QuIPModifier(Modifier):
             apply=[
                 TransformArgs(
                     targets=self.targets,
-                    location="input",  # non-mergable
+                    location="input",  # non-mergeable
                     ignore=self.ignore,
                 ),
                 TransformArgs(
@@ -184,7 +185,7 @@ class QuIPModifier(Modifier):
                 ),
                 TransformArgs(
                     targets=self.targets,
-                    location="output",  # non-mergable
+                    location="output",  # non-mergeable
                     inverse=True,
                     ignore=self.ignore,
                 ),
