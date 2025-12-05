@@ -204,11 +204,12 @@ class SmoothQuantModifier(Modifier):
             for *nested_balance_layers, smooth_layers in match_modules_set(
                 model, tree_leaves(mapping), self.ignore
             ):
-                assert len(smooth_layers) == 1, (
-                    "SmoothQuant mappings must match a single smooth layer for each "
-                    f"mapping but got {[module_to_name.get(s) for s in smooth_layers]}"
-                    f" for mapping: {mapping}"
-                )
+                if len(smooth_layers)>1:
+                    raise ValueError (
+                        "SmoothQuant must match a single smooth layer for each mapping"
+                        f" but got {[module_to_name.get(s) for s in smooth_layers]}"
+                        f" for mapping: {mapping}"
+                    )
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layers[0])
                 balance_layers = tree_leaves(nested_balance_layers)
