@@ -6,7 +6,7 @@ from compressed_tensors.utils import align_module_device, match_modules_set
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
-from torch.utils._pytree import tree_flatten
+from torch.utils._pytree import tree_leaves
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -202,7 +202,7 @@ class SmoothQuantModifier(Modifier):
         module_to_name = get_module_to_name_dict(model)
         for mapping in self.mappings:
             for *nested_balance_layers, smooth_layers in match_modules_set(
-                model, tree_flatten(mapping)[0], self.ignore
+                model, tree_leaves(mapping), self.ignore
             ):
                 assert len(smooth_layers) == 1, (
                     "SmoothQuant mappings must match a single smooth layer for each "
@@ -211,7 +211,7 @@ class SmoothQuantModifier(Modifier):
                 )
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layers[0])
-                balance_layers = tree_flatten(nested_balance_layers)[0]
+                balance_layers = tree_leaves(nested_balance_layers)
                 resolved_mappings.append(
                     SmoothQuantMapping(smooth_name, smooth_layer, balance_layers)
                 )
