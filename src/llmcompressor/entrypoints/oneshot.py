@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -248,8 +248,10 @@ def oneshot(
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
+    batch_size: int = 1,
+    data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
-    shuffle_calibration_samples: bool = True,
+    shuffle_calibration_samples: bool = False,
     max_seq_length: int = 384,
     pad_to_max_length: bool = True,
     text_column: str = "text",
@@ -317,8 +319,7 @@ def oneshot(
         max_seq_length.
     :param streaming: True to stream data from a cloud dataset.
     :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
-    :param preprocessing_num_workers: Number of processes for
-        preprocessing.
+    :param preprocessing_num_workers: Number of processes for dataset preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
     :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE

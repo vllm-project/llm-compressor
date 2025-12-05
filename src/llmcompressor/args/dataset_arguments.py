@@ -8,9 +8,7 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
-
-from transformers import DefaultDataCollator
+from typing import Callable
 
 
 @dataclass
@@ -69,9 +67,26 @@ class CustomDatasetArguments(DVCDatasetArguments):
         },
     )
 
-    data_collator: Callable[[Any], Any] = field(
-        default_factory=lambda: DefaultDataCollator(),
-        metadata={"help": "The function to used to form a batch from the dataset"},
+    batch_size: int = field(
+        default=1,
+        metadata={
+            "help": (
+                "Calibration batch size. During calibration, LLM Compressor disables "
+                "lm_head output computations to reduce memory usage from large "
+                "calibration matches"
+            )
+        },
+    )
+
+    data_collator: str | Callable = field(
+        default="truncation",
+        metadata={
+            "help": (
+                "The function to used to form a batch from the dataset. Can also "
+                "specify 'truncation' or 'padding' to truncate or pad non-uniform "
+                "sequence lengths in a batch. Defaults to 'truncation'."
+            )
+        },
     )
 
 
@@ -126,8 +141,8 @@ class DatasetArguments(CustomDatasetArguments):
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
-    shuffle_calibration_samples: bool | None = field(
-        default=True,
+    shuffle_calibration_samples: bool = field(
+        default=False,
         metadata={
             "help": "whether to shuffle the dataset before selecting calibration data"
         },
@@ -142,10 +157,10 @@ class DatasetArguments(CustomDatasetArguments):
     )
     preprocessing_num_workers: int | None = field(
         default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
+        metadata={"help": "The number of workers to use for dataset processing."},
     )
     pad_to_max_length: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "Whether to pad all samples to `max_seq_length`. If False, "
             "will pad the samples dynamically when batching to the maximum length "
@@ -212,6 +227,14 @@ class DatasetArguments(CustomDatasetArguments):
             "Not specifying this argument will cause the sequential pipeline to "
             "default to using the `no_split_params` specified by the HF model "
             "definition"
+        },
+    )
+    offload_sequential_activations: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to offload intermediate activations between sequential "
+            "layers to the CPU. Disabling offloading is much faster, but uses "
+            "signficiantly more memory. Default is True."
         },
     )
     quantization_aware_calibration: bool = field(

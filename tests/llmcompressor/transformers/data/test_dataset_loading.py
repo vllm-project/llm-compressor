@@ -255,12 +255,8 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
     assert "input_ids" in data_cols
     assert "attention_mask" in data_cols
 
-    # confirm turning shuffle off works
-
     calib_dataloader = format_calibration_data(
-        tokenized_dataset=calib_dataset,
-        num_calibration_samples=num_calibration_samples,
-        do_shuffle=dataset_args.shuffle_calibration_samples,
+        dataset_args, calib_dataset, tiny_llama_tokenizer
     )
     assert len(calib_dataloader) == num_calibration_samples
     dataloader_sample = next(iter(calib_dataloader))["input_ids"]

@@ -23,7 +23,6 @@ def sample_cache(sample_dataloader):
     return IntermediatesCache.from_dataloader(
         dataloader=sample_dataloader,
         model_device=torch.device("cpu"),
-        mask_padding=True,
         offload_device=torch.device("cpu"),
     )
 
@@ -33,7 +32,6 @@ def test_initialization(sample_dataloader):
     cache = IntermediatesCache.from_dataloader(
         dataloader=sample_dataloader,
         model_device=torch.device("cpu"),
-        mask_padding=True,
     )
 
     assert isinstance(cache, IntermediatesCache)
@@ -80,18 +78,6 @@ def test_delete_intermediates(sample_cache):
 
     assert "hidden_states" not in sample_cache.batch_intermediates[0]
     assert "logits" in sample_cache.batch_intermediates[0]
-
-
-@pytest.mark.unit
-def test_mask_padding():
-    input_ids = torch.tensor([[1, 2, 3, 0], [4, 5, 6, 0]])
-    attention_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 1, 0]])
-
-    masked = IntermediatesCache._mask_padding(input_ids, attention_mask)
-
-    # Check if padding tokens are properly masked
-    expected = torch.tensor([[1, 2, 3, 0], [4, 5, 6, 0]])
-    assert torch.equal(masked, expected)
 
 
 @pytest.mark.unit
