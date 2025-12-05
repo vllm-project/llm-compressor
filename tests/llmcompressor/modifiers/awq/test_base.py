@@ -2,9 +2,9 @@ import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from pydantic import ValidationError
+from torch.nn import Linear
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import get_lowest_common_parent
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -40,16 +40,26 @@ def test_set_resolved_mappings():
     )
     self_attn = torch.nn.ModuleDict(
         {
-            "q_proj": torch.nn.Linear(4, 4),
-            "k_proj": torch.nn.Linear(4, 4),
-            "v_proj": torch.nn.Linear(4, 4),
-            "o_proj": torch.nn.Linear(4, 4),
+            "q_proj": Linear(4, 4),
+            "k_proj": Linear(4, 4),
+            "v_proj": Linear(4, 4),
+            "o_proj": Linear(4, 4),
         }
     )
     mlp = torch.nn.ModuleDict(
         {
-            "up_proj": torch.nn.Linear(4, 10),
-            "down_proj": torch.nn.Linear(10, 4),
+            "experts": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "gate_proj": Linear(4, 2),
+                            "up_proj": Linear(4, 2),
+                            "down_proj": Linear(2, 4),
+                        }
+                    )
+                    for _ in range(3)
+                ]
+            )
         }
     )
     model = torch.nn.ModuleDict(
@@ -81,14 +91,19 @@ def test_set_resolved_mappings():
         if "self_attn.v_proj" in mapping.smooth_name:
             assert set(mapping.balance_names) == {"decoder.self_attn.o_proj"}
             assert mapping.parent_name == "decoder.self_attn.o_proj"
-        if "mlp.up_proj" in mapping.smooth_name:
-            assert set(mapping.balance_names) == {"decoder.mlp.down_proj"}
-            assert mapping.parent_name == "decoder.mlp.down_proj"
+        if "mlp.experts" in mapping.smooth_name and "up_proj" in mapping.smooth_name:
+            expert_idx = mapping.smooth_name.split(".")[-2]
+            expected_down_proj = f"decoder.mlp.experts.{expert_idx}.down_proj"
+            assert set(mapping.balance_names) == {expected_down_proj}
+            assert mapping.parent_name == expected_down_proj
+            assert mapping.parent == mlp["experts"][int(expert_idx)]["down_proj"]
 
-    # make sure we exclude case where o_proj/v_proj shapes are mismatched
     awq = AWQModifier(
         mappings=[
+            # make sure we exclude case where o_proj/v_proj shapes are mismatched
             AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+            # make sure we exclude mapping if any balance layers are skipped
+            AWQMapping("re:.*v_proj", ["re:.*z_proj", "re:.*o_proj"]),
         ],
         scheme="W4A16_ASYM",
     )
@@ -98,10 +113,11 @@ def test_set_resolved_mappings():
                 {
                     "self_attn": torch.nn.ModuleDict(
                         {
-                            "q_proj": torch.nn.Linear(4, 2),
-                            "k_proj": torch.nn.Linear(4, 2),
-                            "v_proj": torch.nn.Linear(4, 2),
-                            "o_proj": torch.nn.Linear(4, 4),
+                            "q_proj": Linear(4, 2),
+                            "k_proj": Linear(4, 2),
+                            "v_proj": Linear(4, 2),
+                            "z_proj": Linear(2, 4),
+                            "o_proj": Linear(4, 4),
                         }
                     )
                 }
@@ -109,6 +125,16 @@ def test_set_resolved_mappings():
         }
     )
     awq._set_resolved_mappings(model)
+    if len(awq._resolved_mappings) > 0:
+        assert all(
+            "o_proj" not in name for name in awq._resolved_mappings[0].balance_names
+        ), "should have skipped v->o mapping because o is incompatible"
+        assert all(
+            "z_proj" not in name for name in awq._resolved_mappings[0].balance_names
+        ), (
+            "should have skipped v->[z,o] mapping because o is incompatible even though"
+            "z is compatible"
+        )
     assert len(awq._resolved_mappings) == 0
 
 
@@ -179,58 +205,61 @@ def test_validate():
 
 
 @pytest.mark.unit
-def test_get_lowest_common_parent():
+def test_moe_multiple_balance_layers():
+    """Test AWQ mapping with multiple balance layers in MoE architecture"""
+    awq = AWQModifier(
+        mappings=[
+            # Map input_layernorm to multiple experts' gate_proj and up_proj
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*gate_proj", "re:.*up_proj"],
+            ),
+        ],
+        scheme="W4A16_ASYM",
+    )
+
+    # Create a simplified MoE model structure
     mlp = torch.nn.ModuleDict(
         {
             "experts": torch.nn.ModuleList(
                 [
                     torch.nn.ModuleDict(
                         {
-                            "gate_proj": torch.nn.Linear(4, 2),
-                            "down_proj": torch.nn.Linear(4, 2),
+                            "gate_proj": Linear(4, 4),
+                            "up_proj": Linear(4, 4),
+                            "down_proj": Linear(4, 4),
                         }
                     )
-                    for _ in range(10)
+                    for _ in range(2)
                 ]
             )
         }
     )
-    self_attn = torch.nn.ModuleDict(
-        {
-            "q_proj": torch.nn.Linear(4, 2),
-            "k_proj": torch.nn.Linear(4, 2),
-            "v_proj": torch.nn.Linear(4, 2),
-            "o_proj": torch.nn.Linear(4, 4),
-        }
-    )
     model = torch.nn.ModuleDict(
         {
-            "embed_tokens": torch.nn.Linear(4, 2),
-            "decoder": torch.nn.ModuleDict(
+            "layer": torch.nn.ModuleDict(
                 {
-                    "self_attn": self_attn,
+                    "input_layernorm": torch.nn.LayerNorm(4),
                     "mlp": mlp,
                 }
-            ),
+            )
         }
     )
 
-    parent_name, parent = get_lowest_common_parent(
-        ["decoder.mlp.experts.1.gate_proj", "decoder.mlp.experts.4.down_proj"], model
-    )
-    assert parent_name == "decoder.mlp" and parent == mlp
+    awq._set_resolved_mappings(model)
 
-    parent_name, parent = get_lowest_common_parent(
-        ["decoder.self_attn.q_proj", "decoder.self_attn.v_proj"], model
-    )
-    assert parent_name == "decoder.self_attn" and parent == self_attn
+    # Should have one mapping for input_layernorm
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
 
-    parent_name, parent = get_lowest_common_parent(
-        ["decoder.mlp.experts.1.gate_proj", "decoder.self_attn.v_proj"], model
-    )
-    assert parent_name == "decoder" and parent == model["decoder"]
+    # Should map to all gate_proj and up_proj across all experts
+    expected_balance_names = {
+        "layer.mlp.experts.0.gate_proj",
+        "layer.mlp.experts.0.up_proj",
+        "layer.mlp.experts.1.gate_proj",
+        "layer.mlp.experts.1.up_proj",
+    }
+    assert set(mapping.balance_names) == expected_balance_names
 
-    parent_name, parent = get_lowest_common_parent(
-        ["embed_tokens", "decoder.self_attn.v_proj"], model
-    )
-    assert parent_name == "" and parent == model
+    assert mapping.parent_name == "layer.mlp"
+    assert mapping.parent == mlp

@@ -11,6 +11,7 @@ from compressed_tensors.transform import (
 )
 from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, ValidationInfo, field_validator
+from torch.utils._pytree import tree_leaves
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
@@ -205,7 +206,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
             ):
-                fuse_norm_linears(norm, linears)
+                # match_modules_set returns a list of lists
+                assert len(norm) == 1
+                fuse_norm_linears(norm[0], tree_leaves(linears))
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(
