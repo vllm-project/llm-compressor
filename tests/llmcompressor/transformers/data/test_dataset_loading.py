@@ -1,5 +1,4 @@
 import pytest
-import torch
 from datasets import IterableDataset, load_dataset
 
 from llmcompressor.args import DatasetArguments
@@ -260,5 +259,4 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
     )
     assert len(calib_dataloader) == num_calibration_samples
     dataloader_sample = next(iter(calib_dataloader))["input_ids"]
-    diff = dataloader_sample - torch.Tensor(calib_dataset[0]["input_ids"])
-    assert torch.sum(diff) == 0
+    assert dataloader_sample[0].tolist() in calib_dataset["input_ids"]

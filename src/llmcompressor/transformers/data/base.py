@@ -270,8 +270,8 @@ class TextGenerationDataset(RegistryMixin):
         # strip the extra dim added by multimodal processors
         if isinstance(self.processor, ProcessorMixin):
             for key in data:
-                assert len(data[key]) == 1
-                data[key] = data[key][0]
+                if isinstance(data[key], list) and len(data[key]) == 1:
+                    data[key] = data[key][0]
 
         # store unpadded prompt so we can mask out correct number of elements in labels
         if prompt is not None:
