@@ -149,6 +149,12 @@ def format_calibration_data(
                 f"the provided dataset only has {safe_calibration_samples}. "
             )
 
+    if safe_calibration_samples == 0:
+        logger.error("Dataset is empty. Cannot create a calibration dataloader.")
+        raise ValueError(
+            "Dataset is empty. Cannot create a calibration dataloader with 0 samples."
+        )
+
     if do_shuffle:
         tokenized_dataset = tokenized_dataset.shuffle()
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
