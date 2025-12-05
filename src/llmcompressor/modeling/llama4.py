@@ -87,16 +87,3 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
             self[i].gate_proj.weight.data = gate_proj.t().contiguous()
             self[i].up_proj.weight.data = up_proj.t().contiguous()
             self[i].down_proj.weight.data = down.t().contiguous()
-
-
-# Legacy function for backward compatibility
-def replace(config: Llama4Config, module: Llama4TextMoe, calibrate_all_experts: bool):
-    """
-    Legacy replacement function.
-    Use SequentialLlama4TextMoe instead.
-    """
-    return SequentialLlama4TextMoe(
-        module,
-        config,
-        calibrate_all_experts=calibrate_all_experts,
-    )

@@ -201,8 +201,6 @@ class Oneshot:
         session.reset()
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
-        user_pipeline = self.dataset_args.pipeline
-
         # Apply MoE calibration context for the entire calibration process
         with moe_calibration_context(
             self.model,
@@ -216,7 +214,7 @@ class Oneshot:
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
             )
-
+            user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
