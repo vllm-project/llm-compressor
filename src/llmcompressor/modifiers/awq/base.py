@@ -15,7 +15,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
-from torch.utils._pytree import tree_flatten
+from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
@@ -32,7 +32,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_module_to_name_dict,
+    get_module_to_name_dict, get_layer_by_name
 )
 
 __all__ = ["AWQModifier"]
@@ -329,17 +329,18 @@ class AWQModifier(Modifier, QuantizationMixin):
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
             ):
-                assert len(smooth_layers) == 1, (
-                    "AWQ mappings need to match a single smoothlayer for each "
-                    f"mapping but got {[module_to_name.get(s) for s in smooth_layers]}"
-                    f" for mapping: {mapping}"
-                )
+                if len(smooth_layers)>1:
+                    raise ValueError(
+                        "AWQ needs to match a single smoothlayer for each mapping but "
+                        f"got {[module_to_name.get(s) for s in smooth_layers]}"
+                        f" for mapping: {mapping}"
+                    )
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layer)
 
                 # [[b00, b01, b02...], [b10, b11, b12,...], ...] v
                 #                             [b00, b01, b02, ..., b10, b11, b12, ...]
-                balance_layers = tree_flatten(nested_balance_layers)[0]
+                balance_layers = tree_leaves(nested_balance_layers)
                 balance_names = [
                     module_to_name.get(balance_layer)
                     for balance_layer in balance_layers
@@ -351,7 +352,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # skip mapping if any of the balance layers are incompatible
                 if not all_compatible or len(balance_layers) == 0:
-                    logger.info(
+                    logger.warning(
                         f"skipping AWQ for {smooth_name} for mapping {mapping}"
                         + (
                             " because found incompatible balance layers"
@@ -362,13 +363,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     continue
 
-                ancestor_name = get_lowest_common_ancestor_name(balance_names)
-                # no ModuleList ancestors
-                while not isinstance(
-                    (ancestor := model.get_submodule(ancestor_name)),
-                    torch.nn.ModuleList,
-                ):
-                    ancestor_name = ancestor_name.rsplit(".", 1)[0]
+                ancestor_name, ancestor = get_lowest_ancestor_with_avoid(
+                    balance_names, model, torch.nn.ModuleList
+                )
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -741,6 +738,23 @@ def _check_layers_are_compatible(
             return False
     return True
 
+def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.Module):
+    """
+    get lowest ancestor that is not the avoided class/type
+
+    NOTE: primarily used to exclude parents of type ModuleList, which don't play
+    nicely with hooks because their forward method is never directly
+    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
+    are selected based on router output and their forward method is called.
+    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
+    """
+    while True:
+        if name == "":
+            return "", model
+        ancestor = get_layer_by_name(name, model)
+        if not isinstance(ancestor, avoid):
+            return name, ancestor
+        name = ".".join(name.split(".")[:-1])
 
 def _pseudo_quantize_tensor(
     w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
