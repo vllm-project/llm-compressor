@@ -8,6 +8,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 from llmcompressor.modeling import replace_modules_for_calibration
+from llmcompressor.modeling.granite4 import pack_3d_experts
 
 MODEL_ID = "ibm-granite/granite-4.0-h-small"
 
@@ -16,11 +17,11 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 model = replace_modules_for_calibration(model)
 
-ignore_lay = ["lm_head"]
+ignore_lay = ["lm_head", "re:.*block_sparse_moe.router", "re:.*mamba.in_proj", "re:.*shared_mlp.input_linear"]
 
 recipe = QuantizationModifier(
     targets=["Linear"],
-    scheme="FP8_DYNAMIC",
+    scheme="FP8_BLOCK",
     ignore=ignore_lay,
 )
 
@@ -40,3 +41,5 @@ print(f"Saving to {SAVE_DIR}")
 
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
+pack_3d_experts(SAVE_DIR)
+
