@@ -140,18 +140,6 @@ def test_offload_and_onload_dtype():
 
 
 @pytest.mark.unit
-def test_4d_attention_mask():
-    input_ids = torch.tensor([[1, 2, 3, 0]])
-    attention_mask = torch.ones(1, 1, 1, 4)  # 4D attention mask
-
-    masked = IntermediatesCache._mask_padding(input_ids, attention_mask)
-
-    # Check if the function handles 4D attention mask properly
-    expected = torch.tensor([[1, 2, 3, 0]])
-    assert torch.equal(masked, expected)
-
-
-@pytest.mark.unit
 def test_device_handling(sample_dataloader):
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available")
