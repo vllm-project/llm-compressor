@@ -18,7 +18,6 @@ from llmcompressor.utils import (
     flatten_iterable,
     getattr_chain,
     interpolate,
-    patch_attr,
     validate_str_iterable,
 )
 from llmcompressor.utils.dev import skip_weights_download
@@ -163,24 +162,6 @@ def test_calibration_forward_context():
     assert torch.is_grad_enabled()
     assert model.config.use_cache
     assert model.training
-
-
-@pytest.mark.unit
-def test_patch_attr():
-    # patch, original value
-    obj = SimpleNamespace()
-    obj.attribute = "original"
-    with patch_attr(obj, "attribute", "patched"):
-        assert obj.attribute == "patched"
-        obj.attribute = "modified"
-    assert obj.attribute == "original"
-
-    # patch, no original attribute
-    obj = SimpleNamespace()
-    with patch_attr(obj, "attribute", "patched"):
-        assert obj.attribute == "patched"
-        obj.attribute = "modified"
-    assert not hasattr(obj, "attribute")
 
 
 @requires_gpu
