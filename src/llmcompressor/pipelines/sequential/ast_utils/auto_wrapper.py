@@ -53,7 +53,13 @@ class AutoWrapper(ast.NodeTransformer):
         :param node: function definition whose decorators will be stripped
         :return: function definition without decorators
         """
-        node.decorator_list = []
+        node.decorator_list = [
+            decorator_name
+            for decorator_name in node.decorator_list
+            if isinstance(decorator_name, ast.Name)
+            and decorator_name.id in ("can_return_tuple",)  # modifies func signature
+        ]
+
         if node.name == "forward":
             for arg in node.args.args:
                 self._local_names.add(arg.arg)
@@ -103,6 +109,11 @@ class AutoWrapper(ast.NodeTransformer):
         """
         try:
             value = bool(self._eval_expr(node.test))
+
+            # force a wrap if any assignments occur within the if statement
+            for expr in ast.walk(node):
+                if isinstance(expr, ast.NamedExpr):
+                    raise Exception("If statement contains assignment")
 
         except Exception:
             return self._wrap_if_possible(node)
@@ -165,8 +176,7 @@ class AutoWrapper(ast.NodeTransformer):
         without its original context. In the future, we can add more checks for module
         calls (see `visit_If`)
         """
-        analyzer = ControlFlowAnalyzer()
-        return analyzer.is_valid(node)
+        return ControlFlowAnalyzer().is_valid(node)
 
     def _wrap_if_possible(self, node: ast.AST) -> Union[ast.AST, ast.Assign, ast.Call]:
         """

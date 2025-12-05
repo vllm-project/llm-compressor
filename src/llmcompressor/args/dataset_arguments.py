@@ -16,7 +16,7 @@ from transformers import DefaultDataCollator
 @dataclass
 class DVCDatasetArguments:
     """
-    Arguments for training using DVC
+    Arguments for calibration using DVC
     """
 
     dvc_data_repository: str | None = field(
@@ -28,7 +28,7 @@ class DVCDatasetArguments:
 @dataclass
 class CustomDatasetArguments(DVCDatasetArguments):
     """
-    Arguments for training using custom datasets
+    Arguments for calibration using custom datasets
     """
 
     dataset_path: str | None = field(
@@ -78,8 +78,8 @@ class CustomDatasetArguments(DVCDatasetArguments):
 @dataclass
 class DatasetArguments(CustomDatasetArguments):
     """
-    Arguments pertaining to what data we are going to input our model for
-    calibration, training
+    Arguments pertaining to what data we are going to use for
+    calibration
 
     Using `HfArgumentParser` we can turn this class into argparse
     arguments to be able to specify them on the command line
@@ -152,13 +152,6 @@ class DatasetArguments(CustomDatasetArguments):
             "in the batch (which can be faster on GPU but will be slower on TPU)."
         },
     )
-    max_train_samples: int | None = field(
-        default=None,
-        metadata={
-            "help": "For debugging purposes or quicker training, truncate the number "
-            "of training examples to this value if set."
-        },
-    )
     min_tokens_per_module: float | None = field(
         default=None,
         metadata={
@@ -204,6 +197,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_fsmt_decoder_inputs",
             "_prepare_4d_causal_attention_mask_with_cache_position",
             "_update_linear_attn_mask",
+            "project_per_layer_inputs",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "

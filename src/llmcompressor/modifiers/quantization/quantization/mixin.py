@@ -34,35 +34,35 @@ from llmcompressor.modifiers.quantization.calibration import (
     reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_if_target_shared_embedding,
-)
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 
 __all__ = ["QuantizationMixin"]
 
 
 class QuantizationMixin(HooksMixin):
     """
-    Mixin which enables a Modifier to act as a quantization config, attching observers,
+    Mixin which enables a Modifier to act as a quantization config, attaching observers,
     calibration hooks, and compression wrappers to modifiers
 
     Lifecycle:
-        - on_initialize: QuantizationMixin.initialize_quantization
-            - Attach schemes to modules
-            - Attach observers to modules
-            - Disable quantization until calibration starts/finishes
-        - on_start: QuantizationMixin.start_calibration
-            - Attach calibration hooks
-            - Apply calibration status
-            - Enable quantization during calibration
-        - on_end: QuantizationMixin.end_calibration
-            - Remove calibration hooks
-            - Apply freeze status
-            - Keep quantization enabled for future steps
-        NOTE: QuantizationMixin does not update scales and zero-points on its own,
-          as this is not desired for all Modifiers inheriting from it. Modifier must
-          explicitly call `update_weight_zp_scale`.
-          See QuantizationModifier.on_start method for example
+
+    - on_initialize: QuantizationMixin.initialize_quantization
+        - Attach schemes to modules
+        - Attach observers to modules
+        - Disable quantization until calibration starts/finishes
+    - on_start: QuantizationMixin.start_calibration
+        - Attach calibration hooks
+        - Apply calibration status
+        - Enable quantization during calibration
+    - on_end: QuantizationMixin.end_calibration
+        - Remove calibration hooks
+        - Apply freeze status
+        - Keep quantization enabled for future steps
+
+    NOTE: QuantizationMixin does not update scales and zero-points on its own,
+        as this is not desired for all Modifiers inheriting from it. Modifier must
+        explicitly call `update_weight_zp_scale`.
+        See QuantizationModifier.on_start method for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -85,7 +85,7 @@ class QuantizationMixin(HooksMixin):
         the kv_cache_scheme gets converted into a QuantizationScheme that:
             - targets the `q_proj` and `k_proj` modules of the model. The outputs
               of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aformentioned layers, so that
+            - quantizes the outputs of the aforementioned layers, so that
               keys and values are compressed before storing them in the cache
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
@@ -182,11 +182,9 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-
-        matched_module_generator = (
-            x[1] for x in match_named_modules(model, self.resolved_targets, self.ignore)
-        )
-        untie_if_target_shared_embedding(model, matched_module_generator)
+        targets = match_named_modules(model, self.resolved_targets, self.ignore)
+        if targets_embeddings(model, targets):
+            untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
