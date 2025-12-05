@@ -21,6 +21,8 @@ from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
+BS_WARNING_THRESHOLD = 16
+
 
 def get_processed_dataset(
     dataset_args: DatasetArguments,
@@ -176,9 +178,27 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
         return args.data_collator
 
     if args.data_collator == "truncation":
+        if args.batch_size > BS_WARNING_THRESHOLD:
+            logger.warning(
+                f"Calibrating with batch sizes greater than {BS_WARNING_THRESHOLD} and "
+                "`data_collator='truncation'` can lead to significant portions of the "
+                "calibration dataset being deleted via truncation. Please consider "
+                "reducing the calibration batch size or using filtering the dataset "
+                "to use more uniformm sequence lengths"
+            )
+
         return data_collator_with_truncation
 
     elif args.data_collator == "padding":
+        if args.batch_size > BS_WARNING_THRESHOLD:
+            logger.warning(
+                f"Calibrating with batch sizes greater than {BS_WARNING_THRESHOLD} and "
+                "`data_collator='padding'` can lead to excess token used for padding, "
+                "which slows down calibration time and calibrates on padding tokens not"
+                " seen at runtime. Please consider reducing the calibration batch size "
+                "or using filtering the dataset to use more uniformm sequence lengths"
+            )
+
         tokenizer = getattr(processor, "tokenizer", processor)
         if tokenizer.pad_token is None or tokenizer.pad_token_id < 0:
             logger.debug("Could not find padding token. Setting PAD token to EOS token")

@@ -73,18 +73,18 @@ class CustomDatasetArguments(DVCDatasetArguments):
             "help": (
                 "Calibration batch size. During calibration, LLM Compressor disables "
                 "lm_head output computations to reduce memory usage from large "
-                "calibration matches"
+                "calibration batches"
             )
         },
     )
 
     data_collator: str | Callable = field(
-        default="truncation",
+        default="padding",
         metadata={
             "help": (
                 "The function to used to form a batch from the dataset. Can also "
                 "specify 'truncation' or 'padding' to truncate or pad non-uniform "
-                "sequence lengths in a batch. Defaults to 'truncation'."
+                "sequence lengths in a batch. Defaults to 'padding'."
             )
         },
     )

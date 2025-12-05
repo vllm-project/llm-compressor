@@ -249,7 +249,7 @@ def oneshot(
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
     batch_size: int = 1,
-    data_collator: str | Callable = "truncation",
+    data_collator: str | Callable = "padding",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = False,
     max_seq_length: int = 384,
