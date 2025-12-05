@@ -3,11 +3,8 @@ from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
-
-# NOTE: Requires a minimum of transformers 4.57.0
 
 MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 

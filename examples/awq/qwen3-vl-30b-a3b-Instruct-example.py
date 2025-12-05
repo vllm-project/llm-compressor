@@ -6,8 +6,6 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.utils import dispatch_for_generation
 
-# NOTE: Requires a minimum of transformers 4.57.0
-
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
 # Load model.
