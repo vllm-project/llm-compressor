@@ -249,7 +249,7 @@ def oneshot(
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
     batch_size: int = 1,
-    data_collator: str | Callable = "padding",
+    data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = False,
     max_seq_length: int = 384,
@@ -308,6 +308,13 @@ def oneshot(
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
     :param splits: Optional percentages of each split to download.
+    :param batch_size: calibration dataset batch size. During calibration,
+        LLM Compressor disables lm_head output computations to reduce memory
+        usage from large calibration batch sizes. Large batch sizes may result
+        excess padding or truncation, depending on the data_collator
+    :param data_collator: The function to used to form a batch from the dataset. Can
+        also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
+        lengths in a batch. Defaults to 'padding'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before

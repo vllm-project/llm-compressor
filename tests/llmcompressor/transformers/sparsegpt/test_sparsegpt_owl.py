@@ -27,7 +27,8 @@ def test_infer_owl_layer_sparsity():
         dataset = Dataset.from_dict(
             {"input_ids": torch.randint(0, vocab_size, (ds_size, seq_len))}
         )
-        dataloader = format_calibration_data(DatasetArguments(), dataset, None)
+        args = DatasetArguments(collator="truncation")
+        dataloader = format_calibration_data(args, dataset, None)
 
         sequential_targets = modifier._infer_sequential_targets(model)
         layers = get_layers(sequential_targets, model)

@@ -124,7 +124,7 @@ def format_calibration_data(
     args: DatasetArguments,
     tokenized_dataset: Dataset,
     processor: Processor,
-) -> list[torch.Tensor]:
+) -> DataLoader:
     return DataLoader(
         tokenized_dataset,
         batch_size=args.batch_size,
