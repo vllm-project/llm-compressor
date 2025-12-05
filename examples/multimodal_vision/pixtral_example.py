@@ -1,7 +1,11 @@
 import requests
 import torch
 from PIL import Image
-from transformers import AutoProcessor, LlavaForConditionalGeneration
+from transformers import (
+    AutoProcessor,
+    LlavaForConditionalGeneration,
+    default_data_collator,
+)
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
@@ -19,16 +23,13 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
-# Define a oneshot data collator for multimodal inputs.
-# NOTE: for transformers<4.48.0, please squeeze the first dimension of `pixel_values`
-# by appending `[0]` to the end of line 32
-def data_collator(batch):
-    assert len(batch) == 1
-    return {
-        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "pixel_values": torch.tensor(batch[0]["pixel_values"]),
-    }
+# Patch: mismatch between processor and model dtype
+def data_collator(features):
+    for feature in features:
+        feature["pixel_values"] = torch.tensor(
+            feature["pixel_values"], dtype=model.dtype
+        )
+    return default_data_collator(features, return_tensors="pt")
 
 
 # Recipe
@@ -46,11 +47,11 @@ oneshot(
     tokenizer=model_id,
     dataset=DATASET_ID,
     splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    data_collator=data_collator,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=data_collator,
     sequential_targets=["MistralDecoderLayer"],
 )
 
