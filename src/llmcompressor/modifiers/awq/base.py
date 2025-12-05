@@ -7,7 +7,6 @@ from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
-    get_lowest_common_ancestor_name,
     match_modules_set,
     match_named_modules,
     update_offload_parameter,
@@ -32,7 +31,8 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_module_to_name_dict, get_layer_by_name
+    get_layer_by_name,
+    get_module_to_name_dict,
 )
 
 __all__ = ["AWQModifier"]
@@ -329,7 +329,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
             ):
-                if len(smooth_layers)>1:
+                if len(smooth_layers) > 1:
                     raise ValueError(
                         "AWQ needs to match a single smoothlayer for each mapping but "
                         f"got {[module_to_name.get(s) for s in smooth_layers]}"
@@ -738,6 +738,7 @@ def _check_layers_are_compatible(
             return False
     return True
 
+
 def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.Module):
     """
     get lowest ancestor that is not the avoided class/type
@@ -755,6 +756,7 @@ def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.Modu
         if not isinstance(ancestor, avoid):
             return name, ancestor
         name = ".".join(name.split(".")[:-1])
+
 
 def _pseudo_quantize_tensor(
     w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
