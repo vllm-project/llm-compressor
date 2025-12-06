@@ -123,13 +123,3 @@ class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         return original
-
-
-def replace(
-    config,
-    module,
-    calibrate_all_experts,
-):
-    return CalibrationQwen3NextSparseMoeBlock(
-        config=config, original=module, calibrate_all_experts=calibrate_all_experts
-    )
