@@ -1,7 +1,7 @@
 from llmcompressor import model_free_ptq
 
 MODEL_ID = "unsloth/Kimi-K2-Thinking-BF16"
-SAVE_DIR = "Kimi-K2-Thinking-FP8-Block"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
 
 # Apply FP8-Block to the model
 # Once quantized, the model is saved

@@ -1,51 +1,25 @@
-from typing import Optional
+import os
+from collections import defaultdict
+from typing import Mapping, TypeVar
 
 import torch
-from compressed_tensors.quantization import QuantizationScheme, preset_name_to_scheme
-from compressed_tensors.utils import getattr_chain
 from compressed_tensors.utils.match import _match_name
 from loguru import logger
+from transformers.file_utils import CONFIG_NAME
 
-__all__ = ["validate_scheme", "gpu_if_available", "is_match_name"]
+__all__ = [
+    "gpu_if_available",
+    "find_safetensors_index_path",
+    "find_config_path",
+    "find_safetensors_index_file",
+    "match_names_set_eager",
+    "MatchedNamesSet",
+    "invert_mapping",
+]
 
-
-def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme]:
-    # treat strings as preset schemes
-    if isinstance(scheme, str):
-        scheme_name, scheme = scheme, preset_name_to_scheme(scheme, [])
-    else:
-        scheme_name = "config_group_0"
-
-    # weight quantization must be provided
-    if scheme.weights is None:
-        raise ValueError(
-            "Must provide a weights quanitization scheme to perform weights-only PTQ"
-        )
-
-    # activation quantization must be dynamic
-    input_dynamic = getattr_chain(scheme, "input_activations.dynamic", True)
-    output_dynamic = getattr_chain(scheme, "output_activations.dynamic", True)
-    if input_dynamic is not True or output_dynamic is not True:
-        raise ValueError(
-            "Model Free PTQ cannot calibrate activations. "
-            "Please use `oneshot` instead."
-        )
-
-    # override with static observers
-    # Remove after https://github.com/vllm-project/compressed-tensors/pull/489
-    if scheme.weights.observer in ("minmax", "mse"):
-        new_observer = f"static_{scheme.weights.observer}"
-        logger.warning(
-            f"Scheme uses {scheme.weights.observer} weight observer. "
-            f"Using {new_observer} instead"
-        )
-        scheme.weights.observer = new_observer
-
-    # target all modules; filter by ignore list
-    # technically this should be "re:.*", but vllm's
-    # ct moe layer has a hard coded check for "Linear"
-    scheme.targets = ["Linear"]
-    return scheme_name, scheme
+KeyType = TypeVar("K")
+ValueType = TypeVar("V")
+MatchedNamesSet = dict[str, str | None]
 
 
 def gpu_if_available(device: torch.device | str | None) -> torch.device:
@@ -63,13 +37,70 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
         return torch.device("cpu")
 
 
-def is_match_name(
-    name: str, targets: list[str], ignore: Optional[str | list[str]] = None
-) -> bool:
-    targets = targets if isinstance(targets, list) else [targets]
-    ignore = ignore if isinstance(ignore, list) else [ignore]
+def find_safetensors_index_path(save_directory: str | os.PathLike) -> str | None:
+    for file_name in os.listdir(save_directory):
+        if file_name.endswith("safetensors.index.json"):
+            return os.path.join(save_directory, file_name)
 
-    matches_target = any(_match_name(name, target) for target in targets)
-    matches_ignore = any(_match_name(name, ign) for ign in ignore)
+    return None
 
-    return matches_target and not matches_ignore
+
+def find_config_path(save_directory: str | os.PathLike) -> str | None:
+    for file_name in os.listdir(save_directory):
+        if file_name in (CONFIG_NAME, "params.json"):
+            return os.path.join(save_directory, file_name)
+
+    return None
+
+
+def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
+    for file_path, resolved_path in model_files.items():
+        if file_path.endswith("safetensors.index.json"):
+            return resolved_path
+
+    return None
+
+
+def match_names_set_eager(
+    names: set[str] | list[str],
+    targets: set[str] | list[str],
+    return_unmatched: bool = True,
+) -> list[MatchedNamesSet] | tuple[list[MatchedNamesSet], MatchedNamesSet]:
+    matched_sets = []
+    matches = dict.fromkeys(targets, None)
+
+    for name in names:
+        # match until we get a full set
+        for target in targets:
+            if _match_name(name, target):
+                if matches[target] is None:
+                    matches[target] = name
+                else:
+                    # matched target twice without completing a set
+                    raise ValueError(
+                        f"Matched a {target} twice before "
+                        f"completing set ({matches[target]}, {name})"
+                    )
+
+        # once we have a full set, yield and reset
+        if all((matches[target] is not None for target in targets)):
+            matched_sets.append(matches)
+            matches = dict.fromkeys(targets, None)
+
+    unmatched_set = matches if any((v is not None for v in matches.values())) else None
+
+    if return_unmatched:
+        return matched_sets, unmatched_set
+    else:
+        return matched_sets
+
+
+def invert_mapping(
+    mapping: Mapping[KeyType, ValueType],
+) -> dict[ValueType, list[KeyType]]:
+    inverse = defaultdict(list)
+
+    for key, value in mapping.items():
+        inverse[value].append(key)
+
+    return inverse
