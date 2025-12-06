@@ -45,29 +45,27 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
         self.router = original.router
         self.shared_expert = original.shared_expert
         self.calibrate_all_experts = calibrate_all_experts
+        print(self.calibrate_all_experts, "CALIBRATE ALL EXPERTS")
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
-        router_scores, router_logits = self.router(hidden_states)  # transformers>=4.54
+        router_logits = self.router(hidden_states)
+        # support transformers 4.53 and greater
+        if isinstance(router_logits, tuple):
+            router_logits = router_logits[-1]
+
+        router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=1)
+
+        router_scores = (
+            torch.full_like(router_logits, float("-inf"))
+            .scatter_(1, router_indices, router_top_value)
+            .transpose(0, 1)
+        )
+        router_scores = torch.sigmoid(router_scores.float()).to(hidden_states.dtype)
 
         out = self.shared_expert(hidden_states)
-
-        for expert_index in range(self.num_experts):
-            # find expert scores
-            expert_score = router_scores[:, expert_index].unsqueeze(-1)
-            top_token_mask = expert_score[:, 0] > 0
-
-            # llama4 applies scores before expert relu
-            expert_in = hidden_states * expert_score
-
-            # calibrate experts
-            if self.calibrate_all_experts:
-                expert_out = self.experts[expert_index](expert_in)[top_token_mask]
-            else:
-                expert_out = self.experts[expert_index](expert_in[top_token_mask])
-
-            # accumulate output
-            out[top_token_mask] += expert_out
+        for i in range(self.num_experts):
+            out += self.experts[i](hidden_states) * router_scores[i].reshape(-1, 1)
 
         return out, router_logits
 
