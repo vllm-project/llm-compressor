@@ -754,7 +754,7 @@ def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.Modu
     while True:
         if name == "":
             return "", model
-        ancestor = get_layer_by_name(name, model)
+        ancestor = model.get_submodule(name)
         if not isinstance(ancestor, avoid):
             return name, ancestor
         name = ".".join(name.split(".")[:-1])
