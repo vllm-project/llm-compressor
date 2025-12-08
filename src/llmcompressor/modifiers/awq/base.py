@@ -1,6 +1,10 @@
 import inspect
 from itertools import product
+<<<<<<< HEAD
 from typing import Iterator, Literal
+=======
+from typing import List, Literal, Optional, Union
+>>>>>>> b4889782 (comments)
 
 import torch
 from compressed_tensors.quantization import (
@@ -169,6 +173,24 @@ class AWQModifier(Modifier, QuantizationMixin):
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
+
+        # Validate that duo_scaling is only used with per-channel quantization
+        if self.duo_scaling != False:
+            for _, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            ):
+                if (
+                    hasattr(module, "quantization_scheme")
+                    and hasattr(module.quantization_scheme, "weights")
+                    and module.quantization_scheme.weights.strategy
+                    == QuantizationStrategy.TENSOR
+                ):
+                    raise ValueError(
+                        f"duo_scaling is only supported with per-channel quantization "
+                        f"strategies (group or channel), but found TENSOR strategy. "
+                        f"Please set duo_scaling=False or use a per-channel "
+                        f"quantization strategy."
+                    )
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
@@ -594,7 +616,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
 
-                history.append(loss)
+                history.append({"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss})
                 if loss < best_error:
                     best_error = loss
                     best_duo_scaling = use_duo_scaling
@@ -668,10 +690,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # to calculate mean without having to carry full population
         weight_total_count = 0
-        weight_total_sum = None
+        weight_total_sum = 0
 
         for layer in layers:
             if not hasattr(layer, "weight"):
+                logger.warning(
+                    f"Unable to find weight param for targetted layer {type(layer)}, skipping"
+                )
                 continue
 
             weight = layer.weight
@@ -691,10 +716,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)
-            if weight_total_sum is None:
-                weight_total_sum = weight_sum
-            else:
-                weight_total_sum += weight_sum
+            weight_total_sum += weight_sum
 
         return weight_total_sum / weight_total_count
 

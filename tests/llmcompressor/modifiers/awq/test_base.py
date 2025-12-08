@@ -6,11 +6,8 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 from pydantic import ValidationError
-<<<<<<< HEAD
 from torch.nn import Linear
-=======
 from torch.testing import assert_close
->>>>>>> 6d6feded (unit test for compute layer means)
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.factory import ModifierFactory
