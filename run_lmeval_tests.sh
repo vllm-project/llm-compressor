@@ -130,8 +130,8 @@ run_tests() {
         echo "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
         echo ""
 
-        # Set the config file for this test
-        export TEST_DATA_FILE="$CONFIG_NAME"
+        # Set the config file for this test (use full path)
+        export TEST_DATA_FILE="$MODEL_CONFIG"
 
         # Run pytest with capture disabled for real-time output
         if pytest \
