@@ -140,7 +140,7 @@ Run the following to test accuracy on GSM-8K:
 
 ```bash
 lm_eval --model vllm \
-  # use pretrained="./Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound",add_bos_token=true,kv_cache_dtype=fp8 if kv cache is quantized
+  # If KV cache is quantized, add 'kv_cache_dtype=fp8' to the --model_args below.
   --model_args pretrained="./Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound",add_bos_token=true \
   --tasks gsm8k \
   --num_fewshot 5 \
