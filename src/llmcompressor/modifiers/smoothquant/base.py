@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 from compressed_tensors.utils import align_module_device, match_modules_set
@@ -96,7 +96,7 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: Optional[List[Sequence[List[str] | str]]] = None
+    mappings: Optional[List[Union[Tuple, List]]] = None
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
