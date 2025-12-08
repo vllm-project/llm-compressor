@@ -128,7 +128,9 @@ class TestLMEval:
         base_results = self._eval_base_model()
 
         if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+            # Add GPU ID to avoid collisions when running parallel tests
+            gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}-gpu{gpu_id}"
         oneshot_model, processor = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
@@ -358,7 +360,18 @@ class TestLMEval:
             p = Path(TIMINGS_DIR)
             p.mkdir(parents=True, exist_ok=True)
 
-            df = pd.DataFrame(measurements)
+            # Convert measurements to long-form DataFrame
+            # Each row represents one timing measurement
+            rows = []
+            for func_name, times in measurements.items():
+                for idx, time_val in enumerate(times):
+                    rows.append({
+                        'function': func_name,
+                        'call_index': idx,
+                        'time_seconds': time_val
+                    })
+
+            df = pd.DataFrame(rows)
             df.to_csv(p / f"{self.save_dir}.csv", index=False)
 
         if self.save_dir is not None and os.path.isdir(self.save_dir):
