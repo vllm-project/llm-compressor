@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import cached_lm_eval_run, requires_gpu
 
 
 class LmEvalConfig(BaseModel):
@@ -49,7 +49,7 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
-# Will run each test case in its own process through run_tests.sh
+# Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
 @requires_gpu(1)
 @pytest.mark.parametrize(
@@ -100,12 +100,12 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+        self.seed = eval_config.get("seed", None)
 
-        seed = eval_config.get("seed", None)
-        if seed is not None:
-            random.seed(seed)
-            numpy.random.seed(seed)
-            torch.manual_seed(seed)
+        if self.seed is not None:
+            random.seed(self.seed)
+            numpy.random.seed(self.seed)
+            torch.manual_seed(self.seed)
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
@@ -161,8 +161,9 @@ class TestLMEval:
         self.tear_down()
 
     @log_time
+    @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
-        """Evaluate the base (uncompressed) model."""
+        """Evaluate the base (uncompressed) model with caching."""
         return self._eval_model(self.model)
 
     @log_time

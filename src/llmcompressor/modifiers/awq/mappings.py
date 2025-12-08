@@ -142,12 +142,23 @@ _bloom_mappings = [
     #     ["re:.*dense$"]
     # ),
 ]
+
+# Exaone4
+_exaone4_mappings = [
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
     "Cohere2VisionForConditionalGeneration": _cohere_mappings,
     "DeepseekV3ForCausalLM": _deepseek_mappings,
+    "Exaone4ForCausalLM": _exaone4_mappings,
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
@@ -155,6 +166,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Llama4ForConditionalGeneration": _default_mappings,
     "Mistral3ForConditionalGeneration": _default_mappings,
     "MistralForCausalLM": _default_mappings,
+    "Olmo3ForCausalLM": _exaone4_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
     "Qwen2ForCausalLM": _default_mappings,

@@ -140,7 +140,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
-        model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
+        model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
         self.dataset_args = dataset_args
@@ -201,22 +201,24 @@ class Oneshot:
         session.reset()
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
-        session.initialize(
-            model=self.model,
-            start=-1,
-            recipe=self.recipe,
-            recipe_stage=recipe_stage,
-            recipe_args=self.recipe_args.recipe_args,
-            calib_data=calibration_dataloader,
-        )
-        user_pipeline = self.dataset_args.pipeline
-        modifiers = session.lifecycle.recipe.modifiers
-        pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
         # Apply MoE calibration context for the entire calibration process
         with moe_calibration_context(
             self.model,
             calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
         ):
+            session.initialize(
+                model=self.model,
+                start=-1,
+                recipe=self.recipe,
+                recipe_stage=recipe_stage,
+                recipe_args=self.recipe_args.recipe_args,
+                calib_data=calibration_dataloader,
+            )
+            user_pipeline = self.dataset_args.pipeline
+            pipeline = CalibrationPipeline.from_modifiers(
+                session.lifecycle.recipe.modifiers, user=user_pipeline
+            )
+
             pipeline(
                 self.model,
                 calibration_dataloader,
@@ -229,7 +231,6 @@ class Oneshot:
 def oneshot(
     # Model arguments
     model: str | PreTrainedModel,
-    distill_teacher: str | None = None,
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,

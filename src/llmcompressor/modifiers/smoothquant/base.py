@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.utils import align_module_device
+from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
@@ -14,11 +14,7 @@ from llmcompressor.modifiers.smoothquant.utils import (
     handle_mapping_resolution_errors,
 )
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
-from llmcompressor.utils.pytorch.module import (
-    get_layers,
-    get_matching_layer,
-    match_targets,
-)
+from llmcompressor.utils.pytorch.module import get_layer_by_name
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
@@ -196,31 +192,34 @@ class SmoothQuantModifier(Modifier):
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
 
-        For each activation in the mapping list, we find the corresponding weight to
-        balance by searching for the longest substring. For instance, if our balance
-        weight is ".*re:.*q_proj" and the activation is "re:.*self_attn_layer_norm" we
-        would match model.layer.0.p_proj to model.layer.0.self_attn_layer_norm and
-        repeat for model.layer.1 and so on
+        For each activation in the mapping list, we find ALL corresponding weights to
+        balance by matching within the parent scope. This ensures all matching layers
+        are included, which is critical for MoE models where multiple experts need to
+        be balanced.
         """
         resolved_mappings = []
         for to_balance, to_smooth in self.mappings:
-            to_smooth_layers = get_layers(to_smooth, model)
-            for layer_name, smooth_layer in to_smooth_layers.items():
-                if not match_targets(layer_name, self.ignore)[0]:
-                    balance_layers = []
-                    for balance_suffix in to_balance:
-                        # find the submodule that matches the activation layer
-                        _, balance_layer = get_matching_layer(
-                            balance_suffix, layer_name, model
-                        )
-                        if balance_layer:
-                            balance_layers.append(balance_layer)
-                    # each mapping can contain multiple layers to balance, but only
-                    # one layer to smooth
-                    mapping = SmoothQuantMapping(
-                        layer_name, smooth_layer, balance_layers
+            to_smooth_list = [to_smooth] if isinstance(to_smooth, str) else to_smooth
+
+            for smooth_name, smooth_layer in match_named_modules(
+                model, to_smooth_list, self.ignore
+            ):
+                # Search for balance layers within the parent scope
+                smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
+                smooth_parent = get_layer_by_name(smooth_parent_name, model)
+
+                balance_layers = [
+                    balance_layer
+                    for _, balance_layer in match_named_modules(
+                        smooth_parent, to_balance, self.ignore
                     )
-                    resolved_mappings.append(mapping)
+                ]
+
+                if balance_layers:
+                    resolved_mappings.append(
+                        SmoothQuantMapping(smooth_name, smooth_layer, balance_layers)
+                    )
+
         return resolved_mappings
 
     def _setup_scale_hooks(self):

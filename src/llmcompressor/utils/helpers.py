@@ -27,6 +27,8 @@ from compressed_tensors.quantization import disable_quantization, enable_quantiz
 from loguru import logger
 from transformers import PreTrainedModel
 
+from llmcompressor.utils import get_embeddings
+
 __all__ = [
     "ALL_TOKEN",
     "ALL_PRUNABLE_TOKEN",
@@ -65,6 +67,7 @@ __all__ = [
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
+    "disable_lm_head",
     "patch_attr",
     "disable_hf_kernels",
     "DISABLE_QAC_MODIFIERS",
@@ -1049,11 +1052,45 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable the KV cache
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
+    - Disable lm head (input and weights can still be calibrated, output will be meta)
     """
-    with torch.no_grad(), disable_cache(model), eval_context(model), disable_hf_kernels(
-        model
-    ):
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(torch.no_grad())
+        stack.enter_context(disable_cache(model))
+        stack.enter_context(eval_context(model))
+        stack.enter_context(disable_hf_kernels(model))
+        stack.enter_context(disable_lm_head(model))
         yield
+
+
+@contextlib.contextmanager
+def disable_lm_head(model: torch.nn.Module):
+    """
+    Disable the lm_head of a model by moving it to the meta device. This function
+    does not untie parameters and restores the model proper loading upon exit
+    """
+    _, lm_head = get_embeddings(model)
+    if lm_head is None:
+        logger.warning(
+            f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
+            "but was unable to to find lm_head. This may lead to unexpected OOM."
+        )
+        yield
+        return
+
+    elif not isinstance(lm_head, torch.nn.Linear):
+        logger.warning(f"Cannot disable LM head of type {lm_head.__class__.__name__}")
+        yield
+        return
+
+    else:
+        dummy_weight = lm_head.weight.to("meta")
+
+        def dummy_forward(self, input: torch.Tensor) -> torch.Tensor:
+            return input.to("meta") @ dummy_weight.T
+
+        with patch_attr(lm_head, "forward", dummy_forward.__get__(lm_head)):
+            yield
 
 
 @contextlib.contextmanager
