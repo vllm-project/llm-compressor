@@ -150,7 +150,7 @@ lm_eval --model vllm \
 
 We can see the resulting scores look good!
 
-```bash
+```text
 w/o kv cache quantization:
 | Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
 | ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
