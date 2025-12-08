@@ -32,7 +32,6 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_layer_by_name,
     get_module_to_name_dict,
 )
 
