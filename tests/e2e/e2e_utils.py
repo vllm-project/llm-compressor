@@ -10,6 +10,7 @@ from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 
+@log_time
 def load_model(model: str, model_class: str, device_map: str | None = None):
     pretrained_model_class = getattr(transformers, model_class)
     loaded_model = pretrained_model_class.from_pretrained(
@@ -23,6 +24,7 @@ def _run_oneshot(**oneshot_kwargs):
     oneshot(**oneshot_kwargs)
 
 
+@log_time
 def run_oneshot_for_e2e_testing(
     model: str,
     model_class: str,
@@ -35,6 +37,10 @@ def run_oneshot_for_e2e_testing(
     scheme: str,
     quant_type: str,
 ):
+    # Import timer for granular timing
+    from tests.test_timer.timer_utils import get_singleton_manager
+    timer = get_singleton_manager()
+
     # Load model.
     oneshot_kwargs = {}
 
@@ -42,9 +48,13 @@ def run_oneshot_for_e2e_testing(
     processor = AutoProcessor.from_pretrained(model)
 
     if dataset_id:
-        ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
-        ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
-        ds = process_dataset(ds, processor, max_seq_length)
+        with timer.time("run_oneshot_dataset_load"):
+            ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
+            ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
+
+        with timer.time("run_oneshot_dataset_process"):
+            ds = process_dataset(ds, processor, max_seq_length)
+
         oneshot_kwargs["dataset"] = ds
         oneshot_kwargs["max_seq_length"] = max_seq_length
         oneshot_kwargs["num_calibration_samples"] = num_calibration_samples

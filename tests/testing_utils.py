@@ -431,20 +431,29 @@ def cached_lm_eval_run(func: Callable) -> Callable:
 
     @wraps(func)
     def wrapper(self, *args, **kwargs):
+        # Import here to avoid circular dependency
+        from tests.test_timer.timer_utils import get_singleton_manager
+        timer = get_singleton_manager()
+
         # Skip caching if disabled
         if DISABLE_LMEVAL_CACHE:
             return func(self, *args, **kwargs)
 
         # Try to get cached result
         cache_key = LMEvalCacheKey.from_test_instance(self)
-        if (cached_result := cache_key.get_cached_result()) is not None:
+        with timer.time("cached_lm_eval_run_cache_lookup"):
+            cached_result = cache_key.get_cached_result()
+
+        if cached_result is not None:
             logger.info(f"LM-Eval cache HIT: {cache_key.model}/{cache_key.task}")
             return cached_result
 
         # Run evaluation and cache result
         logger.info(f"LM-Eval cache MISS: {cache_key.model}/{cache_key.task}")
         result = func(self, *args, **kwargs)
-        cache_key.store_result(result)
+
+        with timer.time("cached_lm_eval_run_cache_write"):
+            cache_key.store_result(result)
 
         return result
 

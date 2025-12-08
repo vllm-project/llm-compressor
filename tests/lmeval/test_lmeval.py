@@ -118,6 +118,7 @@ class TestLMEval:
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
 
+    @log_time
     def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model
         self.set_up(test_data_file)
@@ -176,18 +177,25 @@ class TestLMEval:
         # https://github.com/EleutherAI/lm-evaluation-harness/pull/3393
         lm_eval_cls = lm_eval.api.registry.get_model(self.lmeval.model)
 
-        results = lm_eval.simple_evaluate(
-            model=lm_eval_cls(
-                pretrained=load_model(model, self.model_class, device_map="cuda:0"),
+        # Time model loading separately
+        timer = get_singleton_manager()
+        with timer.time("_eval_model_load_model"):
+            loaded_model = load_model(model, self.model_class, device_map="cuda:0")
+
+        # Time lm-eval execution separately
+        with timer.time("_eval_model_lm_eval_simple_evaluate"):
+            results = lm_eval.simple_evaluate(
+                model=lm_eval_cls(
+                    pretrained=loaded_model,
+                    batch_size=self.lmeval.batch_size,
+                    **self.lmeval.model_args,
+                ),
+                tasks=[self.lmeval.task],
+                num_fewshot=self.lmeval.num_fewshot,
+                limit=self.lmeval.limit,
+                apply_chat_template=self.lmeval.apply_chat_template,
                 batch_size=self.lmeval.batch_size,
-                **self.lmeval.model_args,
-            ),
-            tasks=[self.lmeval.task],
-            num_fewshot=self.lmeval.num_fewshot,
-            limit=self.lmeval.limit,
-            apply_chat_template=self.lmeval.apply_chat_template,
-            batch_size=self.lmeval.batch_size,
-        )
+            )
 
         return results
 
