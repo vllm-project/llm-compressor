@@ -7,6 +7,7 @@ from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
+    get_lowest_common_ancestor_name,
     match_modules_set,
     match_named_modules,
     update_offload_parameter,
@@ -363,8 +364,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     continue
 
+                ancestor_name = get_lowest_common_ancestor_name(balance_names)
                 ancestor_name, ancestor = get_lowest_ancestor_with_avoid(
-                    balance_names, model, torch.nn.ModuleList
+                    ancestor_name, model, torch.nn.ModuleList
                 )
 
                 resolved_mappings.append(
@@ -739,7 +741,7 @@ def _check_layers_are_compatible(
     return True
 
 
-def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.Module):
+def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.ModuleList):
     """
     get lowest ancestor that is not the avoided class/type
 

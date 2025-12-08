@@ -369,6 +369,7 @@ def get_layer_by_name(layer_name: str, module: Module) -> Module:
     """
     if not layer_name:
         return module
+    print("CCC", layer_name)
     return attrgetter(layer_name)(module)
 
 
