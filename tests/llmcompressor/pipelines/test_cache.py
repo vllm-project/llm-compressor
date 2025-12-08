@@ -1,10 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 
 import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
 
-from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
+from llmcompressor.pipelines.cache import IntermediatesCache
+
+
+@dataclass
+class SampleDataclass:
+    a: torch.Tensor
+    b: int
 
 
 @pytest.fixture
@@ -25,6 +31,14 @@ def sample_cache(sample_dataloader):
         model_device=torch.device("cpu"),
         offload_device=torch.device("cpu"),
     )
+
+
+values_to_test = [
+    torch.randn(2, 3).to("cpu"),
+    SampleDataclass(a=torch.randn(2, 3), b=42),
+    torch.float32,
+    [1, 2, 3],
+]
 
 
 @pytest.mark.unit
@@ -81,62 +95,22 @@ def test_delete_intermediates(sample_cache):
 
 
 @pytest.mark.unit
-def test_offload_and_onload_tensor():
-    cache = IntermediatesCache([], torch.device("cpu"))
+@pytest.mark.parametrize("value", values_to_test)
+def test_from_dataloader(value):
+    dataset = StackDataset(value=[value])
+    dataloader = DataLoader(dataset, batch_size=1, collate_fn=lambda x: x[0])
+    cache = IntermediatesCache.from_dataloader(dataloader)
 
-    # Test tensor offloading
-    original_tensor = torch.randn(2, 3).to("cpu")
-    offloaded = cache._offload_value(original_tensor)
-
-    assert isinstance(offloaded, IntermediateValue)
-    assert isinstance(offloaded.value, torch.Tensor)
-    assert offloaded.device == original_tensor.device
-
-    # Test tensor onloading
-    onloaded = cache._onload_value(offloaded)
-    assert torch.equal(onloaded, original_tensor)
-
-
-@dataclass
-class SampleDataclass:
-    a: torch.Tensor
-    b: int
+    onloaded = cache.fetch(0, ["value"])["value"]
+    assert deep_equal(onloaded, value)
 
 
 @pytest.mark.unit
-def test_offload_and_onload_dataclass():
-    cache = IntermediatesCache([], torch.device("cpu"))
-
-    # Create a sample dataclass instance
-    sample_data = SampleDataclass(a=torch.randn(2, 3), b=42)
-
-    # Test dataclass offloading
-    offloaded = cache._offload_value(sample_data)
-    assert isinstance(offloaded, IntermediateValue)
-    assert isinstance(offloaded.value, SampleDataclass)
-    assert isinstance(offloaded.value.a, IntermediateValue)
-    assert isinstance(offloaded.value.b, IntermediateValue)
-
-    # Test dataclass onloading
-    onloaded = cache._onload_value(offloaded)
-    assert onloaded == sample_data
-
-
-@pytest.mark.unit
-def test_offload_and_onload_dtype():
-    cache = IntermediatesCache([], torch.device("cpu"))
-
-    # Create a sample dataclass instance
-    sample_data = torch.float32
-
-    # Test dataclass offloading
-    offloaded = cache._offload_value(sample_data)
-    assert isinstance(offloaded, IntermediateValue)
-    assert isinstance(offloaded.value, torch.dtype)
-
-    # Test dataclass onloading
-    onloaded = cache._onload_value(offloaded)
-    assert onloaded == sample_data
+@pytest.mark.parametrize("value", values_to_test)
+def test_offload_and_onload(value):
+    offloaded = IntermediatesCache._offload_value(value, torch.device("cpu"))
+    onloaded = IntermediatesCache._onload_value(offloaded)
+    assert deep_equal(onloaded, value)
 
 
 @pytest.mark.unit
@@ -164,3 +138,27 @@ def test_device_handling(sample_dataloader):
     # Verify tensors are loaded back to GPU when fetched
     fetched = cache.fetch(0, ["hidden_states"])
     assert fetched["hidden_states"].device.type == "cuda"
+
+
+def deep_equal(a, b) -> bool:
+    if type(a) != type(b):
+        return False
+
+    match a:
+        case torch.Tensor():
+            return torch.equal(a, b)
+        case list() | tuple():
+            if len(a) != len(b):
+                return False
+            return all(deep_equal(_a, _b) for _a, _b in zip(a, b))
+        case dict():
+            if a.keys() != b.keys():
+                return False
+            return all(deep_equal(a[key], b[key]) for key in a.keys())
+        case _ if is_dataclass(a):
+            a_dict = {field.name: getattr(a, field.name) for field in fields(a)}
+            b_dict = {field.name: getattr(b, field.name) for field in fields(b)}
+
+            return deep_equal(a_dict, b_dict)
+        case _:
+            return a == b
