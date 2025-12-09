@@ -16,4 +16,8 @@
 
 # CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_awq_asym.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_awq_asym_new.log
 
-CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_actorder_none.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_actorder_none_new.log
+# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_actorder_none.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_actorder_none_new.log
+
+CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_block_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_block.log
+
+CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_dynamic_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_dynamic.log

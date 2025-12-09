@@ -1,0 +1,19 @@
+quant_stage:
+  quant_modifiers:
+    AWQModifier:
+      ignore: ["lm_head", "re:vision_tower.*", "re:.*multi_modal_projector.*", "re:.*visual.*", "re:.*vision_model.*"]
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 8
+            type: "float"
+            symmetric: true
+            strategy: "channel"
+            dynamic: false
+          input_activations:
+            num_bits: 8
+            type: "float"
+            symmetric: true
+            strategy: "token"
+            dynamic: true
+          targets: ["Linear"]
