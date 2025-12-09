@@ -376,7 +376,7 @@ def get_module_to_name_dict(model: Module) -> dict[Module, str]:
     module_to_name = {}
     for name, module in model.named_modules():
         if module in module_to_name:
-            logger.info(
+            logger.warning(
                 f"Warning, {name} and {module_to_name[module]} both "
                 "share the same module, which can result in unexpected behavior"
             )

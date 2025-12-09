@@ -1,6 +1,6 @@
 import inspect
 from itertools import product
-from typing import Literal
+from typing import Literal, Iterator
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -363,9 +363,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     continue
 
-                ancestor_name = get_lowest_common_ancestor_name(balance_names)
-                ancestor_name, ancestor = get_lowest_ancestor_with_avoid(
-                    ancestor_name, model, torch.nn.ModuleList
+                ancestor_name, ancestor = get_lowest_common_ancestor_with_avoid(
+                    balance_names, model, torch.nn.ModuleList
                 )
 
                 resolved_mappings.append(
@@ -740,9 +739,10 @@ def _check_layers_are_compatible(
     return True
 
 
-def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.ModuleList):
+def get_lowest_common_ancestor_with_avoid(balance_names: Iterator[str], model: Module, avoid=torch.nn.ModuleList):
     """
-    get lowest ancestor that is not the avoided class/type
+    Get the lowest ancestor that is not the avoided class/type.
+    see compressed_tensors.utils.get_lowest_common_ancestor_name for detail on case handling.
 
     NOTE: primarily used to exclude parents of type ModuleList, which don't play
     nicely with hooks because their forward method is never directly
@@ -750,13 +750,15 @@ def get_lowest_ancestor_with_avoid(name: str, model: Module, avoid=torch.nn.Modu
     are selected based on router output and their forward method is called.
     https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
     """
+    ancestor_name = get_lowest_common_ancestor_name(balance_names)
+
     while True:
-        if name == "":
+        if ancestor_name == "":
             return "", model
-        ancestor = model.get_submodule(name)
+        ancestor = model.get_submodule(ancestor_name)
         if not isinstance(ancestor, avoid):
-            return name, ancestor
-        name = ".".join(name.split(".")[:-1])
+            return ancestor_name, ancestor
+        ancestor_name = ".".join(ancestor_name.split(".")[:-1])
 
 
 def _pseudo_quantize_tensor(
