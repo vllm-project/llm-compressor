@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 import torch
 from transformers import (
@@ -16,9 +14,7 @@ from llmcompressor.utils import (
     disable_cache,
     disable_lm_head,
     flatten_iterable,
-    getattr_chain,
     interpolate,
-    patch_attr,
     validate_str_iterable,
 )
 from llmcompressor.utils.dev import dispatch_for_generation, skip_weights_download
@@ -108,38 +104,6 @@ def test_interpolate(x_cur, x0, x1, y0, y1, inter_func, out):
 
 
 @pytest.mark.unit
-def test_getattr_chain():
-    base = SimpleNamespace()
-    base.a = None
-    base.b = SimpleNamespace()
-    base.b.c = "value"
-    base.b.d = None
-
-    # test base cases
-    assert getattr_chain(base, "", None) is None
-    with pytest.raises(AttributeError):
-        getattr_chain(base, "")
-
-    # test single layer
-    assert getattr_chain(base, "a") is None
-    assert getattr_chain(base, "a", "default") is None
-    assert getattr_chain(base, "b") == base.b
-
-    assert getattr_chain(base, "dne", None) is None
-    with pytest.raises(AttributeError):
-        getattr_chain(base, "dne")
-
-    # test multi layer
-    assert getattr_chain(base, "b.c") == "value"
-    assert getattr_chain(base, "b.d") is None
-    assert getattr_chain(base, "b.d", "default") is None
-
-    assert getattr_chain(base, "b.d.dne", "default") == "default"
-    with pytest.raises(AttributeError):
-        getattr_chain(base, "b.d.dne")
-
-
-@pytest.mark.unit
 def test_DisableQuantization():
     model = torch.nn.Linear(1, 1)
     with DisableQuantization(model):
@@ -164,24 +128,6 @@ def test_calibration_forward_context():
     assert model.config.use_cache
     assert model.training
     assert model.lm_head.forward.__name__ == "forward"
-
-
-@pytest.mark.unit
-def test_patch_attr():
-    # patch, original value
-    obj = SimpleNamespace()
-    obj.attribute = "original"
-    with patch_attr(obj, "attribute", "patched"):
-        assert obj.attribute == "patched"
-        obj.attribute = "modified"
-    assert obj.attribute == "original"
-
-    # patch, no original attribute
-    obj = SimpleNamespace()
-    with patch_attr(obj, "attribute", "patched"):
-        assert obj.attribute == "patched"
-        obj.attribute = "modified"
-    assert not hasattr(obj, "attribute")
 
 
 @requires_gpu

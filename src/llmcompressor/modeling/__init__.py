@@ -18,4 +18,3 @@ from .qwen3_next_moe import CalibrationQwen3NextSparseMoeBlock  # noqa: F401
 # TODO: add granite4, Qwen3Next
 
 from .fuse import *
-from .prepare import *

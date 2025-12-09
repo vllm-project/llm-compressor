@@ -10,6 +10,7 @@ from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.utils import (
     has_offloaded_params,
     offloaded_dispatch,
+    patch_attr,
     remove_dispatch,
 )
 from compressed_tensors.utils.match import match_targets
@@ -24,7 +25,7 @@ from transformers.configuration_utils import PretrainedConfig
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
-from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
