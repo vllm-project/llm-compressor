@@ -2,6 +2,7 @@ quant_stage:
   quant_modifiers:
     AWQModifier:
       ignore: ["lm_head", "re:vision_tower.*", "re:.*multi_modal_projector.*", "re:.*visual.*", "re:.*vision_model.*"]
+      duo_scaling: both
       config_groups:
         group_0:
           weights:

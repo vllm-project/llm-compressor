@@ -705,14 +705,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                     f"Unable to find quantization scheme for targetted layer {type(layer)}, skipping"
                 )
                 continue
-            
+
             # num different chunks x size of each chunk
             weight = _orient_weight(weight, qscheme) 
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
             # Reshape back to original dimensions
             weight = _reorient_weight(weight, qscheme, orig_shape)
-
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)
@@ -739,7 +738,7 @@ def _orient_weight(weight: torch.Tensor, qscheme) -> torch.Tensor:
     if qscheme.strategy in [QuantizationStrategy.TENSOR, QuantizationStrategy.CHANNEL, QuantizationStrategy.GROUP]:
         match qscheme.strategy:
             case QuantizationStrategy.TENSOR:
-                group_size = 1
+                group_size = weight.numel()
             case QuantizationStrategy.CHANNEL:
                 group_size = weight.size(1)
             case QuantizationStrategy.GROUP:
@@ -753,7 +752,8 @@ def _orient_weight(weight: torch.Tensor, qscheme) -> torch.Tensor:
         num_heights = strategy_cdiv(rows, block_height, qscheme.strategy, strict=True)
         num_widths = strategy_cdiv(cols, block_width, qscheme.strategy, strict=True)
         weight = (
-            weight.reshape(num_heights, block_height, num_widths, block_width) #nH, H, nW, W
+            weight # nH*H=rows, nW*W=cols
+            .reshape(num_heights, block_height, num_widths, block_width) #nH, H, nW, W
             .transpose(1, 2) # nH, nW, H, W
             .reshape(-1, block_size) # nH*nW, H*W
         )
@@ -773,11 +773,13 @@ def _reorient_weight(weight: torch.Tensor, qscheme, orig_shape) -> torch.Tensor:
         rows, cols = orig_shape
         num_heights = strategy_cdiv(rows, block_height, qscheme.strategy, strict=True)
         num_widths = strategy_cdiv(cols, block_width, qscheme.strategy, strict=True)
-
-        # nH*nW, H*W
-        weight = weight.view(num_heights, num_widths, block_height, block_width) # nH, nW, H, W
-        weight = weight.transpose(1, 2)  #nH, H, nW, W
-        weight = weight.reshape(orig_shape)  #nH*H=rows, nW*W=cols
+        
+        weight = (
+            weight # nH*nW, H*W
+            .view(num_heights, num_widths, block_height, block_width) # nH, nW, H, W
+            .transpose(1, 2)  #nH, H, nW, W
+            .reshape(orig_shape)  #nH*H=rows, nW*W=cols
+        )
     else:
         raise NotImplementedError(f"expected weight quantization strategy to be one of TENSOR, CHANNEL, GROUP, or BLOCK, got {qscheme.strategy}")
     return weight

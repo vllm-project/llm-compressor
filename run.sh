@@ -12,12 +12,15 @@
 # export TEST_DATA_FILE="${REPOS}/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant.yaml"
 # pytest tests/e2e/vLLM/test_vllm.py -vs 2>&1 | tee log-int4.log
 
-# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_awq_sym.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_awq_new.log
 
-# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_awq_asym.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_awq_asym_new.log
+# test group quantization # DONE on branch
+# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_awq_sym.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_awq_new_2.log
 
-# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/w4a16_actorder_none.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_w4a16_actorder_none_new.log
+# test channel quantization
+# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_dynamic_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_dynamic.log
 
-CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_block_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_block.log
+# test block
+# CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_block_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_block.log
 
-CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_dynamic_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_dynamic.log
+# test tensor quantization
+CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/int8_tensor.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_int8_tensor.log

@@ -10,7 +10,9 @@ from torch.nn import Linear
 from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.awq.base import get_lowest_common_parent, _orient_weight, _reorient_weight
 from llmcompressor.modifiers.factory import ModifierFactory
+from itertools import product
 
 
 @pytest.mark.unit
@@ -215,13 +217,33 @@ def test_moe_multiple_balance_layers():
     assert parent_name == "" and parent == model
 
 
+def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tensor:
+    """
+    Original AutoAwq implementation (need to call .mean(0) to get normalized layer
+    means
+    """
+    # [STEP 1]: Compute per-channel mean of normalised weights
+    # All layer weights are concatted together
+    weight = torch.cat([bl.weight for bl in layers], dim=0)
+    orig_shape = weight.shape
+    # The weights are reshaped to be organised by quantization group
+    if group_size is not None:
+        weight = weight.view(-1, group_size)
+    # Calculates the relative magnitude of the weights within
+    # each of the quantization groups, and rescales each group
+    # individually so that each group has weights on a 0-1 scale.
+    weight.abs_()
+    weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+    return weight.view(orig_shape)
+
 @torch.no_grad
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "n_balance_layers, group_size, n_input_features",
     [
-        (5, None, 32),
-        (4, 10, 40), # TODO ADD TESTS FOR BLOCK AND TENSOR
+        (5, -1, 32), # channel
+        (4, 10, 40), # group
+        (4, torch.inf, 40), # tensor
     ],
 )
 def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
@@ -234,6 +256,18 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
     balance_layers = [
         torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
     ]
+    group_size_arg = None
+    match group_size:
+        case -1:
+            strategy = QuantizationStrategy.CHANNEL
+            group_size = balance_layers[0].weight.shape[1]
+        case torch.inf:
+            strategy = QuantizationStrategy.TENSOR
+            group_size = n_input_features * 10
+        case _:
+            strategy = QuantizationStrategy.GROUP
+            group_size_arg = group_size
+
     for balance_layer in balance_layers:
         setattr(
             balance_layer,
@@ -241,40 +275,82 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
             QuantizationScheme(
                 targets=["Linear"],
                 weights=QuantizationArgs(
-                    strategy=(
-                        QuantizationStrategy.GROUP
-                        if group_size is not None
-                        else QuantizationStrategy.CHANNEL
-                    ),
-                    group_size=group_size,
+                    strategy=strategy,
+                    group_size=group_size_arg,
                 ),
             ),
         )
 
-    def _auto_awq_compute_layer_means(layers: list[torch.nn.Module]) -> torch.Tensor:
-        """
-        Original AutoAwq implementation
-        """
-        # [STEP 1]: Compute per-channel mean of normalised weights
-        # All layer weights are concatted together
-        weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
-        org_shape = weight.shape
-        # The weights are reshaped to be organised by quantization group
-        if group_size is not None:
-            weight = weight.view(-1, group_size)
-        # Calculates the relative magnitude of the weights within
-        # each of the quantization groups, and rescales each group
-        # individually so that each group has weights on a 0-1 scale.
-        weight.abs_()
-        weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-        weight = weight.view(org_shape)
-        # Gets the average rescaled magnitude for each output channel
-        return weight.mean(0)
+    auto_awq_means = _auto_awq_normalize(balance_layers, group_size).mean(0)
 
-    w_mean_auto_awq = _auto_awq_compute_layer_means(balance_layers)
-
-    w_mean_awq = AWQModifier._compute_layer_means(balance_layers).to(
-        w_mean_auto_awq.dtype
+    llmc_awq_means = AWQModifier._compute_layer_means(balance_layers).to(
+        auto_awq_means.dtype
     )
 
-    assert_close(w_mean_auto_awq, w_mean_awq)
+    assert_close(auto_awq_means, llmc_awq_means)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "rows, cols, block_height, block_width",
+    [
+        (32, 256, 4, 8,),
+        (4, 3, 2, 1,),
+        (10, 10, 10, 10,),
+        (512, 256, 128, 128,),
+    ],
+)
+def test_block_strategy_compute_layer_means(rows, cols, block_height, block_width):
+    """
+    Confirm our logic to compute layer means works for BLOCK quantization
+    """
+    lin = torch.nn.Linear(cols, rows)
+    lin.weight.data = ((lin.weight)*10).to(torch.int8).to(torch.float32)
+    setattr(
+        lin,
+        "quantization_scheme",
+        QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(
+                strategy=QuantizationStrategy.BLOCK,
+                block_structure=[block_height, block_width],
+            ),
+        ),
+    )
+    # main
+    llmc_awq_means = AWQModifier._compute_layer_means([lin])
+
+    # ref
+    num_heights = rows // block_height
+    num_widths = cols // block_width
+
+    ref_weight = torch.zeros_like(lin.weight)
+    with torch.no_grad():
+        for i, j in product(range(num_heights), range(num_widths)):
+            block = lin.weight[
+                i * block_height : (i + 1) * block_height, 
+                j * block_width : (j + 1) * block_width
+            ].abs()
+            block = block / (block.max()+1e-6)
+            ref_weight[
+                i * block_height : (i + 1) * block_height, 
+                j * block_width : (j + 1) * block_width
+            ] = block
+    ref_means = ref_weight.sum(0, dtype=torch.float64) / ref_weight.size(0)
+
+    # auto awq
+    # we first reshape the weight such that it is effectively per-channel quantization
+    # so that we can compare to the existing _auto_awq_normalize function
+    orig_shape = lin.weight.shape
+    oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
+    lin.weight.data = oriented_weight    
+    
+    auto_awq_means = _reorient_weight(
+        _auto_awq_normalize([lin], None), 
+        lin.quantization_scheme.weights,
+        orig_shape,
+    ).mean(0).to(llmc_awq_means.dtype)
+
+    # check
+    assert_close(llmc_awq_means, ref_means)
+    assert_close(llmc_awq_means, auto_awq_means)
