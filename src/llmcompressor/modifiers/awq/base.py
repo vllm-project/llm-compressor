@@ -338,7 +338,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layer)
 
-                # [[b00, b01, b02...], [b10, b11, b12,...], ...] v
+                # [[b00, b01, b02...], [b10, b11, b12,...], ...] ↓
                 #                             [b00, b01, b02, ..., b10, b11, b12, ...]
                 balance_layers = tree_leaves(nested_balance_layers)
                 balance_names = [
