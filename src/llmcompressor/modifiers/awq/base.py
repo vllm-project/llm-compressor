@@ -12,6 +12,7 @@ from compressed_tensors.quantization import (
     disable_quantization,
     forward_quantize,
 )
+from compressed_tensors.quantization.utils import strategy_cdiv
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
@@ -20,9 +21,10 @@ from compressed_tensors.utils import (
     match_named_modules,
     patch_attrs,
     update_offload_parameter,
+    getattr_chain,
 )
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr
+from pydantic import ConfigDict, PrivateAttr, field_validator
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
@@ -148,7 +150,8 @@ class AWQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
     offload_device: Optional[torch.device] = None
-    duo_scaling: bool = True
+    duo_scaling: str|bool = True
+    n_grid: int = 20
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -517,7 +520,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         W: original weights in FP16     | layer
         s: per channel scaling factor   | s^-1 * X
 
-        :param mapping: best scales will be found for thi ResolvedMapping.
+        :param mapping: best scales will be found for the ResolvedMapping.
         :param fp16_outputs: output of mapping.parent in unquantized case,
             one tensor for each batch.
         :return: tensor of best scales, one for each channel
@@ -677,17 +680,12 @@ class AWQModifier(Modifier, QuantizationMixin):
     @staticmethod
     def _compute_layer_means(layers: list[Module]) -> torch.Tensor:
         """
-        Compute per-channel mean of normalised weights for all passed in layers.
-        Layers with group-wise quantization will be normalized against the group
-            abs max instead of the abs max of the channel.
+        Compute per-channel/group/block/tensor mean of normalised weights 
+        for all passed in layers taking into account the quantization_scheme.
 
         To minimize memory requirements, layers are reduced to a running total
             of sums and counts when calculating mean
         """
-        # TODO: allow for block-wise layer means as well
-
-        group_size = None
-
         # to calculate mean without having to carry full population
         weight_total_count = 0
         weight_total_sum = 0
@@ -698,20 +696,22 @@ class AWQModifier(Modifier, QuantizationMixin):
                     f"Unable to find weight param for targetted layer {type(layer)}, skipping"
                 )
                 continue
-
             weight = layer.weight
-            org_shape = weight.shape
-
-            # If group-wise, calculate abs max based on group
-            # abs max, rather than channel
-            if (group_size := _infer_group_size(layer)) > 0:
-                weight = weight.view(-1, group_size)
-
+            orig_shape = weight.shape
+            
+            qscheme = getattr_chain(layer, "quantization_scheme.weights", None)
+            if not qscheme:
+                logger.warning(
+                    f"Unable to find quantization scheme for targetted layer {type(layer)}, skipping"
+                )
+                continue
+            
+            # num different chunks x size of each chunk
+            weight = _orient_weight(weight, qscheme) 
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-
             # Reshape back to original dimensions
-            weight = weight.view(org_shape)
+            weight = _reorient_weight(weight, qscheme, orig_shape)
 
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
@@ -720,19 +720,67 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         return weight_total_sum / weight_total_count
 
+    @field_validator("duo_scaling")
+    @classmethod
+    def validate_duo_scaling(cls, v):
+        """Validate that duo_scaling is either True, False, or 'both' (lowercase)"""
+        if v not in (True, False, "both"):
+            raise ValueError(
+                f"duo_scaling must be True, False, or 'both', got {v!r}"
+            )
+        return v
 
-def _infer_group_size(layer: Module) -> int:
-    """
-    Returns group_size of layer if applicable, otherwise -1
-    """
-    if (
-        hasattr(layer, "quantization_scheme")
-        and hasattr(layer.quantization_scheme, "weights")
-        and layer.quantization_scheme.weights.strategy == QuantizationStrategy.GROUP
-    ):
-        return layer.quantization_scheme.weights.group_size
-    return -1
 
+def _orient_weight(weight: torch.Tensor, qscheme) -> torch.Tensor:        
+    """
+    Orient weight so we have shape [<num different chunks to be quantized>, <num elements of each chunk>]. Works
+    for TENSOR, CHANNEL, GROUP, BLOCK strategies
+    """   
+    if qscheme.strategy in [QuantizationStrategy.TENSOR, QuantizationStrategy.CHANNEL, QuantizationStrategy.GROUP]:
+        match qscheme.strategy:
+            case QuantizationStrategy.TENSOR:
+                group_size = 1
+            case QuantizationStrategy.CHANNEL:
+                group_size = weight.size(1)
+            case QuantizationStrategy.GROUP:
+                group_size = qscheme.group_size
+        weight = weight.view(-1, group_size)
+
+    elif qscheme.strategy == QuantizationStrategy.BLOCK:
+        block_height, block_width = qscheme.block_structure
+        block_size = block_height * block_width
+        rows, cols = weight.shape
+        num_heights = strategy_cdiv(rows, block_height, qscheme.strategy, strict=True)
+        num_widths = strategy_cdiv(cols, block_width, qscheme.strategy, strict=True)
+        weight = (
+            weight.reshape(num_heights, block_height, num_widths, block_width) #nH, H, nW, W
+            .transpose(1, 2) # nH, nW, H, W
+            .reshape(-1, block_size) # nH*nW, H*W
+        )
+    else:
+        raise NotImplementedError(f"expected weight quantization strategy to be one of TENSOR, CHANNEL, GROUP, or BLOCK, got {qscheme.strategy}")
+    return weight
+
+def _reorient_weight(weight: torch.Tensor, qscheme, orig_shape) -> torch.Tensor:       
+    """
+    undo _orient_weight() operation returning weight to original shape
+    """    
+    if qscheme.strategy in [QuantizationStrategy.TENSOR, QuantizationStrategy.CHANNEL, QuantizationStrategy.GROUP]:
+        return weight.reshape(orig_shape)
+
+    elif qscheme.strategy == QuantizationStrategy.BLOCK:
+        block_height, block_width = qscheme.block_structure
+        rows, cols = orig_shape
+        num_heights = strategy_cdiv(rows, block_height, qscheme.strategy, strict=True)
+        num_widths = strategy_cdiv(cols, block_width, qscheme.strategy, strict=True)
+
+        # nH*nW, H*W
+        weight = weight.view(num_heights, num_widths, block_height, block_width) # nH, nW, H, W
+        weight = weight.transpose(1, 2)  #nH, H, nW, W
+        weight = weight.reshape(orig_shape)  #nH*H=rows, nW*W=cols
+    else:
+        raise NotImplementedError(f"expected weight quantization strategy to be one of TENSOR, CHANNEL, GROUP, or BLOCK, got {qscheme.strategy}")
+    return weight
 
 def _check_layers_are_compatible(
     smooth_layer, smooth_name, balance_layers, balance_names
