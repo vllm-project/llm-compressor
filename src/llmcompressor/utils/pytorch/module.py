@@ -372,7 +372,7 @@ def get_layer_by_name(layer_name: str, module: Module) -> Module:
     return attrgetter(layer_name)(module)
 
 
-def get_module_to_name_dict(model: Module) -> dict[Module:str]:
+def get_module_to_name_dict(model: Module) -> dict[Module, str]:
     module_to_name = {}
     for name, module in model.named_modules():
         if module in module_to_name:
