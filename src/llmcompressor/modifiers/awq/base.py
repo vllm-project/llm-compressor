@@ -1,6 +1,6 @@
 import inspect
 from itertools import product
-from typing import Literal, Iterator
+from typing import Iterator, Literal
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -739,10 +739,13 @@ def _check_layers_are_compatible(
     return True
 
 
-def get_lowest_common_ancestor_with_avoid(balance_names: Iterator[str], model: Module, avoid=torch.nn.ModuleList):
+def get_lowest_common_ancestor_with_avoid(
+    balance_names: Iterator[str], model: Module, avoid=torch.nn.ModuleList
+):
     """
     Get the lowest ancestor that is not the avoided class/type.
-    see compressed_tensors.utils.get_lowest_common_ancestor_name for detail on case handling.
+    see compressed_tensors.utils.get_lowest_common_ancestor_name
+    for detail on case handling.
 
     NOTE: primarily used to exclude parents of type ModuleList, which don't play
     nicely with hooks because their forward method is never directly
