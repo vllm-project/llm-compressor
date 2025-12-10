@@ -2,10 +2,11 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.utils import align_module_device, match_named_modules
+from compressed_tensors.utils import align_module_device, match_modules_set
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
+from torch.utils._pytree import tree_leaves
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -14,7 +15,7 @@ from llmcompressor.modifiers.smoothquant.utils import (
     handle_mapping_resolution_errors,
 )
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
-from llmcompressor.utils.pytorch.module import get_layer_by_name
+from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
@@ -198,27 +199,23 @@ class SmoothQuantModifier(Modifier):
         be balanced.
         """
         resolved_mappings = []
-        for to_balance, to_smooth in self.mappings:
-            to_smooth_list = [to_smooth] if isinstance(to_smooth, str) else to_smooth
-
-            for smooth_name, smooth_layer in match_named_modules(
-                model, to_smooth_list, self.ignore
+        module_to_name = get_module_to_name_dict(model)
+        for mapping in self.mappings:
+            for *nested_balance_layers, smooth_layers in match_modules_set(
+                model, tree_leaves(mapping), self.ignore
             ):
-                # Search for balance layers within the parent scope
-                smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
-                smooth_parent = get_layer_by_name(smooth_parent_name, model)
-
-                balance_layers = [
-                    balance_layer
-                    for _, balance_layer in match_named_modules(
-                        smooth_parent, to_balance, self.ignore
+                if len(smooth_layers) > 1:
+                    raise ValueError(
+                        "SmoothQuant must match a single smooth layer for each mapping"
+                        f" but got {[module_to_name.get(s) for s in smooth_layers]}"
+                        f" for mapping: {mapping}"
                     )
-                ]
-
-                if balance_layers:
-                    resolved_mappings.append(
-                        SmoothQuantMapping(smooth_name, smooth_layer, balance_layers)
-                    )
+                smooth_layer = smooth_layers[0]
+                smooth_name = module_to_name.get(smooth_layers[0])
+                balance_layers = tree_leaves(nested_balance_layers)
+                resolved_mappings.append(
+                    SmoothQuantMapping(smooth_name, smooth_layer, balance_layers)
+                )
 
         return resolved_mappings
 

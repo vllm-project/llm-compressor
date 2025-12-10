@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.quantization.utils import is_module_quantized
+from loguru import logger
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
@@ -369,3 +370,15 @@ def get_layer_by_name(layer_name: str, module: Module) -> Module:
     if not layer_name:
         return module
     return attrgetter(layer_name)(module)
+
+
+def get_module_to_name_dict(model: Module) -> dict[Module, str]:
+    module_to_name = {}
+    for name, module in model.named_modules():
+        if module in module_to_name:
+            logger.warning(
+                f"Warning, {name} and {module_to_name[module]} both "
+                "share the same module, which can result in unexpected behavior"
+            )
+        module_to_name[module] = name
+    return module_to_name
