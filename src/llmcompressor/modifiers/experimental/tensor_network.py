@@ -12,7 +12,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, Field
-from torch.nn import Module
+from torch import nn
 from tqdm import tqdm
 import tensorly as tl
 from tensorly.decomposition import tensor_train
@@ -25,6 +25,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_layer_by_name
+from llmcompressor.modifiers.experimental.tensorized_linear import TensorizedLinear
 
 tl.set_backend("pytorch")
 
@@ -98,7 +99,7 @@ class TensorNetworkModifier(Modifier):
     num_cores: int = 3
 
     # Cache list of forward input args for each parent module, one dict for each batch
-    _target_args_cache: dict[tuple[str, Module], IntermediatesCache] = PrivateAttr(
+    _target_args_cache: dict[tuple[str, nn.Linear], IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
 
@@ -158,13 +159,13 @@ class TensorNetworkModifier(Modifier):
 
         return True
 
-    def _setup_activation_cache_hooks(self, model: Module) -> None:
+    def _setup_activation_cache_hooks(self, model: nn.Module) -> None:
         """
-        Attach a forward hook to each target layer we want to tensorize
+        Attach a forward hook to each targeted Linear layer we want to tensorize
         """
 
         def cache_target_kwargs_hook(
-            module: torch.nn.Module,
+            module: nn.Module,
             args: tuple[torch.Tensor, ...],
             kwargs,
         ):
@@ -172,6 +173,8 @@ class TensorNetworkModifier(Modifier):
             self._target_args_cache[module].append(values.arguments)
 
         for name, module in match_named_modules(model, self.targets, self.ignore):
+            if not isinstance(module, nn.Linear):
+                continue
             self._target_args_cache[(name, module)] = IntermediatesCache(
                 None,
                 self.offload_device,
@@ -184,7 +187,7 @@ class TensorNetworkModifier(Modifier):
             )
 
     @torch.no_grad()
-    def _tensorize(self, model: Module) -> None:
+    def _tensorize(self, model: nn.Module) -> None:
         """
         Tensorize any linear layer in model for which an entry in the cache
         exists. Tensor Network decomposition is applied, and the layer is
@@ -202,8 +205,10 @@ class TensorNetworkModifier(Modifier):
                 HooksMixin.disable_hooks(),
             ):
                 # [STEP 1]: Compute output of module
-                fp16_outputs = self._run_samples(module)
-                if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
+                dense_outputs = self._run_samples(module)
+                if len(dense_outputs) == 0 or all(
+                    f.numel() == 0 for f in dense_outputs
+                ):
                     logger.info(
                         f"Skipping layer {name}, no activations "
                         "found to scale. This can occasionally occur in MoE models "
@@ -212,7 +217,7 @@ class TensorNetworkModifier(Modifier):
                     del self._target_args_cache[(name, module)]
                     continue
                 if not all(
-                    [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
+                    [dense_output.isfinite().all() for dense_output in dense_outputs]
                 ):
                     logger.warning(
                         f"Skipping layer {name}, NaN or inf "
@@ -227,60 +232,29 @@ class TensorNetworkModifier(Modifier):
                     continue
 
                 # [STEP 2]: Tensorize
-                factors = tensor_train(
-                    module.weight.data,
-                )
+                tensorized_linear = TensorizedLinear.from_linear(module, rank=2)
 
+                # [STEP 3]: Retrain
+                # TODO train tensorize_linear against dense_outputs w/ MSELoss
+
+                # [STEP 4]: Apply to module
+                # TODO use TensorizedLinear with einsum string
                 @torch.no_grad()
-                def _smooth(module):
-                    scales = best_scales.to(module.weight.device)
-                    if module in balance_layers:
-                        update_offload_parameter(
-                            module,
-                            "weight",
-                            module.weight.mul_(scales.view(1, -1)),
-                        )
-                    elif module == smooth_layer:
-                        if module.weight.ndim == 1:
-                            update_offload_parameter(
-                                module,
-                                "weight",
-                                module.weight.div_(scales),
-                            )
-                        else:
-                            # NOTE: edge case when smooth layer number of out_features
-                            # is not equal to balance layer number of in_features
-                            # e.g. when fused qkv_proj is used to smooth o_proj
-                            # in this case, default to scaling the last output features
-                            # because the desired smooth layer is v_proj
-                            # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            weight = module.weight
-                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
-                            update_offload_parameter(module, "weight", weight)
-                        if hasattr(module, "bias") and module.bias is not None:
-                            update_offload_parameter(
-                                module,
-                                "bias",
-                                module.bias.div_(scales),
-                            )
+                def _apply_tensorized(module: nn.Linear):
+                    update_offload_parameter(
+                        module,
+                        "weight",
+                        tensorized_linear.to_matrix(),
+                    )
 
-                parent = get_fsdp_parent(mapping.smooth_name, model)
-                if parent is not None:
-                    parent.apply(_smooth)
-                else:
-                    # if we're not running with FSDP we can apply smoothing directly
-                    for layer in balance_layers:
-                        _smooth(layer)
-                    _smooth(smooth_layer)
+                _apply_tensorized(module)
 
                 # remove caches needed to smooth this mapping
-                del self._smooth_activation_means[mapping.smooth_name]
+                del self._target_args_cache[(name, module)]
 
-        for v in self._parent_args_cache.values():
-            v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: Module) -> list[torch.Tensor]:
+    def _run_samples(self, module: nn.Module) -> list[torch.Tensor]:
         outputs = [
             module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
         ]
@@ -290,131 +264,22 @@ class TensorNetworkModifier(Modifier):
             for output in outputs
         ]
 
-    def _compute_best_scale(
-        self,
-        x_mean: torch.Tensor,
-        w_mean: torch.Tensor,
-        parent_module: torch.nn.Module,
-        linears2scale: list[torch.nn.Linear],
-        fp16_outputs: list[torch.Tensor],
-    ) -> torch.Tensor:
-        """
-        Compute loss and select best scales
-
-        L(s) = || Q(W * s) (s^-1 * X) - W * X ||
-        Q: weight quantization function | _pseudo_quantize_tensor(W * s)
-        X: inputs from calib dataset    | X
-        W: original weights in FP16     | layer
-        s: per channel scaling factor   | s^-1 * X
-        """
-        history = []
-        best_ratio = -1
-        best_scales = None
-        best_error = float("inf")
-
-        org_sd = {
-            k: v.cpu()
-            for k, v in parent_module.state_dict().items()
-            if v.device != torch.device("meta")
-        }
-
-        device = get_execution_device(parent_module)
-        x_mean = x_mean.view(-1).to(device)
-        w_mean = w_mean.view(-1).to(device)
-
-        match self.duo_scaling:
-            # if self.duo_scaling is "both", perform half the grid search with
-            # duo_scaling off and half with duo_scaling on
-            case "both":
-                n_grid = int(self.n_grid / 2)
-                duo_scalings = [False, True]
-            case _:
-                n_grid = self.n_grid
-                duo_scalings = [self.duo_scaling]
-        for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
-            # create new scales
-            ratio = grid_idx / n_grid
-
-            # NOTE: s^-1 * x is fused here, according to paper
-            if use_duo_scaling:
-                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
-                    min=1e-4
-                )
-            else:
-                scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
-            scales = scales / (scales.max() * scales.min()).sqrt()
-            _scalesview = scales.view(1, -1).to(device)
-
-            # avoid scaling values that overflow
-            scales[torch.isinf(scales)] = 1
-            scales[torch.isnan(scales)] = 1
-
-            # Q(W * s)
-            for linear in linears2scale:
-                linear.weight.mul_(_scalesview)
-                update_offload_parameter(
-                    linear,
-                    "weight",
-                    _pseudo_quantize_tensor(
-                        w=linear.weight.data,
-                        symmetric=self._symmetric,
-                        bit_width=self._num_bits,
-                        group_size=self._group_size,
-                    )[0]
-                    / _scalesview,
-                )
-
-            # W * X
-            int_w_outputs = self._run_samples(parent_module)
-
-            # compute mean squared error (L2 norm)
-            loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
-
-            history.append(loss)
-            if loss < best_error:
-                best_error = loss
-                best_ratio = ratio
-                best_scales = scales.clone()
-
-            parent_module.load_state_dict(org_sd, strict=False)
-
-        if best_ratio == -1:
-            logger.debug(history)
-            raise Exception(
-                "No finite loss was found in best scalesgrid search. This typically "
-                "means NaN values are appearing in the forward pass of the parent "
-                "module. If you encounter this error, raise an issue at "
-                "https://github.com/vllm-project/llm-compressor/issues"
-            )
-
-        assert (
-            torch.isnan(best_scales).sum() == 0
-        ), f"Nan found in scales: {best_scales}"
-
-        return best_scales.detach().cpu()
-
     @torch.no_grad()
     def _compute_loss(
         self,
-        fp16_outputs: list[torch.Tensor],
-        int_w_outputs: list[torch.Tensor],
+        dense_outputs: list[torch.Tensor],
+        tensorized_outputs: list[torch.Tensor],
         device: torch.device,
     ) -> torch.Tensor:
         loss = 0.0
         num_elements = 0
 
         # Compute the MSE loss for each batch
-        for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            batch_loss = (
-                (fp16_batch.to(device) - int_w_batch.to(device))
-                .view(-1)
-                .float()
-                .pow(2)
-                .sum()
-                .item()
-            )
-            loss += batch_loss
-            num_elements += fp16_batch.numel()
+        for dense_batch, tensorized_batch in zip(dense_outputs, tensorized_outputs):
+            loss += torch.nn.functional.mse_loss(
+                dense_batch, tensorized_batch.to(dense_batch.device)
+            ).item()
+            num_elements += dense_batch.numel()
 
         # Normalize the loss by the total number of elements
         loss /= num_elements
@@ -426,37 +291,5 @@ class TensorNetworkModifier(Modifier):
         Confirm all activations have been consumed
         If not, something has gone wrong
         """
-        if len(self._smooth_activation_means) != 0:
+        if len(self._target_args_cache) != 0:
             raise RuntimeError("Some cached activations were not used")
-
-
-def get_lowest_common_parent(names: list[str], module: Module) -> tuple[str, Module]:
-    """
-    Given a list of names, returns the lowest-scope common parent.
-
-    NOTE: function excludes parents of type ModuleList, which don't play
-    nicely with hooks because their forward method is never directly
-    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
-    are selected based on router output and their forward method is called.
-    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
-
-    Returns name of parent and pointer to parent module
-
-    Implementation is a small alteration of os.path.commonprefix
-    https://docs.python.org/3/library/os.path.html#os.path.commonprefix
-    """
-    s1 = min(names)
-    s2 = max(names)
-    parent_name = ""
-    for i, c in enumerate(s1):
-        if c != s2[i]:
-            parent_name = s1[:i].rstrip(".")
-            break
-
-    while True:
-        if parent_name == "":
-            return "", module
-        parent = get_layer_by_name(parent_name, module)
-        if not isinstance(parent, torch.nn.ModuleList):
-            return parent_name, parent
-        parent_name = ".".join(parent_name.split(".")[:-1])
