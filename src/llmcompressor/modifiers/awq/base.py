@@ -1,6 +1,6 @@
 import inspect
 from itertools import product
-from typing import List, Optional, Union, Iterator
+from typing import Iterator, List, Optional, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -13,8 +13,8 @@ from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
     get_lowest_common_ancestor_name,
-    match_modules_set,
     getattr_chain,
+    match_modules_set,
     match_named_modules,
     patch_attrs,
     update_offload_parameter,
@@ -804,6 +804,7 @@ def _reorient_weight(weight: torch.Tensor, q_args, orig_shape) -> torch.Tensor:
         )
     return weight
 
+
 def _check_layers_are_compatible(
     smooth_layer, smooth_name, balance_layers, balance_names
 ):
@@ -856,9 +857,6 @@ def get_lowest_common_ancestor_with_avoid(
         if not isinstance(ancestor, avoid):
             return ancestor_name, ancestor
         ancestor_name = ".".join(ancestor_name.split(".")[:-1])
-
-
-
 
 
 def _accumulate_mean(
