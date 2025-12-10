@@ -73,8 +73,8 @@ class CustomDatasetArguments(DVCDatasetArguments):
             "help": (
                 "Calibration batch size. During calibration, LLM Compressor disables "
                 "lm_head output computations to reduce memory usage from large "
-                "calibration batch sizes. Large batch sizes may result in excess "
-                "padding or truncation, depending on the data_collator"
+                "batch sizes. Large batch sizes may result in excess padding or "
+                "truncation, depending on the data_collator"
             )
         },
     )
