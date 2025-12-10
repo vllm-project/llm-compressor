@@ -252,6 +252,15 @@ def data_collator_with_truncation(
 
 
 class LengthAwareSampler(Sampler[int]):
+    """
+    Sample data in order of descending sequence length. Relies on `input_ids` or
+    `decoder_input_ids` column existing in dataset
+
+    :param data_source: dataset containing a `input_ids` or `decoder_input_ids` column
+    :param num_samples: Maximum number of samples to sample. Shorted sequence lengths
+        are truncated first
+    """
+
     data_source: Sized
     replacement: bool
 
@@ -273,7 +282,7 @@ class LengthAwareSampler(Sampler[int]):
             return
 
         lengths = [len(sample) for sample in data_source[feature_name]]
-        self.order = torch.argsort(torch.tensor(lengths)).tolist()
+        self.order = torch.argsort(torch.tensor(lengths), descending=True).tolist()
 
     @property
     def num_samples(self) -> int:
