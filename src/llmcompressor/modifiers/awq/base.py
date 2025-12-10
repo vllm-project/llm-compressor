@@ -1,6 +1,6 @@
 import inspect
 from itertools import product
-from typing import Iterator, List, Optional, Union
+from typing import Iterator, Literal
 
 import torch
 from compressed_tensors.quantization import (
@@ -143,10 +143,10 @@ class AWQModifier(Modifier, QuantizationMixin):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: Union[str, List[str], None] = None
-    mappings: Optional[List[AWQMapping]] = None
-    offload_device: Optional[torch.device] = None
-    duo_scaling: str | bool = True
+    sequential_targets: str | list[str] | None = None
+    mappings: list[AWQMapping] | None = None
+    offload_device: torch.device | None = None
+    duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
 
     # Private vars set during initialization, cleared during finalization
@@ -398,7 +398,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         :param model: model to apply smoothing to
         """
         # NOTE: When using SequentialPipeline, not all the mappings
-        # will have cached activations in the segment being udpated
+        # will have cached activations in the segment being updated
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
@@ -618,7 +618,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 int_w_outputs = self._run_samples(mapping.parent)
 
                 # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
+                loss = self._compute_loss(fp16_outputs, int_w_outputs)
 
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
@@ -650,18 +650,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         self,
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
-        device: torch.device,
     ) -> float:
         loss = 0.0
         num_elements = 0
 
         # Compute the MSE loss for each batch
         for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            batch_loss = torch.nn.functional.mse_loss(
-                fp16_batch.to(device), int_w_batch.to(device)
+            loss += torch.nn.functional.mse_loss(
+                fp16_batch, int_w_batch.to(fp16_batch.device)
             ).item()
-
-            loss += batch_loss
             num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
@@ -693,7 +690,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         for layer in layers:
             if not hasattr(layer, "weight"):
                 logger.warning(
-                    "Unable to find weight param for targetted"
+                    "Unable to find weight param for targeted"
                     f" layer {type(layer)}, skipping"
                 )
                 continue
@@ -704,7 +701,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             if not q_args:
                 logger.warning(
                     "Unable to find quantization scheme for "
-                    f"targetted layer {type(layer)}, skipping"
+                    f"targeted layer {type(layer)}, skipping"
                 )
                 continue
 
