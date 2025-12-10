@@ -1,7 +1,7 @@
 import inspect
 from itertools import product
-from typing import List, Literal, Optional, Union
-from llmcompressor.observers.helpers import flatten_for_calibration
+from typing import List, Optional, Union, Iterator
+
 import torch
 from compressed_tensors.quantization import (
     QuantizationStrategy,
@@ -14,10 +14,10 @@ from compressed_tensors.utils import (
     get_execution_device,
     get_lowest_common_ancestor_name,
     match_modules_set,
+    getattr_chain,
     match_named_modules,
     patch_attrs,
     update_offload_parameter,
-    getattr_chain,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
@@ -146,7 +146,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
     offload_device: Optional[torch.device] = None
-    duo_scaling: str|bool = True
+    duo_scaling: str | bool = True
     n_grid: int = 20
 
     # Private vars set during initialization, cleared during finalization
@@ -174,7 +174,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         # Validate that duo_scaling is only used with per-channel quantization
-        if self.duo_scaling != False:
+        if self.duo_scaling is not False:
             for _, module in match_named_modules(
                 state.model, self.resolved_targets, self.ignore
             ):
@@ -185,10 +185,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                     == QuantizationStrategy.TENSOR
                 ):
                     raise ValueError(
-                        f"duo_scaling is only supported with per-channel quantization "
-                        f"strategies (group or channel), but found TENSOR strategy. "
-                        f"Please set duo_scaling=False or use a per-channel "
-                        f"quantization strategy."
+                        "duo_scaling is only supported with per-channel quantization "
+                        "strategies (group or channel), but found TENSOR strategy. "
+                        "Please set duo_scaling=False or use a per-channel "
+                        "quantization strategy."
                     )
 
         if self.mappings is None:
@@ -523,7 +523,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         history = []
         best_ratio = -1
-        best_duo_scaling = -1
         best_scales = None
         best_error = float("inf")
 
@@ -594,13 +593,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                         balance_layer.quantization_scheme, "weights"
                     ):
                         continue
-                    
+
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.mul_(_scalesview)
                     call_observer(
-                        balance_layer, 
-                        "weight", 
-                        balance_layer.weight,  
+                        balance_layer,
+                        "weight",
+                        balance_layer.weight,
                         # TODO test should_calculate_gparam for nvfp4 support
                     )
                     update_offload_parameter(
@@ -621,7 +620,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
 
-                history.append({"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss})
+                history.append(
+                    {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
+                )
                 if loss < best_error:
                     best_error = loss
                     best_ratio = ratio
@@ -679,7 +680,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     @staticmethod
     def _compute_layer_means(layers: list[Module]) -> torch.Tensor:
         """
-        Compute per-channel/group/block/tensor mean of normalised weights 
+        Compute per-channel/group/block/tensor mean of normalised weights
         for all passed in layers taking into account the quantization_scheme.
 
         To minimize memory requirements, layers are reduced to a running total
@@ -692,16 +693,18 @@ class AWQModifier(Modifier, QuantizationMixin):
         for layer in layers:
             if not hasattr(layer, "weight"):
                 logger.warning(
-                    f"Unable to find weight param for targetted layer {type(layer)}, skipping"
+                    "Unable to find weight param for targetted"
+                    f" layer {type(layer)}, skipping"
                 )
                 continue
             weight = layer.weight
             orig_shape = weight.shape
-            
+
             q_args = getattr_chain(layer, "quantization_scheme.weights", None)
             if not q_args:
                 logger.warning(
-                    f"Unable to find quantization scheme for targetted layer {type(layer)}, skipping"
+                    "Unable to find quantization scheme for "
+                    f"targetted layer {type(layer)}, skipping"
                 )
                 continue
 
@@ -712,7 +715,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
             # Reshape back to original dimensions
-            weight = _reorient_weight(weight, q_args, orig_shape) 
+            weight = _reorient_weight(weight, q_args, orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)
@@ -725,18 +728,21 @@ class AWQModifier(Modifier, QuantizationMixin):
     def validate_duo_scaling(cls, v):
         """Validate that duo_scaling is either True, False, or 'both' (lowercase)"""
         if v not in (True, False, "both"):
-            raise ValueError(
-                f"duo_scaling must be True, False, or 'both', got {v!r}"
-            )
+            raise ValueError(f"duo_scaling must be True, False, or 'both', got {v!r}")
         return v
 
 
-def _orient_weight(weight: torch.Tensor, q_args) -> torch.Tensor:        
+def _orient_weight(weight: torch.Tensor, q_args) -> torch.Tensor:
     """
-    Orient weight so we have shape [<num different chunks to be quantized>, <num elements of each chunk>]. Works
-    for TENSOR, CHANNEL, GROUP, BLOCK strategies
-    """   
-    if q_args.strategy in [QuantizationStrategy.TENSOR, QuantizationStrategy.CHANNEL, QuantizationStrategy.GROUP]:
+    Orient weight so we have shape
+    [<num different chunks to be quantized>, <num elements of each chunk>].
+    Works for TENSOR, CHANNEL, GROUP, BLOCK strategies
+    """
+    if q_args.strategy in [
+        QuantizationStrategy.TENSOR,
+        QuantizationStrategy.CHANNEL,
+        QuantizationStrategy.GROUP,
+    ]:
         match q_args.strategy:
             case QuantizationStrategy.TENSOR:
                 group_size = weight.numel()
@@ -753,20 +759,29 @@ def _orient_weight(weight: torch.Tensor, q_args) -> torch.Tensor:
         num_heights = strategy_cdiv(rows, block_height, q_args.strategy, strict=True)
         num_widths = strategy_cdiv(cols, block_width, q_args.strategy, strict=True)
         weight = (
-            weight # nH*H=rows, nW*W=cols
-            .reshape(num_heights, block_height, num_widths, block_width) #nH, H, nW, W
-            .transpose(1, 2) # nH, nW, H, W
-            .reshape(-1, block_size) # nH*nW, H*W
+            weight.reshape(  # nH*H=rows, nW*W=cols
+                num_heights, block_height, num_widths, block_width
+            )  # nH, H, nW, W
+            .transpose(1, 2)  # nH, nW, H, W
+            .reshape(-1, block_size)  # nH*nW, H*W
         )
     else:
-        raise NotImplementedError(f"expected weight quantization strategy to be one of TENSOR, CHANNEL, GROUP, or BLOCK, got {q_args.strategy}")
+        raise NotImplementedError(
+            "expected weight quantization strategy to be one "
+            f"of TENSOR, CHANNEL, GROUP, or BLOCK, got {q_args.strategy}"
+        )
     return weight
 
-def _reorient_weight(weight: torch.Tensor, q_args, orig_shape) -> torch.Tensor:       
+
+def _reorient_weight(weight: torch.Tensor, q_args, orig_shape) -> torch.Tensor:
     """
     undo _orient_weight() operation returning weight to original shape
-    """    
-    if q_args.strategy in [QuantizationStrategy.TENSOR, QuantizationStrategy.CHANNEL, QuantizationStrategy.GROUP]:
+    """
+    if q_args.strategy in [
+        QuantizationStrategy.TENSOR,
+        QuantizationStrategy.CHANNEL,
+        QuantizationStrategy.GROUP,
+    ]:
         return weight.reshape(orig_shape)
 
     elif q_args.strategy == QuantizationStrategy.BLOCK:
@@ -774,15 +789,19 @@ def _reorient_weight(weight: torch.Tensor, q_args, orig_shape) -> torch.Tensor:
         rows, cols = orig_shape
         num_heights = strategy_cdiv(rows, block_height, q_args.strategy, strict=True)
         num_widths = strategy_cdiv(cols, block_width, q_args.strategy, strict=True)
-        
+
         weight = (
-            weight # nH*nW, H*W
-            .view(num_heights, num_widths, block_height, block_width) # nH, nW, H, W
-            .transpose(1, 2)  #nH, H, nW, W
-            .reshape(orig_shape)  #nH*H=rows, nW*W=cols
+            weight.view(  # nH*nW, H*W
+                num_heights, num_widths, block_height, block_width
+            )  # nH, nW, H, W
+            .transpose(1, 2)  # nH, H, nW, W
+            .reshape(orig_shape)  # nH*H=rows, nW*W=cols
         )
     else:
-        raise NotImplementedError(f"expected weight quantization strategy to be one of TENSOR, CHANNEL, GROUP, or BLOCK, got {q_args.strategy}")
+        raise NotImplementedError(
+            "expected weight quantization strategy to be "
+            f"one of TENSOR, CHANNEL, GROUP, or BLOCK, got {q_args.strategy}"
+        )
     return weight
 
 def _check_layers_are_compatible(

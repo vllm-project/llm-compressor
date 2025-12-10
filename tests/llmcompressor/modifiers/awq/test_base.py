@@ -1,3 +1,5 @@
+from itertools import product
+
 import pytest
 import torch
 from compressed_tensors.quantization import (
@@ -10,9 +12,12 @@ from torch.nn import Linear
 from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import get_lowest_common_parent, _orient_weight, _reorient_weight
+from llmcompressor.modifiers.awq.base import (
+    _orient_weight,
+    _reorient_weight,
+    get_lowest_common_parent,
+)
 from llmcompressor.modifiers.factory import ModifierFactory
-from itertools import product
 
 
 @pytest.mark.unit
@@ -236,14 +241,15 @@ def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tens
     weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
     return weight.view(orig_shape)
 
+
 @torch.no_grad
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "n_balance_layers, group_size, n_input_features",
     [
-        (5, -1, 32), # channel
-        (4, 10, 40), # group
-        (4, torch.inf, 40), # tensor
+        (5, -1, 32),  # channel
+        (4, 10, 40),  # group
+        (4, torch.inf, 40),  # tensor
     ],
 )
 def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
@@ -294,10 +300,30 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
 @pytest.mark.parametrize(
     "rows, cols, block_height, block_width",
     [
-        (32, 256, 4, 8,),
-        (4, 3, 2, 1,),
-        (10, 10, 10, 10,),
-        (512, 256, 128, 128,),
+        (
+            32,
+            256,
+            4,
+            8,
+        ),
+        (
+            4,
+            3,
+            2,
+            1,
+        ),
+        (
+            10,
+            10,
+            10,
+            10,
+        ),
+        (
+            512,
+            256,
+            128,
+            128,
+        ),
     ],
 )
 def test_block_strategy_compute_layer_means(rows, cols, block_height, block_width):
@@ -305,7 +331,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     Confirm our logic to compute layer means works for BLOCK quantization
     """
     lin = torch.nn.Linear(cols, rows)
-    lin.weight.data = ((lin.weight)*10).to(torch.int8).to(torch.float32)
+    lin.weight.data = ((lin.weight) * 10).to(torch.int8).to(torch.float32)
     setattr(
         lin,
         "quantization_scheme",
@@ -328,13 +354,13 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     with torch.no_grad():
         for i, j in product(range(num_heights), range(num_widths)):
             block = lin.weight[
-                i * block_height : (i + 1) * block_height, 
-                j * block_width : (j + 1) * block_width
+                i * block_height : (i + 1) * block_height,
+                j * block_width : (j + 1) * block_width,
             ].abs()
-            block = block / (block.max()+1e-6)
+            block = block / (block.max() + 1e-6)
             ref_weight[
-                i * block_height : (i + 1) * block_height, 
-                j * block_width : (j + 1) * block_width
+                i * block_height : (i + 1) * block_height,
+                j * block_width : (j + 1) * block_width,
             ] = block
     ref_means = ref_weight.sum(0, dtype=torch.float64) / ref_weight.size(0)
 
@@ -343,13 +369,17 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # so that we can compare to the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
     oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
-    lin.weight.data = oriented_weight    
-    
-    auto_awq_means = _reorient_weight(
-        _auto_awq_normalize([lin], None), 
-        lin.quantization_scheme.weights,
-        orig_shape,
-    ).mean(0).to(llmc_awq_means.dtype)
+    lin.weight.data = oriented_weight
+
+    auto_awq_means = (
+        _reorient_weight(
+            _auto_awq_normalize([lin], None),
+            lin.quantization_scheme.weights,
+            orig_shape,
+        )
+        .mean(0)
+        .to(llmc_awq_means.dtype)
+    )
 
     # check
     assert_close(llmc_awq_means, ref_means)
