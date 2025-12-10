@@ -1,18 +1,21 @@
 import inspect
 from itertools import product
-from typing import Literal
+from typing import Iterator, Literal
 
 import torch
 from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
+    get_lowest_common_ancestor_name,
+    match_modules_set,
     match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
+from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
@@ -28,7 +31,9 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layer_by_name
+from llmcompressor.utils.pytorch.module import (
+    get_module_to_name_dict,
+)
 
 __all__ = ["AWQModifier"]
 
@@ -319,64 +324,48 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        for mapping_idx, mapping in enumerate(self.mappings):
-            num_skipped_mappings = 0
-
-            for smooth_name, smooth_layer in (
-                pbar := tqdm(
-                    match_named_modules(model, [mapping.smooth_layer], self.ignore)
-                )
+        module_to_name = get_module_to_name_dict(model)
+        for mapping in self.mappings:
+            for smooth_layers, *nested_balance_layers in match_modules_set(
+                model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
             ):
-                pbar.set_description(
-                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
-                    f" ({num_skipped_mappings} skipped)"
+                if len(smooth_layers) > 1:
+                    raise ValueError(
+                        "AWQ needs to match a single smoothlayer for each mapping but "
+                        f"got {[module_to_name.get(s) for s in smooth_layers]}"
+                        f" for mapping: {mapping}"
+                    )
+                smooth_layer = smooth_layers[0]
+                smooth_name = module_to_name.get(smooth_layer)
+
+                # [[b00, b01, b02...], [b10, b11, b12,...], ...] ↓
+                #                             [b00, b01, b02, ..., b10, b11, b12, ...]
+                balance_layers = tree_leaves(nested_balance_layers)
+                balance_names = [
+                    module_to_name.get(balance_layer)
+                    for balance_layer in balance_layers
+                ]
+
+                all_compatible = _check_layers_are_compatible(
+                    smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
-                smooth_parent = get_layer_by_name(smooth_parent_name, model)
+                # skip mapping if any of the balance layers are incompatible
+                if not all_compatible or len(balance_layers) == 0:
+                    logger.warning(
+                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                        + (
+                            " because found incompatible balance layers"
+                            if not all_compatible
+                            else " because no balance layers were found"
+                        )
+                    )
 
-                balance_layers, balance_names = [], []
-                for balance_regex in mapping.balance_layers:
-                    # find the submodules that match the activation layer
-                    for balance_suffix, balance_layer in match_named_modules(
-                        smooth_parent, [balance_regex], self.ignore
-                    ):
-                        balance_name = f"{smooth_parent_name}.{balance_suffix}"
-
-                        # exclude v_proj->o_proj mappings whose shapes are incompatible
-                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                        if (
-                            isinstance(smooth_layer, torch.nn.Linear)
-                            and isinstance(balance_layer, torch.nn.Linear)
-                            and balance_name.endswith(".o_proj")
-                            and (
-                                (
-                                    smooth_name.endswith(".v_proj")
-                                    and smooth_layer.out_features
-                                    != balance_layer.in_features
-                                )
-                                or (
-                                    smooth_name.endswith(".qkv_proj")
-                                    and smooth_layer.out_features
-                                    != 3 * balance_layer.in_features
-                                )
-                            )
-                        ):
-                            num_skipped_mappings += 1
-                            continue
-
-                        balance_layers.append(balance_layer)
-                        balance_names.append(balance_name)
-
-                if len(balance_layers) == 0:
                     continue
 
-                elif len(balance_layers) == 1:
-                    # for single balance layer, parent is the balance layer
-                    parent_name, parent = balance_name, balance_layer
-                else:
-                    # for multiple balance layers, find lowest common parent
-                    parent_name, parent = get_lowest_common_parent(balance_names, model)
+                ancestor_name, ancestor = get_lowest_common_ancestor_with_avoid(
+                    balance_names, model, torch.nn.ModuleList
+                )
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -384,8 +373,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_layer,
                         balance_layers,
                         balance_names=balance_names,
-                        parent=parent,
-                        parent_name=parent_name,
+                        parent=ancestor,
+                        parent_name=ancestor_name,
                     )
                 )
         self._resolved_mappings = resolved_mappings
@@ -721,6 +710,60 @@ class AWQModifier(Modifier, QuantizationMixin):
             raise RuntimeError("Some cached activations were not used")
 
 
+def _check_layers_are_compatible(
+    smooth_layer, smooth_name, balance_layers, balance_names
+):
+    """
+    returns True if they are all compatible
+    returns False if any smooth & balance layers are incompatible
+    """
+    for balance_layer, balance_name in zip(balance_layers, balance_names):
+        # exclude v_proj->o_proj mappings whose shapes are incompatible
+        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+        if (
+            isinstance(smooth_layer, torch.nn.Linear)
+            and isinstance(balance_layer, torch.nn.Linear)
+            and balance_name.endswith(".o_proj")
+            and (
+                (
+                    smooth_name.endswith(".v_proj")
+                    and smooth_layer.out_features != balance_layer.in_features
+                )
+                or (
+                    smooth_name.endswith(".qkv_proj")
+                    and smooth_layer.out_features != 3 * balance_layer.in_features
+                )
+            )
+        ):
+            return False
+    return True
+
+
+def get_lowest_common_ancestor_with_avoid(
+    balance_names: Iterator[str], model: Module, avoid=torch.nn.ModuleList
+):
+    """
+    Get the lowest ancestor that is not the avoided class/type.
+    see compressed_tensors.utils.get_lowest_common_ancestor_name
+    for detail on case handling.
+
+    NOTE: primarily used to exclude parents of type ModuleList, which don't play
+    nicely with hooks because their forward method is never directly
+    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
+    are selected based on router output and their forward method is called.
+    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
+    """
+    ancestor_name = get_lowest_common_ancestor_name(balance_names)
+
+    while True:
+        if ancestor_name == "":
+            return "", model
+        ancestor = model.get_submodule(ancestor_name)
+        if not isinstance(ancestor, avoid):
+            return ancestor_name, ancestor
+        ancestor_name = ".".join(ancestor_name.split(".")[:-1])
+
+
 def _pseudo_quantize_tensor(
     w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
 ):
@@ -779,35 +822,3 @@ def _accumulate_mean(
     new_count = prev_count + num_added
 
     return (prev_sum + sum_added) / new_count, new_count
-
-
-def get_lowest_common_parent(names: list[str], module: Module) -> tuple[str, Module]:
-    """
-    Given a list of names, returns the lowest-scope common parent.
-
-    NOTE: function excludes parents of type ModuleList, which don't play
-    nicely with hooks because their forward method is never directly
-    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
-    are selected based on router output and their forward method is called.
-    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
-
-    Returns name of parent and pointer to parent module
-
-    Implementation is a small alteration of os.path.commonprefix
-    https://docs.python.org/3/library/os.path.html#os.path.commonprefix
-    """
-    s1 = min(names)
-    s2 = max(names)
-    parent_name = ""
-    for i, c in enumerate(s1):
-        if c != s2[i]:
-            parent_name = s1[:i].rstrip(".")
-            break
-
-    while True:
-        if parent_name == "":
-            return "", module
-        parent = get_layer_by_name(parent_name, module)
-        if not isinstance(parent, torch.nn.ModuleList):
-            return parent_name, parent
-        parent_name = ".".join(parent_name.split(".")[:-1])
