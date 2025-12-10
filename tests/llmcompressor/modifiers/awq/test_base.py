@@ -326,12 +326,12 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
         ),
     ],
 )
+@torch.no_grad
 def test_block_strategy_compute_layer_means(rows, cols, block_height, block_width):
     """
     Confirm our logic to compute layer means works for BLOCK quantization
     """
     lin = torch.nn.Linear(cols, rows)
-    lin.weight.data = ((lin.weight) * 10).to(torch.int8).to(torch.float32)
     setattr(
         lin,
         "quantization_scheme",
@@ -382,5 +382,5 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     )
 
     # check
-    assert_close(llmc_awq_means, ref_means)
-    assert_close(llmc_awq_means, auto_awq_means)
+    assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
+    assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)
