@@ -10,6 +10,7 @@ from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
 from llmcompressor.modeling.llama4 import SequentialLlama4TextMoe
 from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_cadence, requires_gpu
 
@@ -21,10 +22,10 @@ from tests.testing_utils import requires_cadence, requires_gpu
 )
 @pytest.mark.parametrize("model_stub", ["meta-llama/Llama-4-Scout-17B-16E-Instruct"])
 def test_calib_replace_llama4_moe_all_experts(model_stub):
-    # with skip_weights_download(Llama4ForConditionalGeneration):
-    model = Llama4ForConditionalGeneration.from_pretrained(
-        model_stub, torch_dtype="auto"
-    )
+    with skip_weights_download(Llama4ForConditionalGeneration):
+        model = Llama4ForConditionalGeneration.from_pretrained(
+            model_stub, torch_dtype="auto"
+        )
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(calibration_forward_context(model))
