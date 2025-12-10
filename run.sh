@@ -7,11 +7,17 @@
 # 2025-12-09T16:48:29.917537-0500 | _validate_recovery | INFO - ✓ exact_match,strict-match                 | Base: 0.7620 | Compressed: 0.7090 | Recovery: 93.04% ↑ | Threshold: ≥92.00%
 # 2025-12-09T16:48:29.917879-0500 | _validate_recovery | ERROR - ✗ exact_match,flexible-extract             | Base: 0.7600 | Compressed: 0.7060 | Recovery: 92.89% ↑ | Threshold: ≥93.00%
 
-# test channel quantization
+# test channel quantization # on branch
 # CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_dynamic_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_dynamic.log
+# 2025-12-09T23:08:54.484729+0000 | _validate_recovery | INFO - ✓ exact_match,strict-match                 | Base: 0.7650 | Compressed: 0.7610 | Recovery: 99.48% ↑ | Threshold: ≥95.00%
+# 2025-12-09T23:08:54.485457+0000 | _validate_recovery | INFO - ✓ exact_match,flexible-extract             | Base: 0.7630 | Compressed: 0.7580 | Recovery: 99.34% ↑ | Threshold: ≥95.00%
+# TODO on main
 
-# test block
+# test block quantization # on branch
 # CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/fp8_block_test.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_fp8_block.log
+# 2025-12-10T01:30:30.381290+0000 | _validate_recovery | INFO - ✓ exact_match,strict-match                 | Base: 0.7650 | Compressed: 0.7720 | Recovery: 100.92% ↑ | Threshold: ≥95.00%
+# 2025-12-10T01:30:30.381963+0000 | _validate_recovery | INFO - ✓ exact_match,flexible-extract             | Base: 0.7630 | Compressed: 0.7690 | Recovery: 100.79% ↑ | Threshold: ≥95.00%
+# TODO on main
 
 # test tensor quantization # DONE on branch
 # CADENCE=weekly TEST_DATA_FILE="${REPOS}/llm-compressor/tests/lmeval/configs/int8_tensor.yaml" pytest -s -vs -rs "${REPOS}/llm-compressor/tests/lmeval/test_lmeval.py" 2>&1 | tee log_int8_tensor.log
