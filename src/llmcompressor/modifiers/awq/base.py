@@ -600,8 +600,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                     call_observer(
                         balance_layer, 
                         "weight", 
-                        balance_layer.weight, 
-                        # should_calculate_qparam=w_qscheme.strategy=="tensor_group" # TODO test
+                        balance_layer.weight,  
+                        # TODO test should_calculate_gparam for nvfp4 support
                     )
                     update_offload_parameter(
                         balance_layer,
@@ -706,14 +706,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                 continue
 
             # need to get to shape [num different chunks x size of each chunk]
-            # weight = flatten_for_calibration(weight, q_args)
-            # weight = weight.reshape(-1, weight.size(-1)) # TODO test this
-            weight = _orient_weight(weight, q_args) 
+            weight = _orient_weight(weight, q_args)
+            # TODO ^ simplify logic and use flatten_for_calibration
 
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
             # Reshape back to original dimensions
-            weight = _reorient_weight(weight, q_args, orig_shape)  # TODO can i just flatten again and then reshape to orig_shape?
+            weight = _reorient_weight(weight, q_args, orig_shape) 
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)
