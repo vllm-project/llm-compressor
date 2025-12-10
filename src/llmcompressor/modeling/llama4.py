@@ -60,8 +60,8 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
             # fetch relevant token indices for this expert
             token_idx = torch.where(expert_mask[i].squeeze(0))
 
-            # Original Llama4 definition - apply score to hidden states before applying to expert
-            # this results in NaNs during calibration
+            # Original Llama4 definition - apply score to hidden states
+            # before applying to expert this results in NaNs during calibration
             # routed_in = hidden_states * router_scores[:, i].reshape(-1, 1)
 
             if self.calibrate_all_experts:
@@ -72,7 +72,8 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
                 expert_out = self.experts[i](hidden_states[token_idx])
 
             if len(token_idx) > 0:
-                # Deviation from original Llama4 definition to avoid NaNs during calibration
+                # Deviation from original Llama4 definition to avoid NaNs
+                # NaNs during calibration
                 weighted_output = expert_out * router_scores[:, i][token_idx].reshape(
                     -1, 1
                 )

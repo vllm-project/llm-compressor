@@ -1,4 +1,5 @@
 import contextlib
+import os
 from functools import partial
 
 import pytest
@@ -14,12 +15,11 @@ from tests.testing_utils import requires_cadence, requires_gpu
 
 
 @requires_cadence("weekly")
-@pytest.mark.parametrize(
-    "model_stub",
-    [
-        "/raid/engine/hub_cache/models--meta-llama--Llama-4-Scout-17B-16E-Instruct/snapshots/92f3b1597a195b523d8d9e5700e57e4fbb8f20d3"
-    ],
+@pytest.mark.skipif(
+    (not os.getenv("HF_TOKEN")),
+    reason="Skipping tracing tests requiring gated model access",
 )
+@pytest.mark.parametrize("model_stub", ["meta-llama/Llama-4-Scout-17B-16E-Instruct"])
 def test_calib_replace_llama4_moe_all_experts(model_stub):
     # with skip_weights_download(Llama4ForConditionalGeneration):
     model = Llama4ForConditionalGeneration.from_pretrained(
