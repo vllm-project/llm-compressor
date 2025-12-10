@@ -15,7 +15,7 @@ from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import (
     _orient_weight,
     _reorient_weight,
-    get_lowest_common_parent,
+    get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.modifiers.factory import ModifierFactory
 
@@ -216,7 +216,7 @@ def test_moe_multiple_balance_layers():
     }
     assert set(mapping.balance_names) == expected_balance_names
 
-    parent_name, parent = get_lowest_common_parent(
+    parent_name, parent = get_lowest_common_ancestor_with_avoid(
         ["embed_tokens", "decoder.self_attn.v_proj"], model
     )
     assert parent_name == "" and parent == model
