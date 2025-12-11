@@ -133,9 +133,9 @@ def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
     module_mse = None
     if strategy == "tensor_group":
         module_minmax = torch.nn.Linear(256, 128)
-        module_minmax.weight.data = tensor.T
+        module_minmax.weight.data = tensor
         module_mse = torch.nn.Linear(256, 128)
-        module_mse.weight.data = tensor.T
+        module_mse.weight.data = tensor
     
     # Test with MinMax observer
     _, _, _, minmax_mse, _ = _run_observer_test(
@@ -202,13 +202,6 @@ def test_mse_vs_minmax_extreme_values():
         (tensor_large, "large"),
         (tensor_skewed, "skewed"),
     ]:
-        weights = QuantizationArgs(
-            num_bits=8,
-            strategy="channel",
-            symmetric=True,
-            observer="memoryless_minmax",
-        )
-        
         # MinMax
         _, _, _, minmax_mse, _ = _run_observer_test(
             tensor, "memoryless_minmax", "channel", True, 8, None, None
@@ -289,9 +282,9 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
     module_mse = None
     if strategy == "tensor_group":
         module_minmax = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
-        module_minmax.weight.data = weight_tensor.T
+        module_minmax.weight.data = weight_tensor
         module_mse = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
-        module_mse.weight.data = weight_tensor.T
+        module_mse.weight.data = weight_tensor
     
     # Test with MinMax observer
     _, _, _, minmax_mse, _ = _run_observer_test(
