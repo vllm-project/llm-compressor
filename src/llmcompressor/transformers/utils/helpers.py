@@ -61,7 +61,7 @@ def infer_recipe_from_model_path(model_path: str | Path) -> str | None:
         model_path.as_posix() if isinstance(model_path, Path) else model_path.strip()
     )
     if model_path == "":
-        logger.debug("got path_or_name=<empty string>" "unable to find recipe")
+        logger.debug("got path_or_name=<empty string>unable to find recipe")
         return None
 
     if os.path.isdir(model_path) or os.path.isfile(model_path):

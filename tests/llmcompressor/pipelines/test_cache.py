@@ -141,7 +141,7 @@ def test_device_handling(sample_dataloader):
 
 
 def deep_equal(a, b) -> bool:
-    if type(a) != type(b):
+    if type(a) is not type(b):
         return False
 
     match a:

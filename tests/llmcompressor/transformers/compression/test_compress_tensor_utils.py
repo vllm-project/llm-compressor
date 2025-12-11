@@ -67,9 +67,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         tie_word_embeddings=False,
     )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype
-    )
+    model = AutoModelForCausalLM.from_pretrained(tmp_path / "oneshot_out", dtype=dtype)
 
     # assert that sample layer has the intended sparsity
     assert math.isclose(
@@ -101,7 +99,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     assert sparsity_config["sparsity_structure"] == inferred_structure
 
     dense_model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "compress_out", torch_dtype="auto"
+        tmp_path / "compress_out", dtype="auto"
     )
 
     og_state_dict = model.state_dict()
@@ -186,12 +184,12 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
     for name, module in model.named_modules():
         if hasattr(module, "quantization_scheme"):
-            assert (
-                module.weight.dtype == dtype
-            ), f"Module {name} has incorrect weight dtype"
-            assert (
-                module.quantization_status == QuantizationStatus.FROZEN
-            ), f"Module {name} has incorrect quantization status"
+            assert module.weight.dtype == dtype, (
+                f"Module {name} has incorrect weight dtype"
+            )
+            assert module.quantization_status == QuantizationStatus.FROZEN, (
+                f"Module {name} has incorrect quantization status"
+            )
 
     # Save to disk
     model.save_pretrained(
@@ -208,7 +206,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
     decompressed_model = AutoModelForCausalLM.from_pretrained(
         save_path_compressed,
-        torch_dtype=dtype,
+        dtype=dtype,
         quantization_config=CompressedTensorsConfig(run_compressed=False),
     )
 
@@ -229,7 +227,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device",
+    "offload,dtype,tie_word_embeddings,device",
     [
         # dtype
         (False, torch.float16, False, "cpu"),
@@ -243,11 +241,11 @@ def test_quant_model_reload(format, dtype, tmp_path):
         (True, torch.float32, True, "cpu"),
     ],
 )
-def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
+def test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path):
     model_path = "nm-testing/tinysmokellama-3.2"
     save_path = tmp_path / "save_path"
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch_dtype)
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=dtype)
     if offload:
         model = dispatch_model(model, {"": device}, force_hooks=True)
     else:
@@ -259,7 +257,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_pat
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
-    reloaded = AutoModelForCausalLM.from_pretrained(save_path, torch_dtype="auto")
+    reloaded = AutoModelForCausalLM.from_pretrained(save_path, dtype="auto")
 
     model_dict = get_state_dict_offloaded_model(model)
     reloaded_dict = get_state_dict_offloaded_model(reloaded)
@@ -270,7 +268,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_pat
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device",
+    "offload,dtype,tie_word_embeddings,device",
     [
         (False, torch.float32, False, "cuda:0"),
         (True, torch.float32, False, "cuda:0"),
@@ -278,8 +276,8 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_pat
         (True, torch.float32, True, "cuda:0"),
     ],
 )
-def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
-    test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path)
+def test_model_reload_gpu(offload, dtype, tie_word_embeddings, device, tmp_path):
+    test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path)
 
 
 @requires_gpu
@@ -323,14 +321,14 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         model, sparsity_config_or_format=sparse_format, quantization_format=quant_format
     )
 
-    assert (
-        compressor.sparsity_compressor is not None
-    ), "Sparse compressor not initialized"
+    assert compressor.sparsity_compressor is not None, (
+        "Sparse compressor not initialized"
+    )
     assert compressor.sparsity_config.format == sparse_format
 
-    assert (
-        compressor.quantization_compressor is not None
-    ), "Quantization compressor not initialized"
+    assert compressor.quantization_compressor is not None, (
+        "Quantization compressor not initialized"
+    )
 
     compressor.compress_model(model)
     compressor.decompress_model(model)
@@ -380,7 +378,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     concatenate_data = False
     num_calibration_samples = 64
     splits = {"calibration": "train[:10%]"}
-    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
+    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, dtype="auto")
 
     model = oneshot(
         model=model_stub,
@@ -409,9 +407,9 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     # the model instead
     compressor = ModelCompressor.from_compression_config(compression_config)
 
-    assert (
-        compressor.sparsity_compressor is not None
-    ), "Sparse compressor not initialized"
+    assert compressor.sparsity_compressor is not None, (
+        "Sparse compressor not initialized"
+    )
     assert compressor.sparsity_config.format == sparse_format
 
     compressor.decompress(model_path=path, model=empty_model)
@@ -433,7 +431,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
 def test_disable_sparse_compression_flag(tmp_path):
     two_four_sparse_model_id = "nm-testing/llama2.c-stories42M-pruned2.4"
     two_four_sparse_model = AutoModelForCausalLM.from_pretrained(
-        two_four_sparse_model_id, torch_dtype="auto"
+        two_four_sparse_model_id, dtype="auto"
     )
     modify_save_pretrained(two_four_sparse_model)
 

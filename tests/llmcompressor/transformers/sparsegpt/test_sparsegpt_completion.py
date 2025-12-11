@@ -62,7 +62,7 @@ def test_oneshot_completion(config, tmp_path):
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_oneshot_completion_gpu(config, tmp_path):
     model = AutoModelForCausalLM.from_pretrained(
-        config["model"], device_map=config["device"], torch_dtype=torch.bfloat16
+        config["model"], device_map=config["device"], dtype=torch.bfloat16
     )
     _test_oneshot_completion(
         model,

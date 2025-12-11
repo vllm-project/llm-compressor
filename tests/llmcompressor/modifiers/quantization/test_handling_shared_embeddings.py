@@ -33,15 +33,15 @@ def test_quantization_with_automatic_untie():
     # Test 1: Apply quantization WITHOUT manually untieing first
     # (relies on automatic untieing in start_calibration)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
     modifier = QuantizationModifier(
@@ -87,15 +87,15 @@ def test_quantization_untie_only_when_targeted():
 
     # Test with targets that don't include embeddings
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
     # Only target attention projection layers, not embeddings
@@ -117,9 +117,9 @@ def test_quantization_untie_only_when_targeted():
     assert torch.nn.MSELoss()(output.logits, baseline_output.logits) <= _EXP_MSE
 
     # Verify embeddings are still tied (since they weren't targeted)
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "Embeddings were untied even though they were not in the target list"
+    assert input_embed.weight is output_embed.weight, (
+        "Embeddings were untied even though they were not in the target list"
+    )
 
 
 @requires_gpu
@@ -141,15 +141,15 @@ def test_spinquant_with_tied_embeddings(rotations):
 
     # Test with R1 rotation (should untie embeddings)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
 
@@ -166,9 +166,9 @@ def test_spinquant_with_tied_embeddings(rotations):
     spinquant_modifier.on_start(state, None)
 
     # Verify embeddings were untied by SpinQuant
-    assert (
-        input_embed.weight is not output_embed.weight
-    ), f"SpinQuant {rotations} should have untied embeddings but they are still tied"
+    assert input_embed.weight is not output_embed.weight, (
+        f"SpinQuant {rotations} should have untied embeddings but they are still tied"
+    )
 
     with torch.no_grad():
         output = model(**input_data)
@@ -204,15 +204,15 @@ def test_quip_with_tied_embeddings(rotations):
 
     # Test with QuIP rotations
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
 
@@ -227,17 +227,17 @@ def test_quip_with_tied_embeddings(rotations):
     quip_modifier.on_initialize(state)
 
     # Embeddings should still be tied after initialization
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "Embeddings should still be tied after on_initialize"
+    assert input_embed.weight is output_embed.weight, (
+        "Embeddings should still be tied after on_initialize"
+    )
 
     # Start QuIP (should untie embeddings if lm_head is targeted)
     quip_modifier.on_start(state, None)
 
     # Verify embeddings were untied by QuIP during on_start
-    assert (
-        input_embed.weight is not output_embed.weight
-    ), "QuIP should have untied embeddings but they are still tied"
+    assert input_embed.weight is not output_embed.weight, (
+        "QuIP should have untied embeddings but they are still tied"
+    )
 
 
 @requires_gpu
@@ -263,15 +263,15 @@ def test_quip_untie_only_when_targeted(rotations):
 
     # Test with QuIP with default ignore (includes lm_head)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
 
@@ -287,6 +287,6 @@ def test_quip_untie_only_when_targeted(rotations):
     quip_modifier.on_start(state, None)
 
     # Verify embeddings are still tied (since lm_head was ignored)
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "Embeddings should still be tied when lm_head is in the ignore list"
+    assert input_embed.weight is output_embed.weight, (
+        "Embeddings should still be tied when lm_head is in the ignore list"
+    )

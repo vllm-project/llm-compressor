@@ -639,9 +639,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
 
-        assert (
-            torch.isnan(best_scales).sum() == 0
-        ), f"Nan found in scales: {best_scales}"
+        assert torch.isnan(best_scales).sum() == 0, (
+            f"Nan found in scales: {best_scales}"
+        )
 
         return best_scales.detach().cpu()
 

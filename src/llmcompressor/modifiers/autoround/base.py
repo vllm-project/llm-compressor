@@ -309,9 +309,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
 
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
+            assert isinstance(scheme, QuantizationScheme), (
+                f"Expected QuantizationScheme, got {type(scheme)}"
+            )
             quant_scheme = scheme
         weight_args = quant_scheme.weights
         assert weight_args.strategy == QuantizationStrategy.GROUP, (

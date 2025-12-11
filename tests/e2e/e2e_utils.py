@@ -13,7 +13,7 @@ from tests.testing_utils import process_dataset
 def load_model(model: str, model_class: str, device_map: str | None = None):
     pretrained_model_class = getattr(transformers, model_class)
     loaded_model = pretrained_model_class.from_pretrained(
-        model, torch_dtype="auto", device_map=device_map
+        model, dtype="auto", device_map=device_map
     )
     return loaded_model
 
