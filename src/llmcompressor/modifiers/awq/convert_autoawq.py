@@ -23,8 +23,8 @@ from compressed_tensors.quantization import (
 from huggingface_hub import load_state_dict_from_file, snapshot_download
 
 
-def is_autoawq_model(model_path: Path) -> bool:
-    config = transformers.AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+def is_autoawq_model(model_path: Path, trust_remote_code: bool = False) -> bool:
+    config = transformers.AutoConfig.from_pretrained(model_path, trust_remote_code=trust_remote_code)
     if not hasattr(config, "quantization_config"):
         return False
 
@@ -163,7 +163,7 @@ def convert_and_save(
         )
 
     model_path = resolve_model_path(model_name_or_path)
-    if not is_autoawq_model(model_path):
+    if not is_autoawq_model(model_path, trust_remote_code):
         raise ValueError("Model is not an AutoAWQ model")
 
     config = transformers.AutoConfig.from_pretrained(
