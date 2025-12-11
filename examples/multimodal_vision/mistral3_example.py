@@ -4,7 +4,11 @@ import os
 import requests
 import torch
 from PIL import Image
-from transformers import AutoProcessor, Mistral3ForConditionalGeneration
+from transformers import (
+    AutoProcessor,
+    Mistral3ForConditionalGeneration,
+    default_data_collator,
+)
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
@@ -27,17 +31,13 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
-# Define a oneshot data collator for multimodal inputs.
-def data_collator(batch):
-    assert len(batch) == 1
-    return {
-        key: (
-            torch.tensor(value)
-            if key != "pixel_values"
-            else torch.tensor(value, dtype=model.dtype)
+# Patch: mismatch between processor and model dtype
+def data_collator(features):
+    for feature in features:
+        feature["pixel_values"] = torch.tensor(
+            feature["pixel_values"], dtype=model.dtype
         )
-        for key, value in batch[0].items()
-    }
+    return default_data_collator(features, return_tensors="pt")
 
 
 # Recipe

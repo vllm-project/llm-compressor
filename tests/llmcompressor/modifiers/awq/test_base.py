@@ -1,10 +1,22 @@
+from itertools import product
+
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from pydantic import ValidationError
 from torch.nn import Linear
+from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.awq.base import (
+    _orient_weight,
+    _reorient_weight,
+    get_lowest_common_ancestor_with_avoid,
+)
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -140,63 +152,6 @@ def test_set_resolved_mappings():
 
 @pytest.mark.unit
 def test_validate():
-    with pytest.raises(ValidationError):
-        AWQModifier(scheme="W8A8")
-
-    with pytest.raises(ValidationError):
-        AWQModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=64,
-                    ),
-                ),
-                "group_1": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=128,
-                    ),
-                ),
-            }
-        )
-
-    with pytest.raises(ValidationError):
-        AWQModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=4,
-                        group_size=128,
-                    ),
-                ),
-                "group_1": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=8,
-                        group_size=128,
-                    ),
-                ),
-            }
-        )
-
-    # valid configuration
-    AWQModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
-            ),
-            "group_1": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
-            ),
-        }
-    )
-
     AWQModifier(scheme="W4A16", duo_scaling="both")
     with pytest.raises(ValidationError):
         AWQModifier(scheme="W4A16", duo_scaling="Both")
@@ -261,5 +216,171 @@ def test_moe_multiple_balance_layers():
     }
     assert set(mapping.balance_names) == expected_balance_names
 
-    assert mapping.parent_name == "layer.mlp"
-    assert mapping.parent == mlp
+    parent_name, parent = get_lowest_common_ancestor_with_avoid(
+        ["embed_tokens", "decoder.self_attn.v_proj"], model
+    )
+    assert parent_name == "" and parent == model
+
+
+def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tensor:
+    """
+    Original AutoAwq implementation (need to call .mean(0) to get normalized layer
+    means
+    """
+    # [STEP 1]: Compute per-channel mean of normalised weights
+    # All layer weights are concatted together
+    weight = torch.cat([bl.weight for bl in layers], dim=0)
+    orig_shape = weight.shape
+    # The weights are reshaped to be organised by quantization group
+    if group_size is not None:
+        weight = weight.view(-1, group_size)
+    # Calculates the relative magnitude of the weights within
+    # each of the quantization groups, and rescales each group
+    # individually so that each group has weights on a 0-1 scale.
+    weight.abs_()
+    weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+    return weight.view(orig_shape)
+
+
+@torch.no_grad
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "n_balance_layers, group_size, n_input_features",
+    [
+        (5, -1, 32),  # channel
+        (4, 10, 40),  # group
+        (4, torch.inf, 40),  # tensor
+    ],
+)
+def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
+    """
+    Confirm our logic to compute duo_scaling layer means via a running tally
+    matches the original memory-intensive AutoAWQ implementation, which concats
+    all balance layers into a single tensor before reducing to mean
+    Large models were prone to fail at this step.
+    """
+    balance_layers = [
+        torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
+    ]
+    group_size_arg = None
+    match group_size:
+        case -1:
+            strategy = QuantizationStrategy.CHANNEL
+            group_size = balance_layers[0].weight.shape[1]
+        case torch.inf:
+            strategy = QuantizationStrategy.TENSOR
+            group_size = n_input_features * 10
+        case _:
+            strategy = QuantizationStrategy.GROUP
+            group_size_arg = group_size
+
+    for balance_layer in balance_layers:
+        setattr(
+            balance_layer,
+            "quantization_scheme",
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    strategy=strategy,
+                    group_size=group_size_arg,
+                ),
+            ),
+        )
+
+    auto_awq_means = _auto_awq_normalize(balance_layers, group_size).mean(0)
+
+    llmc_awq_means = AWQModifier._compute_layer_means(balance_layers).to(
+        auto_awq_means.dtype
+    )
+
+    assert_close(auto_awq_means, llmc_awq_means)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "rows, cols, block_height, block_width",
+    [
+        (
+            32,
+            256,
+            4,
+            8,
+        ),
+        (
+            4,
+            3,
+            2,
+            1,
+        ),
+        (
+            10,
+            10,
+            10,
+            10,
+        ),
+        (
+            512,
+            256,
+            128,
+            128,
+        ),
+    ],
+)
+@torch.no_grad
+def test_block_strategy_compute_layer_means(rows, cols, block_height, block_width):
+    """
+    Confirm our logic to compute layer means works for BLOCK quantization
+    """
+    lin = torch.nn.Linear(cols, rows)
+    setattr(
+        lin,
+        "quantization_scheme",
+        QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(
+                strategy=QuantizationStrategy.BLOCK,
+                block_structure=[block_height, block_width],
+            ),
+        ),
+    )
+    # main
+    llmc_awq_means = AWQModifier._compute_layer_means([lin])
+
+    # ref
+    num_heights = rows // block_height
+    num_widths = cols // block_width
+
+    ref_weight = torch.zeros_like(lin.weight)
+    with torch.no_grad():
+        for i, j in product(range(num_heights), range(num_widths)):
+            block = lin.weight[
+                i * block_height : (i + 1) * block_height,
+                j * block_width : (j + 1) * block_width,
+            ].abs()
+            block = block / (block.max() + 1e-6)
+            ref_weight[
+                i * block_height : (i + 1) * block_height,
+                j * block_width : (j + 1) * block_width,
+            ] = block
+    ref_means = ref_weight.sum(0, dtype=torch.float64) / ref_weight.size(0)
+
+    # auto awq
+    # we first reshape the weight such that it is effectively per-channel quantization
+    # so that we can compare to the existing _auto_awq_normalize function
+    orig_shape = lin.weight.shape
+    oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
+    lin.weight.data = oriented_weight
+
+    auto_awq_means = (
+        _reorient_weight(
+            _auto_awq_normalize([lin], None),
+            lin.quantization_scheme.weights,
+            orig_shape,
+        )
+        .mean(0)
+        .to(llmc_awq_means.dtype)
+    )
+
+    # check
+    assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
+    assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)

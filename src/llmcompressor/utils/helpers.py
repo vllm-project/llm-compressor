@@ -1119,7 +1119,13 @@ def disable_lm_head(model: torch.nn.Module):
         def dummy_forward(self, input: torch.Tensor) -> torch.Tensor:
             return input.to("meta") @ dummy_weight.T
 
-        with patch_attr(lm_head, "forward", dummy_forward.__get__(lm_head)):
+        with contextlib.ExitStack() as stack:
+            lm_head_forward = dummy_forward.__get__(lm_head)
+            stack.enter_context(patch_attr(lm_head, "forward", lm_head_forward))
+
+            if hasattr(model, "_hf_hook"):
+                stack.enter_context(patch_attr(model._hf_hook, "io_same_device", False))
+
             yield
 
 

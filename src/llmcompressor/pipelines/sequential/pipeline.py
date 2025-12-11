@@ -66,7 +66,6 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers
         sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
-
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs
@@ -90,7 +89,11 @@ class SequentialPipeline(CalibrationPipeline):
                 stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(dataloader, model_device)
+            cache_offload = dataset_args.offload_sequential_activations
+            offload_device = torch.device("cpu") if cache_offload else None
+            activations = IntermediatesCache.from_dataloader(
+                dataloader, model_device, offload_device=offload_device
+            )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
