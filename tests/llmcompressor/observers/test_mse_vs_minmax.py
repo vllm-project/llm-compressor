@@ -44,8 +44,6 @@ def _run_observer_test(tensor, observer_name, strategy, symmetric, num_bits, gro
         module.weight_global_scale = global_scale
     
     scale, zero_point = observer(tensor)
-    
-    # Sanity check: scales should be non-negative
     assert (scale >= 0).all(), "Scale values should be non-negative"
     
     weights_clean = _create_base_quantization_args(num_bits, strategy, symmetric, group_size)
@@ -59,18 +57,11 @@ def _run_observer_test(tensor, observer_name, strategy, symmetric, num_bits, gro
 
 
 def _assert_mse_comparison(mse_mse, minmax_mse, strategy, symmetric, is_real_weights=False):
-    """
-    Assert MSE observer performance with appropriate slack.
-    
-    For tensor+symmetric: strict assertion (MSE should be better)
-    For others: allow slack (10% for synthetic, 20% for real weights)
-    Also add epsilon to handle cases where minmax_mse is near 0.
-    """
+    """Assert MSE observer performance with appropriate slack."""
     epsilon = 1e-8
     slack = 1.20 if is_real_weights else 1.10
     
     if strategy == "tensor" and symmetric:
-        # Cases where MSE SHOULD be better
         assert mse_mse <= minmax_mse + epsilon, (
             f"MSE observer performed worse than MinMax observer!\n"
             f"Strategy: {strategy}, Symmetric: {symmetric}\n"
@@ -79,7 +70,6 @@ def _assert_mse_comparison(mse_mse, minmax_mse, strategy, symmetric, is_real_wei
             f"Difference: {(mse_mse - minmax_mse).item():.6e}"
         )
     else:
-        # Not guaranteed, but ensure not catastrophically worse
         assert mse_mse <= minmax_mse * slack + epsilon, (
             f"MSE observer performed significantly worse than MinMax observer!\n"
             f"Strategy: {strategy}, Symmetric: {symmetric}\n"
@@ -109,26 +99,12 @@ def _assert_mse_comparison(mse_mse, minmax_mse, strategy, symmetric, is_real_wei
     ids=["narrow", "medium", "wide"],
 )
 def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
-    """
-    Test that MSE observer produces quantization error <= MinMax observer
-    on random tensors with normal distribution (similar to real model weights).
-    
-    Real model weights typically follow a normal distribution with:
-    - Mean near 0
-    - Standard deviation around 0.02-0.1 for initialized weights
-    - Range roughly [-0.5, 0.5] for most layers
-    
-    Testing with different std values exposes cases where MinMax performs poorly
-    on wide or heavy-tailed distributions, where MSE should shine.
-    """
-    # Generate random tensor with normal distribution similar to real weights
+    """Test that MSE observer produces quantization error <= MinMax observer on random tensors."""
     torch.manual_seed(42)
-    # Use different std values to test various distribution widths
-    tensor = torch.randn(128, 256) * std  # Normal distribution with specified std
+    tensor = torch.randn(128, 256) * std
     
     group_size = 32 if strategy == "tensor_group" else None
     
-    # Create separate modules for tensor_group to avoid shared mutable state
     module_minmax = None
     module_mse = None
     if strategy == "tensor_group":
@@ -137,17 +113,14 @@ def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
         module_mse = torch.nn.Linear(256, 128)
         module_mse.weight.data = tensor
     
-    # Test with MinMax observer
     _, _, _, minmax_mse, _ = _run_observer_test(
         tensor, "memoryless_minmax", strategy, symmetric, num_bits, group_size, module_minmax
     )
     
-    # Test with MSE observer
     _, _, _, mse_mse, _ = _run_observer_test(
         tensor, "memoryless_mse", strategy, symmetric, num_bits, group_size, module_mse
     )
     
-    # Assert with appropriate slack for synthetic data
     _assert_mse_comparison(mse_mse, minmax_mse, strategy, symmetric, is_real_weights=False)
 
 
@@ -161,25 +134,18 @@ def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
     ],
 )
 def test_mse_vs_minmax_various_shapes(tensor_shape):
-    """
-    Test MSE vs MinMax on tensors of various shapes with normal distribution.
-    Uses realistic weight distribution parameters.
-    """
+    """Test MSE vs MinMax on tensors of various shapes."""
     torch.manual_seed(42)
-    # Use realistic weight distribution: mean=0, std=0.05
     tensor = torch.randn(*tensor_shape) * 0.05
     
-    # MinMax
     _, _, _, minmax_mse, _ = _run_observer_test(
         tensor, "memoryless_minmax", "channel", True, 8, None, None
     )
     
-    # MSE
     _, _, _, mse_mse, _ = _run_observer_test(
         tensor, "memoryless_mse", "channel", True, 8, None, None
     )
     
-    # Channel quantization: MSE not guaranteed better, allow 10% slack
     _assert_mse_comparison(mse_mse, minmax_mse, "channel", True, is_real_weights=False)
 
 
@@ -187,11 +153,8 @@ def test_mse_vs_minmax_extreme_values():
     """Test MSE vs MinMax on tensors with extreme values."""
     torch.manual_seed(42)
     
-    # Test with very small values
     tensor_small = torch.randn(64, 128) * 0.01
-    # Test with very large values
     tensor_large = torch.randn(64, 128) * 100.0
-    # Test with skewed distribution
     tensor_skewed = torch.cat([
         torch.randn(64, 100) * 0.1,
         torch.randn(64, 28) * 10.0
@@ -202,17 +165,14 @@ def test_mse_vs_minmax_extreme_values():
         (tensor_large, "large"),
         (tensor_skewed, "skewed"),
     ]:
-        # MinMax
         _, _, _, minmax_mse, _ = _run_observer_test(
             tensor, "memoryless_minmax", "channel", True, 8, None, None
         )
         
-        # MSE
         _, _, _, mse_mse, _ = _run_observer_test(
             tensor, "memoryless_mse", "channel", True, 8, None, None
         )
         
-        # Channel quantization: MSE not guaranteed better, allow 10% slack
         _assert_mse_comparison(mse_mse, minmax_mse, "channel", True, is_real_weights=False)
 
 
@@ -227,30 +187,20 @@ def test_mse_vs_minmax_extreme_values():
     ],
 )
 def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
-    """
-    Test that MSE observer produces quantization error <= MinMax observer
-    on actual model weights from a real neural network.
-    
-    This test loads weights from a small model to verify observer behavior
-    on real weight distributions, which may differ from synthetic data.
-    """
+    """Test that MSE observer produces quantization error <= MinMax observer on real model weights."""
     try:
         from transformers import AutoModelForCausalLM
     except ImportError:
         pytest.skip("transformers not available")
 
-    # Use a small, publicly available model for testing
     model_id = "nm-testing/tinysmokellama-3.2"
     
     try:
-        # Load model and extract a weight tensor
-        # Use no_grad context to avoid unnecessary gradient computation
         with torch.no_grad():
             model = AutoModelForCausalLM.from_pretrained(
                 model_id, torch_dtype=torch.float32
             )
             
-            # Get a representative weight tensor (e.g., from first Linear layer)
             weight_tensor = None
             for name, module in model.named_modules():
                 if isinstance(module, torch.nn.Linear) and weight_tensor is None:
@@ -260,13 +210,11 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
         if weight_tensor is None:
             pytest.skip("No Linear layer found in model")
         
-        # Flatten or reshape to 2D if needed for testing
         if weight_tensor.dim() > 2:
             weight_tensor = weight_tensor.view(-1, weight_tensor.shape[-1])
         elif weight_tensor.dim() == 1:
             weight_tensor = weight_tensor.unsqueeze(0)
         
-        # Limit size for faster testing
         if weight_tensor.shape[0] > 512:
             weight_tensor = weight_tensor[:512, :]
         if weight_tensor.shape[1] > 512:
@@ -277,7 +225,6 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
     
     group_size = 32 if strategy == "tensor_group" else None
     
-    # Create separate modules for tensor_group to avoid shared mutable state
     module_minmax = None
     module_mse = None
     if strategy == "tensor_group":
@@ -286,17 +233,13 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
         module_mse = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
         module_mse.weight.data = weight_tensor
     
-    # Test with MinMax observer
     _, _, _, minmax_mse, _ = _run_observer_test(
         weight_tensor, "memoryless_minmax", strategy, symmetric, num_bits, group_size, module_minmax
     )
     
-    # Test with MSE observer
     _, _, _, mse_mse, _ = _run_observer_test(
         weight_tensor, "memoryless_mse", strategy, symmetric, num_bits, group_size, module_mse
     )
     
-    # For channel and tensor_group strategies, MSE is not guaranteed to be better
-    # Allow 20% slack for real model weights (more structure & extreme channels)
     _assert_mse_comparison(mse_mse, minmax_mse, strategy, symmetric, is_real_weights=True)
 
