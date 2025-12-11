@@ -358,7 +358,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             ):
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
                     # Assume that first argument is the input
-                    args[0].cpu().abs().detach().squeeze(),
+                    args[0].cpu().abs().detach().flatten(0, -2),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
 

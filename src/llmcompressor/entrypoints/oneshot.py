@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -250,8 +250,10 @@ def oneshot(
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
+    batch_size: int = 1,
+    data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
-    shuffle_calibration_samples: bool = True,
+    shuffle_calibration_samples: bool = False,
     max_seq_length: int = 384,
     pad_to_max_length: bool = True,
     text_column: str = "text",
@@ -308,6 +310,13 @@ def oneshot(
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
     :param splits: Optional percentages of each split to download.
+    :param batch_size: calibration dataset batch size. During calibration,
+        LLM Compressor disables lm_head output computations to reduce memory
+        usage from large calibration batch sizes. Large batch sizes may result
+        excess padding or truncation, depending on the data_collator
+    :param data_collator: The function to used to form a batch from the dataset. Can
+        also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
+        lengths in a batch. Defaults to 'padding'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before
@@ -319,8 +328,7 @@ def oneshot(
         max_seq_length.
     :param streaming: True to stream data from a cloud dataset.
     :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
-    :param preprocessing_num_workers: Number of processes for
-        preprocessing.
+    :param preprocessing_num_workers: Number of processes for dataset preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
     :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
