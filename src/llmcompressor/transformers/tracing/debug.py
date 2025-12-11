@@ -65,7 +65,7 @@ def trace(
         model = model_class.from_pretrained(
             model_id,
             device_map=device_map,
-            torch_dtype="auto",
+            dtype="auto",
             trust_remote_code=trust_remote_code,
         )
     processor = AutoProcessor.from_pretrained(
