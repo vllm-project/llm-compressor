@@ -233,7 +233,7 @@ def convert_and_save(
 
 def load_and_convert_from_autoawq(
     model_name_or_path: str,
-    quantization_format: str = "pack-quantized",
+    quantization_format: str = "naive-quantized",
     trust_remote_code: bool = False,
 ) -> transformers.modeling_utils.PreTrainedModel:
     """
