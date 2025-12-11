@@ -29,7 +29,6 @@ def sample_cache(sample_dataloader):
     return IntermediatesCache.from_dataloader(
         dataloader=sample_dataloader,
         model_device=torch.device("cpu"),
-        mask_padding=True,
         offload_device=torch.device("cpu"),
     )
 
@@ -47,7 +46,6 @@ def test_initialization(sample_dataloader):
     cache = IntermediatesCache.from_dataloader(
         dataloader=sample_dataloader,
         model_device=torch.device("cpu"),
-        mask_padding=True,
     )
 
     assert isinstance(cache, IntermediatesCache)
@@ -97,18 +95,6 @@ def test_delete_intermediates(sample_cache):
 
 
 @pytest.mark.unit
-def test_mask_padding():
-    input_ids = torch.tensor([[1, 2, 3, 0], [4, 5, 6, 0]])
-    attention_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 1, 0]])
-
-    masked = IntermediatesCache._mask_padding(input_ids, attention_mask)
-
-    # Check if padding tokens are properly masked
-    expected = torch.tensor([[1, 2, 3, 0], [4, 5, 6, 0]])
-    assert torch.equal(masked, expected)
-
-
-@pytest.mark.unit
 @pytest.mark.parametrize("value", values_to_test)
 def test_from_dataloader(value):
     dataset = StackDataset(value=[value])
@@ -125,18 +111,6 @@ def test_offload_and_onload(value):
     offloaded = IntermediatesCache._offload_value(value, torch.device("cpu"))
     onloaded = IntermediatesCache._onload_value(offloaded)
     assert deep_equal(onloaded, value)
-
-
-@pytest.mark.unit
-def test_4d_attention_mask():
-    input_ids = torch.tensor([[1, 2, 3, 0]])
-    attention_mask = torch.ones(1, 1, 1, 4)  # 4D attention mask
-
-    masked = IntermediatesCache._mask_padding(input_ids, attention_mask)
-
-    # Check if the function handles 4D attention mask properly
-    expected = torch.tensor([[1, 2, 3, 0]])
-    assert torch.equal(masked, expected)
 
 
 @pytest.mark.unit
