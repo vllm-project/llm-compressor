@@ -30,6 +30,7 @@ model.generate(...)  # the converted model is now ready to be used.
 
 import glob
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
