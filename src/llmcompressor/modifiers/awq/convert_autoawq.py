@@ -1,3 +1,33 @@
+"""
+Convert AutoAWQ models to llmcompressor-compatible models.
+
+This module offers the functionality to convert models quantized with AutoAWQ into
+compressed models in llmcompressor's format, which can then be served with vLLM.
+This module can be used as a CLI tool or as a Python API.
+
+## CLI Usage
+
+```sh
+python -m llmcompressor.modifiers.awq.convert_autoawq \
+  --model-name-or-path /path/to/model \
+  --output-dir /path/to/compressed/model \
+  --quantization-format naive-quantized
+```
+
+For more information, run `python -m llmcompressor.modifiers.awq.convert_autoawq --help`
+or refer to the `ConversionArgs` dataclass below.
+
+## Python API Usage
+
+```python
+from llmcompressor.modifiers.awq.convert_autoawq import load_and_convert_from_autoawq
+
+awq_model_path = "/path/to/model"  # can also be model_id on huggingface hub
+model = load_and_convert_from_autoawq(awq_model_path)
+model.generate(...)  # the converted model is now ready to be used.
+```
+"""
+
 import glob
 import os
 from dataclasses import dataclass, field
@@ -24,7 +54,9 @@ from huggingface_hub import load_state_dict_from_file, snapshot_download
 
 
 def is_autoawq_model(model_path: Path, trust_remote_code: bool = False) -> bool:
-    config = transformers.AutoConfig.from_pretrained(model_path, trust_remote_code=trust_remote_code)
+    config = transformers.AutoConfig.from_pretrained(
+        model_path, trust_remote_code=trust_remote_code
+    )
     if not hasattr(config, "quantization_config"):
         return False
 
@@ -33,15 +65,12 @@ def is_autoawq_model(model_path: Path, trust_remote_code: bool = False) -> bool:
 
 
 def resolve_model_path(model_name_or_path: str) -> Path:
-    """Locate the model path.
-
-    If the input is a repository ID, download the model from the Hugging Face Hub and
-    return the path to the local directory.
-    """
     if os.path.isdir(model_name_or_path):
         return Path(model_name_or_path)
-
-    return Path(snapshot_download(model_name_or_path))
+    else:
+        # If the input is a model ID, download the model from the Hugging Face Hub and
+        # return the path to the local directory.
+        return Path(snapshot_download(model_name_or_path))
 
 
 def load_state_dict_from_model_dir(model_path: Path) -> dict[str, torch.Tensor]:
@@ -273,7 +302,7 @@ class ConversionArgs:
     )
 
 
-__all__ = ["convert_and_save", "load_and_convert_from_autoawq"]
+__all__ = ["convert_and_save", "load_and_convert_from_autoawq", "ConversionArgs"]
 
 
 if __name__ == "__main__":
