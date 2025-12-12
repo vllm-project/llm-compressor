@@ -35,6 +35,10 @@ def args_to_test(request):
     # config:
     # {model, initial_pruning_only_recipe, initial_sparsity, recipe_mask_structure,
     #  dataset, subsequent_prune_and_quant_recipe, final_sparsity}
+
+    if not config:
+        pytest.skip("empty config")
+
     return _TestArgs(
         config.get("model"),
         config.get("initial_pruning_only_recipe"),

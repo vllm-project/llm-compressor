@@ -18,6 +18,9 @@ def decompressed_linear_uncompressed_linear_models(request):
     config = request.param
     # config: {compressed_model_stub, uncompressed_model_stub}
 
+    if not config:
+        pytest.skip("empty config")
+
     quantization_config = CompressedTensorsConfig(run_compressed=False)
 
     # Decompressed using HFQuantizer
@@ -102,6 +105,9 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear:
         """
         config = request.param
         # config: {compressed_model_stub}
+
+        if not config:
+            pytest.skip("empty config")
 
         # Should have CompressedLinear modules
         # Compressed Linear forward

@@ -16,6 +16,9 @@ def one_shot_args(request):
     config = request.param
     # config: {model, dataset, recipe, dataset_config_name, tokenize}
 
+    if not config:
+        pytest.skip("empty config")
+
     tokenizer = AutoTokenizer.from_pretrained(config["model"])
     model = AutoModelForCausalLM.from_pretrained(config["model"])
 

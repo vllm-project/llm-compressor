@@ -57,6 +57,9 @@ def _get_quant_info(model):
 
 @pytest.fixture(params=parse_params(CONFIGS_DIRECTORY), scope="module")
 def setup_model_and_config(request, tmpdir_factory):
+    if not request.param:
+        pytest.skip("empty config")
+
     base_config = {
         "new_recipe": None,
         "ppl_threshold": None,
