@@ -254,7 +254,9 @@ def convert_and_save(
     compressed_state_dict = compressor.compress(model, state_dict, show_progress=True)
 
     # 6. Save the model.
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        model_name_or_path, trust_remote_code=trust_remote_code
+    )
     model.save_pretrained(output_dir, state_dict=compressed_state_dict)
     tokenizer.save_pretrained(output_dir)
     compressor.update_config(output_dir)
@@ -274,7 +276,12 @@ def load_and_convert_from_autoawq(
     :return: A compressed model.
     """
     with TemporaryDirectory() as temp_dir:
-        convert_and_save(model_name_or_path, temp_dir, quantization_format)
+        convert_and_save(
+            model_name_or_path,
+            temp_dir,
+            quantization_format,
+            trust_remote_code=trust_remote_code,
+        )
         return transformers.AutoModelForCausalLM.from_pretrained(
             temp_dir, torch_dtype=torch.float16, trust_remote_code=trust_remote_code
         )
