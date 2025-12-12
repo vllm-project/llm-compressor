@@ -24,6 +24,9 @@ GPU_CONFIGS_DIRECTORY = (
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_consecutive_runs_small(config, tmp_path):
+    if not config:
+        pytest.skip("empty config")
+
     _test_consecutive_runs(
         config["model"],
         config["dataset"],
@@ -38,6 +41,9 @@ def test_consecutive_runs_small(config, tmp_path):
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_consecutive_runs_gpu(config, tmp_path):
+    if not config:
+        pytest.skip("empty config")
+
     assert not is_model_ct_quantized_from_path(
         config["model"]
     ), "The provided model is quantized. Please use a dense model."

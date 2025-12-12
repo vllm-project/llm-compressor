@@ -27,6 +27,9 @@ def test_hf_quantizer_decompress_match_manual_decompress(config):
 
     """
 
+    if not config:
+        pytest.skip("empty config")
+
     compressed_model_stub = config["compressed_model_stub"]
     skeleton_model_stub = config["skeleton_model_stub"]
 

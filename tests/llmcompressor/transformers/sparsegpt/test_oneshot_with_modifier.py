@@ -13,6 +13,9 @@ CONFIGS_DIRECTORY = (
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_oneshot_with_modifier_object(tmp_path, config):
+    if not config:
+        pytest.skip("empty config")
+
     output_dir = tmp_path / "oneshot_out"
     recipe_str = [SparseGPTModifier(sparsity=0.5, targets=[r"re:model.layers.\d+$"])]
 

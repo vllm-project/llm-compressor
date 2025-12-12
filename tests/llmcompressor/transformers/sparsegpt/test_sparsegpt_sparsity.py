@@ -27,6 +27,9 @@ def _clear_cuda_cache():
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_sparsities(tmp_path, config):
+    if not config:
+        pytest.skip("empty config")
+
     model = oneshot(
         model=config["model"],
         dataset=config["dataset"],
@@ -48,6 +51,9 @@ def test_sparsities(tmp_path, config):
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_sparsities_gpu(tmp_path, config, _clear_cuda_cache):
+    if not config:
+        pytest.skip("empty config")
+
     model = AutoModelForCausalLM.from_pretrained(
         config["model"], device_map=config["device"], torch_dtype=torch.bfloat16
     )

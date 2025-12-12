@@ -46,6 +46,9 @@ def labeled_dataloader(dataset_name, model_name, num_samples):
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_oneshot_completion(config, tmp_path):
+    if not config:
+        pytest.skip("empty config")
+
     _test_oneshot_completion(
         config["model"],
         config["dataset"],
@@ -61,6 +64,9 @@ def test_oneshot_completion(config, tmp_path):
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_oneshot_completion_gpu(config, tmp_path):
+    if not config:
+        pytest.skip("empty config")
+
     model = AutoModelForCausalLM.from_pretrained(
         config["model"], device_map=config["device"], torch_dtype=torch.bfloat16
     )
