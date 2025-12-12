@@ -185,7 +185,10 @@ def convert_and_save(
     :param overwrite: Overwrite the existing output directory if it exists.
     :param trust_remote_code: Whether to trust remote code.
     """
-    if os.path.exists(output_dir) and not overwrite:
+    is_empty_dir = (
+        os.path.isdir(output_dir) and next(os.scandir(output_dir), None) is None
+    )
+    if not is_empty_dir and not overwrite:
         raise FileExistsError(
             f"Output directory {output_dir} already exists. Set `overwrite=True` to"
             " overwrite the existing directory."
