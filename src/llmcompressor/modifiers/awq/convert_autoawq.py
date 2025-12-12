@@ -203,10 +203,20 @@ def convert_and_save(
     is_symmetric = not autoawq_config.get("zero_point")
     group_size = cast(int, autoawq_config.get("group_size"))
 
-    # TODO: check syntax of modules_to_not_convert
-    ignore = autoawq_config.get("modules_to_not_convert")
-    if ignore is None:
-        ignore = ["lm_head"]
+    # Convert AutoAWQ's substring-based ignore list to llm-compressor's regex format
+    # Usage in AutoAWQ:
+    # ```python
+    # if any(key in name for key in modules_to_not_convert): ...
+    # ```
+    # See https://github.com/casper-hansen/AutoAWQ/blob/88e4c76b20755db275574e6a03c83c84ba3bece5/awq/utils/module.py#L62
+    modules_to_not_convert = autoawq_config.get("modules_to_not_convert", None)
+    ignore = []
+    if modules_to_not_convert is not None:
+        # Convert each substring pattern to a regex pattern that matches it anywhere
+        for module in modules_to_not_convert:
+            ignore.append(f"re:.*{re.escape(module)}.*")
+
+    ignore.append("lm_head")  # AutoAWQ ignores lm_head by default
 
     # 1. Load the model weights directly.
     state_dict = load_state_dict_from_model_dir(model_path)
