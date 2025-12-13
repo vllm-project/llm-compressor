@@ -51,21 +51,48 @@ class TensorizedLinear(nn.Module):
         linear: nn.Linear,
         rank: str | float | int | tuple[int] = 0.5,
         num_cores: int = 2,
-        # TODO block_size impl
-        # block_size: tuple[int, int] | None = None,
     ) -> "TensorizedLinear":
         """
         Build TensorizedLinear from an input torch.nn.Linear layer
 
-        linear: original linear layer
+        linear: original linear layer's weight matrix
         rank: determines the number of parameters
             if float, sets the total number of parameters to be
                 linear.weight.numel() * rank
             if "same", same number of parameters as original
                 (completely reconstructs the linear mapping)
         """
-        output_shape = cls.get_shape(linear.out_features, num_cores)
-        input_shape = cls.get_shape(linear.in_features, num_cores)
+        return cls.from_weight_and_bias(linear.weight, linear.bias, rank, num_cores)
+
+    @classmethod
+    def from_weight_and_bias(
+        cls,
+        weight: torch.Tensor,
+        bias: torch.Tensor | None,
+        rank: str | float | int | tuple[int] = 0.5,
+        num_cores: int = 2,
+    ) -> "TensorizedLinear":
+        """
+        Build TensorizedLinear from an input torch.nn.Linear layer
+
+        linear: original linear layer's weight matrix
+        rank: determines the number of parameters
+            if float, sets the total number of parameters to be
+                linear.weight.numel() * rank
+            if "same", same number of parameters as original
+                (completely reconstructs the linear mapping)
+        """
+        assert weight.ndim == 2, "invalid weight"
+        # always create fresh
+        weight = weight.clone(memory_format=torch.contiguous_format)
+
+        if bias is not None:
+            assert bias.ndim == 1, "invalid bias"
+            assert weight.shape[0] == bias.shape[0], "incompatible weight/bias"
+            bias = bias.clone(memory_format=torch.contiguous_format)
+
+        output_shape = cls.get_shape(weight.shape[0], num_cores)
+        input_shape = cls.get_shape(weight.shape[1], num_cores)
         # NOTE: Order is based on what is shown in reference notebook
         # It is probably this because the linear weight matrix has
         #   a shape of (out_features, in_features)
@@ -74,10 +101,10 @@ class TensorizedLinear(nn.Module):
             shape,
             rank,
             tl.decomposition.tensor_train_matrix(
-                tl.reshape(linear.weight.data, shape),
+                tl.reshape(weight, shape),
                 rank=rank,
             ),
-            linear.bias,
+            bias,
         )
 
     @staticmethod
@@ -99,7 +126,9 @@ class TensorizedLinear(nn.Module):
                 shape.append(dim)
                 remainder = remainder / dim
         assert len(shape) == num_cores, "Something wrong with len(shape)"
-        assert math.prod(shape) == num_features, "Something wrong with num_features"
+        assert (
+            math.prod(shape) == num_features
+        ), f"Something wrong with num_features, {shape}, {num_features}"
         return shape
 
     def to_matrix(self) -> torch.Tensor:

@@ -1,5 +1,4 @@
 import math
-from typing import TypeVar, Generic
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -10,19 +9,18 @@ tl.set_backend("pytorch")
 
 __all__ = ["BlockTensorizedLinear"]
 
-T = TypeVar("T", nn.Linear | TensorizedLinear)
-
 
 # TODO move next to compressed_tensors..CompressedLinear
-class BlockTensorizedLinear(Generic[T]):
+class BlockTensorizedLinear(nn.Module):
     """
-    BlockLinear is an abstraction that allows a linear mapping to be reconstructed
+    BlockTensorizedLinear is an abstraction that allows a linear mapping to be reconstructed
     from constituent blocks. For example, if one wanted to break down a weight matrix into
 
     W = [ W11 W12
           W21 W22]
 
-    so that W11 can be compressed.
+    so that W11, ..., W22 can be compressed further, found to be useful when compressing into
+    tensor network topologies with limited entanglement (e.g. MPOs).
 
     Original implemtntation:
     https://github.com/tensorly/Proceedings_IEEE_companion_notebooks/blob/master/tt-compression.ipynb
@@ -30,89 +28,106 @@ class BlockTensorizedLinear(Generic[T]):
 
     def __init__(
         self,
-        blocks: dict[tuple[int, int], T],
+        # TODO: make Generic instead of hard-coded to TensorizedLinear
+        # Using strings as keys here to be compatible with torch.nn.ModuleDict
+        blocks: dict[str, TensorizedLinear],
+        block_size: int,
+        num_blocks: tuple[int, int],
+        in_features: int,
+        out_features: int,
         **kwargs,
     ):
         super(BlockTensorizedLinear, self).__init__(**kwargs)
 
-        self.blocks = blocks
-        self.module_dict = nn.ModuleDict(blocks)
+        self.blocks = nn.ModuleDict(blocks)
+        self.block_size = block_size
+        self.num_blocks = num_blocks
+        self.in_features = in_features
+        self.out_features = out_features
 
     @classmethod
     def from_linear(
         cls,
         linear: nn.Linear,
+        block_size: int,
+        # Args to pass into TensorizedLinear.from_linear
         rank: str | float | int | tuple[int] = 0.5,
         num_cores: int = 2,
-        block_size: tuple[int, int] | None = None,
     ) -> "BlockTensorizedLinear":
         """
         Build BlockTensorizedLinear from an input torch.nn.Linear layer
 
         linear: original linear layer
-        rank: determines the number of parameters
-            if float, sets the total number of parameters to be
-                linear.weight.numel() * rank
-            if "same", same number of parameters as original
-                (completely reconstructs the linear mapping)
         block_size: the size of each block. linear layer must have
             shape such that
-                linear.shape[i] % block_size.shape[i] == 0 for any i
+                linear.shape[i] % block_size == 0 for any i
+            For now, hard-coding num_rows == num_columns
+            # TODO allow for block_size: tuple[int, int]
+        rank: same as TensorizedLinear.from_linear
+        num_cores: same as TensorizedLinear.from_linear
         """
-        output_shape = cls.get_shape(linear.out_features, num_cores)
-        input_shape = cls.get_shape(linear.in_features, num_cores)
-        # NOTE: Order is based on what is shown in reference notebook
-        # It is probably this because the linear weight matrix has
-        #   a shape of (out_features, in_features)
-        shape = output_shape + input_shape
-        return cls(
-            shape,
-            rank,
-            tl.decomposition.tensor_train_matrix(
-                tl.reshape(linear.weight.data, shape),
-                rank=rank,
-            ),
-            linear.bias,
-        )
+        assert (
+            linear.in_features % block_size == 0
+        ), "invalid block size for in_features"
+        assert (
+            linear.out_features % block_size == 0
+        ), "invalid block size for out_features"
 
-    @staticmethod
-    def get_shape(num_features: int, num_cores: int) -> tuple[int, ...]:
-        """
-        Given an input dimension of num_features, and a desired MPO
-        with number of cores equal to num_cores, return a tuple of
-        length num_cores which has a number of elements equal to
-        num_features, ideally as powers of 2 and ideally as close to
-        each other in size (to maximize entanglement) as possible.
-        """
-        shape = []
-        remainder = num_features
-        for i in reversed(range(num_cores)):
-            if i == 0:
-                shape.append(round(remainder))
-            else:
-                dim = get_nearest_power_of_2(remainder ** (1 / (num_cores - i)))
-                shape.append(dim)
-                remainder = remainder / dim
-        assert len(shape) == num_cores, "Something wrong with len(shape)"
-        assert math.prod(shape) == num_features, "Something wrong with num_features"
-        return shape
+        num_rows = linear.out_features // block_size
+        num_cols = linear.in_features // block_size
+
+        blocks: dict[tuple[int, int], TensorizedLinear] = {}
+        for i in range(num_rows):
+            for j in range(num_cols):
+                blocks[f"{i}_{j}"] = TensorizedLinear.from_weight_and_bias(
+                    weight=linear.weight[
+                        i * block_size : (i + 1) * block_size,
+                        j * block_size : (j + 1) * block_size,
+                    ],
+                    # only need to add bias on first block in row
+                    bias=(
+                        linear.bias[i * block_size : (i + 1) * block_size]
+                        if (linear.bias is not None and j == 0)
+                        else None
+                    ),
+                    rank=rank,
+                    num_cores=num_cores,
+                )
+        return cls(
+            blocks,
+            block_size,
+            (num_rows, num_cols),
+            linear.in_features,
+            linear.out_features,
+        )
 
     def to_matrix(self) -> torch.Tensor:
         """
         Return tensorized weights expanded into a single weight matrix
         """
-        return self.tt_matrix.to_matrix()
+        matrix_chunks = []
+        for i in range(self.num_blocks[0]):
+            row_chunks = [
+                self.blocks[f"{i}_{j}"].to_matrix() for j in range(self.num_blocks[1])
+            ]
+            matrix_chunks.append(torch.cat(row_chunks, dim=1))
+        return torch.cat(matrix_chunks)
 
     def forward(self, x):
-        # TODO use einsum string instead of rebuilding matrix
-        # form full weight matrix
-        W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
+        assert x.shape[-1] == self.in_features
+        out_shape = x.shape[:-1] + (self.out_features,)
+        y = torch.zeros(out_shape)
+        for i in range(self.num_blocks[0]):
+            for j in range(self.num_blocks[1]):
+                y[..., i * self.block_size : (i + 1) * self.block_size] += self.blocks[
+                    f"{i}_{j}"
+                ](x[..., j * self.block_size : (j + 1) * self.block_size])
 
-        return F.linear(x, W, self.bias)
+        return y
 
     @property
     def num_params(self):
-        return sum([p.numel() for p in self.parameters()])
+        return sum([b.num_params() for b in self.blocks.values()])
 
 
 def get_nearest_power_of_2(n: int):
