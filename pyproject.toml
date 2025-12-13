@@ -23,5 +23,6 @@ markers = [
     "unit: tests to ensure code correctness and regression test functionality",
     "example: tests for content in the 'examples' folder",
     "multi_gpu: tests that require multiple GPUs",
+    "slow: tests that take a long time to run (e.g., downloading models)",
 ]
 tmp_path_retention_policy = "failed"
