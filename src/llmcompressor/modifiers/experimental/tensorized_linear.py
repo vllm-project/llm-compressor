@@ -1,5 +1,7 @@
+import math
 import torch
 from torch import nn
+import torch.nn.functional as F
 import tensorly as tl
 from tensorly.tt_matrix import TTMatrix
 
@@ -22,12 +24,14 @@ class TensorizedLinear(nn.Module):
         shape: tuple[int],
         rank: int | tuple[int] | None,
         tt_matrix: TTMatrix | None,
-        **kwargs
+        bias: torch.Tensor | None = None,
+        **kwargs,
     ):
         super(TensorizedLinear, self).__init__(**kwargs)
 
         self.rank = rank
         self.shape = shape
+        self.bias = bias
 
         # if not provided, initialize tt_matrix and weights
         if tt_matrix is None:
@@ -43,16 +47,60 @@ class TensorizedLinear(nn.Module):
 
     @classmethod
     def from_linear(
-        cls, linear: nn.Linear, rank: int | tuple[int] | None
+        cls,
+        linear: nn.Linear,
+        rank: str | float | int | tuple[int] = 0.5,
+        num_cores: int = 2,
+        # TODO block_size impl
+        # block_size: tuple[int, int] | None = None,
     ) -> "TensorizedLinear":
-        output_shape = (linear.out_features // 2, linear.out_features // 2)
-        input_shape = (linear.in_features // 2, linear.in_features // 2)
+        """
+        Build TensorizedLinear from an input torch.nn.Linear layer
+
+        linear: original linear layer
+        rank: determines the number of parameters
+            if float, sets the total number of parameters to be
+                linear.weight.numel() * rank
+            if "same", same number of parameters as original
+                (completely reconstructs the linear mapping)
+        """
+        output_shape = cls.get_shape(linear.out_features, num_cores)
+        input_shape = cls.get_shape(linear.in_features, num_cores)
+        # NOTE: Order is based on what is shown in reference notebook
+        # It is probably this because the linear weight matrix has
+        #   a shape of (out_features, in_features)
         shape = output_shape + input_shape
-        tt_matrix = tl.decomposition.tensor_train_matrix(
-            tl.reshape(linear.weight.data, shape),
-            rank=rank,
+        return cls(
+            shape,
+            rank,
+            tl.decomposition.tensor_train_matrix(
+                tl.reshape(linear.weight.data, shape),
+                rank=rank,
+            ),
+            linear.bias,
         )
-        return cls(shape, rank, tt_matrix)
+
+    @staticmethod
+    def get_shape(num_features: int, num_cores: int) -> tuple[int, ...]:
+        """
+        Given an input dimension of num_features, and a desired MPO
+        with number of cores equal to num_cores, return a tuple of
+        length num_cores which has a number of elements equal to
+        num_features, ideally as powers of 2 and ideally as close to
+        each other in size (to maximize entanglement) as possible.
+        """
+        shape = []
+        remainder = num_features
+        for i in reversed(range(num_cores)):
+            if i == 0:
+                shape.append(round(remainder))
+            else:
+                dim = get_nearest_power_of_2(remainder ** (1 / (num_cores - i)))
+                shape.append(dim)
+                remainder = remainder / dim
+        assert len(shape) == num_cores, "Something wrong with len(shape)"
+        assert math.prod(shape) == num_features, "Something wrong with num_features"
+        return shape
 
     def to_matrix(self) -> torch.Tensor:
         """
@@ -65,9 +113,25 @@ class TensorizedLinear(nn.Module):
         # form full weight matrix
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
 
-        # perform regular matrix multiplication
-        return torch.matmul(x, W)
+        return F.linear(x, W, self.bias)
 
     @property
     def num_params(self):
         return sum([p.numel() for p in self.parameters()])
+
+
+def get_nearest_power_of_2(n: int):
+    if n <= 0:
+        return 1  # Handle edge cases
+
+    # Calculate log base 2
+    lg = math.log2(n)
+
+    # Get the two closest powers
+    p_lower = 2 ** int(math.floor(lg))
+    p_upper = 2 ** int(math.ceil(lg))
+
+    # Compare distances
+    if (n - p_lower) < (p_upper - n):
+        return p_lower
+    return p_upper
