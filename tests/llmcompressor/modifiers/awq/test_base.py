@@ -297,6 +297,47 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
 
 
 @pytest.mark.unit
+@torch.no_grad
+def test_compute_layer_means_does_not_modify_weights():
+    """
+    Test that _compute_layer_means does not modify the original layer weights.
+    This is a regression test for a bug where in-place operations (abs_, div_)
+    were modifying the original weights.
+    """
+    # Create test layers with known weight values
+    n_layers = 3
+    n_input_features = 16
+    layers = [torch.nn.Linear(n_input_features, 8) for _ in range(n_layers)]
+
+    # Set up quantization scheme for channel-wise quantization
+    for layer in layers:
+        setattr(
+            layer,
+            "quantization_scheme",
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    strategy=QuantizationStrategy.CHANNEL,
+                ),
+            ),
+        )
+
+    # Store copies of original weights before calling _compute_layer_means
+    original_weights = [layer.weight.clone() for layer in layers]
+
+    # Call _compute_layer_means which should NOT modify the original weights
+    AWQModifier._compute_layer_means(layers)
+
+    # Verify that the original weights remain unchanged
+    for i, layer in enumerate(layers):
+        assert_close(
+            layer.weight,
+            original_weights[i],
+            msg=f"Layer {i} weight was modified by _compute_layer_means",
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "rows, cols, block_height, block_width",
     [

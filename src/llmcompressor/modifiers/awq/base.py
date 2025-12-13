@@ -694,7 +694,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     f" layer {type(layer)}, skipping"
                 )
                 continue
-            weight = layer.weight
+            weight = layer.weight.clone()
             orig_shape = weight.shape
 
             q_args = getattr_chain(layer, "quantization_scheme.weights", None)
