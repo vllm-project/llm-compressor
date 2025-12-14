@@ -75,13 +75,13 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     with append_autowrap_source_on_fail():
         exec(code, namespace)  # ensure ns of functions is the same ns as torch.fx.wrap
 
-        # enable better tracebacks if autowrapped code fails
-        linecache.cache[filename] = (
-            len(source),
-            None,
-            [line + "\n" for line in source.splitlines()],
-            filename,
-        )
+    # enable better tracebacks if autowrapped code fails
+    linecache.cache[filename] = (
+        len(source),
+        None,
+        [line + "\n" for line in source.splitlines()],
+        filename,
+    )
 
     # patch forward with autowrapped forward
     new_forward = namespace["forward"].__get__(module)
