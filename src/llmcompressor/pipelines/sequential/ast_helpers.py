@@ -64,20 +64,21 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     # compile new forward function from autowrapped code
     filename = f"<Autowrapped {module.__class__.__name__} {id(module)}>"
     code = compile(source, filename=filename, mode="exec")
-    exec(code, namespace)  # ensure ns of functions is the same ns as torch.fx.wrap
+    with append_autowrap_source_on_fail():
+        exec(code, namespace)  # ensure ns of functions is the same ns as torch.fx.wrap
 
-    # enable better tracebacks if autowrapped code fails
-    linecache.cache[filename] = (
-        len(source),
-        None,
-        [line + "\n" for line in source.splitlines()],
-        filename,
-    )
+        # enable better tracebacks if autowrapped code fails
+        linecache.cache[filename] = (
+            len(source),
+            None,
+            [line + "\n" for line in source.splitlines()],
+            filename,
+        )
 
-    # patch forward with autowrapped forward
-    new_forward = namespace["forward"].__get__(module)
-    with patch_attr(module, "forward", new_forward):
-        yield
+        # patch forward with autowrapped forward
+        new_forward = namespace["forward"].__get__(module)
+        with patch_attr(module, "forward", new_forward):
+            yield
 
 
 @contextlib.contextmanager
@@ -99,9 +100,9 @@ def append_autowrap_source_on_fail():
                     for i, line in enumerate(source_lines)
                 ]
 
-                message = f"{exception}\n\n"
-                message += f"\n--- {frame.filename}:{lineno} ---\n"
+                message = f"--- {frame.filename}:{lineno} ---\n"
                 message += "".join(source_lines)
-                raise RuntimeError(message) from exception
+                message += f"\n\n{exception}"
+                raise RuntimeError(message)
 
         raise exception

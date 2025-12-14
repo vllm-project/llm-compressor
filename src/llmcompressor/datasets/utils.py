@@ -238,8 +238,8 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
 
 
 def data_collator_with_truncation(
-    features: list[dict[str, Any]], return_tensors: str = "pt"
-) -> dict[str, Any]:
+    features: list[dict], return_tensors: str = "pt"
+) -> dict:
     for key in ("input_ids", "labels", "attention_mask"):
         if any(key not in feature for feature in features):
             continue
