@@ -45,6 +45,14 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     :param module: module whose forward method should be replaced
     :param ignore: explicit list of function names to wrap
     """
+    # check forward method is implemented
+    if module.forward.__name__ == "_forward_unimplemented":
+        raise ValueError(
+            "Cannot calibrate model which does not implement `forward` method. Please "
+            "either implement a forward method on the model, or pass a submodule to "
+            "`oneshot`. For example, `oneshot(model.thinker, ...)`"
+        )
+
     # get source code of module forward
     source = inspect.getsource(module.forward)
     source = textwrap.dedent(source)
@@ -75,10 +83,10 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
             filename,
         )
 
-        # patch forward with autowrapped forward
-        new_forward = namespace["forward"].__get__(module)
-        with patch_attr(module, "forward", new_forward):
-            yield
+    # patch forward with autowrapped forward
+    new_forward = namespace["forward"].__get__(module)
+    with patch_attr(module, "forward", new_forward):
+        yield
 
 
 @contextlib.contextmanager
@@ -103,6 +111,6 @@ def append_autowrap_source_on_fail():
                 message = f"--- {frame.filename}:{lineno} ---\n"
                 message += "".join(source_lines)
                 message += f"\n\n{exception}"
-                raise RuntimeError(message)
+                raise RuntimeError(message) from exc_tb
 
         raise exception
