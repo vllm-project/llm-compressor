@@ -111,6 +111,6 @@ def append_autowrap_source_on_fail():
                 message = f"--- {frame.filename}:{lineno} ---\n"
                 message += "".join(source_lines)
                 message += f"\n\n{exception}"
-                raise RuntimeError(message) from exc_tb
+                raise RuntimeError(message) from exception
 
         raise exception
