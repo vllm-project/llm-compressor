@@ -7,17 +7,17 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
 )
+from compressed_tensors.utils import patch_attr
 from pydantic import ValidationError
 from torch.nn import Linear
 from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import (
-    _orient_weight,
-    _reorient_weight,
     get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.observers.helpers import flatten_for_calibration
 
 
 @pytest.mark.unit
@@ -384,6 +384,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
             ),
         ),
     )
+    q_args = lin.quantization_scheme.weights
     # main
     llmc_awq_means = AWQModifier._compute_layer_means([lin])
 
@@ -409,18 +410,22 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # we first reshape the weight such that it is effectively per-channel quantization
     # so that we can compare to the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
-    oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
+    oriented_weight = flatten_for_calibration(lin.weight, "weight", q_args).reshape(
+        -1, block_height * block_width
+    )
     lin.weight.data = oriented_weight
 
-    auto_awq_means = (
-        _reorient_weight(
-            _auto_awq_normalize([lin], None),
-            lin.quantization_scheme.weights,
-            orig_shape,
+    with patch_attr(q_args, "block_structure", [num_widths, block_width]):
+        auto_awq_means = (
+            flatten_for_calibration(
+                _auto_awq_normalize([lin], None),
+                "weight",
+                q_args,
+            )
+            .reshape(orig_shape)
+            .mean(0)
+            .to(llmc_awq_means.dtype)
         )
-        .mean(0)
-        .to(llmc_awq_means.dtype)
-    )
 
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)

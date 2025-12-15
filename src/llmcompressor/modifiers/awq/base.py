@@ -8,7 +8,6 @@ from compressed_tensors.quantization import (
     disable_quantization,
     forward_quantize,
 )
-from compressed_tensors.quantization.utils import strategy_cdiv
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
@@ -39,6 +38,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.helpers import flatten_for_calibration
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -705,14 +705,53 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
                 continue
 
-            # need to get to shape [num different chunks x size of each chunk]
-            weight = _orient_weight(weight, q_args)
-            # TODO ^ simplify logic and use flatten_for_calibration
+            reverse_block_structure = None
+            match q_args.strategy:
+                # chunk size is the size of the size of the
+                # set of elements that get quantized together
+                case QuantizationStrategy.TENSOR:
+                    chunk_size = weight.numel()
+                case QuantizationStrategy.CHANNEL:
+                    chunk_size = weight.size(1)
+                case QuantizationStrategy.GROUP:
+                    chunk_size = q_args.group_size
+                case QuantizationStrategy.BLOCK:
+                    chunk_size = q_args.block_structure[0] * q_args.block_structure[1]
+                    weight = flatten_for_calibration(weight, "weight", q_args)
 
+            # need to get to shape (num different chunks x size of each chunk)
+            weight = weight.reshape(-1, chunk_size)
+
+            # normalize
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+
             # Reshape back to original dimensions
-            weight = _reorient_weight(weight, q_args, orig_shape)
+            if q_args.strategy == QuantizationStrategy.BLOCK:
+                # needed to do: (rows, cols)
+                # 1.        = (num_heights*block_height, num_widths*block_width)
+                # 2.        ↳ (num_heights, block_height, num_widths, block_width)
+                # 3.        ↳ (num_heights, num_widths, block_height, block_width)
+                # 4.        ↳ (num_heights*num_widths, block_height*block_width)
+                #           = (num_chunks, chunk_size)
+                # to normalize and then back to calculate the means.
+                # the major issue is 2->3 where we have to transpose the inner dims. We
+                # did this with flatten_for_calibration which does 1->3 and then
+                # do a view to do step 4. note flatten_for_calibration uses
+                # q_args.block_structure, i.e. the 1st and 3rd dim in step 2 to do
+                # this. We also want to use flatten_for_calibration to undo this,
+                # but we need to set block_stucture to be the 1st and 3rd value
+                # in step 4. This is what we set reverse_block_structure to be so
+                # we can patch q_args.block_structure when we want to undo
+                block_width = q_args.block_structure[1]
+                num_widths = orig_shape[1] // block_width
+                reverse_block_structure = [num_widths, block_width]
+                with patch_attrs(
+                    [q_args], "block_structure", [reverse_block_structure]
+                ):
+                    weight = flatten_for_calibration(weight, "weight", q_args)
+            weight = weight.reshape(orig_shape)
+
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)
@@ -727,79 +766,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         if v not in (True, False, "both"):
             raise ValueError(f"duo_scaling must be True, False, or 'both', got {v!r}")
         return v
-
-
-def _orient_weight(weight: torch.Tensor, q_args) -> torch.Tensor:
-    """
-    Orient weight so we have shape
-    [<num different chunks to be quantized>, <num elements of each chunk>].
-    Works for TENSOR, CHANNEL, GROUP, BLOCK strategies
-    """
-    if q_args.strategy in [
-        QuantizationStrategy.TENSOR,
-        QuantizationStrategy.CHANNEL,
-        QuantizationStrategy.GROUP,
-    ]:
-        match q_args.strategy:
-            case QuantizationStrategy.TENSOR:
-                group_size = weight.numel()
-            case QuantizationStrategy.CHANNEL:
-                group_size = weight.size(1)
-            case QuantizationStrategy.GROUP:
-                group_size = q_args.group_size
-        weight = weight.view(-1, group_size)
-
-    elif q_args.strategy == QuantizationStrategy.BLOCK:
-        block_height, block_width = q_args.block_structure
-        block_size = block_height * block_width
-        rows, cols = weight.shape
-        num_heights = strategy_cdiv(rows, block_height, q_args.strategy, strict=True)
-        num_widths = strategy_cdiv(cols, block_width, q_args.strategy, strict=True)
-        weight = (
-            weight.reshape(  # nH*H=rows, nW*W=cols
-                num_heights, block_height, num_widths, block_width
-            )  # nH, H, nW, W
-            .transpose(1, 2)  # nH, nW, H, W
-            .reshape(-1, block_size)  # nH*nW, H*W
-        )
-    else:
-        raise NotImplementedError(
-            "expected weight quantization strategy to be one "
-            f"of TENSOR, CHANNEL, GROUP, or BLOCK, got {q_args.strategy}"
-        )
-    return weight
-
-
-def _reorient_weight(weight: torch.Tensor, q_args, orig_shape) -> torch.Tensor:
-    """
-    undo _orient_weight() operation returning weight to original shape
-    """
-    if q_args.strategy in [
-        QuantizationStrategy.TENSOR,
-        QuantizationStrategy.CHANNEL,
-        QuantizationStrategy.GROUP,
-    ]:
-        return weight.reshape(orig_shape)
-
-    elif q_args.strategy == QuantizationStrategy.BLOCK:
-        block_height, block_width = q_args.block_structure
-        rows, cols = orig_shape
-        num_heights = strategy_cdiv(rows, block_height, q_args.strategy, strict=True)
-        num_widths = strategy_cdiv(cols, block_width, q_args.strategy, strict=True)
-
-        weight = (
-            weight.view(  # nH*nW, H*W
-                num_heights, num_widths, block_height, block_width
-            )  # nH, nW, H, W
-            .transpose(1, 2)  # nH, H, nW, W
-            .reshape(orig_shape)  # nH*H=rows, nW*W=cols
-        )
-    else:
-        raise NotImplementedError(
-            "expected weight quantization strategy to be "
-            f"one of TENSOR, CHANNEL, GROUP, or BLOCK, got {q_args.strategy}"
-        )
-    return weight
 
 
 def _check_layers_are_compatible(
