@@ -38,7 +38,6 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.helpers import flatten_for_calibration
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -705,7 +704,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
                 continue
 
-            reverse_block_structure = None
             match q_args.strategy:
                 # chunk size is the size of the size of the
                 # set of elements that get quantized together
@@ -716,42 +714,28 @@ class AWQModifier(Modifier, QuantizationMixin):
                 case QuantizationStrategy.GROUP:
                     chunk_size = q_args.group_size
                 case QuantizationStrategy.BLOCK:
-                    chunk_size = q_args.block_structure[0] * q_args.block_structure[1]
-                    weight = flatten_for_calibration(weight, "weight", q_args)
+                    block_height, block_width = q_args.block_structure
+                    weight = (  # (row, col)
+                        weight.unflatten(  # = (num_H*block_H, num_W*block_W)
+                            0, (-1, block_height)
+                        )
+                        .unflatten(-1, (-1, block_width))
+                        .transpose(1, 2)  # ↳ (num_H, num_W, block_H, block_W)
+                    )
+                    intermediate_shape = weight.shape
+                    chunk_size = block_height * block_width
 
-            # need to get to shape (num different chunks x size of each chunk)
+            # need to get to shape (num_chunks x chunk_size)
             weight = weight.reshape(-1, chunk_size)
-
             # normalize
             weight.abs_()
             weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-
             # Reshape back to original dimensions
             if q_args.strategy == QuantizationStrategy.BLOCK:
-                # needed to do: (rows, cols)
-                # 1.        = (num_heights*block_height, num_widths*block_width)
-                # 2.        ↳ (num_heights, block_height, num_widths, block_width)
-                # 3.        ↳ (num_heights, num_widths, block_height, block_width)
-                # 4.        ↳ (num_heights*num_widths, block_height*block_width)
-                #           = (num_chunks, chunk_size)
-                # to normalize and then back to calculate the means.
-                # the major issue is 2->3 where we have to transpose the inner dims. We
-                # did this with flatten_for_calibration which does 1->3 and then
-                # do a reshape to do step 4. note flatten_for_calibration uses
-                # q_args.block_structure, i.e. the 1st and 3rd dim in step 2 to do
-                # this. We also want to use flatten_for_calibration to undo this,
-                # but we need to set block_stucture to be the 1st and 3rd value
-                # in step 4. This is what we set reverse_block_structure to be so
-                # we can patch q_args.block_structure when we want to undo
-                block_width = q_args.block_structure[1]
-                num_widths = orig_shape[1] // block_width
-                reverse_block_structure = [num_widths, block_width]
-                with patch_attrs(
-                    [q_args], "block_structure", [reverse_block_structure]
-                ):
-                    weight = flatten_for_calibration(weight, "weight", q_args)
-            weight = weight.reshape(orig_shape)
+                weight = weight.view(intermediate_shape).transpose(1, 2)
 
+            # back to (rows, cols)
+            weight = weight.reshape(orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)

@@ -7,7 +7,6 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
 )
-from compressed_tensors.utils import patch_attr
 from pydantic import ValidationError
 from torch.nn import Linear
 from torch.testing import assert_close
@@ -17,7 +16,6 @@ from llmcompressor.modifiers.awq.base import (
     get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.observers.helpers import flatten_for_calibration
 
 
 @pytest.mark.unit
@@ -348,12 +346,6 @@ def test_compute_layer_means_does_not_modify_weights():
             8,
         ),
         (
-            4,
-            3,
-            2,
-            1,
-        ),
-        (
             10,
             10,
             10,
@@ -364,6 +356,12 @@ def test_compute_layer_means_does_not_modify_weights():
             256,
             128,
             128,
+        ),
+        (
+            4,
+            3,
+            2,
+            1,
         ),
     ],
 )
@@ -384,7 +382,6 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
             ),
         ),
     )
-    q_args = lin.quantization_scheme.weights
     # main
     llmc_awq_means = AWQModifier._compute_layer_means([lin])
 
@@ -408,24 +405,22 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 
     # auto awq
     # we first reshape the weight such that it is effectively per-channel quantization
-    # so that we can compare to the existing _auto_awq_normalize function
+    # so that we can use the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
-    oriented_weight = flatten_for_calibration(lin.weight, "weight", q_args).reshape(
-        -1, block_height * block_width
+    q_args = lin.quantization_scheme.weights
+    block_height, block_width = q_args.block_structure
+    lin.weight.data = (  # (row, col)
+        lin.weight.unflatten(0, (-1, block_height))  # = (num_H*block_H, num_W*block_W)
+        .unflatten(-1, (-1, block_width))
+        .transpose(1, 2)  # ↳ (num_H, num_W, block_H, block_W)
     )
-    lin.weight.data = oriented_weight
-
-    with patch_attr(q_args, "block_structure", [num_widths, block_width]):
-        auto_awq_means = (
-            flatten_for_calibration(
-                _auto_awq_normalize([lin], None),
-                "weight",
-                q_args,
-            )
-            .reshape(orig_shape)
-            .mean(0)
-            .to(llmc_awq_means.dtype)
-        )
+    auto_awq_means = (
+        _auto_awq_normalize([lin], block_height * block_width)
+        .transpose(1, 2)
+        .reshape(orig_shape)
+        .mean(0)
+        .to(llmc_awq_means.dtype)
+    )
 
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
