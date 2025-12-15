@@ -715,10 +715,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                     chunk_size = q_args.group_size
                 case QuantizationStrategy.BLOCK:
                     block_height, block_width = q_args.block_structure
-                    weight = (  # (row, col)
-                        weight.unflatten(  # = (num_H*block_H, num_W*block_W)
-                            0, (-1, block_height)
-                        )
+                    weight = (  # (row, col) = (num_H*block_H, num_W*block_W)
+                        weight.unflatten(0, (-1, block_height))
                         .unflatten(-1, (-1, block_width))
                         .transpose(1, 2)  # ↳ (num_H, num_W, block_H, block_W)
                     )
