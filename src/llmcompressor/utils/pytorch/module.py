@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.quantization.utils import is_module_quantized
+from loguru import logger
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
@@ -361,8 +362,23 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 def get_layer_by_name(layer_name: str, module: Module) -> Module:
     """
     Get the layer of a module by name.
-    :param layer_name: Name of the layer to find.
+    :param layer_name: Name of the layer to find. Empty string returns the
+        module itself.
     :param module: Module in which to search for layer_name
     :return: Module, the layer with name layer_name
     """
+    if not layer_name:
+        return module
     return attrgetter(layer_name)(module)
+
+
+def get_module_to_name_dict(model: Module) -> dict[Module, str]:
+    module_to_name = {}
+    for name, module in model.named_modules():
+        if module in module_to_name:
+            logger.warning(
+                f"Warning, {name} and {module_to_name[module]} both "
+                "share the same module, which can result in unexpected behavior"
+            )
+        module_to_name[module] = name
+    return module_to_name

@@ -16,6 +16,7 @@ from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
+from transformers import ProcessorMixin
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.data.data_helpers import (
@@ -265,6 +266,12 @@ class TextGenerationDataset(RegistryMixin):
             max_length=self.max_seq_length,
             truncation=True,
         )
+
+        # strip the extra dim added by multimodal processors
+        if isinstance(self.processor, ProcessorMixin):
+            for key in data:
+                if isinstance(data[key], list) and len(data[key]) == 1:
+                    data[key] = data[key][0]
 
         # store unpadded prompt so we can mask out correct number of elements in labels
         if prompt is not None:

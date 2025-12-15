@@ -7,19 +7,21 @@ calibration data preparation, and dataloader creation for both training and
 one-shot calibration workflows.
 """
 
-import multiprocessing
 import re
-from typing import Any, Callable
+from collections.abc import Iterator, Sized
+from typing import Any, Callable, Optional
 
 import torch
 from datasets import Dataset
 from loguru import logger
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers.data import default_data_collator
+from torch.utils.data import DataLoader, RandomSampler, Sampler
+from transformers.data import DataCollatorWithPadding, default_data_collator
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.typing import Processor
+
+BS_WARNING_THRESHOLD = 16
 
 
 def get_processed_dataset(
@@ -113,67 +115,23 @@ def get_calibration_dataloader(
         do_oneshot=True,
         do_train=False,
     )
-
     calibration_dataset = datasets.get("calibration")
 
-    return format_calibration_data(
-        tokenized_dataset=calibration_dataset,
-        num_calibration_samples=dataset_args.num_calibration_samples,
-        do_shuffle=dataset_args.shuffle_calibration_samples,
-        collate_fn=dataset_args.data_collator,
-    )
+    return format_calibration_data(dataset_args, calibration_dataset, processor)
 
 
 def format_calibration_data(
+    args: DatasetArguments,
     tokenized_dataset: Dataset,
-    num_calibration_samples: int | None = None,
-    do_shuffle: bool = True,
-    collate_fn: Callable = default_data_collator,
-) -> list[torch.Tensor]:
-    """
-    Creates a dataloader out of the calibration dataset split, trimming it to
-    the desired number of calibration samples
-    :param tokenized_dataset: dataset to convert to dataloader
-    :param num_calibration_samples: number of data samples to convert
-    :param do_shuffle: whether to shuffle the dataset before selecting calibration
-        samples, true by default
-    :param collate_fn: optional custom collate function, or use default
-    :return: list of trimmed calibration data tensors
-    """
-    safe_calibration_samples = len(tokenized_dataset)
-    if num_calibration_samples is not None:
-        safe_calibration_samples = min(len(tokenized_dataset), num_calibration_samples)
-        if safe_calibration_samples != num_calibration_samples:
-            logger.warning(
-                f"Requested {num_calibration_samples} calibration samples but "
-                f"the provided dataset only has {safe_calibration_samples}. "
-            )
-
-    if do_shuffle:
-        tokenized_dataset = tokenized_dataset.shuffle()
-    tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
-
-    MAX_DATALOADER_WORKERS = 8
-    try:
-        num_workers = min(MAX_DATALOADER_WORKERS, multiprocessing.cpu_count() // 2)
-    except NotImplementedError:
-        logger.warning(
-            "Could not determine number of CPUs, defaulting to 0 dataloader workers."
-        )
-        num_workers = 0
-    dataloader_params = {
-        "batch_size": 1,
-        "sampler": RandomSampler(tokenized_calibration)
-        if do_shuffle
-        else SequentialSampler(tokenized_calibration),
-        "collate_fn": collate_fn,
-        "pin_memory": True,
-        "num_workers": num_workers,
-    }
-
-    calibration_dataloader = DataLoader(tokenized_calibration, **dataloader_params)
-
-    return calibration_dataloader
+    processor: Processor,
+) -> DataLoader:
+    return DataLoader(
+        tokenized_dataset,
+        batch_size=args.batch_size,
+        sampler=_make_sampler(args, tokenized_dataset),
+        collate_fn=_make_collate_fn(args, processor),
+        pin_memory=False,
+    )
 
 
 def make_dataset_splits(
@@ -213,3 +171,125 @@ def make_dataset_splits(
         "calibration": calib_split,
     }
     return split_datasets
+
+
+def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
+    if isinstance(args.data_collator, Callable):
+        return args.data_collator
+
+    if args.data_collator == "truncation":
+        if args.batch_size > BS_WARNING_THRESHOLD:
+            logger.warning(
+                f"Calibrating with batch sizes greater than {BS_WARNING_THRESHOLD} and "
+                "`data_collator='truncation'` can lead to significant portions of the "
+                "calibration dataset being deleted via truncation. Please consider "
+                "reducing the calibration batch size or using filtering the dataset "
+                "to use more uniformm sequence lengths"
+            )
+
+        return data_collator_with_truncation
+
+    elif args.data_collator == "padding":
+        if args.batch_size > BS_WARNING_THRESHOLD:
+            logger.warning(
+                f"Calibrating with batch sizes greater than {BS_WARNING_THRESHOLD} and "
+                "`data_collator='padding'` can lead to excess token used for padding, "
+                "which slows down calibration time and calibrates on padding tokens not"
+                " seen at runtime. Please consider reducing the calibration batch size "
+                "or using filtering the dataset to use more uniformm sequence lengths"
+            )
+
+        tokenizer = getattr(processor, "tokenizer", processor)
+        if tokenizer.pad_token is None or tokenizer.pad_token_id < 0:
+            logger.debug("Could not find padding token. Setting PAD token to EOS token")
+            tokenizer.pad_token = tokenizer.eos_token
+
+        return DataCollatorWithPadding(tokenizer)
+
+    else:
+        raise ValueError(f"Unknown data collator {args.data_collator}")
+
+
+def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
+    num_samples = args.num_calibration_samples
+    shuffle = args.shuffle_calibration_samples
+    batch_size = args.batch_size
+
+    if num_samples is not None and num_samples > len(dataset):
+        logger.warning(
+            f"Requested {num_samples} samples but the provided dataset only has "
+            f"{len(dataset)} samples."
+        )
+        num_samples = len(dataset)
+
+    if shuffle:
+        if batch_size > 1:
+            logger.warning(
+                "Shuffling the dataset can lead to unoptimal batching for sequence "
+                "lengths non-uniform sizes. When collating with truncation, this will "
+                "delete a large number of tokens. When collating with padding, this "
+                "will add a large number of padding tokens.\n\nPlease consider calling "
+                "`oneshot` with `batch_size=1`"
+            )
+
+        return RandomSampler(dataset, num_samples=num_samples)
+    else:
+        return LengthAwareSampler(dataset, num_samples=num_samples)
+
+
+def data_collator_with_truncation(
+    features: list[dict[str, Any]], return_tensors: str = "pt"
+) -> dict[str, Any]:
+    for key in ("input_ids", "labels", "attention_mask"):
+        if any(key not in feature for feature in features):
+            continue
+
+        min_len = min(len(feature[key]) for feature in features)
+        for feature in features:
+            feature[key] = feature[key][:min_len]
+
+    return default_data_collator(features, return_tensors)
+
+
+class LengthAwareSampler(Sampler[int]):
+    """
+    Sample data in order of descending sequence length. Relies on `input_ids` or
+    `decoder_input_ids` column existing in dataset
+
+    :param data_source: dataset containing a `input_ids` or `decoder_input_ids` column
+    :param num_samples: Maximum number of samples to sample. Shorted sequence lengths
+        are truncated first
+    """
+
+    data_source: Sized
+    replacement: bool
+
+    def __init__(
+        self,
+        data_source: Dataset,
+        num_samples: Optional[int] = None,
+    ) -> None:
+        self.data_source = data_source
+        self._num_samples = num_samples or len(data_source)
+
+        if "input_ids" in data_source.column_names:
+            feature_name = "input_ids"
+        elif "decoder_input_ids" in data_source.column_names:
+            feature_name = "decoder_input_ids"
+        else:
+            logger.warning(f"Could not find input ids in {data_source.column_names}")
+            self.order = range(len(data_source))
+            return
+
+        lengths = [len(sample) for sample in data_source[feature_name]]
+        self.order = torch.argsort(torch.tensor(lengths), descending=True).tolist()
+
+    @property
+    def num_samples(self) -> int:
+        return self._num_samples
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(self.order[: self._num_samples])
+
+    def __len__(self) -> int:
+        return self._num_samples

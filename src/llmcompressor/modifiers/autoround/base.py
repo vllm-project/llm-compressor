@@ -22,10 +22,8 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_if_target_shared_embedding,
-)
-from llmcompressor.utils.pytorch.module import get_no_split_params
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils.pytorch import get_no_split_params
 
 __all__ = ["AutoRoundModifier"]
 
@@ -94,35 +92,39 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     This modifier leverages signed gradient descent (SignSGD) optimizer and
     block-wise loss to optimize rounding values and weight clipping in a few steps.
 
-    | Sample yaml:
-    | test_stage:
-    |    modifiers:
-    |      AutoRoundModifier:
-    |          iters: 200
-    |          config_groups:
-    |            group_0:
-    |                targets:
-    |                  - "Linear"
-    |                input_activations: null
-    |                output_activations: null
-    |                weights:
-    |                    num_bits: 4
-    |                    type: "int"
-    |                    symmetric: true
-    |                    strategy: group
-    |                    group_size: 128
+    Sample yaml:
+
+    ```yaml
+    test_stage:
+      modifiers:
+        AutoRoundModifier:
+          iters: 200
+          config_groups:
+            group_0:
+              targets:
+                - "Linear"
+              input_activations: null
+              output_activations: null
+              weights:
+                num_bits: 4
+                type: "int"
+                symmetric: true
+                strategy: group
+                group_size: 128
+    ```
 
     Lifecycle:
-        - on_initialize
-            - apply config to model
-        - on_start
-            - add input capture hooks to decoding layers
-        - on_sequential_epoch_end
-            - apply_autoround
-            - post_autoround_cleanup
-        - on_finalize
-            - remove_hooks()
-            - model.apply(freeze_module_quantization)
+
+    - on_initialize
+        - apply config to model
+    - on_start
+        - add input capture hooks to decoding layers
+    - on_sequential_epoch_end
+        - apply_autoround
+        - post_autoround_cleanup
+    - on_finalize
+        - remove_hooks()
+        - model.apply(freeze_module_quantization)
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -143,7 +145,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     device_map: str = "0"
 
     # private variables
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
     _q_input: Optional[torch.Tensor] = PrivateAttr(default=None)
 
@@ -158,10 +159,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
-        self._module_names = {
-            m: name
-            for name, m in match_named_modules(state.model, self.targets, self.ignore)
-        }
         self._add_temporary_names(state.model)
         # freeze all model parameters
         for _, param in state.model.named_parameters():
@@ -176,7 +173,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param model: model to prepare for calibration
         """
-        untie_if_target_shared_embedding(model, self._module_names.values())
+        targets = match_named_modules(model, self.targets, self.ignore)
+        if targets_embeddings(model, targets):
+            untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round

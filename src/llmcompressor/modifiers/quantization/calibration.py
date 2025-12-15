@@ -8,12 +8,15 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.utils import align_module_device, update_offload_parameter
+from compressed_tensors.utils import (
+    align_module_device,
+    getattr_chain,
+    update_offload_parameter,
+)
 from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.observers import Observer
-from llmcompressor.utils.helpers import getattr_chain
 
 __all__ = [
     "initialize_observer",
@@ -78,7 +81,8 @@ def call_observer(
         base_name is "weight", then the module's weight tensor will be used
     """
     with align_module_device(module):
-        value = module.weight if base_name == "weight" else value
+        if value is None and base_name == "weight":
+            value = module.weight
         observer: Observer = getattr(module, f"{base_name}_observer")
 
         if should_calculate_gparam:
