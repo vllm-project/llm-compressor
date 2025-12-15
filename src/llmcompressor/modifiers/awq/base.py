@@ -737,7 +737,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # to normalize and then back to calculate the means.
                 # the major issue is 2->3 where we have to transpose the inner dims. We
                 # did this with flatten_for_calibration which does 1->3 and then
-                # do a view to do step 4. note flatten_for_calibration uses
+                # do a reshape to do step 4. note flatten_for_calibration uses
                 # q_args.block_structure, i.e. the 1st and 3rd dim in step 2 to do
                 # this. We also want to use flatten_for_calibration to undo this,
                 # but we need to set block_stucture to be the 1st and 3rd value
