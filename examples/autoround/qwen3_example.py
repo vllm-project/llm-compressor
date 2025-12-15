@@ -7,8 +7,9 @@ from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 model_id = "Qwen/Qwen3-30B-A3B"
-model_id = "/storage/yiliu7/Qwen/Qwen3-30B-A3B"
+# model_id = "/storage/yiliu7/Qwen/Qwen3-30B-A3B"
 # model_id = "/storage/yiliu7/Qwen/Qwen2.5-0.5B/"
+model_id = "/storage/yiliu7/Qwen/Qwen3-235B-A22B/"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -29,12 +30,14 @@ ds = get_dataset(
 recipe = AutoRoundModifier(
     targets="Linear",
     scheme="W4A16",
-    ignore=["lm_head",
-        "re:.*mlp.gate$"
+    ignore=[
+        "lm_head",
+        "re:.*mlp.gate$",
         # "re:.*.gate_proj$"
-        ],
+    ],
     iters=1,
     enable_torch_compile=False,
+    device_map="0,1",
 )
 
 
@@ -50,7 +53,7 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
+SAVE_DIR =  "/storage/yiliu7/" + model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
 print(f"save to {SAVE_DIR}")
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
