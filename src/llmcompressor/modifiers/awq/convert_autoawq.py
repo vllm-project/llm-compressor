@@ -186,12 +186,18 @@ def convert_and_save(
     :param overwrite: Overwrite the existing output directory if it exists.
     :param trust_remote_code: Whether to trust remote code.
     """
-    is_empty_dir = (
-        os.path.isdir(output_dir) and next(os.scandir(output_dir), None) is None
-    )
-    if not is_empty_dir and not overwrite:
+    output_exists = os.path.exists(output_dir)
+    is_directory = os.path.isdir(output_dir) if output_exists else False
+    is_empty_dir = False
+    if output_exists and is_directory:
+        is_empty_dir = not any(os.scandir(output_dir))
+
+    if not output_exists:
+        # Safe: output_dir does not exist
+        pass
+    elif not is_directory or (not is_empty_dir and not overwrite):
         raise FileExistsError(
-            f"Output directory {output_dir} already exists. Set `overwrite=True` to"
+            f"{output_dir=} already exists. Set `overwrite=True` to"
             " overwrite the existing directory."
         )
 
@@ -309,7 +315,7 @@ class ConversionArgs:
     output_dir: str = field(
         metadata={"help": "Path to save the converted model."},
     )
-    quantization_format: Literal["naive-quantized", "packed-quantized"] = field(
+    quantization_format: Literal["naive-quantized", "pack-quantized"] = field(
         default="naive-quantized",
         metadata={"help": "Compression format to be saved."},
     )  # TODO: switch default to packed-quantized once supported by llm-compressor.
