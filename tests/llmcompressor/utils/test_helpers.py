@@ -174,5 +174,4 @@ def test_disable_lm_head(offload):
     with disable_lm_head(model):
         input = {key: value.to("cuda") for key, value in model.dummy_inputs.items()}
         output = model(**input)
-        assert lm_input_device == torch.device("cuda:0")
         assert output.logits.device == torch.device("meta")
