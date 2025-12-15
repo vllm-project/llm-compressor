@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+import torch.nn as nn
 from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
@@ -54,9 +55,6 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     first_param = next(layer.parameters())
     wrapped_model.dtype = first_param.dtype
     return wrapped_model
-
-
-import torch.nn as nn
 
 
 @contextmanager
