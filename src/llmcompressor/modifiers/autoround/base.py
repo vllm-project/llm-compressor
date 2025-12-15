@@ -252,7 +252,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             decoding_layer
         ), suspend_accelerate_hooks(wrapped_model):
             ar_quant_scheme = self._mapping_config_to_autoround()
-
+            fp_layers = self.get_unquantized_layer_names(decoding_layer)
             ar = AutoRound(
                 model=wrapped_model,
                 tokenizer="",
@@ -261,6 +261,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 enable_torch_compile=self.enable_torch_compile,
                 batch_size=self.batch_size,
                 device_map=self.device_map,
+                fp_layers=",".join(fp_layers) if fp_layers else "",
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
@@ -281,7 +282,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._q_input = q_input
             # Update offload parameters and remove temporary attributes
             for _, module in decoding_layer.named_modules():
-                if hasattr(module, "weight_scale") and hasattr(
+                if hasattr(module, "scale") and hasattr(
                     module, "weight_zero_point"
                 ):
                     # Note: The model's weight is already q-dq in-place by auto-round.
@@ -314,6 +315,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         return True
+
+    def get_unquantized_layer_names(self, wrapped_model) -> List[str]:
+        unquantized_layers = []
+
+        for name, module in wrapped_model.named_modules():
+            if (
+                module.__class__.__name__ in self.resolved_targets
+                and getattr(module, "quantization_scheme", None) is None
+            ):
+                unquantized_layers.append(name)
+        return unquantized_layers
 
     def _add_temporary_names(self, model: torch.nn.Module):
         for name, mod in model.named_modules():
