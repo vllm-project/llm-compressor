@@ -53,7 +53,9 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR =  "/storage/yiliu7/" + model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
+SAVE_DIR = (
+    "/storage/yiliu7/" + model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
+)
 print(f"save to {SAVE_DIR}")
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
@@ -67,5 +69,3 @@ sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
-
-

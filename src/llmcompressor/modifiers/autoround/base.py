@@ -282,9 +282,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._q_input = q_input
             # Update offload parameters and remove temporary attributes
             for _, module in decoding_layer.named_modules():
-                if hasattr(module, "scale") and hasattr(
-                    module, "weight_zero_point"
-                ):
+                if hasattr(module, "scale") and hasattr(module, "weight_zero_point"):
                     # Note: The model's weight is already q-dq in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
