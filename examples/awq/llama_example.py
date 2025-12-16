@@ -17,7 +17,8 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 256
+# Reduced to 32 for faster testing
+NUM_CALIBRATION_SAMPLES = 32
 MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
@@ -51,7 +52,10 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+        ignore=["lm_head"],
+        scheme="W4A16_ASYM",
+        targets=["Linear"],
+        duo_scaling="both"
     ),
 ]
 

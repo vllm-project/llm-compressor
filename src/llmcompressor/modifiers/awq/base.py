@@ -1,4 +1,6 @@
 import inspect
+import time
+from collections import defaultdict
 from itertools import product
 from typing import Iterator, Literal
 
@@ -158,6 +160,9 @@ class AWQModifier(Modifier, QuantizationMixin):
     _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
+    # Timing stats
+    _timing_stats: dict[str, float] = PrivateAttr(default_factory=lambda: defaultdict(float))
+    _timing_counts: dict[str, int] = PrivateAttr(default_factory=lambda: defaultdict(int))
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -239,11 +244,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
+        calibrate_start = time.time()
         for _, module in tqdm(
             match_named_modules(state.model, self.resolved_targets, self.ignore),
             desc="Calibrating weights",
         ):
             update_weight_zp_scale(module)
+        self._timing_stats["calibrate_weights"] += time.time() - calibrate_start
 
         QuantizationMixin.end_calibration(self, state.model)
 
@@ -260,11 +267,69 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
+        # Print timing summary
+        self._print_timing_summary()
+
         self._parent_args_cache.clear()
         self._smooth_activation_means.clear()
         self._resolved_mappings.clear()
 
         return True
+
+    def _print_timing_summary(self):
+        """Print a clean summary of timing statistics"""
+        if not self._timing_stats:
+            return
+
+        logger.info("\n" + "=" * 80)
+        logger.info("AWQ Timing Summary")
+        logger.info("=" * 80)
+
+        # Define the order and grouping of metrics
+        sections = {
+            "Overall": [
+                "apply_smoothing",
+                "calibrate_weights",
+            ],
+            "Per-Mapping (compute_best_scale)": [
+                "compute_best_scale",
+                "best_scale_setup",
+                "grid_quantize",
+                "run_samples",
+                "compute_loss",
+                "propagate_scales",
+            ],
+        }
+
+        for section_name, metrics in sections.items():
+            logger.info(f"\n{section_name}:")
+            logger.info("-" * 80)
+
+            section_total = 0.0
+            for metric in metrics:
+                if metric in self._timing_stats:
+                    total_time = self._timing_stats[metric]
+                    count = self._timing_counts.get(metric, 1)
+                    avg_time = total_time / count if count > 0 else 0
+
+                    if count > 1:
+                        logger.info(
+                            f"  {metric:30s}: {total_time:8.2f}s total  "
+                            f"({count:4d} calls, {avg_time:8.4f}s avg)"
+                        )
+                    else:
+                        logger.info(f"  {metric:30s}: {total_time:8.2f}s")
+
+                    section_total += total_time
+
+            if section_total > 0:
+                logger.info(f"  {'SECTION TOTAL':30s}: {section_total:8.2f}s")
+
+        # Overall total
+        total_time = sum(self._timing_stats.values())
+        logger.info("\n" + "=" * 80)
+        logger.info(f"{'TOTAL TIME':30s}: {total_time:8.2f}s")
+        logger.info("=" * 80 + "\n")
 
     def _set_resolved_mappings(self, model: Module) -> None:
         """
@@ -396,6 +461,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
+        smoothing_start = time.time()
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being updated
         mappings_to_smooth = [
@@ -440,6 +506,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 best_scales = self._compute_best_scale(mapping, fp16_outputs)
 
+                # Apply scales to weights
+                propagate_start = time.time()
+
                 @torch.no_grad()
                 def _smooth(module: Module):
                     scales = best_scales.to(module.weight.device)
@@ -482,6 +551,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                         _smooth(layer)
                     _smooth(smooth_layer)
 
+                self._timing_stats["propagate_scales"] += time.time() - propagate_start
+                self._timing_counts["propagate_scales"] += 1
+
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_means[mapping.smooth_name]
 
@@ -489,15 +561,22 @@ class AWQModifier(Modifier, QuantizationMixin):
             v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
+        self._timing_stats["apply_smoothing"] += time.time() - smoothing_start
+        self._timing_counts["apply_smoothing"] += 1
+
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
+        start_time = time.time()
         outputs = [
             module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
         ]
-        return [
+        result = [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
             for output in outputs
         ]
+        self._timing_stats["run_samples"] += time.time() - start_time
+        self._timing_counts["run_samples"] += 1
+        return result
 
     def _compute_best_scale(
         self,
@@ -520,15 +599,27 @@ class AWQModifier(Modifier, QuantizationMixin):
             one tensor for each batch.
         :return: tensor of best scales, one for each channel
         """
+        total_start = time.time()
+
         history = []
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
 
-        org_sd = {
-            k: v.cpu()
-            for k, v in mapping.parent.state_dict().items()
-            if v.device != torch.device("meta")
+        # Setup phase
+        setup_start = time.time()
+        balance_layers_to_patch = [
+            balance_layer
+            for balance_layer in mapping.balance_layers
+            if hasattr(balance_layer, "quantization_scheme")
+            and hasattr(balance_layer.quantization_scheme, "weights")
+        ]
+
+        # Save state of the balance layers so we can restore later
+        org_layer_states = {
+            id(layer): {k: v.clone() for k, v in layer.state_dict().items()
+                       if v.device != torch.device("meta")}
+            for layer in balance_layers_to_patch
         }
 
         device = get_execution_device(mapping.parent)
@@ -536,6 +627,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
+        self._timing_stats["best_scale_setup"] += time.time() - setup_start
 
         match self.duo_scaling:
             # if self.duo_scaling is "both", perform half the grid search with
@@ -549,12 +641,6 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # Where appropriate, replace observers with memoryless_minmax
         # for duration of grid search
-        balance_layers_to_patch = [
-            balance_layer
-            for balance_layer in mapping.balance_layers
-            if hasattr(balance_layer, "quantization_scheme")
-            and hasattr(balance_layer.quantization_scheme, "weights")
-        ]
         with patch_attrs(
             balance_layers_to_patch,
             "weight_observer",
@@ -587,6 +673,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isnan(scales)] = 1
 
                 # Q(W * s)
+                quant_start = time.time()
                 for balance_layer in balance_layers_to_patch:
                     if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                         balance_layer.quantization_scheme, "weights"
@@ -594,24 +681,27 @@ class AWQModifier(Modifier, QuantizationMixin):
                         continue
 
                     w_qscheme = balance_layer.quantization_scheme.weights
-                    balance_layer.weight.mul_(_scalesview)
+                    # Calculate scaled weight from original state instead of modifying in-place
+                    balance_layer.weight.data = (
+                        org_layer_states[id(balance_layer)]['weight'] * _scalesview
+                    ).to(balance_layer.weight.dtype)
+
                     call_observer(
                         balance_layer,
                         "weight",
                         balance_layer.weight,
                         # TODO test should_calculate_gparam for nvfp4 support
                     )
-                    update_offload_parameter(
-                        balance_layer,
-                        "weight",
+                    balance_layer.weight.data = (
                         forward_quantize(
                             balance_layer,
-                            balance_layer.weight.data,
+                            balance_layer.weight,
                             "weight",
                             w_qscheme,
-                        )
-                        / _scalesview,
-                    )
+                        ) / _scalesview
+                    ).to(balance_layer.weight.dtype)
+                self._timing_stats["grid_quantize"] += time.time() - quant_start
+                self._timing_counts["grid_quantize"] += 1
 
                 # W * X
                 int_w_outputs = self._run_samples(mapping.parent)
@@ -627,8 +717,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_ratio = ratio
                     best_scales = scales.clone()
 
-                mapping.parent.load_state_dict(org_sd, strict=False)
-
         if best_ratio == -1:
             logger.debug(history)
             raise Exception(
@@ -642,6 +730,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             torch.isnan(best_scales).sum() == 0
         ), f"Nan found in scales: {best_scales}"
 
+        self._timing_stats["compute_best_scale"] += time.time() - total_start
+        self._timing_counts["compute_best_scale"] += 1
         return best_scales.detach().cpu()
 
     @torch.no_grad()
@@ -650,6 +740,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
     ) -> float:
+        start_time = time.time()
         loss = 0.0
         num_elements = 0
 
@@ -663,6 +754,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Normalize the loss by the total number of elements
         loss /= num_elements
 
+        self._timing_stats["compute_loss"] += time.time() - start_time
+        self._timing_counts["compute_loss"] += 1
         return loss
 
     def _assert_all_activations_consumed(self):
