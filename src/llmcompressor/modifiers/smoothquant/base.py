@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable
 
 import torch
 from compressed_tensors.utils import align_module_device, match_modules_set
@@ -96,15 +96,15 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: Optional[list[tuple | list]] = None
-    ignore: Optional[list[str]] = None
-    num_calibration_steps: Optional[int] = None
-    calibration_function: Optional[Callable] = None
+    mappings: list[tuple | list] | None = None
+    ignore: list[str] | None = None
+    num_calibration_steps: int | None = None
+    calibration_function: Callable | None = None
 
-    resolved_mappings_: Optional[list[SmoothQuantMapping]] = Field(
+    resolved_mappings_: list[SmoothQuantMapping] | None = Field(
         default=None, repr=False
     )
-    scales_: Optional[dict] = Field(default=None, repr=False)
+    scales_: dict | None = Field(default=None, repr=False)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
