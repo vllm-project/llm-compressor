@@ -87,7 +87,12 @@ class TestvLLM:
             self.vllm_env = sys.executable
 
         if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+            base_name = self.model.split("/")[1] + f"-{self.scheme}"
+            hf_cache = os.environ.get("HF_HUB_CACHE")
+            if hf_cache and os.path.isdir(hf_cache):
+                self.save_dir = os.path.join(hf_cache, base_name)
+            else:
+                self.save_dir = base_name
 
         logger.info("========== RUNNING ==============")
         logger.info(self.save_dir)
