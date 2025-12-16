@@ -5,12 +5,11 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import SpinQuantModifier
 from llmcompressor.utils import dispatch_for_generation
-from compressed_tensors.quantization import QuantizationScheme, QuantizationArgs
+from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.quantization.quant_scheme import NVFP4
 
 # Select model and load it.
-#model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model_id = "meta-llama/Llama-3.2-1B-Instruct"
+model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
