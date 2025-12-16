@@ -1,3 +1,6 @@
+import time
+
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -51,11 +54,20 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+        ignore=["lm_head"], 
+        scheme="W4A16_ASYM", 
+        targets=["Linear"], 
+        duo_scaling="both", 
+        # offload_device=torch.device("cpu")
     ),
 ]
 
 # Apply algorithms.
+# Reset peak memory stats and start timer
+torch.cuda.reset_peak_memory_stats()
+start_time = time.time()
+model.model.config.num_hidden_layers = 3
+
 oneshot(
     model=model,
     dataset=ds,
@@ -64,18 +76,13 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
+# Calculate elapsed time and peak memory
+elapsed_time = time.time() - start_time
+peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
 
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+print(f"\n{'='*60}")
+print(f"AWQ Quantization Complete")
+print(f"{'='*60}")
+print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
+print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
+print(f"{'='*60}\n")

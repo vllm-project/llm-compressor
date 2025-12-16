@@ -1,6 +1,6 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
+import torch
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.utils import dispatch_for_generation
@@ -15,6 +15,7 @@ recipe = [
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
+        # offload_device=torch.device("cpu")
     ),
 ]
 
@@ -22,8 +23,6 @@ recipe = [
 DATASET_ID = "codeparrot/self-instruct-starcoder"
 DATASET_SPLIT = "curated"
 
-# Select number of samples. 256 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -53,10 +52,16 @@ def get_calib_dataset(tokenizer):
 if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    
+    model.model.config.num_hidden_layers = 1
 
     ###
     ### Apply algorithms.
     ###
+    import time
+    torch.cuda.reset_peak_memory_stats()
+    start_time = time.time()
+
     oneshot(
         model=model,
         dataset=get_calib_dataset(tokenizer),
@@ -66,16 +71,12 @@ if __name__ == "__main__":
         log_dir=None,
     )
 
-    # Confirm generations of the quantized model look sane.
-    print("========== SAMPLE GENERATION ==============")
-    dispatch_for_generation(model)
-    input_ids = tokenizer(
-        "Write a binary search function", return_tensors="pt"
-    ).input_ids.to(model.device)
-    output = model.generate(input_ids, max_new_tokens=150)
-    print(tokenizer.decode(output[0]))
-    print("==========================================\n\n")
+    elapsed_time = time.time() - start_time
+    peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
 
-    # Save model to disk
-    model.save_pretrained(SAVE_DIR)
-    tokenizer.save_pretrained(SAVE_DIR)
+    print(f"\n{'='*60}")
+    print(f"AWQ Quantization Complete")
+    print(f"{'='*60}")
+    print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
+    print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
+    print(f"{'='*60}\n")
