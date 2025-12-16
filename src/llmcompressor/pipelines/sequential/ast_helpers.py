@@ -10,7 +10,7 @@ from typing import List
 import torch
 from compressed_tensors.utils import patch_attr
 
-from llmcompressor.pipelines.sequential.ast_utils.auto_wrapper import AutoWrapper
+from llmcompressor.pipelines.sequential.ast_utils import AutoWrapper
 
 __all__ = ["autowrap_forwards", "append_autowrap_source_on_fail"]
 
