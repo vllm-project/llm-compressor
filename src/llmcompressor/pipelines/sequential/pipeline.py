@@ -89,8 +89,7 @@ class SequentialPipeline(CalibrationPipeline):
                 stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
-            cache_offload = dataset_args.offload_sequential_activations
-            offload_device = torch.device("cpu") if cache_offload else None
+            offload_device = torch.device(dataset_args.sequential_offload_device)
             activations = IntermediatesCache.from_dataloader(
                 dataloader, model_device, offload_device=offload_device
             )
