@@ -234,7 +234,7 @@ class DatasetArguments(CustomDatasetArguments):
         default="cpu",
         metadata={
             "help": "Device used to offload intermediate activations between "
-            "sequential layers. It is recommended use to use `cuda:1` if using more "
+            "sequential layers. It is recommended to use `cuda:1` if using more "
             "than one gpu. Default is cpu."
         },
     )
