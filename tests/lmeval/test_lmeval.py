@@ -127,7 +127,12 @@ class TestLMEval:
         base_results = self._eval_base_model()
 
         if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+            base_name = self.model.split("/")[1] + f"-{self.scheme}"
+            hf_cache = os.environ.get("HF_HUB_CACHE")
+            if hf_cache and os.path.isdir(hf_cache):
+                self.save_dir = os.path.join(hf_cache, base_name)
+            else:
+                self.save_dir = base_name
         oneshot_model, processor = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
