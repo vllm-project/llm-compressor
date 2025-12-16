@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       COVERAGE_FILE: ".coverage.base"
+      HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
     strategy:
       matrix:
         python: ["3.10", "3.13"]
@@ -78,6 +79,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       COVERAGE_FILE: ".coverage.pytorch"
+      HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
     strategy:
       matrix:
         python: ["3.10", "3.13"]
