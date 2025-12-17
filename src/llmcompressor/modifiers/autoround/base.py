@@ -59,29 +59,22 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
 
 @contextmanager
 def suspend_accelerate_hooks(model: nn.Module):
-    """
-    Context manager to temporarily detach Accelerate hooks (e.g., offloading,
-    casting) and automatically restore them upon exit.
-    """
     saved_hooks = {}
-
-    # 1. Capture existing hooks
-    for _, module in model.named_modules():
+    original_device = next(model.parameters()).device
+    for name, module in model.named_modules():
         if hasattr(module, "_hf_hook"):
-            saved_hooks[module] = module._hf_hook
+            saved_hooks[name] = module._hf_hook
 
-    # 2. Detach hooks for the duration of the context
     remove_hook_from_submodules(model)
-
     try:
         yield
     finally:
-        # 3. Ensure a clean slate (remove any hooks added inside the block)
         remove_hook_from_submodules(model)
-
-        # 4. Re-attach the original hooks
-        for module, hook in saved_hooks.items():
-            add_hook_to_module(module, hook, append=True)
+        model.to(original_device)
+        for name, module in model.named_modules():
+            if name in saved_hooks:
+                logger.info("Restoring Accelerate hook for module: {}", name)
+                add_hook_to_module(module, saved_hooks[name], append=True)
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
