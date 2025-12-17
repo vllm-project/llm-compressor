@@ -8,6 +8,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
+from transformers import DefaultDataCollator
 
 
 def load_model(model: str, model_class: str, device_map: str | None = None):
@@ -94,7 +95,11 @@ def run_oneshot_for_e2e_testing(
             )
 
     # Apply quantization.
+
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
+
+    oneshot_kwargs["shuffle_calibration_samples"] = True
+    oneshot_kwargs["data_collator"] = DefaultDataCollator()
     _run_oneshot(**oneshot_kwargs)
 
     return oneshot_kwargs["model"], processor
