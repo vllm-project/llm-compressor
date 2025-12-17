@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationType
