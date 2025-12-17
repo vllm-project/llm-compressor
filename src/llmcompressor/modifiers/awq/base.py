@@ -120,9 +120,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
-    :param ignore: list of layers to ignore, even if they match a regex in mappings.
-        It should match the name of layers whose outputs are scaled to achieve
-        smoothing (the second entry of the mappings list).
+    :param ignore: list of layers to exclude from quantization. By default, layers in 
+        `ignore` are also excluded from AWQ smoothing. Use `force_balance` to override 
+        this and smooth certain layers despite being in `ignore` (e.g., MoE gate layers).
+    :param force_balance: list of layers to include in AWQ smoothing even if they are in 
+        `ignore`. This allows you to smooth but not quantize specific layers. For example, 
+        if `ignore=["lm_head", "re:.*mlp.gate"]` and `force_balance=["re:.*mlp.gate"]`, 
+        then mlp.gate will be smoothed but not quantized, while lm_head will be neither 
+        smoothed nor quantized. If None, all layers in `ignore` are excluded from smoothing 
+        (default backward-compatible behavior).
     :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
@@ -145,6 +151,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
+    force_balance: list[str] | None = None
     offload_device: torch.device | None = None
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
@@ -281,9 +288,34 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+        
+        # Compute the effective ignore list for AWQ smoothing:
+        # Start with self.ignore, then remove any layers in force_balance
+        # If force_balance is None, use self.ignore as-is (backward compatible)
+        if self.force_balance is not None:
+            # Validate that all force_balance layers are in ignore
+            ignore_set = set(self.ignore or [])
+            force_balance_set = set(self.force_balance)
+            invalid_force_balance = force_balance_set - ignore_set
+            if invalid_force_balance:
+                raise ValueError(
+                    f"force_balance contains layers that are not in ignore: "
+                    f"{invalid_force_balance}. force_balance should only contain "
+                    f"layers that are in ignore but you want to smooth anyway."
+                )
+            
+            # Remove force_balance layers from ignore list for AWQ matching
+            awq_ignore = [
+                ign for ign in (self.ignore or [])
+                if ign not in self.force_balance
+            ]
+        else:
+            # Default: exclude everything in ignore from smoothing
+            awq_ignore = self.ignore
+        
         for mapping in self.mappings:
             for smooth_layers, *nested_balance_layers in match_modules_set(
-                model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
+                model, (mapping.smooth_layer, *mapping.balance_layers), awq_ignore
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
