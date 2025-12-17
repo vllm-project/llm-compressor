@@ -356,11 +356,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
-                self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    # Assume that first argument is the input
-                    args[0].cpu().abs().detach().flatten(0, -2),
+                
+                act_mean, count = _accumulate_mean(
+                    args[0].abs().detach().flatten(0, -2),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
+                self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
 
             return cache_smooth_activations_hook
 
@@ -863,9 +864,10 @@ def _accumulate_mean(
     sum_added = inp.sum(dim=0)
     num_added = inp.size(0)
     if prev_mean_and_count is None:
-        return sum_added, num_added
+        return sum_added / num_added, num_added
 
     prev_mean, prev_count = prev_mean_and_count
+    prev_mean = prev_mean.to(inp.device)
 
     prev_sum = prev_mean * prev_count
     new_count = prev_count + num_added
