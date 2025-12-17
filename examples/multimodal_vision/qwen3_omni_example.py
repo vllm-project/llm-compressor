@@ -10,6 +10,9 @@ from transformers import (
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    modify_save_pretrained,
+)
 from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
@@ -97,6 +100,7 @@ if audio is not None:
 print("==========================================")
 
 # Save to disk compressed.
+modify_save_pretrained(model)
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)
