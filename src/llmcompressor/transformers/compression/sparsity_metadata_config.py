@@ -1,3 +1,4 @@
+from __future__ import annotations
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationType
@@ -86,7 +87,7 @@ class SparsityConfigMetadata:
         quantization_format: CompressionFormat | None = None,
         disable_sparse_compression: bool = False,
         sparsity_structure: str | None = None,
-    ) -> "SparsityCompressionConfig" | None:
+    ) -> SparsityCompressionConfig | None:
         """
         Determines compression type and informational parameters for a given model
 
