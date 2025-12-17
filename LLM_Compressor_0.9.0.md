@@ -35,7 +35,7 @@ This is particularly useful for models without a `transformers` model definition
 
 > [!NOTE]
 > Model-free PTQ currently supports data-free methods only, specifically FP8 quantization. 
-> Model-free PTQ was used to quantize the Mistral Large 3 model.
+> Model-free PTQ was used to quantize the [Mistral Large 3](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512) model.
 
 See the [model_free_ptq](https://github.com/vllm-project/llm-compressor/tree/main/examples/model_free_ptq) usage examples for more information.
 
