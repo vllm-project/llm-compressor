@@ -33,6 +33,10 @@ These changes lay the groundwork for future work in creating and researching adv
 Model-free post-training quantization (PTQ) enables quantization by directly operating on safetensors files.
 This is particularly useful for models without a `transformers` model definition, such as some Mistral models.
 
+> [!NOTE]
+> Model-free PTQ currently supports data-free methods only, specifically FP8 quantization. 
+> Model-free PTQ was used to quantize the Mistral Large 3 model.
+
 See the [model_free_ptq](https://github.com/vllm-project/llm-compressor/tree/main/examples/model_free_ptq) usage examples for more information.
 
 ## Added AutoRound modifier
@@ -46,6 +50,8 @@ This approach combines the efficiency of post-training quantization with the ada
 LLM Compressor now supports batched calibration for quantization and sparsification.
 Pass the `batch_size` and `data_collator` arguments to the `oneshot` compression entrypoint for improved calibration throughput.
 For built-in collation strategies, pass `"padding"` or `"truncation"` as string values for `data_collator`.
+The default collator from the `DefaultDataCollator` class is now `"truncation"`.
+The default value for `shuffle_calibration_samples` is now `False`.
 
 <!-- https://issues.redhat.com/browse/INFERENG-2543 -->
 <!-- https://issues.redhat.com/browse/INFERENG-3572 -->
@@ -89,7 +95,7 @@ This enables quantization support for Qwen3 VL and Qwen3 MoE models by using dat
 <!-- https://issues.redhat.com/browse/INFERENG-2164 -->
 ## Extended LLM Compressor activation quantization support
 
-LLM Compressor now supports dynamic group and channel activation quantization for models.
+LLM Compressor now supports dynamic, group, and channel activation quantization for models.
 
 <!-- https://issues.redhat.com/browse/INFERENG-1889 -->
 <!-- https://issues.redhat.com/browse/INFERENG-1890 -->
