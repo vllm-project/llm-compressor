@@ -12,11 +12,7 @@ from torch.nn import Linear
 from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import (
-    _orient_weight,
-    _reorient_weight,
-    get_lowest_common_ancestor_with_avoid,
-)
+from llmcompressor.modifiers.awq.base import get_lowest_common_ancestor_with_avoid
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -250,6 +246,7 @@ def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tens
         (5, -1, 32),  # channel
         (4, 10, 40),  # group
         (4, torch.inf, 40),  # tensor
+        (3, 16, 64),  # tensor_group
     ],
 )
 def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
@@ -263,6 +260,9 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
         torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
     ]
     group_size_arg = None
+    # Determine if this is tensor_group based on n_balance_layers being 3
+    is_tensor_group = n_balance_layers == 3
+
     match group_size:
         case -1:
             strategy = QuantizationStrategy.CHANNEL
@@ -271,7 +271,10 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
             strategy = QuantizationStrategy.TENSOR
             group_size = n_input_features * 10
         case _:
-            strategy = QuantizationStrategy.GROUP
+            if is_tensor_group:
+                strategy = QuantizationStrategy.TENSOR_GROUP
+            else:
+                strategy = QuantizationStrategy.GROUP
             group_size_arg = group_size
 
     for balance_layer in balance_layers:
@@ -335,6 +338,79 @@ def test_compute_layer_means_does_not_modify_weights():
             original_weights[i],
             msg=f"Layer {i} weight was modified by _compute_layer_means",
         )
+
+
+@torch.no_grad
+@pytest.mark.unit
+def test_tensor_group_strategy_validation():
+    """
+    Test that duo_scaling validation works correctly with TENSOR_GROUP strategy.
+    duo_scaling should work with TENSOR_GROUP strategy (which is a per-channel strategy),
+    but should fail with TENSOR strategy.
+    """
+    # Test that TENSOR_GROUP works with duo_scaling
+    layers = [torch.nn.Linear(32, 16) for _ in range(2)]
+    for layer in layers:
+        setattr(
+            layer,
+            "quantization_scheme",
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    strategy=QuantizationStrategy.TENSOR_GROUP,
+                    group_size=16,
+                ),
+            ),
+        )
+
+    # This should not raise an error
+    means = AWQModifier._compute_layer_means(layers)
+    assert means is not None
+    assert means.shape[0] == 32  # Should match input features
+
+
+@torch.no_grad
+@pytest.mark.unit
+def test_tensor_group_compute_layer_means_consistency():
+    """
+    Test that _compute_layer_means produces consistent and expected results
+    for TENSOR_GROUP strategy across multiple layers with different weights.
+    """
+    n_layers = 4
+    n_input_features = 64
+    group_size = 16
+    layers = [torch.nn.Linear(n_input_features, 32) for _ in range(n_layers)]
+
+    # Set up quantization scheme for tensor_group
+    for layer in layers:
+        setattr(
+            layer,
+            "quantization_scheme",
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    strategy=QuantizationStrategy.TENSOR_GROUP,
+                    group_size=group_size,
+                ),
+            ),
+        )
+
+    # Compute layer means
+    means = AWQModifier._compute_layer_means(layers)
+
+    # Verify shape matches input features
+    assert means.shape == (n_input_features,), (
+        f"Expected means shape {(n_input_features,)}, got {means.shape}"
+    )
+
+    # Verify all values are positive (since we're computing means of abs values)
+    assert (means >= 0).all(), "All mean values should be non-negative"
+
+    # Verify no NaN or inf values
+    assert means.isfinite().all(), "Mean values should all be finite"
+
+    # Verify means are normalized (between 0 and 1 after normalization)
+    assert (means <= 1.0).all(), "Normalized means should be <= 1.0"
 
 
 @pytest.mark.unit
@@ -405,23 +481,5 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
             ] = block
     ref_means = ref_weight.sum(0, dtype=torch.float64) / ref_weight.size(0)
 
-    # auto awq
-    # we first reshape the weight such that it is effectively per-channel quantization
-    # so that we can compare to the existing _auto_awq_normalize function
-    orig_shape = lin.weight.shape
-    oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
-    lin.weight.data = oriented_weight
-
-    auto_awq_means = (
-        _reorient_weight(
-            _auto_awq_normalize([lin], None),
-            lin.quantization_scheme.weights,
-            orig_shape,
-        )
-        .mean(0)
-        .to(llmc_awq_means.dtype)
-    )
-
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
-    assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)

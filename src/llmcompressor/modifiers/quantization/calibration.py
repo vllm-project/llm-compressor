@@ -133,6 +133,14 @@ def update_weight_zp_scale(module: Module):
             "Attempting to calibrate weights of a module not in calibration mode"
         )
 
+    # For TENSOR_GROUP strategy, update global scale first before computing
+    # per-group scales and zero points, since they depend on global scale
+    if (
+        getattr_chain(module, "quantization_scheme.weights.strategy", None)
+        == QuantizationStrategy.TENSOR_GROUP
+    ):
+        update_weight_global_scale(module)
+
     call_observer(module=module, base_name="weight")
 
 
