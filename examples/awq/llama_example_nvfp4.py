@@ -1,9 +1,14 @@
+import os
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.utils import dispatch_for_generation
+
+# Enable CUDA synchronous execution for better error messages
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -17,8 +22,8 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 256
-MAX_SEQUENCE_LENGTH = 512
+NUM_CALIBRATION_SAMPLES = 64
+MAX_SEQUENCE_LENGTH = 200
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
@@ -51,7 +56,7 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+        ignore=["lm_head"], scheme="NVFP4A16", targets=["Linear"], duo_scaling="both"
     ),
 ]
 
@@ -76,6 +81,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-nvfp4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

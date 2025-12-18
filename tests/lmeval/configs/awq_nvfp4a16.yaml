@@ -9,8 +9,8 @@ lmeval:
   # NVFP4 (4-bit weights + 4-bit activations) has lower recovery than FP8/INT8
   # Observed: strict-match ~92.81%, flexible-extract ~89.59%
   recovery_threshold:
-    exact_match,strict-match: 0.92
-    exact_match,flexible-extract: 0.89
+    exact_match,strict-match: 0.95
+    exact_match,flexible-extract: 0.94
   # Absolute metrics for warnings only
   metrics:
     exact_match,flexible-extract: 0.70
