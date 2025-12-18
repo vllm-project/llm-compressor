@@ -116,6 +116,7 @@ def test_oneshot_application(recipe, tmp_path):
 
     # Check lm-head is not quantized
     not_targetted = model_loaded.lm_head
+    assert not hasattr(not_targetted, "quantization_scheme")
 
 @requires_gpu(1)
 @pytest.mark.parametrize(
