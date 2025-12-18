@@ -24,10 +24,9 @@ ds = get_dataset(
 
 
 # Configure the quantization algorithm to run.
-scheme = "FP8_DYNAMIC"
 recipe = AutoRoundModifier(
     targets="Linear",
-    scheme=scheme,
+    scheme="FP8_DYNAMIC",
     ignore=["re:.*lm_head", "re:.*router", "re:.*self_attn.*", "re:.*shared_expert.*" , "re:multi_modal_projector.*", "re:vision_model"],
     iters=0,
 )
