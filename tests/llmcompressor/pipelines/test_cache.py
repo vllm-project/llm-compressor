@@ -1,6 +1,5 @@
-from typing import Optional
-
 from dataclasses import dataclass, fields, is_dataclass
+from typing import Optional
 
 import pytest
 import torch
@@ -12,7 +11,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 @dataclass(frozen=True)
 class SampleDataclass:
     a: int
-    b: Optional[torch.Tensor] = None 
+    b: Optional[torch.Tensor] = None
     c: Optional["SampleDataclass"] = None
 
 
