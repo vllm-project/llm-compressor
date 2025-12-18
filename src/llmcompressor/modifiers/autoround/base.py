@@ -133,8 +133,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
-    # optional device map for dispatching layers to different devices during tuning
-    # e.g., "0,1" to use cuda:0 and cuda:1, or "auto" to use all available devices
+    # optional device map for layer dispatch during tuning
+    # examples: "0,1" for cuda:0,cuda:1; "auto" to use all available GPUs
+    # when None, no dispatching and the model stays on its current device
     device_map: Optional[str] = None
 
     # private variables
