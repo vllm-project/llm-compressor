@@ -313,7 +313,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def get_unquantized_layer_names(self, wrapped_model) -> List[str]:
+    def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> List[str]:
         unquantized_layers = []
 
         for name, module in wrapped_model.named_modules():
