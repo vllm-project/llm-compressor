@@ -16,7 +16,7 @@ pip install -e .
 
 ## Quickstart
 
-The example includes an end-to-end script for applying the AutoRound quantization algorithm.
+The [example](./quantization_w4a16/llama3_example.py) includes an end-to-end script for applying the AutoRound quantization algorithm.
 
 ```bash
 python3 llama3_example.py
@@ -133,7 +133,7 @@ We can see the resulting scores look good!
 > Note: quantized model accuracy may vary slightly due to nondeterminism.
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` and `w8a8` quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
 ### Questions or Feature Request?
 
