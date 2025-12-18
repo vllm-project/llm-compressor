@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable
 
 import torch
 from compressed_tensors.utils import align_module_device, match_modules_set
@@ -51,7 +51,7 @@ class SmoothQuantMapping:
 
     smooth_name: str
     smooth_layer: Module
-    balance_layers: List[Module]
+    balance_layers: list[Module]
 
 
 class SmoothQuantModifier(Modifier):
@@ -96,15 +96,15 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: Optional[List[Union[Tuple, List]]] = None
-    ignore: Optional[List[str]] = None
-    num_calibration_steps: Optional[int] = None
-    calibration_function: Optional[Callable] = None
+    mappings: list[tuple | list] | None = None
+    ignore: list[str] | None = None
+    num_calibration_steps: int | None = None
+    calibration_function: Callable | None = None
 
-    resolved_mappings_: Optional[List[SmoothQuantMapping]] = Field(
+    resolved_mappings_: list[SmoothQuantMapping] | None = Field(
         default=None, repr=False
     )
-    scales_: Optional[Dict] = Field(default=None, repr=False)
+    scales_: dict | None = Field(default=None, repr=False)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -178,7 +178,7 @@ class SmoothQuantModifier(Modifier):
     def _infer_mappings_from_model(
         self,
         model: Module,
-    ) -> List[Tuple]:
+    ) -> list[tuple]:
         if self.mappings is not None:
             return self.mappings
 
@@ -188,7 +188,7 @@ class SmoothQuantModifier(Modifier):
         )
 
     @handle_mapping_resolution_errors
-    def _resolve_mappings(self, model: Module) -> List[SmoothQuantMapping]:
+    def _resolve_mappings(self, model: Module) -> list[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
@@ -309,8 +309,8 @@ class SmoothQuantModifier(Modifier):
             del self.scales_[mapping.smooth_name]
 
     def _calculate_smoothing_scales(
-        self, balance_layers: List[Module], activation_scales: torch.Tensor
-    ) -> List[float]:
+        self, balance_layers: list[Module], activation_scales: torch.Tensor
+    ) -> torch.Tensor:
         """
         Calculate how much smoothing to apply to each channel based on the dynamic
         range of the activation and the following weights
