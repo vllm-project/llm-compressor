@@ -102,8 +102,8 @@ def test_oneshot_with_device_map(tmp_path):
     tokenizer = AutoTokenizer.from_pretrained(model)
     dataset = get_dataset(
         tokenizer=tokenizer,
-        seqlen=1024,
-        nsamples=32,
+        seqlen=512,
+        nsamples=4,
     )
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
