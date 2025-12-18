@@ -304,13 +304,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
             # auto-round will return WrapperWALayer if activation is quantized
             for name, module in decoding_layer.named_modules():
-                if "." in name:
-                    parent, child = name.rsplit(".", maxsplit=1)
-                    parent = decoding_layer.get_submodule(parent)
-                    setattr(parent, child, module.orig_layer)
-                else:
-                    # It's a top-level module
-                    setattr(decoding_layer, name, module.orig_layer)
+                if isinstance(module, WrapperWALayer):
+                    if "." in name:
+                        parent, child = name.rsplit(".", maxsplit=1)
+                        parent = decoding_layer.get_submodule(parent)
+                        setattr(parent, child, module.orig_layer)
+                    else:
+                        # It's a top-level module
+                        setattr(decoding_layer, name, module.orig_layer)
 
             # Update offload parameters and remove temporary attributes
             for name, module in decoding_layer.named_modules():
