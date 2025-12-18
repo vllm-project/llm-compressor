@@ -6,8 +6,10 @@ from typing import Type
 
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
+from accelerate.hooks import remove_hook_from_module
 from accelerate.utils import get_balanced_memory
-from compressed_tensors.utils import patch_attr, remove_dispatch
+from compressed_tensors.offload import remove_dispatch as remove_torch_offload_dispatch
+from compressed_tensors.utils import patch_attr
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
@@ -18,6 +20,7 @@ __all__ = [
     "skip_weights_download",
     "patch_transformers_logger_level",
     "dispatch_for_generation",
+    "remove_dispatch",
 ]
 
 
@@ -123,6 +126,7 @@ def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
     :return: model which is dispatched
     """
     remove_dispatch(model)
+    remove_torch_offload_dispatch(model)
 
     no_split_module_classes = model._get_no_split_modules("auto")
     max_memory = get_balanced_memory(
@@ -138,3 +142,18 @@ def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
     )
 
     return dispatch_model(model, device_map=device_map)
+
+
+def remove_dispatch(module: torch.nn.Module) -> torch.nn.Module:
+    """
+    Remove any existing accelerate dispatches from module
+
+    :param module: module which may be dispatched with hf hooks
+    :return: module without dispatch
+    """
+    remove_hook_from_module(module, recurse=True)
+    if hasattr(module, "hf_device_map"):
+        delattr(module, "hf_device_map")
+    module.to("cpu")
+
+    return module

@@ -6,6 +6,7 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
+from compressed_tensors.offload import dispatch_model
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_targets
 from loguru import logger
@@ -19,6 +20,7 @@ from transformers.configuration_utils import PretrainedConfig
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+from llmcompressor.utils.dev import remove_dispatch
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
@@ -502,6 +504,29 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
+    """
+    Dispatch a model for sequential calibration using a sequential pipeline.
+    The model will be offloaded to the CPU and dispatched to CUDA/XPU device
+    if available. Removes any existing hooks.
+
+    :param model: model to dispatch
+    :return: dispatched model
+    """
+    if torch.cuda.is_available():
+        model_device = "cuda:0"
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        model_device = "xpu:0"
+    else:
+        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        model_device = "cpu"
+
+    remove_dispatch(model)  # remove accelerate dispatches
+    model = dispatch_model(model, model_device)
+
+    return model
 
 
 def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:

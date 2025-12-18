@@ -2,7 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.offload import dispatch_model
+from compressed_tensors.offload import get_execution_device
 from compressed_tensors.utils import disable_offloading
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -19,6 +19,7 @@ from llmcompressor.utils.helpers import (
     DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
+    dispatch_for_sequential,
 )
 
 if TYPE_CHECKING:
@@ -70,8 +71,8 @@ class SequentialPipeline(CalibrationPipeline):
         num_subgraphs = len(subgraphs)
 
         # prepare model for sequential onloading
-        model_device = "cuda" if torch.cuda.is_available() else "cpu"
-        dispatch_model(model, model_device)
+        dispatch_for_sequential(model)
+        model_device = get_execution_device(model)
 
         LifecycleCallbacks.calibration_epoch_start()
 
