@@ -353,7 +353,7 @@ def oneshot(
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
-        ['basic', 'datafree', 'sequential', independent]
+        ['basic', 'datafree', 'sequential', 'independent']
     :param tracing_ignore: List of functions to ignore during tracing, either
         {module}.{method_name} or {function_name}
     :param sequential_targets: List of layer targets for the sequential pipeline.
