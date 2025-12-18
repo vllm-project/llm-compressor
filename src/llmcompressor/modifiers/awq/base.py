@@ -282,8 +282,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
         for mapping in self.mappings:
+            # we deliberately don't use the ignore list when matching mappings,
+            # ignore is applied to the targets for quantization rather than
+            # the mappings for smoothing.
             for smooth_layers, *nested_balance_layers in match_modules_set(
-                model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
+                model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
