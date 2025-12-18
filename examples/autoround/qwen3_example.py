@@ -11,14 +11,14 @@ model_id = "/storage/yiliu7/Qwen/Qwen3-30B-A3B"
 # model_id = "/storage/yiliu7/Qwen/Qwen2.5-0.5B/"
 model_id = "/storage/yiliu7/Qwen/Qwen3-235B-A22B/"
 model_id = "/models/Qwen3-30B-A3B"
-# model_id = "/models/Qwen3-235B-A22B/"
+model_id = "Qwen/Qwen3-235B-A22B/"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
-ITERS=16
+ITERS=200
 # Get aligned calibration dataset.
 
 ds = get_dataset(
@@ -66,9 +66,7 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = (
-    "/storage/yiliu7/" + model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
-)
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
 print(f"save to {SAVE_DIR}")
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
