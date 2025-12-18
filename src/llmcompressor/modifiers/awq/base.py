@@ -621,14 +621,15 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isnan(scales)] = 1
 
                 # Q(W * s)
-                for balance_layer in balance_layers_to_patch:
+                for balance_layer in mapping.balance_layers:
+                    balance_layer.weight.mul_(_scalesview)
+
                     if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                         balance_layer.quantization_scheme, "weights"
                     ):
                         continue
 
                     w_qscheme = balance_layer.quantization_scheme.weights
-                    balance_layer.weight.mul_(_scalesview)
                     call_observer(
                         balance_layer,
                         "weight",
