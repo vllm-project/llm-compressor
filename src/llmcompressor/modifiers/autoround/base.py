@@ -133,7 +133,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
-    device_map: str = "0"
+    # optional device map for dispatching layers to different devices during tuning
+    # e.g., "0,1" to use cuda:0 and cuda:1, or "auto" to use all available devices
+    device_map: Optional[str] = None
 
     # private variables
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
@@ -261,14 +263,20 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             decoding_layer.tuning_device = device
+            # Leave offload for LLMC to handle if `device_map` is not set
+            auto_offload = False
+            if self.device_map is not None:
+                # When device_map is set, we move decoding layer to CPU first, 
+                # then the submodules will be re-dispatched by AutoRound.
+                decoding_layer.to("cpu")
+                auto_offload = True
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=cur_inputs,
                 q_input=self._q_input,
                 device=str(device),
-                # Leave offload for LLMC
-                auto_offload=True,
+                auto_offload=auto_offload,
             )
             self._q_input = q_input
             # Update offload parameters and remove temporary attributes
