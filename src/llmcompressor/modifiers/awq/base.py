@@ -558,6 +558,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
+        initial_error = None
 
         org_sd = {
             k: v.cpu()
@@ -602,7 +603,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+            total_iterations = n_grid * len(duo_scalings)
+            pbar = tqdm(
+                product(range(n_grid), duo_scalings),
+                total=total_iterations,
+                desc=f"Grid search for {mapping.smooth_name}",
+                leave=False,
+            )
+            for grid_idx, use_duo_scaling in pbar:
                 # create new scales
                 ratio = grid_idx / n_grid
 
@@ -654,6 +662,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs)
 
+                # Track initial error for logging
+                if initial_error is None:
+                    initial_error = loss
+
+
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
                 )
@@ -661,6 +674,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_error = loss
                     best_ratio = ratio
                     best_scales = scales.clone()
+                
+                # Update progress bar with best error
+                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
                 mapping.parent.load_state_dict(org_sd, strict=False)
 
@@ -672,6 +688,16 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "module. If you encounter this error, raise an issue at "
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
+
+        # Log final results
+        err_reduction = best_error / initial_error
+        logger.info(
+            f"AWQ grid search for {mapping.smooth_name}: "
+            f"initial error = {initial_error:.3e}, "
+            f"best error = {best_error:.3e}, "
+            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
+        )
+
 
         assert (
             torch.isnan(best_scales).sum() == 0
