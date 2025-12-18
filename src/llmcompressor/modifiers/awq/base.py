@@ -240,10 +240,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
-        # Update weight scales and zero points
-        # For TENSOR_GROUP strategy (e.g., NVFP4), global scales are computed
-        # first automatically within update_weight_zp_scale
-        for name, module in tqdm(
+        for _, module in tqdm(
             match_named_modules(state.model, self.resolved_targets, self.ignore),
             desc="Calibrating weights",
         ):
@@ -603,25 +600,22 @@ class AWQModifier(Modifier, QuantizationMixin):
                     need_gparam = (
                         w_qscheme.strategy==QuantizationStrategy.TENSOR_GROUP
                     )
-
                     call_observer(
                         balance_layer,
                         "weight",
                         balance_layer.weight,
                         should_calculate_gparam=need_gparam,
                     )
-
-                    quantized_weight = forward_quantize(
-                        balance_layer,
-                        balance_layer.weight.data,
-                        "weight",
-                        w_qscheme,
-                    )
-
                     update_offload_parameter(
                         balance_layer,
                         "weight",
-                        quantized_weight / _scalesview,
+                        forward_quantize(
+                            balance_layer,
+                            balance_layer.weight.data,
+                            "weight",
+                            w_qscheme,
+                        )
+                        / _scalesview,
                     )
 
                 # W * X
