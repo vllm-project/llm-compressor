@@ -6,6 +6,7 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
+# FIXME: clean up model_id settings
 model_id = "Qwen/Qwen3-30B-A3B"
 model_id = "/storage/yiliu7/Qwen/Qwen3-30B-A3B"
 # model_id = "/storage/yiliu7/Qwen/Qwen2.5-0.5B/"
