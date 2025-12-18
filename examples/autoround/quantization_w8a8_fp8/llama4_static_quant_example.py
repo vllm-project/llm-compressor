@@ -24,10 +24,9 @@ ds = get_dataset(
 
 
 # Configure the quantization algorithm to run.
-scheme = "FP8"
 recipe = AutoRoundModifier(
     targets="Linear",
-    scheme=scheme,
+    scheme="FP8",
     ignore=["re:.*lm_head", "re:.*router", "re:.*self_attn.*", "re:.*shared_expert.*" , "re:multi_modal_projector.*", "re:vision_model"],
     iters=0,
 )
@@ -55,7 +54,7 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W8A8-Dynamic-AutoRound"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W8A8-Static-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
