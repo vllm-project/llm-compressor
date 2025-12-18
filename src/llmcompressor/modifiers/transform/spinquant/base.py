@@ -11,14 +11,14 @@ from compressed_tensors.transform import (
 )
 from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, ValidationInfo, field_validator
+from torch.utils._pytree import tree_leaves
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_word_embeddings,
-)
+from llmcompressor.typing import NamedModules
+from llmcompressor.utils import untie_word_embeddings
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -37,7 +37,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     with learned rotations" (https://arxiv.org/abs/2405.16406)
 
     Transforms (rotations) are extra layers added to a model which reduce the accuracy
-    loss induced by quantization. This is achived through "rotating" weights and
+    loss induced by quantization. This is achieved through "rotating" weights and
     activations into a space with a smaller dynamic range of values, thus decreasing
     the range of scales required for quantization.
 
@@ -47,18 +47,19 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     rotations, meaning that they require additional computation at runtime.
 
     Lifecycle:
-        - on_initialize
-            - infer SpinQuantMappings & NormMappings
-            - as needed, create transform schemes for R1, R2, R3, & R4
-        - on_start
-            - normalize embeddings
-            - fuse norm layers into subsequent Linear layers
-            - apply TransformConfig
-                - fuse transforms into weights for mergeable transforms
-                - add hooks for online transforms
-        - on sequential epoch end
-        - on_end
-        - on_finalize
+
+    - on_initialize
+        - infer SpinQuantMappings & NormMappings
+        - as needed, create transform schemes for R1, R2, R3, & R4
+    - on_start
+        - normalize embeddings
+        - fuse norm layers into subsequent Linear layers
+        - apply TransformConfig
+            - fuse transforms into weights for mergeable transforms
+            - add hooks for online transforms
+    - on sequential epoch end
+    - on_end
+    - on_finalize
 
     :param rotations: A list containing the names of rotations to apply to the model.
         Possible rotations include R1, R2, R3, and R4
@@ -151,14 +152,16 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     @torch.no_grad()
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
+        model = state.model
 
-        # needed any time embeddings/lm_head is modified
-        untie_word_embeddings(state.model)
+        # untie embeddings to avoid unintended effects of `_center_embeddings`
+        untie_word_embeddings(model)
+
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
-        self._center_embeddings(state.model)
-        self._fuse_norms(state.model)
-        apply_transform_config(state.model, self.transform_config)
+        self._center_embeddings(model)
+        self._fuse_norms(model)
+        apply_transform_config(model, self.transform_config)
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -181,6 +184,14 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         return True
 
+    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+        return [
+            (name, module)
+            for scheme in self.transform_config.config_groups.values()
+            for arg in scheme.apply
+            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+        ]
+
     def _center_embeddings(self, model: PreTrainedModel):
         for _, embedding in match_named_modules(
             model, [self.mappings.embedding], warn_on_fail=True
@@ -192,7 +203,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
             ):
-                fuse_norm_linears(norm, linears)
+                # match_modules_set returns a list of lists
+                assert len(norm) == 1
+                fuse_norm_linears(norm[0], tree_leaves(linears))
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(
