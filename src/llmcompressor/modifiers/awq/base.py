@@ -197,12 +197,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                 architecture=state.model.__class__.__name__
             )
 
-        self._set_resolved_mappings(state.model)
-
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
+
+        self._set_resolved_mappings(state.model)
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
