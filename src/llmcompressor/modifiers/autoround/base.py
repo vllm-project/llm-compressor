@@ -448,9 +448,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             )
             if act_group_size is None:
                 if activation_args.strategy in [QuantizationStrategy.CHANNEL, QuantizationStrategy.TOKEN]:
-                    group_size = -1
+                    act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:
-                    group_size = 0
+                    act_group_size = 0
 
             if act_data_type == "float":
                 act_data_type = "fp"
