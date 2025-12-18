@@ -430,7 +430,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             act_bits = 16
             act_group_size = None
             act_symmetric = None
-            act_bits = None
             act_dynamic = None
             act_data_type = None
         else:
