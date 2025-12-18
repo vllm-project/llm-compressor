@@ -100,7 +100,6 @@ def run_oneshot_for_e2e_testing(
             )
 
     # Apply quantization.
-    breakpoint()
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
     _run_oneshot(**oneshot_kwargs)
 
