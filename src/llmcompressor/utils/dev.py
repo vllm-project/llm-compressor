@@ -2,9 +2,8 @@ import contextlib
 import logging
 import os
 import tempfile
-from typing import Type
-
 from functools import wraps
+from typing import Type
 
 import torch
 from compressed_tensors.offload import dispatch_model
@@ -139,7 +138,7 @@ def dispatch_for_generation(*args, **kwargs) -> PreTrainedModel:
         Will be inferred from model if none is provided
     :param hint_extra_memory: extra memory reserved for model serving
     :param no_split_modules: names of module classes which should not be split
-        across multiple devices 
+        across multiple devices
     :return: dispatched model
     """
     return dispatch_model(*args, **kwargs)
