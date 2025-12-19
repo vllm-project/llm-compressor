@@ -215,6 +215,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         wrapped_model = _wrap_decoding_layer(decoding_layer)
         wrapped_model.name_or_path = state.model.name_or_path
+        wrapped_model.config = state.model.config
 
         with torch.enable_grad(), align_module_device(decoding_layer):
             ar_quant_scheme = self._mapping_config_to_autoround()
