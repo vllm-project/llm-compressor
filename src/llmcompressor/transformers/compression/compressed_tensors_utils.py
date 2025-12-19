@@ -1,7 +1,6 @@
 import os
 import weakref
 from functools import wraps
-from typing import Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
@@ -50,8 +49,8 @@ def modify_save_pretrained(model: PreTrainedModel):
         @wraps(original_save_pretrained)
         def save_pretrained_wrapper(
             save_directory: str,
-            sparsity_config: Optional[SparsityCompressionConfig] = None,
-            quantization_format: Optional[str] = None,
+            sparsity_config: SparsityCompressionConfig | None = None,
+            quantization_format: str | None = None,
             save_compressed: bool = True,
             safe_serialization: bool = True,
             skip_sparsity_compression_stats: bool = True,
@@ -116,8 +115,8 @@ def modify_save_pretrained(model: PreTrainedModel):
 
 def get_model_compressor(
     model: torch.nn.Module,
-    sparsity_config: Optional[SparsityCompressionConfig] = None,
-    quantization_format: Optional[str] = None,
+    sparsity_config: SparsityCompressionConfig | None = None,
+    quantization_format: str | None = None,
     save_compressed: bool = True,
     skip_sparsity_compression_stats: bool = True,
     disable_sparse_compression: bool = False,
