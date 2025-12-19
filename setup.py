@@ -140,15 +140,15 @@ setup(
             else "accelerate>=1.6.0"
         ),
         (
-            "nvidia-ml-py>=12.560.30,<=13.580.82"
+            "nvidia-ml-py>=12.560.30,<=13.590.44"
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
         ("pillow>=10.4.0,<=12.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.12.2"
+            "compressed-tensors==0.13.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.12.3a2"
+            else "compressed-tensors>=0.13.1a2"
         ),
     ],
     extras_require={

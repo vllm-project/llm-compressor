@@ -230,12 +230,12 @@ class DatasetArguments(CustomDatasetArguments):
             "definition"
         },
     )
-    offload_sequential_activations: bool = field(
-        default=True,
+    sequential_offload_device: str = field(
+        default="cpu",
         metadata={
-            "help": "Whether to offload intermediate activations between sequential "
-            "layers to the CPU. Disabling offloading is much faster, but uses "
-            "signficiantly more memory. Default is True."
+            "help": "Device used to offload intermediate activations between "
+            "sequential layers. It is recommended to use `cuda:1` if using more "
+            "than one gpu. Default is cpu."
         },
     )
     quantization_aware_calibration: bool = field(
