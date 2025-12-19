@@ -356,11 +356,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
-                self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    # Assume that first argument is the input
-                    args[0].cpu().abs().detach().flatten(0, -2),
+                act_mean, count = _accumulate_mean(
+                    args[0].abs().detach().flatten(0, -2),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
+                self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
 
             return cache_smooth_activations_hook
 
@@ -525,6 +525,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
+        initial_error = None
 
         org_sd = {
             k: v.cpu()
@@ -569,7 +570,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+            total_iterations = n_grid * len(duo_scalings)
+            pbar = tqdm(
+                product(range(n_grid), duo_scalings),
+                total=total_iterations,
+                desc=f"Grid search for {mapping.smooth_name}",
+                leave=False,
+            )
+            for grid_idx, use_duo_scaling in pbar:
                 # create new scales
                 ratio = grid_idx / n_grid
 
@@ -619,6 +627,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs)
+                
+                if initial_error is None:
+                    initial_error = loss
 
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
@@ -627,6 +638,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_error = loss
                     best_ratio = ratio
                     best_scales = scales.clone()
+                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
                 mapping.parent.load_state_dict(org_sd, strict=False)
 
@@ -638,6 +650,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "module. If you encounter this error, raise an issue at "
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
+        
+        err_reduction = best_error / initial_error
+        logger.info(
+            f"AWQ grid search for {mapping.smooth_name}: "
+            f"initial error = {initial_error:.3e}, "
+            f"best error = {best_error:.3e}, "
+            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
+        )
 
         assert (
             torch.isnan(best_scales).sum() == 0
@@ -657,7 +677,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Compute the MSE loss for each batch
         for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
             loss += torch.nn.functional.mse_loss(
-                fp16_batch, int_w_batch.to(fp16_batch.device)
+                fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
             ).item()
             num_elements += fp16_batch.numel()
 
@@ -863,9 +883,10 @@ def _accumulate_mean(
     sum_added = inp.sum(dim=0)
     num_added = inp.size(0)
     if prev_mean_and_count is None:
-        return sum_added, num_added
+        return sum_added / num_added, num_added
 
     prev_mean, prev_count = prev_mean_and_count
+    prev_mean = prev_mean.to(inp.device)
 
     prev_sum = prev_mean * prev_count
     new_count = prev_count + num_added
