@@ -13,8 +13,6 @@ from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import (
-    _orient_weight,
-    _reorient_weight,
     get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.modifiers.factory import ModifierFactory
@@ -348,12 +346,6 @@ def test_compute_layer_means_does_not_modify_weights():
             8,
         ),
         (
-            4,
-            3,
-            2,
-            1,
-        ),
-        (
             10,
             10,
             10,
@@ -364,6 +356,12 @@ def test_compute_layer_means_does_not_modify_weights():
             256,
             128,
             128,
+        ),
+        (
+            4,
+            3,
+            2,
+            1,
         ),
     ],
 )
@@ -407,17 +405,19 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 
     # auto awq
     # we first reshape the weight such that it is effectively per-channel quantization
-    # so that we can compare to the existing _auto_awq_normalize function
+    # so that we can use the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
-    oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
-    lin.weight.data = oriented_weight
-
+    q_args = lin.quantization_scheme.weights
+    block_height, block_width = q_args.block_structure
+    lin.weight.data = (  # (row, col)
+        lin.weight.unflatten(0, (-1, block_height))  # = (num_H*block_H, num_W*block_W)
+        .unflatten(-1, (-1, block_width))
+        .transpose(1, 2)  # ↳ (num_H, num_W, block_H, block_W)
+    )
     auto_awq_means = (
-        _reorient_weight(
-            _auto_awq_normalize([lin], None),
-            lin.quantization_scheme.weights,
-            orig_shape,
-        )
+        _auto_awq_normalize([lin], block_height * block_width)
+        .transpose(1, 2)
+        .reshape(orig_shape)
         .mean(0)
         .to(llmc_awq_means.dtype)
     )

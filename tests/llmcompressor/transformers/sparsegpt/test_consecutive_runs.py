@@ -38,9 +38,9 @@ def test_consecutive_runs_small(config, tmp_path):
 @pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_consecutive_runs_gpu(config, tmp_path):
-    assert not is_model_ct_quantized_from_path(config["model"]), (
-        "The provided model is quantized. Please use a dense model."
-    )
+    assert not is_model_ct_quantized_from_path(
+        config["model"]
+    ), "The provided model is quantized. Please use a dense model."
     model = AutoModelForCausalLM.from_pretrained(
         config["model"], device_map=config["device"], dtype="auto"
     )

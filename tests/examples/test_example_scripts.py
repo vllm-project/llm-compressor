@@ -58,9 +58,9 @@ def verify_2of4_w4a16_output(tmp_path: Path, example_dir: str):
 def verify_w4a4_fp4_output(tmp_path: Path, example_dir: str):
     # verify the expected directory was generated
     nvfp4_dirs: List[Path] = [p for p in tmp_path.rglob("*-NVFP4") if p.is_dir()]
-    assert (len(nvfp4_dirs)) == 1, (
-        f"did not find exactly one generated folder: {nvfp4_dirs}"
-    )
+    assert (
+        len(nvfp4_dirs)
+    ) == 1, f"did not find exactly one generated folder: {nvfp4_dirs}"
 
     # verify the format in the generated config
     config_json = json.loads((nvfp4_dirs[0] / "config.json").read_text())

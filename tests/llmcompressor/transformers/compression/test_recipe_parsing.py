@@ -90,8 +90,8 @@ def test_oneshot_accepts_multiple_recipe_formats(setup_model_and_config, recipe)
     )
 
     output_path = Path(setup_model_and_config["output_dir"])
-    assert output_path.exists() and any(output_path.iterdir()), (
-        f"No output artifacts found in: {output_path}"
-    )
+    assert output_path.exists() and any(
+        output_path.iterdir()
+    ), f"No output artifacts found in: {output_path}"
 
     reset_session()
