@@ -18,7 +18,9 @@ class LinearExpert(nn.Module):
         y    = down_proj((up + 1) * glu)
     """
 
-    def __init__(self, hidden_size: int, intermediate_size: int, alpha: float, limit: float):
+    def __init__(
+        self, hidden_size: int, intermediate_size: int, alpha: float, limit: float
+    ):
         super().__init__()
         self.alpha = alpha
         self.limit = limit
@@ -41,7 +43,8 @@ class LinearExpert(nn.Module):
 
 class LinearExperts(nn.Module):
     """
-    Container of multiple LinearExpert modules, driven by router_indices / routing_weights.
+    Container of multiple LinearExpert modules, driven by
+    router_indices / routing_weights.
 
     This is the "separate gate/up" layout.
     It is meant to replace the original GPT-OSS `experts` submodule.
@@ -63,7 +66,10 @@ class LinearExperts(nn.Module):
         self.limit = limit
 
         self.experts = nn.ModuleList(
-            [LinearExpert(hidden_size, intermediate_size, alpha, limit) for _ in range(num_experts)]
+            [
+                LinearExpert(hidden_size, intermediate_size, alpha, limit)
+                for _ in range(num_experts)
+            ]
         )
 
     @torch.no_grad()
@@ -71,8 +77,8 @@ class LinearExperts(nn.Module):
         self,
         legacy_gate_up_W: torch.Tensor,  # [E, H, 2D]
         legacy_gate_up_b: torch.Tensor,  # [E, 2D]
-        legacy_down_W: torch.Tensor,     # [E, D, H]
-        legacy_down_b: torch.Tensor,     # [E, H]
+        legacy_down_W: torch.Tensor,  # [E, D, H]
+        legacy_down_b: torch.Tensor,  # [E, H]
     ) -> None:
         """
         De-interleave fused gate_up weights/bias and copy into separate gate/up experts.
@@ -83,13 +89,13 @@ class LinearExperts(nn.Module):
         assert D == self.expert_dim
 
         for i in range(E):
-            Wi = legacy_gate_up_W[i]   # [H, 2D]
-            bi = legacy_gate_up_b[i]   # [2D]
+            Wi = legacy_gate_up_W[i]  # [H, 2D]
+            bi = legacy_gate_up_b[i]  # [2D]
 
             Wg = Wi[:, 0::2].contiguous()  # [H, D]
             Wu = Wi[:, 1::2].contiguous()  # [H, D]
-            bg = bi[0::2].contiguous()     # [D]
-            bu = bi[1::2].contiguous()     # [D]
+            bg = bi[0::2].contiguous()  # [D]
+            bu = bi[1::2].contiguous()  # [D]
 
             expert = self.experts[i]
             expert.gate_proj.weight.copy_(Wg.t())
@@ -102,8 +108,10 @@ class LinearExperts(nn.Module):
 
     def forward(
         self,
-        hidden_states: torch.Tensor,         # [B, T, H]
-        router_indices: Optional[torch.Tensor] = None,   # [B, T, top_k] or [tokens, top_k]
+        hidden_states: torch.Tensor,  # [B, T, H]
+        router_indices: Optional[
+            torch.Tensor
+        ] = None,  # [B, T, top_k] or [tokens, top_k]
         routing_weights: Optional[torch.Tensor] = None,  # [B, T, E] or [tokens, E]
     ) -> torch.Tensor:
         """
@@ -112,7 +120,9 @@ class LinearExperts(nn.Module):
         This is compatible with the GPT-OSS MoE call pattern:
             experts(hidden_states, router_indices, routing_weights)
         """
-        assert routing_weights is not None and router_indices is not None, "router inputs required"
+        assert (
+            routing_weights is not None and router_indices is not None
+        ), "router inputs required"
 
         # Normalize shapes to [tokens, H], [tokens, top_k], [tokens, E]
         if hidden_states.dim() == 3:
@@ -120,7 +130,7 @@ class LinearExperts(nn.Module):
             x = hidden_states.reshape(-1, H)
         else:
             # Already flattened
-            B, T = 1, hidden_states.shape[0]
+            B, _ = 1, hidden_states.shape[0]
             H = hidden_states.shape[-1]
             x = hidden_states
 

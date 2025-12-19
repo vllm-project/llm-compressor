@@ -1,17 +1,15 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
-
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
 )
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modeling.gpt_oss import convert_model_for_quantization_gptoss
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 
 def main():
@@ -75,6 +73,7 @@ def main():
         trust_remote_code_model=True,
     )
     print(f"[GPT-OSS] Quantization finished. Quantized model written to: {OUTPUT_DIR}")
+
 
 if __name__ == "__main__":
     main()
