@@ -53,6 +53,7 @@ def tokenize(sample):
 recipe = [
     AWQModifier(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+        force_balance=["re:.*mlp.gate$"],
         scheme="W4A16",
         targets=["Linear"],
     ),
@@ -67,6 +68,13 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
+
+
+# Save to disk compressed.
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-sym-new"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
@@ -77,8 +85,3 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
-
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-sym"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)

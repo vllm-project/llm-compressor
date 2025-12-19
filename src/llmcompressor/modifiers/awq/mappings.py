@@ -46,7 +46,7 @@ _moe_default_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*post_attention_layernorm$",
-        ["re:.*mlp.experts.*.gate_proj$", "re:.*mlp.experts.*.up_proj$"],
+        ["re:.*mlp.experts.*.gate_proj$", "re:.*mlp.experts.*.up_proj$", "re:.*mlp.gate$"],
     ),
     AWQMapping(
         "re:.*up_proj$",
