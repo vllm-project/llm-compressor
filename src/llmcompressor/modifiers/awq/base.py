@@ -10,7 +10,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import strategy_cdiv
 from compressed_tensors.utils import (
-    align_modules,
     get_execution_device,
     get_lowest_common_ancestor_name,
     getattr_chain,
@@ -409,91 +408,90 @@ class AWQModifier(Modifier, QuantizationMixin):
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
 
-            with (
-                align_modules([parent_module, smooth_layer, *balance_layers]),
-                calibration_forward_context(model),
-                HooksMixin.disable_hooks(),
+            # Compute output of unquantized module
+            fp16_outputs = self._run_samples(model, parent_module)
+            if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
+                logger.info(
+                    f"Skipping smooth_layer {mapping.smooth_name}, no activations "
+                    "found to scale. This can occasionally occur in MoE models "
+                    "when certain experts are not activated by calibration samples."
+                )
+                del self._smooth_activation_means[mapping.smooth_name]
+                continue
+            if not all(
+                [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
             ):
-                # Compute output of unquantized module
-                fp16_outputs = self._run_samples(parent_module)
-                if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
-                    logger.info(
-                        f"Skipping smooth_layer {mapping.smooth_name}, no activations "
-                        "found to scale. This can occasionally occur in MoE models "
-                        "when certain experts are not activated by calibration samples."
-                    )
-                    del self._smooth_activation_means[mapping.smooth_name]
-                    continue
-                if not all(
-                    [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
-                ):
-                    logger.warning(
-                        f"Skipping smooth_layer {mapping.smooth_name}, NaN or inf "
-                        "outputs found during forward pass of the parent module "
-                        f"{mapping.parent_name}. The model is either generating NaN "
-                        "output with provided calibration data set, or the mappings "
-                        "are incorrectly set and modifying the model in undesired "
-                        "ways. If you encounter this consistently, raise an issue at "
-                        "https://github.com/vllm-project/llm-compressor/issues"
-                    )
-                    del self._smooth_activation_means[mapping.smooth_name]
-                    continue
+                logger.warning(
+                    f"Skipping smooth_layer {mapping.smooth_name}, NaN or inf "
+                    "outputs found during forward pass of the parent module "
+                    f"{mapping.parent_name}. The model is either generating NaN "
+                    "output with provided calibration data set, or the mappings "
+                    "are incorrectly set and modifying the model in undesired "
+                    "ways. If you encounter this consistently, raise an issue at "
+                    "https://github.com/vllm-project/llm-compressor/issues"
+                )
+                del self._smooth_activation_means[mapping.smooth_name]
+                continue
 
-                best_scales = self._compute_best_scale(mapping, fp16_outputs)
+            best_scales = self._compute_best_scale(model, mapping, fp16_outputs)
 
-                @torch.no_grad()
-                def _smooth(module: Module):
-                    scales = best_scales.to(module.weight.device)
-                    if module in balance_layers:
+            @torch.no_grad()
+            def _smooth(module: Module):
+                scales = best_scales.to(module.weight.device)
+                print(scales)
+                if module in balance_layers:
+                    update_offload_parameter(
+                        module,
+                        "weight",
+                        module.weight.mul_(scales.view(1, -1)),
+                    )
+                elif module == smooth_layer:
+                    if module.weight.ndim == 1:
+                        breakpoint()
                         update_offload_parameter(
                             module,
                             "weight",
-                            module.weight.mul_(scales.view(1, -1)),
+                            module.weight.div_(scales),
                         )
-                    elif module == smooth_layer:
-                        if module.weight.ndim == 1:
-                            update_offload_parameter(
-                                module,
-                                "weight",
-                                module.weight.div_(scales),
-                            )
-                        else:
-                            # NOTE: edge case when smooth layer number of out_features
-                            # is not equal to balance layer number of in_features
-                            # e.g. when fused qkv_proj is used to smooth o_proj
-                            # in this case, default to scaling the last output features
-                            # because the desired smooth layer is v_proj
-                            # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            weight = module.weight
-                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
-                            update_offload_parameter(module, "weight", weight)
-                        if hasattr(module, "bias") and module.bias is not None:
-                            update_offload_parameter(
-                                module,
-                                "bias",
-                                module.bias.div_(scales),
-                            )
+                    else:
+                        # NOTE: edge case when smooth layer number of out_features
+                        # is not equal to balance layer number of in_features
+                        # e.g. when fused qkv_proj is used to smooth o_proj
+                        # in this case, default to scaling the last output features
+                        # because the desired smooth layer is v_proj
+                        # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
+                        weight = module.weight
+                        weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                        update_offload_parameter(module, "weight", weight)
+                    if hasattr(module, "bias") and module.bias is not None:
+                        update_offload_parameter(
+                            module,
+                            "bias",
+                            module.bias.div_(scales),
+                        )
 
-                parent = get_fsdp_parent(mapping.smooth_name, model)
-                if parent is not None:
-                    parent.apply(_smooth)
-                else:
-                    # if we're not running with FSDP we can apply smoothing directly
-                    for layer in balance_layers:
-                        _smooth(layer)
-                    _smooth(smooth_layer)
+            parent = get_fsdp_parent(mapping.smooth_name, model)
+            if parent is not None:
+                parent.apply(_smooth)
+            else:
+                # if we're not running with FSDP we can apply smoothing directly
+                for layer in balance_layers:
+                    _smooth(layer)
+                _smooth(smooth_layer)
 
-                # remove caches needed to smooth this mapping
-                del self._smooth_activation_means[mapping.smooth_name]
+            # remove caches needed to smooth this mapping
+            del self._smooth_activation_means[mapping.smooth_name]
 
         for v in self._parent_args_cache.values():
             v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: Module) -> list[torch.Tensor]:
-        outputs = [
-            module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
-        ]
+    def _run_samples(self, model: Module, module: Module) -> list[torch.Tensor]:
+        with (HooksMixin.disable_hooks(), calibration_forward_context(model)):
+            outputs = [
+                module(**batch_kwargs)
+                for batch_kwargs in self._parent_args_cache[module]
+            ]
         return [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
@@ -502,6 +500,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _compute_best_scale(
         self,
+        model: Module,
         mapping: ResolvedMapping,
         fp16_outputs: list[torch.Tensor],
     ) -> torch.Tensor:
@@ -615,7 +614,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
 
                 # W * X
-                int_w_outputs = self._run_samples(mapping.parent)
+                int_w_outputs = self._run_samples(model, mapping.parent)
 
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs)
