@@ -133,6 +133,7 @@ def update_weight_zp_scale(module: Module):
             "Attempting to calibrate weights of a module not in calibration mode"
         )
 
+    update_weight_global_scale(module)
     call_observer(module=module, base_name="weight")
 
 

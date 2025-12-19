@@ -12,11 +12,7 @@ from torch.nn import Linear
 from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import (
-    _orient_weight,
-    _reorient_weight,
-    get_lowest_common_ancestor_with_avoid,
-)
+from llmcompressor.modifiers.awq.base import get_lowest_common_ancestor_with_avoid
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -245,14 +241,15 @@ def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tens
 @torch.no_grad
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "n_balance_layers, group_size, n_input_features",
+    "n_balance_layers, group_size, n_input_features, strategy",
     [
-        (5, -1, 32),  # channel
-        (4, 10, 40),  # group
-        (4, torch.inf, 40),  # tensor
+        (5, -1, 32, QuantizationStrategy.CHANNEL),  # channel
+        (4, 10, 40, QuantizationStrategy.GROUP),  # group
+        (4, torch.inf, 40, QuantizationStrategy.TENSOR),  # tensor
+        (3, 16, 64, QuantizationStrategy.TENSOR_GROUP),  # tensor_group
     ],
 )
-def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
+def test_compute_layer_means(n_balance_layers, group_size, n_input_features, strategy):
     """
     Confirm our logic to compute duo_scaling layer means via a running tally
     matches the original memory-intensive AutoAWQ implementation, which concats
@@ -263,15 +260,13 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
         torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
     ]
     group_size_arg = None
-    match group_size:
-        case -1:
-            strategy = QuantizationStrategy.CHANNEL
+
+    match strategy:
+        case QuantizationStrategy.CHANNEL:
             group_size = balance_layers[0].weight.shape[1]
-        case torch.inf:
-            strategy = QuantizationStrategy.TENSOR
+        case QuantizationStrategy.TENSOR:
             group_size = n_input_features * 10
         case _:
-            strategy = QuantizationStrategy.GROUP
             group_size_arg = group_size
 
     for balance_layer in balance_layers:
@@ -409,15 +404,17 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # we first reshape the weight such that it is effectively per-channel quantization
     # so that we can compare to the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
-    oriented_weight = _orient_weight(lin.weight, lin.quantization_scheme.weights)
-    lin.weight.data = oriented_weight
-
+    q_args = lin.quantization_scheme.weights
+    block_height, block_width = q_args.block_structure
+    lin.weight.data = (  # (row, col)
+        lin.weight.unflatten(0, (-1, block_height))  # = (num_H*block_H, num_W*block_W)
+        .unflatten(-1, (-1, block_width))
+        .transpose(1, 2)  # ↳ (num_H, num_W, block_H, block_W)
+    )
     auto_awq_means = (
-        _reorient_weight(
-            _auto_awq_normalize([lin], None),
-            lin.quantization_scheme.weights,
-            orig_shape,
-        )
+        _auto_awq_normalize([lin], block_height * block_width)
+        .transpose(1, 2)
+        .reshape(orig_shape)
         .mean(0)
         .to(llmc_awq_means.dtype)
     )

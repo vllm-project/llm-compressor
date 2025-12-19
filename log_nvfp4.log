@@ -1,0 +1,345 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-9.0.1, pluggy-1.6.0 -- /home/HDCharles/rhdev/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/HDCharles/repos/llm-compressor
+configfile: pyproject.toml
+plugins: mock-3.15.1, rerunfailures-16.1, anyio-4.12.0
+collecting ... collected 1 item
+
+tests/lmeval/test_lmeval.py::TestLMEval::test_lm_eval[/home/HDCharles/repos/llm-compressor/tests/lmeval/configs/awq_nvfp4.yaml] 2025-12-18T14:33:19.736598-0500 | set_up | INFO - ========== RUNNING ==============
+2025-12-18T14:33:19.736674-0500 | set_up | INFO - NVFP4
+2025-12-18T14:33:19.736708-0500 | set_up | INFO - Recovery threshold: {'exact_match,strict-match': 0.92, 'exact_match,flexible-extract': 0.89} (default: 0.95)
+2025-12-18T14:33:19.736737-0500 | set_up | INFO - Absolute metrics provided - will show warnings if outside ±5%
+2025-12-18T14:33:19.736762-0500 | test_lm_eval | INFO - ================= Evaluating BASE model ======================
+2025-12-18T14:33:19.794264-0500 | wrapper | INFO - LM-Eval cache HIT: meta-llama/Llama-3.1-8B-Instruct/gsm8k
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:00<00:00, 267.14it/s]
+2025-12-18T14:33:21.184745-0500 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-12-18T14:33:21.790678-0500 | reset | INFO - Compression lifecycle reset
+2025-12-18T14:33:21.791502-0500 | create_instance | INFO - Loading recipe from file tests/e2e/vLLM/recipes/actorder/recipe_awq_nvfp4.yaml
+2025-12-18T14:33:21.945821-0500 | on_initialize | INFO - No AWQModifier.mappings provided, inferring from model...
+2025-12-18T14:33:21.951233-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.0.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951350-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.1.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951437-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.2.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951523-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.3.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951609-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.4.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951693-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.5.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951776-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.6.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951860-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.7.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.951941-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.8.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952022-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.9.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952109-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.10.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952193-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.11.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952276-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.12.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952356-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.13.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952437-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.14.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952521-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.15.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952600-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.16.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952682-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.17.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952765-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.18.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952843-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.19.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.952922-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.20.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953002-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.21.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953091-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.22.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953179-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.23.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953265-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.24.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953349-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.25.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953433-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.26.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953514-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.27.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953598-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.28.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953684-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.29.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953774-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.30.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.953857-0500 | _set_resolved_mappings | WARNING - skipping AWQ for model.layers.31.self_attn.v_proj for mapping AWQMapping(smooth_layer='re:.*v_proj$', balance_layers=['re:.*o_proj$']) because found incompatible balance layers
+2025-12-18T14:33:21.959070-0500 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-12-18T14:33:21.959160-0500 | IndependentPipeline | INFO - Inferred `SequentialPipeline` for `AWQModifier`
+Preparing cache:   0%|          | 0/20 [00:00<?, ?it/s]Preparing cache: 100%|██████████| 20/20 [00:00<00:00, 1208.12it/s]
+(1/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](1/33): Calibrating:   5%|▌         | 1/20 [00:00<00:11,  1.66it/s](1/33): Calibrating:  20%|██        | 4/20 [00:00<00:02,  6.61it/s](1/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:01, 10.61it/s](1/33): Calibrating:  50%|█████     | 10/20 [00:01<00:00, 13.91it/s](1/33): Calibrating:  65%|██████▌   | 13/20 [00:01<00:00, 17.24it/s](1/33): Calibrating:  90%|█████████ | 18/20 [00:01<00:00, 24.79it/s](1/33): Calibrating: 100%|██████████| 20/20 [00:01<00:00, 16.01it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:07<00:15,  7.57s/it]Smoothing:  67%|██████▋   | 2/3 [00:08<00:03,  3.74s/it]Smoothing: 100%|██████████| 3/3 [00:09<00:00,  2.23s/it]Smoothing: 100%|██████████| 3/3 [00:09<00:00,  3.02s/it]
+(1/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](1/33): Propagating:  80%|████████  | 16/20 [00:00<00:00, 153.07it/s](1/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 171.87it/s]
+(2/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](2/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.52it/s](2/33): Calibrating:  20%|██        | 4/20 [00:00<00:01, 15.70it/s](2/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.20it/s](2/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 24.53it/s](2/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 30.93it/s](2/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.65it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.71it/s]
+(2/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](2/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 333.63it/s]
+(3/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](3/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.49it/s](3/33): Calibrating:  20%|██        | 4/20 [00:00<00:01, 15.70it/s](3/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.17it/s](3/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 24.40it/s](3/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 30.64it/s](3/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.24it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.77it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.71it/s]
+(3/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](3/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 333.62it/s]
+(4/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](4/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.75it/s](4/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 16.00it/s](4/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.35it/s](4/33): Calibrating:  50%|█████     | 10/20 [00:00<00:00, 23.06it/s](4/33): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 27.98it/s](4/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.08it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.28it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.69it/s]
+(4/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](4/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.62it/s]
+(5/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](5/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.78it/s](5/33): Calibrating:  20%|██        | 4/20 [00:00<00:01, 15.67it/s](5/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.14it/s](5/33): Calibrating:  50%|█████     | 10/20 [00:00<00:00, 23.47it/s](5/33): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 28.21it/s](5/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.15it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.29it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.74it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.70it/s]
+(5/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](5/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.97it/s]
+(6/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](6/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.75it/s](6/33): Calibrating:  20%|██        | 4/20 [00:00<00:01, 15.87it/s](6/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.30it/s](6/33): Calibrating:  50%|█████     | 10/20 [00:00<00:00, 23.56it/s](6/33): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 28.32it/s](6/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.21it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.28it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.69it/s]
+(6/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](6/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 333.35it/s]
+(7/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](7/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.57it/s](7/33): Calibrating:  20%|██        | 4/20 [00:00<00:01, 15.81it/s](7/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.36it/s](7/33): Calibrating:  50%|█████     | 10/20 [00:00<00:00, 23.64it/s](7/33): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 28.27it/s](7/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 28.71it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.25it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.69it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.66it/s]
+(7/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](7/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.63it/s]
+(8/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](8/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.62it/s](8/33): Calibrating:  20%|██        | 4/20 [00:00<00:01, 15.87it/s](8/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.38it/s](8/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 24.55it/s](8/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 30.70it/s](8/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.48it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.77it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.28it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.69it/s]
+(8/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](8/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.95it/s]
+(9/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](9/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.93it/s](9/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 16.19it/s](9/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.64it/s](9/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 24.76it/s](9/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 30.87it/s](9/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.39it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.29it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.70it/s]
+(9/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](9/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.45it/s]
+(10/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](10/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.03it/s](10/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 16.22it/s](10/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.64it/s](10/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 24.69it/s](10/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 30.84it/s](10/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.40it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.28it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.69it/s]
+(10/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](10/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 331.75it/s]
+(11/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](11/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.85it/s](11/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.07it/s](11/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.30it/s](11/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.22it/s](11/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.28it/s](11/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.15it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(11/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](11/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 331.78it/s]
+(12/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](12/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.51it/s](12/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 16.81it/s](12/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.19it/s](12/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.30it/s](12/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.13it/s](12/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 29.97it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(12/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](12/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 316.46it/s]
+(13/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](13/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.03it/s](13/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.36it/s](13/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.57it/s](13/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.56it/s](13/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.74it/s](13/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.58it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(13/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](13/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.55it/s]
+(14/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](14/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.98it/s](14/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.26it/s](14/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.49it/s](14/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.45it/s](14/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.64it/s](14/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.48it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(14/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](14/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.23it/s]
+(15/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](15/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.62it/s](15/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.01it/s](15/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.37it/s](15/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.52it/s](15/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.72it/s](15/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.33it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(15/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](15/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.21it/s]
+(16/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](16/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.86it/s](16/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.29it/s](16/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.56it/s](16/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.52it/s](16/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.69it/s](16/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.50it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(16/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](16/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.14it/s]
+(17/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](17/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.87it/s](17/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.19it/s](17/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.52it/s](17/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.54it/s](17/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.75it/s](17/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.53it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.71it/s]
+(17/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](17/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 328.19it/s]
+(18/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](18/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.78it/s](18/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.19it/s](18/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.50it/s](18/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.66it/s](18/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.81it/s](18/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.88it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.77it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.27it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.69it/s]
+(18/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](18/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.98it/s]
+(19/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](19/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.80it/s](19/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.17it/s](19/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.41it/s](19/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.41it/s](19/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.62it/s](19/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.76it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.29it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.74it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.70it/s]
+(19/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](19/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.59it/s]
+(20/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](20/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.19it/s](20/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.50it/s](20/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.66it/s](20/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.56it/s](20/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.68it/s](20/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.64it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]
+(20/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](20/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.71it/s]
+(21/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](21/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.56it/s](21/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 16.98it/s](21/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.65it/s](21/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 26.15it/s](21/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 32.88it/s](21/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 31.20it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.77it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.71it/s]
+(21/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](21/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 333.42it/s]
+(22/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](22/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.23it/s](22/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.94it/s](22/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 22.26it/s](22/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 26.18it/s](22/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 32.58it/s](22/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 31.87it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(22/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](22/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 331.72it/s]
+(23/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](23/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.40it/s](23/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 18.05it/s](23/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.99it/s](23/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 26.18it/s](23/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 32.85it/s](23/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 31.64it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(23/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](23/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.48it/s]
+(24/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](24/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.34it/s](24/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.69it/s](24/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.71it/s](24/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.58it/s](24/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.72it/s](24/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.72it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.32it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.78it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.74it/s]
+(24/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](24/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.20it/s]
+(25/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](25/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.80it/s](25/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.07it/s](25/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.29it/s](25/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.38it/s](25/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.51it/s](25/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.63it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.72it/s]
+(25/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](25/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.00it/s]
+(26/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](26/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.93it/s](26/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.12it/s](26/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.28it/s](26/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.23it/s](26/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.42it/s](26/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.27it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.80it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]
+(26/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](26/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.17it/s]
+(27/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](27/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.22it/s](27/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.44it/s](27/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.54it/s](27/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.43it/s](27/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.54it/s](27/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.51it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.74it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.71it/s]
+(27/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](27/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.31it/s]
+(28/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](28/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.30it/s](28/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.38it/s](28/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.50it/s](28/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.43it/s](28/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.44it/s](28/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.47it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]
+(28/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](28/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.75it/s]
+(29/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](29/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.92it/s](29/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.18it/s](29/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.32it/s](29/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.31it/s](29/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.50it/s](29/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.67it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.31it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.76it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.73it/s]
+(29/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](29/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.85it/s]
+(30/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](30/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.27it/s](30/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.48it/s](30/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.63it/s](30/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.55it/s](30/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.71it/s](30/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.66it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.79it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.30it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.75it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.71it/s]
+(30/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](30/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 331.75it/s]
+(31/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](31/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  8.30it/s](31/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 17.51it/s](31/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 21.61it/s](31/33): Calibrating:  55%|█████▌    | 11/20 [00:00<00:00, 25.55it/s](31/33): Calibrating:  80%|████████  | 16/20 [00:00<00:00, 31.76it/s](31/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 30.68it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.78it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.23it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.67it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.64it/s]
+(31/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](31/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 332.08it/s]
+(32/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](32/33): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  7.92it/s](32/33): Calibrating:  20%|██        | 4/20 [00:00<00:00, 16.06it/s](32/33): Calibrating:  35%|███▌      | 7/20 [00:00<00:00, 20.03it/s](32/33): Calibrating:  50%|█████     | 10/20 [00:00<00:00, 22.96it/s](32/33): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 27.84it/s](32/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 28.97it/s]
+Smoothing:   0%|          | 0/3 [00:00<?, ?it/s]Smoothing:  33%|███▎      | 1/3 [00:00<00:00,  2.76it/s]Smoothing:  67%|██████▋   | 2/3 [00:01<00:00,  1.24it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.68it/s]Smoothing: 100%|██████████| 3/3 [00:01<00:00,  1.65it/s]
+(32/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](32/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 325.54it/s]
+(33/33): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](33/33): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 603.02it/s]
+Smoothing: 0it [00:00, ?it/s]Smoothing: 0it [00:00, ?it/s]
+(33/33): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](33/33): Propagating: 100%|██████████| 20/20 [00:00<00:00, 930.20it/s]
+Smoothing: 0it [00:00, ?it/s]Smoothing: 0it [00:00, ?it/s]
+Calibrating weights: 0it [00:00, ?it/s]Calibrating weights: 5it [00:00, 37.64it/s]Calibrating weights: 9it [00:00, 28.34it/s]Calibrating weights: 13it [00:00, 29.83it/s]Calibrating weights: 19it [00:00, 33.46it/s]Calibrating weights: 23it [00:00, 28.92it/s]Calibrating weights: 26it [00:00, 29.03it/s]Calibrating weights: 29it [00:01, 24.81it/s]Calibrating weights: 34it [00:01, 26.35it/s]Calibrating weights: 38it [00:01, 29.16it/s]Calibrating weights: 42it [00:01, 23.72it/s]Calibrating weights: 47it [00:01, 28.06it/s]Calibrating weights: 51it [00:01, 25.98it/s]Calibrating weights: 55it [00:02, 25.05it/s]Calibrating weights: 60it [00:02, 29.81it/s]Calibrating weights: 64it [00:02, 24.07it/s]Calibrating weights: 68it [00:02, 26.96it/s]Calibrating weights: 72it [00:02, 27.08it/s]Calibrating weights: 75it [00:02, 27.72it/s]Calibrating weights: 78it [00:02, 25.18it/s]Calibrating weights: 82it [00:02, 28.37it/s]Calibrating weights: 86it [00:03, 27.42it/s]Calibrating weights: 90it [00:03, 29.16it/s]Calibrating weights: 94it [00:03, 31.69it/s]Calibrating weights: 98it [00:03, 24.55it/s]Calibrating weights: 103it [00:03, 29.87it/s]Calibrating weights: 107it [00:03, 30.53it/s]Calibrating weights: 111it [00:03, 31.45it/s]Calibrating weights: 117it [00:04, 35.09it/s]Calibrating weights: 121it [00:04, 34.73it/s]Calibrating weights: 125it [00:04, 33.75it/s]Calibrating weights: 130it [00:04, 37.08it/s]Calibrating weights: 134it [00:04, 32.00it/s]Calibrating weights: 138it [00:04, 33.70it/s]Calibrating weights: 142it [00:04, 31.86it/s]Calibrating weights: 146it [00:04, 31.82it/s]Calibrating weights: 152it [00:05, 35.12it/s]Calibrating weights: 156it [00:05, 34.27it/s]Calibrating weights: 160it [00:05, 34.12it/s]Calibrating weights: 166it [00:05, 36.92it/s]Calibrating weights: 170it [00:05, 35.50it/s]Calibrating weights: 174it [00:05, 34.53it/s]Calibrating weights: 180it [00:05, 37.07it/s]Calibrating weights: 184it [00:06, 35.55it/s]Calibrating weights: 188it [00:06, 34.48it/s]Calibrating weights: 194it [00:06, 37.17it/s]Calibrating weights: 198it [00:06, 35.65it/s]Calibrating weights: 202it [00:06, 34.67it/s]Calibrating weights: 208it [00:06, 37.14it/s]Calibrating weights: 212it [00:06, 35.63it/s]Calibrating weights: 216it [00:06, 35.11it/s]Calibrating weights: 222it [00:07, 37.60it/s]Calibrating weights: 224it [00:07, 31.23it/s]
+2025-12-18T14:35:04.270381-0500 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
+2025-12-18T14:35:04.502612-0500 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
+2025-12-18T14:35:04.523701-0500 | test_lm_eval | INFO - ================= SAVING TO DISK ======================
+2025-12-18T14:35:04.524066-0500 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
+Compressing model: 0it [00:00, ?it/s]Compressing model: 1it [00:01,  1.05s/it]Compressing model: 2it [00:01,  1.68it/s]Compressing model: 5it [00:01,  5.04it/s]Compressing model: 7it [00:01,  6.52it/s]Compressing model: 12it [00:01, 12.28it/s]Compressing model: 14it [00:02, 10.56it/s]Compressing model: 19it [00:02, 14.84it/s]Compressing model: 21it [00:02, 12.30it/s]Compressing model: 26it [00:02, 16.10it/s]Compressing model: 28it [00:02, 13.13it/s]Compressing model: 33it [00:03, 16.66it/s]Compressing model: 35it [00:03, 13.45it/s]Compressing model: 40it [00:03, 17.01it/s]Compressing model: 42it [00:03, 13.75it/s]Compressing model: 47it [00:04, 17.22it/s]Compressing model: 49it [00:04, 13.83it/s]Compressing model: 54it [00:04, 17.23it/s]Compressing model: 56it [00:04, 12.61it/s]Compressing model: 61it [00:05, 15.35it/s]Compressing model: 63it [00:05, 11.84it/s]Compressing model: 68it [00:05, 14.64it/s]Compressing model: 70it [00:05, 11.10it/s]Compressing model: 75it [00:06, 13.06it/s]Compressing model: 77it [00:06, 10.34it/s]Compressing model: 81it [00:06, 13.57it/s]Compressing model: 83it [00:07, 10.38it/s]Compressing model: 85it [00:07,  9.85it/s]Compressing model: 89it [00:07, 11.39it/s]Compressing model: 91it [00:07,  9.25it/s]Compressing model: 95it [00:08, 12.79it/s]Compressing model: 97it [00:08,  9.87it/s]Compressing model: 99it [00:08,  9.47it/s]Compressing model: 103it [00:08, 11.18it/s]Compressing model: 105it [00:09,  9.10it/s]Compressing model: 109it [00:09, 12.49it/s]Compressing model: 111it [00:09,  9.79it/s]Compressing model: 113it [00:10,  9.40it/s]Compressing model: 117it [00:10, 11.11it/s]Compressing model: 119it [00:10,  9.07it/s]Compressing model: 123it [00:10, 12.49it/s]Compressing model: 125it [00:11,  9.75it/s]Compressing model: 127it [00:11,  9.37it/s]Compressing model: 131it [00:11, 11.11it/s]Compressing model: 133it [00:12,  9.09it/s]Compressing model: 137it [00:12, 12.67it/s]Compressing model: 139it [00:12,  9.84it/s]Compressing model: 141it [00:12,  9.48it/s]Compressing model: 145it [00:13, 11.23it/s]Compressing model: 147it [00:13,  9.19it/s]Compressing model: 151it [00:13, 12.72it/s]Compressing model: 153it [00:13,  9.85it/s]Compressing model: 155it [00:14,  9.48it/s]Compressing model: 159it [00:14, 11.18it/s]Compressing model: 161it [00:14,  9.11it/s]Compressing model: 165it [00:14, 12.73it/s]Compressing model: 167it [00:15,  9.87it/s]Compressing model: 169it [00:15,  9.51it/s]Compressing model: 173it [00:15, 11.33it/s]Compressing model: 175it [00:16,  9.15it/s]Compressing model: 179it [00:16, 12.54it/s]Compressing model: 181it [00:16,  9.74it/s]Compressing model: 183it [00:16,  9.39it/s]Compressing model: 187it [00:17, 11.07it/s]Compressing model: 189it [00:17,  9.06it/s]Compressing model: 193it [00:17, 12.65it/s]Compressing model: 195it [00:17,  9.84it/s]Compressing model: 197it [00:18,  9.46it/s]Compressing model: 201it [00:18, 11.20it/s]Compressing model: 203it [00:18,  9.13it/s]Compressing model: 207it [00:18, 12.57it/s]Compressing model: 209it [00:19,  9.83it/s]Compressing model: 211it [00:19,  9.48it/s]Compressing model: 215it [00:19, 11.36it/s]Compressing model: 217it [00:20,  9.22it/s]Compressing model: 221it [00:20, 12.84it/s]Compressing model: 223it [00:20,  9.81it/s]Compressing model: 224it [00:20, 10.76it/s]
+2025-12-18T14:35:34.815136-0500 | reset | INFO - Compression lifecycle reset
+2025-12-18T14:35:34.815368-0500 | test_lm_eval | INFO - ================= Running LM Eval on COMPRESSED model ==========
+[33;1m2025-12-18 14:35:34 WARNING modeling_utils.py L4670: `torch_dtype` is deprecated! Use `dtype` instead![0m
+Compressing model: 0it [00:00, ?it/s]Compressing model: 219it [00:00, 2186.54it/s]Compressing model: 224it [00:00, 2163.84it/s]
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:00<00:00,  1.15it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  2.12it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.88it/s]
+The tokenizer you are loading from 'Llama-3.1-8B-Instruct-NVFP4' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
+  0%|          | 0/1000 [00:00<?, ?it/s]  5%|▌         | 52/1000 [00:00<00:01, 518.27it/s] 10%|█         | 105/1000 [00:00<00:01, 523.78it/s] 16%|█▌        | 158/1000 [00:00<00:01, 526.45it/s] 21%|██        | 211/1000 [00:00<00:01, 525.76it/s] 26%|██▋       | 264/1000 [00:00<00:01, 521.65it/s] 32%|███▏      | 317/1000 [00:00<00:01, 520.08it/s] 37%|███▋      | 370/1000 [00:00<00:01, 521.96it/s] 42%|████▏     | 423/1000 [00:00<00:01, 524.23it/s] 48%|████▊     | 476/1000 [00:00<00:00, 525.96it/s] 53%|█████▎    | 529/1000 [00:01<00:00, 527.06it/s] 58%|█████▊    | 582/1000 [00:01<00:00, 527.70it/s] 64%|██████▎   | 635/1000 [00:01<00:00, 528.12it/s] 69%|██████▉   | 689/1000 [00:01<00:00, 528.81it/s] 74%|███████▍  | 742/1000 [00:01<00:00, 528.94it/s] 80%|███████▉  | 795/1000 [00:01<00:00, 529.12it/s] 85%|████████▍ | 848/1000 [00:01<00:00, 529.31it/s] 90%|█████████ | 901/1000 [00:01<00:00, 529.35it/s] 96%|█████████▌| 955/1000 [00:01<00:00, 530.11it/s]100%|██████████| 1000/1000 [00:01<00:00, 526.92it/s]
+Running generate_until requests:   0%|          | 0/1000 [00:00<?, ?it/s][33;1m2025-12-18 14:35:41 WARNING configuration_utils.py L692: The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.[0m
+Running generate_until requests:   0%|          | 1/1000 [01:47<29:57:39, 107.97s/it]Running generate_until requests:  10%|█         | 101/1000 [03:24<25:36,  1.71s/it]  Running generate_until requests:  20%|██        | 201/1000 [04:59<16:51,  1.27s/it]Running generate_until requests:  30%|███       | 301/1000 [06:32<12:58,  1.11s/it]Running generate_until requests:  40%|████      | 401/1000 [08:06<10:24,  1.04s/it]Running generate_until requests:  50%|█████     | 501/1000 [09:19<07:44,  1.07it/s]Running generate_until requests:  60%|██████    | 601/1000 [10:50<06:08,  1.08it/s]Running generate_until requests:  70%|███████   | 701/1000 [12:20<04:34,  1.09it/s]Running generate_until requests:  80%|████████  | 801/1000 [13:26<02:45,  1.20it/s]Running generate_until requests:  90%|█████████ | 901/1000 [14:54<01:23,  1.18it/s]Running generate_until requests: 100%|██████████| 1000/1000 [14:54<00:00,  1.12it/s]
+2025-12-18T14:50:36.686260-0500 | _validate_recovery | INFO - ================================================================================
+2025-12-18T14:50:36.686524-0500 | _validate_recovery | INFO - RECOVERY TESTING COMPARISON
+2025-12-18T14:50:36.686892-0500 | _validate_recovery | INFO - ================================================================================
+2025-12-18T14:50:36.687244-0500 | _validate_recovery | INFO - ✓ exact_match,strict-match                 | Base: 0.7120 | Compressed: 0.6710 | Recovery: 94.24% ↑ | Threshold: ≥92.00%
+2025-12-18T14:50:36.687462-0500 | _validate_recovery | ERROR - ✗ exact_match,flexible-extract             | Base: 0.7770 | Compressed: 0.6880 | Recovery: 88.55% ↑ | Threshold: ≥89.00%
+2025-12-18T14:50:36.687492-0500 | _validate_recovery | INFO - ================================================================================
+FAILED
+
+=================================== FAILURES ===================================
+_ TestLMEval.test_lm_eval[/home/HDCharles/repos/llm-compressor/tests/lmeval/configs/awq_nvfp4.yaml] _
+
+self = <tests.lmeval.test_lmeval.TestLMEval object at 0x78431c338850>
+test_data_file = '/home/HDCharles/repos/llm-compressor/tests/lmeval/configs/awq_nvfp4.yaml'
+
+    def test_lm_eval(self, test_data_file: str):
+        # Run vLLM with saved model
+        self.set_up(test_data_file)
+    
+        # Always evaluate base model for recovery testing
+        logger.info("================= Evaluating BASE model ======================")
+        base_results = self._eval_base_model()
+    
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        oneshot_model, processor = run_oneshot_for_e2e_testing(
+            model=self.model,
+            model_class=self.model_class,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
+            quant_type=self.quant_type,
+        )
+    
+        logger.info("================= SAVING TO DISK ======================")
+        self._save_compressed_model(oneshot_model, processor)
+    
+        # Use the session to fetch the recipe;
+        # Reset session for next test case
+        self._handle_recipe()
+    
+        logger.info("================= Running LM Eval on COMPRESSED model ==========")
+        compressed_results = self._eval_compressed_model()
+    
+        # Always use recovery testing
+>       self._validate_recovery(base_results, compressed_results)
+
+tests/lmeval/test_lmeval.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.lmeval.test_lmeval.TestLMEval object at 0x78431c338850>
+base_results = {'config': {'batch_size': 100, 'batch_sizes': [], 'bootstrap_iters': 100000, 'device': None, ...}, 'configs': {'gsm8k'...m8k', 'description': '', 'doc_to_target': '{{answer}}', ...}}, 'date': 1766005062.3841712, 'eot_token_id': 128009, ...}
+compressed_results = {'config': {'batch_size': 100, 'batch_sizes': [], 'bootstrap_iters': 100000, 'device': None, ...}, 'configs': {'gsm8k'...m8k', 'description': '', 'doc_to_target': '{{answer}}', ...}}, 'date': 1766086536.3632057, 'eot_token_id': 128009, ...}
+
+    def _validate_recovery(self, base_results, compressed_results):
+        """Validate using recovery testing - compare against base model."""
+        base_metrics = base_results["results"][self.lmeval.task]
+        compressed_metrics = compressed_results["results"][self.lmeval.task]
+        higher_is_better_map = compressed_results.get("higher_is_better", {}).get(
+            self.lmeval.task, {}
+        )
+    
+        logger.info("=" * 80)
+        logger.info("RECOVERY TESTING COMPARISON")
+        logger.info("=" * 80)
+    
+        # Get default threshold from config schema
+        default_threshold = self.lmeval.model_fields["recovery_threshold"].default
+    
+        failures = []
+        # Iterate over compressed metrics (what we actually got)
+        for metric_key, compressed_val in compressed_metrics.items():
+            # Skip stderr and other metadata
+            if "stderr" in metric_key or metric_key.startswith("alias"):
+                continue
+    
+            base_val = base_metrics.get(metric_key)
+            if base_val is None:
+                logger.warning(
+                    f"Metric {metric_key} in compressed results "
+                    f"not found in base results, skipping"
+                )
+                continue
+    
+            # Get threshold for this metric
+            if isinstance(self.lmeval.recovery_threshold, dict):
+                threshold = self.lmeval.recovery_threshold.get(
+                    metric_key, default_threshold
+                )
+            else:
+                threshold = self.lmeval.recovery_threshold
+    
+            # Get direction
+            base_metric_name = metric_key.split(",")[0]
+            higher_is_better = higher_is_better_map.get(base_metric_name, True)
+    
+            # Compute recovery
+            if base_val == 0:
+                recovery = 1.0 if compressed_val == 0 else 0.0
+            elif higher_is_better:
+                recovery = compressed_val / base_val
+            else:
+                # For "lower is better", invert ratio
+                recovery = base_val / compressed_val
+    
+            # Check threshold
+            passed = recovery >= threshold
+            direction = "↑" if higher_is_better else "↓"
+    
+            msg = (
+                f"{metric_key:40} | Base: {base_val:.4f} | "
+                f"Compressed: {compressed_val:.4f} | "
+                f"Recovery: {recovery:6.2%} {direction} | Threshold: ≥{threshold:.2%}"
+            )
+    
+            if passed:
+                logger.info(f"✓ {msg}")
+            else:
+                logger.error(f"✗ {msg}")
+                failures.append(
+                    f"{metric_key}: {recovery:.2%} < {threshold:.2%} "
+                    f"(base={base_val:.4f}, compressed={compressed_val:.4f})"
+                )
+    
+        # Validate that config thresholds match actual results
+        if isinstance(self.lmeval.recovery_threshold, dict):
+            for config_metric_key in self.lmeval.recovery_threshold.keys():
+                if config_metric_key not in compressed_metrics:
+                    logger.warning(
+                        f"Metric {config_metric_key} in recovery_threshold config "
+                        f"not found in results"
+                    )
+    
+        logger.info("=" * 80)
+    
+        if failures:
+            failure_msg = "\n".join(failures)
+>           raise AssertionError(f"Recovery testing failed:\n{failure_msg}")
+E           AssertionError: Recovery testing failed:
+E           exact_match,flexible-extract: 88.55% < 89.00% (base=0.7770, compressed=0.6880)
+
+tests/lmeval/test_lmeval.py:291: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  lm_eval.models.huggingface:huggingface.py:113 `pretrained` model kwarg is not of type `str`. Many other model arguments may be ignored. Please do not launch via accelerate or use `parallelize=True` if passing an existing model this way.
+WARNING  lm_eval.models.huggingface:huggingface.py:332 Passed an already-initialized model through `pretrained`, assuming single-process call to evaluate() or custom distributed integration
+WARNING  lm_eval.evaluator:evaluator.py:324 Overwriting default num_fewshot of gsm8k from 5 to 5
+=============================== warnings summary ===============================
+../../rhdev/lib/python3.11/site-packages/transformers/utils/hub.py:110
+  /home/HDCharles/rhdev/lib/python3.11/site-packages/transformers/utils/hub.py:110: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+    warnings.warn(
+
+<frozen importlib._bootstrap>:241
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:241
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+../../rhdev/lib/python3.11/site-packages/lm_eval/models/vllm_causallms.py:41
+  /home/HDCharles/rhdev/lib/python3.11/site-packages/lm_eval/models/vllm_causallms.py:41: DeprecationWarning: `vllm.transformers_utils.tokenizer.get_tokenizer` has been moved to `vllm.tokenizers.get_tokenizer`. The old name will be removed in v0.14.
+    from vllm.transformers_utils.tokenizer import get_tokenizer
+
+../../rhdev/lib/python3.11/site-packages/lm_eval/models/vllm_vlms.py:28
+  /home/HDCharles/rhdev/lib/python3.11/site-packages/lm_eval/models/vllm_vlms.py:28: DeprecationWarning: `vllm.transformers_utils.tokenizer.get_tokenizer` has been moved to `vllm.tokenizers.get_tokenizer`. The old name will be removed in v0.14.
+    from vllm.transformers_utils.tokenizer import get_tokenizer  # noqa: F401
+
+tests/lmeval/test_lmeval.py::TestLMEval::test_lm_eval[/home/HDCharles/repos/llm-compressor/tests/lmeval/configs/awq_nvfp4.yaml]
+  /home/HDCharles/repos/llm-compressor/tests/lmeval/test_lmeval.py:221: PydanticDeprecatedSince211: Accessing the 'model_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.
+    default_threshold = self.lmeval.model_fields["recovery_threshold"].default
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 1 failed, 6 warnings in 1043.22s (0:17:23) ==================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
