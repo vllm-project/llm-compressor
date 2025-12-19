@@ -137,10 +137,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
         Defaults to 20
-    :param log_output_path: optional path to save error metrics as JSON file.
-        Can be a file path or directory. If a directory is provided, a timestamped
-        filename will be generated. If None, error metrics will not be saved.
-        Defaults to None
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -152,7 +148,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     offload_device: torch.device | None = None
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
-    log_output_path: str | None = None
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -268,9 +263,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        # Save error metrics to file if log_output_path is provided
-        if self.log_output_path is not None and len(self._error_metrics) > 0:
-            self._save_error_metrics()
+        self._log_error_metrics()
 
         self._parent_args_cache.clear()
         self._smooth_activation_means.clear()
@@ -664,7 +657,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             )
         
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
-        logger.info(
+        logger.debug(
             f"AWQ grid search for {mapping.smooth_name}: "
             f"initial error = {initial_error:.3e}, "
             f"best error = {best_error:.3e}, "
@@ -707,35 +700,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         return loss
 
-    def _save_error_metrics(self):
+    def _log_error_metrics(self):
         """
-        Save error metrics (initial error, best error, reduction) to a JSON file.
-        The filename is determined by log_output_path parameter.
+        Log the error metrics (initial error, best error, reduction).
         """
-        import json
-        from datetime import datetime
-        from pathlib import Path
-        
-        # Use the provided log_output_path or generate a default filename
-        if self.log_output_path:
-            output_path = Path(self.log_output_path)
-            # If it's a directory, create a filename with timestamp
-            if output_path.is_dir():
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = output_path / f"awq_error_metrics_{timestamp}.json"
-            else:
-                filename = output_path
-        else:
-            # Default filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = Path(f"awq_error_metrics_{timestamp}.json")
-        
-        # Ensure parent directory exists
-        filename.parent.mkdir(parents=True, exist_ok=True)
-        
+                
         # Prepare data for saving
         metrics_data = {
-            'timestamp': datetime.now().isoformat(),
             'quantization_config': {
                 'duo_scaling': self.duo_scaling,
                 'n_grid': self.n_grid,
@@ -745,19 +716,19 @@ class AWQModifier(Modifier, QuantizationMixin):
         }
         
         # Save to disk
-        with open(filename, 'w') as f:
-            json.dump(metrics_data, f, indent=2)
-        
-        logger.info(f"Saved error metrics to {filename}")
+        logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
         
         # Also print summary statistics
         reductions = [m['reduction'] for m in self._error_metrics]
         avg_reduction = sum(reductions) / len(reductions)
         min_reduction = min(reductions)
         max_reduction = max(reductions)
-        logger.info(
+        sorted_reductions = sorted(reductions)
+        median_reduction = sorted_reductions[len(sorted_reductions) // 2]
+        logger.debug(
             f"Error reduction statistics: "
-            f"avg={avg_reduction:.4f}, min={min_reduction:.4f}, max={max_reduction:.4f}"
+            f"avg={avg_reduction:.4f}, median={median_reduction:.4f}, "
+            f"min={min_reduction:.4f}, max={max_reduction:.4f}"
         )
 
     def _assert_all_activations_consumed(self):
