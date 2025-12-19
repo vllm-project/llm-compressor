@@ -95,6 +95,7 @@ def test_oneshot_application(recipe, tmp_path):
     not_targetted = model_loaded.lm_head
     assert not hasattr(not_targetted, "quantization_scheme")
 
+
 @requires_gpu(2)
 def test_oneshot_with_device_map(tmp_path):
     output = tmp_path / "oneshot_output"

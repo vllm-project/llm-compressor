@@ -274,7 +274,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # Leave offload for LLMC to handle if `device_map` is not set
             auto_offload = False
             if self.device_map is not None:
-                # When device_map is set, we move decoding layer to CPU first, 
+                # When device_map is set, we move decoding layer to CPU first,
                 # then the submodules will be re-dispatched by AutoRound.
                 decoding_layer.to("cpu")
                 auto_offload = True

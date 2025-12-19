@@ -13,7 +13,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
-ITERS=200
+ITERS = 200
 # Get aligned calibration dataset.
 
 ds = get_dataset(
@@ -35,7 +35,7 @@ recipe = AutoRoundModifier(
     ],
     iters=ITERS,
     enable_torch_compile=False,
-    device_map="0,1,2,3", # Use 4 A100 GPUs
+    device_map="0,1,2,3",  # Use 4 A100 GPUs
 )
 
 
