@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
@@ -68,7 +68,7 @@ class PeoplesSpeech(TextGenerationDataset):
         else:
             return super().filter_tokenizer_args(dataset)
 
-    def tokenize(self, data: LazyRow) -> Dict[str, Any]:
+    def tokenize(self, data: LazyRow) -> dict[str, Any]:
         if self.processor_type == "WhisperProcessor":
             inputs = self.processor(
                 audio=data["audio"],
