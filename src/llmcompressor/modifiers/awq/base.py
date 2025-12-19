@@ -663,7 +663,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
         
-        err_reduction = best_error / initial_error
+        err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.info(
             f"AWQ grid search for {mapping.smooth_name}: "
             f"initial error = {initial_error:.3e}, "
