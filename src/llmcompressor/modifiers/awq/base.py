@@ -632,7 +632,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                
+
                 if initial_error is None:
                     initial_error = loss
 
@@ -655,7 +655,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "module. If you encounter this error, raise an issue at "
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
-        
+
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.debug(
             f"AWQ grid search for {mapping.smooth_name}: "
@@ -665,13 +665,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         )
 
         # Store error metrics for this layer
-        self._error_metrics.append({
-            'layer_name': mapping.smooth_name,
-            'parent_name': mapping.parent_name,
-            'initial_error': initial_error,
-            'best_error': best_error,
-            'reduction': err_reduction,
-        })
+        self._error_metrics.append(
+            {
+                "layer_name": mapping.smooth_name,
+                "parent_name": mapping.parent_name,
+                "initial_error": initial_error,
+                "best_error": best_error,
+                "reduction": err_reduction,
+            }
+        )
 
         assert (
             torch.isnan(best_scales).sum() == 0
@@ -704,22 +706,22 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         Log the error metrics (initial error, best error, reduction).
         """
-                
+
         # Prepare data for saving
         metrics_data = {
-            'quantization_config': {
-                'duo_scaling': self.duo_scaling,
-                'n_grid': self.n_grid,
+            "quantization_config": {
+                "duo_scaling": self.duo_scaling,
+                "n_grid": self.n_grid,
             },
-            'total_layers': len(self._error_metrics),
-            'metrics': self._error_metrics
+            "total_layers": len(self._error_metrics),
+            "metrics": self._error_metrics,
         }
-        
+
         # Save to disk
         logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
-        
+
         # Also print summary statistics
-        reductions = [m['reduction'] for m in self._error_metrics]
+        reductions = [m["reduction"] for m in self._error_metrics]
         avg_reduction = sum(reductions) / len(reductions)
         min_reduction = min(reductions)
         max_reduction = max(reductions)
