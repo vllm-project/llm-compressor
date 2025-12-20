@@ -45,7 +45,8 @@ def test_apply_correctness(
     with torch.no_grad():
         true_output = model(**input)
 
-    modifier.initialize(state)
+    modifier.on_initialize(state)
+    modifier.on_start(state, None)
 
     with torch.no_grad():
         output = model(**input)
