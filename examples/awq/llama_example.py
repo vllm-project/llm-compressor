@@ -17,8 +17,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-# Reduced to 32 for faster testing
-NUM_CALIBRATION_SAMPLES = 32
+NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.

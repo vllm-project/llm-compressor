@@ -1,8 +1,10 @@
 import contextlib
+import time
 from typing import TYPE_CHECKING
 
 import torch
 from compressed_tensors.utils import disable_offloading, get_execution_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -82,6 +84,13 @@ class SequentialPipeline(CalibrationPipeline):
             for mod in session.lifecycle.recipe.modifiers
         )
 
+        # Initialize timing stats
+        timing_stats = {
+            "calibration_forward": 0.0,
+            "propagation_forward": 0.0,
+            "cache_preparation": 0.0,
+        }
+
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             # Optionally disable quantization
@@ -89,10 +98,13 @@ class SequentialPipeline(CalibrationPipeline):
                 stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
+            cache_start = time.time()
+            cache_offload = dataset_args.offload_sequential_activations
             offload_device = torch.device(dataset_args.sequential_offload_device)
             activations = IntermediatesCache.from_dataloader(
                 dataloader, model_device, offload_device=offload_device
             )
+            timing_stats["cache_preparation"] = time.time() - cache_start
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
@@ -102,15 +114,18 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
+                    calib_start = time.time()
                     for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = activations.fetch(batch_idx, subgraph.input_names)
                         subgraph.forward(model, **inputs)
+                    timing_stats["calibration_forward"] += time.time() - calib_start
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
                     with HooksMixin.disable_hooks():
+                        prop_start = time.time()
                         for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
                             inputs = activations.fetch(batch_idx, subgraph.input_names)
                             output = subgraph.forward(model, **inputs)
@@ -118,6 +133,31 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+                        timing_stats["propagation_forward"] += time.time() - prop_start
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
+
+        # Print timing summary
+        _print_sequential_pipeline_timing(timing_stats)
+
+
+def _print_sequential_pipeline_timing(timing_stats: dict):
+    """Print a summary of sequential pipeline timing statistics"""
+    if not timing_stats:
+        return
+
+    logger.info("\n" + "=" * 80)
+    logger.info("Sequential Pipeline Timing Summary")
+    logger.info("=" * 80)
+    logger.info("\nPipeline Phases:")
+    logger.info("-" * 80)
+
+    total_time = 0.0
+    for metric, value in timing_stats.items():
+        logger.info(f"  {metric:30s}: {value:8.2f}s")
+        total_time += value
+
+    logger.info("-" * 80)
+    logger.info(f"  {'PIPELINE TOTAL':30s}: {total_time:8.2f}s")
+    logger.info("=" * 80 + "\n")

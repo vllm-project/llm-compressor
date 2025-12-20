@@ -160,6 +160,10 @@ class AWQModifier(Modifier, QuantizationMixin):
     _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
+    # Cache FP16 baseline outputs for each parent module, one list of tensors per batch
+    _fp16_baseline_cache: dict[Module, IntermediatesCache] = PrivateAttr(
+        default_factory=dict
+    )
     # Timing stats
     _timing_stats: dict[str, float] = PrivateAttr(default_factory=lambda: defaultdict(float))
     _timing_counts: dict[str, int] = PrivateAttr(default_factory=lambda: defaultdict(int))
@@ -272,6 +276,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self._parent_args_cache.clear()
         self._smooth_activation_means.clear()
+        self._fp16_baseline_cache.clear()
         self._resolved_mappings.clear()
 
         return True
@@ -291,13 +296,19 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "apply_smoothing",
                 "calibrate_weights",
             ],
-            "Per-Mapping (compute_best_scale)": [
+            "Per-Mapping Breakdown": [
+                "fp16_baseline",
                 "compute_best_scale",
+                "propagate_scales",
+            ],
+            "Inside compute_best_scale": [
                 "best_scale_setup",
+                "save_state",
+                "compute_layer_means",
                 "grid_quantize",
                 "run_samples",
                 "compute_loss",
-                "propagate_scales",
+                "restore_state",
             ],
         }
 
@@ -414,6 +425,16 @@ class AWQModifier(Modifier, QuantizationMixin):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
             self._parent_args_cache[module].append(values.arguments)
 
+        def cache_fp16_baseline_hook(
+            module: Module,
+            args: tuple[torch.Tensor, ...],
+            output: torch.Tensor,
+        ):
+            # Extract first element if tuple (same logic as _run_samples)
+            result = output[0] if isinstance(output, tuple) else output
+            # IntermediatesCache expects a dictionary
+            self._fp16_baseline_cache[module].append({"output": result.detach()})
+
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
                 _module: Module,
@@ -441,6 +462,17 @@ class AWQModifier(Modifier, QuantizationMixin):
                     cache_parent_kwargs_hook,
                     "forward_pre",
                     with_kwargs=True,
+                )
+
+                # Also cache FP16 baseline outputs
+                self._fp16_baseline_cache[mapping.parent] = IntermediatesCache(
+                    None,
+                    self.offload_device,
+                )
+                self.register_hook(
+                    mapping.parent,
+                    cache_fp16_baseline_hook,
+                    "forward",
                 )
 
             # input activations to balance layers needed for loss function
@@ -479,8 +511,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                # Compute output of unquantized module
-                fp16_outputs = self._run_samples(parent_module)
+                # Retrieve cached FP16 baseline outputs (collected during calibration)
+                fp16_baseline_start = time.time()
+                # Extract "output" from each batch's dictionary
+                fp16_outputs = [batch["output"] for batch in self._fp16_baseline_cache[parent_module]]
+                self._timing_stats["fp16_baseline"] += time.time() - fp16_baseline_start
+                self._timing_counts["fp16_baseline"] += 1
+
                 if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
                     logger.info(
                         f"Skipping smooth_layer {mapping.smooth_name}, no activations "
@@ -504,7 +541,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
 
-                best_scales = self._compute_best_scale(mapping, fp16_outputs)
+                fp16_cat = torch.cat([ref.flatten() for ref in fp16_outputs])
+                del fp16_outputs
+
+                best_scales = self._compute_best_scale(mapping, fp16_cat)
 
                 # Apply scales to weights
                 propagate_start = time.time()
@@ -559,6 +599,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         for v in self._parent_args_cache.values():
             v.batch_intermediates.clear()
+        for v in self._fp16_baseline_cache.values():
+            v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
         self._timing_stats["apply_smoothing"] += time.time() - smoothing_start
@@ -581,7 +623,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     def _compute_best_scale(
         self,
         mapping: ResolvedMapping,
-        fp16_outputs: list[torch.Tensor],
+        fp16_outputs: torch.Tensor,
     ) -> torch.Tensor:
         """
         Select best scales for a given mapping in a grid search
@@ -616,18 +658,25 @@ class AWQModifier(Modifier, QuantizationMixin):
         ]
 
         # Save state of the balance layers so we can restore later
-        org_layer_states = {
+        save_state_start = time.time()
+        orig_layer_states = {
             id(layer): {k: v.clone() for k, v in layer.state_dict().items()
                        if v.device != torch.device("meta")}
             for layer in balance_layers_to_patch
-        }
+        } # check that this doesn't have issues with MoE
+        self._timing_stats["save_state"] += time.time() - save_state_start
+        self._timing_counts["save_state"] += 1
 
         device = get_execution_device(mapping.parent)
 
         x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
         if self.duo_scaling:
+            layer_means_start = time.time()
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
+            self._timing_stats["compute_layer_means"] += time.time() - layer_means_start
+            self._timing_counts["compute_layer_means"] += 1
         self._timing_stats["best_scale_setup"] += time.time() - setup_start
+        self._timing_counts["best_scale_setup"] += 1
 
         match self.duo_scaling:
             # if self.duo_scaling is "both", perform half the grid search with
@@ -683,7 +732,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     w_qscheme = balance_layer.quantization_scheme.weights
                     # Calculate scaled weight from original state instead of modifying in-place
                     balance_layer.weight.data = (
-                        org_layer_states[id(balance_layer)]['weight'] * _scalesview
+                        orig_layer_states[id(balance_layer)]['weight'] * _scalesview
                     ).to(balance_layer.weight.dtype)
 
                     call_observer(
@@ -717,6 +766,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_ratio = ratio
                     best_scales = scales.clone()
 
+                restore_start = time.time()
+                self._timing_stats["restore_state"] += time.time() - restore_start
+                self._timing_counts["restore_state"] += 1
+
         if best_ratio == -1:
             logger.debug(history)
             raise Exception(
@@ -737,26 +790,20 @@ class AWQModifier(Modifier, QuantizationMixin):
     @torch.no_grad()
     def _compute_loss(
         self,
-        fp16_outputs: list[torch.Tensor],
+        fp16_concat: torch.Tensor,
         int_w_outputs: list[torch.Tensor],
     ) -> float:
         start_time = time.time()
-        loss = 0.0
-        num_elements = 0
 
-        # Compute the MSE loss for each batch
-        for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            loss += torch.nn.functional.mse_loss(
-                fp16_batch, int_w_batch.to(fp16_batch.device)
-            ).item()
-            num_elements += fp16_batch.numel()
+        # Concatenate all tensors and compute MSE in a single operation
+        int_w_concat = torch.cat([out.flatten() for out in int_w_outputs]).to(fp16_concat.device)
 
-        # Normalize the loss by the total number of elements
-        loss /= num_elements
+        mse_loss = torch.nn.functional.mse_loss(fp16_concat, int_w_concat).item()
 
         self._timing_stats["compute_loss"] += time.time() - start_time
         self._timing_counts["compute_loss"] += 1
-        return loss
+
+        return mse_loss
 
     def _assert_all_activations_consumed(self):
         """
