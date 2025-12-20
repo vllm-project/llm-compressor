@@ -1,0 +1,326 @@
+"""
+GPT-OSS Model Quantization Example
+
+This script demonstrates quantizing GPT-OSS models using various quantization
+algorithms: W4A8, AWQ, and GPTQ.
+
+Usage:
+    # Basic W4A8 quantization
+    python gpt_oss_quantization_example.py --algorithm w4a8
+
+    # AWQ quantization
+    python gpt_oss_quantization_example.py --algorithm awq
+
+    # GPTQ quantization
+    python gpt_oss_quantization_example.py --algorithm gptq
+
+    # Custom options
+    python gpt_oss_quantization_example.py \
+        --algorithm gptq \
+        --model openai/gpt-oss-20b \
+        --num-samples 512 \
+        --max-seq-length 2048 \
+        --output-dir my-quantized-model
+"""
+
+import argparse
+
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from llmcompressor import oneshot
+from llmcompressor.modeling.gpt_oss import (
+    convert_model_for_quantization_gptoss,
+)
+from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import (
+    GPTQModifier,
+    QuantizationModifier,
+)
+from llmcompressor.utils import dispatch_for_generation
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Quantize GPT-OSS models with various algorithms"
+    )
+    parser.add_argument(
+        "--algorithm",
+        type=str,
+        choices=["w4a8", "awq", "gptq"],
+        default="w4a8",
+        help="Quantization algorithm to use (default: w4a8)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="openai/gpt-oss-20b",
+        help="Model ID from HuggingFace Hub (default: openai/gpt-oss-20b)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory (default: {model_name}-{algorithm})",
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=None,
+        help="Number of calibration samples (default: algorithm-specific)",
+    )
+    parser.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help="Maximum sequence length (default: algorithm-specific)",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="HuggingFaceH4/ultrachat_200k",
+        help="Calibration dataset ID (default: HuggingFaceH4/ultrachat_200k)",
+    )
+    parser.add_argument(
+        "--dataset-split",
+        type=str,
+        default="train_sft",
+        help="Dataset split to use (default: train_sft)",
+    )
+    parser.add_argument(
+        "--no-calibrate-all-experts",
+        action="store_true",
+        help="Disable calibrate_all_experts mode (not recommended)",
+    )
+    parser.add_argument(
+        "--skip-generation-test",
+        action="store_true",
+        help="Skip generation test after quantization",
+    )
+    return parser.parse_args()
+
+
+def get_algorithm_defaults(algorithm):
+    """Get default hyperparameters for each algorithm."""
+    defaults = {
+        "w4a8": {
+            "num_samples": 128,
+            "max_seq_length": 512,
+            "description": "Fast quantization with 4-bit weights and 8-bit activations",
+        },
+        "awq": {
+            "num_samples": 256,
+            "max_seq_length": 512,
+            "description": "Activation-aware weight quantization for better accuracy",
+        },
+        "gptq": {
+            "num_samples": 512,
+            "max_seq_length": 2048,
+            "description": "Layer-wise optimal quantization for best accuracy",
+        },
+    }
+    return defaults[algorithm]
+
+
+def create_recipe(algorithm):
+    """Create quantization recipe based on algorithm."""
+    if algorithm == "w4a8":
+        from compressed_tensors.quantization import (
+            QuantizationArgs,
+            QuantizationScheme,
+            QuantizationStrategy,
+            QuantizationType,
+        )
+
+        # Weights: 4-bit, channelwise, symmetric, static
+        weights_args = QuantizationArgs(
+            num_bits=4,
+            type=QuantizationType.INT,
+            strategy=QuantizationStrategy.CHANNEL,
+            symmetric=True,
+            dynamic=False,
+        )
+
+        # Activations: 8-bit, per-token, asymmetric, dynamic
+        activations_args = QuantizationArgs(
+            num_bits=8,
+            type=QuantizationType.INT,
+            strategy=QuantizationStrategy.TOKEN,
+            symmetric=False,
+            dynamic=True,
+            observer=None,
+        )
+
+        scheme = QuantizationScheme(
+            targets=["Linear"],
+            weights=weights_args,
+            input_activations=activations_args,
+        )
+
+        return QuantizationModifier(
+            config_groups={"group_0": scheme},
+            ignore=["lm_head"],
+        )
+
+    elif algorithm == "awq":
+        return AWQModifier(
+            targets=["Linear"],
+            scheme="W4A16",
+            ignore=["lm_head", "re:.*router$"],
+        )
+
+    elif algorithm == "gptq":
+        return GPTQModifier(
+            targets=["Linear"],
+            scheme="W4A16",
+            ignore=["lm_head", "re:.*router$"],
+        )
+
+    else:
+        raise ValueError(f"Unknown algorithm: {algorithm}")
+
+
+def main():
+    args = parse_args()
+
+    # Get algorithm defaults and override with user args
+    defaults = get_algorithm_defaults(args.algorithm)
+    num_samples = args.num_samples or defaults["num_samples"]
+    max_seq_length = args.max_seq_length or defaults["max_seq_length"]
+
+    # Set output directory
+    base_name = args.model.rstrip("/").split("/")[-1]
+    output_dir = args.output_dir or f"{base_name}-{args.algorithm}"
+
+    print("=" * 70)
+    print(f"GPT-OSS {args.algorithm.upper()} Quantization")
+    print("=" * 70)
+    print(f"Model: {args.model}")
+    print(f"Algorithm: {args.algorithm.upper()}")
+    print(f"Description: {defaults['description']}")
+    print(f"Calibration samples: {num_samples}")
+    print(f"Max sequence length: {max_seq_length}")
+    print(f"Output directory: {output_dir}")
+    print(
+        f"Calibrate all experts: {not args.no_calibrate_all_experts} (recommended)"
+    )
+    print("=" * 70)
+
+    print(f"\n[1/6] Loading model: {args.model}")
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model, trust_remote_code=True
+    )
+    print("Model loaded successfully")
+
+    print("\n[2/6] Converting MoE experts for quantization...")
+    print(
+        "      This linearizes fused expert weights into separate projections"
+    )
+    convert_model_for_quantization_gptoss(
+        model, calibrate_all_experts=not args.no_calibrate_all_experts
+    )
+    print("Conversion completed")
+
+    print(f"\n[3/6] Loading calibration dataset: {args.dataset}")
+    ds = load_dataset(
+        args.dataset, split=f"{args.dataset_split}[:{num_samples}]"
+    )
+    ds = ds.shuffle(seed=42)
+
+    def preprocess(example):
+        return {
+            "text": tokenizer.apply_chat_template(
+                example["messages"],
+                tokenize=False,
+            )
+        }
+
+    ds = ds.map(preprocess)
+
+    # Tokenize for GPTQ (required for GPTQ, optional for others)
+    if args.algorithm == "gptq":
+
+        def tokenize(sample):
+            return tokenizer(
+                sample["text"],
+                padding=False,
+                max_length=max_seq_length,
+                truncation=True,
+                add_special_tokens=False,
+            )
+
+        ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+    print(f"Loaded {len(ds)} calibration samples")
+
+    print(f"\n[4/6] Creating {args.algorithm.upper()} quantization recipe...")
+    recipe = create_recipe(args.algorithm)
+    print("Recipe created")
+
+    print(f"\n[5/6] Running {args.algorithm.upper()} quantization...")
+    print("      This will calibrate all experts for optimal quantization")
+    if args.algorithm == "gptq":
+        print(
+            "      GPTQ uses layer-wise reconstruction (this may take a while)"
+        )
+    elif args.algorithm == "awq":
+        print("      AWQ analyzes activation patterns for optimal scales")
+
+    oneshot(
+        model=model,
+        dataset=ds,
+        recipe=recipe,
+        tokenizer=tokenizer if args.algorithm != "gptq" else None,
+        max_seq_length=max_seq_length,
+        num_calibration_samples=num_samples,
+        save_compressed=True,
+        trust_remote_code_model=True,
+    )
+    print("Quantization completed")
+
+    if not args.skip_generation_test:
+        print("\n[6/6] Testing generation with quantized model...")
+        dispatch_for_generation(model)
+        test_prompt = "Hello, my name is"
+        input_ids = tokenizer(test_prompt, return_tensors="pt").input_ids.to(
+            model.device
+        )
+        output = model.generate(input_ids, max_new_tokens=50)
+        generated_text = tokenizer.decode(output[0])
+        print(f"      Prompt: {test_prompt}")
+        print(f"      Generated: {generated_text}")
+        print("Generation test passed")
+    else:
+        print("\n[6/6] Skipping generation test")
+
+    print(f"\nSaving quantized model to: {output_dir}")
+    model.save_pretrained(output_dir, save_compressed=True)
+    tokenizer.save_pretrained(output_dir)
+    print("Model saved successfully")
+
+    # ---- Display vLLM Instructions ----
+    print("\n" + "=" * 70)
+    print("Quantization Complete!")
+    print("=" * 70)
+    print(f"Quantized model saved to: {output_dir}")
+    print("\nTo run inference with vLLM:")
+    print("-" * 70)
+    print("from vllm import LLM, SamplingParams\n")
+    print(f'model = LLM(model="{output_dir}", trust_remote_code=True)')
+    print('prompts = ["Hello, my name is"]')
+    print("sampling_params = SamplingParams(temperature=0.7, max_tokens=100)")
+    print("outputs = model.generate(prompts, sampling_params)\n")
+    print("for output in outputs:")
+    print("    print(output.outputs[0].text)")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()

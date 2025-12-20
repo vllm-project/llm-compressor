@@ -6,6 +6,8 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 
+from llmcompressor.modeling.moe_context import MoECalibrationModule
+
 
 class LinearExpert(nn.Module):
     """
@@ -167,6 +169,112 @@ class LinearExperts(nn.Module):
         return out.view(B, -1, H)
 
 
+@MoECalibrationModule.register("LinearExperts")
+class CalibrationLinearExperts(MoECalibrationModule):
+    """
+    Calibration version of LinearExperts that sends all tokens to all experts.
+
+    This module wraps the already-linearized LinearExperts to provide
+    calibration support during quantization. Since LinearExperts already has
+    the correct structure (separate gate/up/down projections),just add the
+    calibrate_all_experts functionality.
+    """
+
+    is_permanent = True
+
+    def __init__(
+        self,
+        original: LinearExperts,
+        config,
+        calibrate_all_experts: bool = True,
+    ):
+        super().__init__()
+        self.hidden_size = original.hidden_size
+        self.expert_dim = original.expert_dim
+        self.num_experts = original.num_experts
+        self.alpha = original.alpha
+        self.limit = original.limit
+        self.experts = original.experts
+        self.calibrate_all_experts = calibrate_all_experts
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,  # [B, T, H]
+        router_indices: Optional[
+            torch.Tensor
+        ] = None,  # [B, T, top_k] or [tokens, top_k]
+        routing_weights: Optional[
+            torch.Tensor
+        ] = None,  # [B, T, E] or [tokens, E]
+    ) -> torch.Tensor:
+        """
+        Implements the MoE computation using the router outputs.
+
+        This is compatible with the GPT-OSS MoE call pattern:
+            experts(hidden_states, router_indices, routing_weights)
+
+        When calibrate_all_experts=True, all experts process all tokens
+        to ensure proper calibration statistics. Enables activations
+        through all expert paths.
+        """
+        assert (
+            routing_weights is not None and router_indices is not None
+        ), "router inputs required"
+
+        # Normalize shapes to [tokens, H], [tokens, top_k], [tokens, E]
+        if hidden_states.dim() == 3:
+            B, T, H = hidden_states.shape
+            x = hidden_states.reshape(-1, H)
+        else:
+            # Already flattened
+            B, _ = 1, hidden_states.shape[0]
+            H = hidden_states.shape[-1]
+            x = hidden_states
+
+        if router_indices.dim() == 3:
+            router_indices = router_indices.reshape(
+                -1, router_indices.shape[-1]
+            )
+        if routing_weights.dim() == 3:
+            routing_weights = routing_weights.reshape(
+                -1, routing_weights.shape[-1]
+            )
+
+        num_experts_plus_dummy = routing_weights.shape[1]
+        out = torch.zeros_like(x)
+
+        with torch.no_grad():
+            expert_mask = torch.nn.functional.one_hot(
+                router_indices, num_classes=num_experts_plus_dummy
+            ).permute(2, 1, 0)
+            expert_hit = torch.greater(
+                expert_mask.sum(dim=(-1, -2)), 0
+            ).nonzero()
+
+        for idx in expert_hit:
+            e = idx[0].item()
+            if e == self.num_experts:
+                # Skip "no expert" bucket
+                continue
+
+            _, token_idx = torch.where(expert_mask[e])
+            expert = self.experts[e]
+
+            if self.calibrate_all_experts:
+                # Process all tokens through this expert for calibration
+                yi = expert(x)[token_idx]
+            else:
+                # Normal routing: only process tokens
+                # assigned to this expert
+                xi = x[token_idx]
+                yi = expert(xi)
+
+            w = routing_weights[token_idx, e, None]
+            out.index_add_(0, token_idx, (yi * w).to(out.dtype))
+
+        return out.view(B, -1, H)
+
+
 @dataclass
 class ExpertMeta:
     path: str
@@ -218,14 +326,28 @@ def find_experts(model: nn.Module) -> List[ExpertMeta]:
     return metas
 
 
-def convert_model_for_quantization_gptoss(model: nn.Module) -> None:
+def convert_model_for_quantization_gptoss(
+    model: nn.Module, calibrate_all_experts: bool = True
+) -> None:
     """
-    In-place conversion of a GPT-OSS model:
+    In-place conversion of a GPT-OSS model for quantization.
 
-    - Finds all fused MoE expert blocks (with gate_up_proj/down_proj).
-    - Replaces them with LinearExperts that expose plain nn.Linear
-      parameters (gate_proj, up_proj, down_proj), which play nicely
-      with LLM Compressor W4A8 quantization.
+    This function performs two key transformations:
+    1. Linearizes fused MoE expert blocks (gate_up_proj/down_proj) into
+       separate nn.Linear parameters (gate_proj, up_proj, down_proj)
+    2. Wraps them with CalibrationLinearExperts for proper calibration
+
+    Args:
+        model: The GPT-OSS model to convert (modified in-place)
+        calibrate_all_experts: If True, all experts will see all tokens
+            during calibration. This is the recommended setting for proper
+            quantization statistics. Set to False only if you want normal
+            routing behavior during calibration.
+
+    Note:
+        The converted model is compatible with GPTQ and AWQ modifiers.
+        Use moe_calibration_context during calibration to activate the
+        calibrate_all_experts behavior.
     """
     metas = find_experts(model)
     for meta in metas:
@@ -243,17 +365,26 @@ def convert_model_for_quantization_gptoss(model: nn.Module) -> None:
         ):
             continue
 
-        new_exp = LinearExperts(
+        # Step 1: Create LinearExperts with separate gate/up/down projections
+        linear_experts = LinearExperts(
             hidden_size=meta.hidden_size,
             intermediate_size=meta.intermediate_size,
             num_experts=meta.num_experts,
         ).to(device=meta.device, dtype=meta.dtype)
 
-        new_exp.copy_from_fused_weights(
+        linear_experts.copy_from_fused_weights(
             legacy_gate_up_W=legacy.gate_up_proj,
             legacy_gate_up_b=legacy.gate_up_proj_bias,
             legacy_down_W=legacy.down_proj,
             legacy_down_b=legacy.down_proj_bias,
         )
 
-        set_module_by_path(model, meta.path, new_exp)
+        # Step 2: Wrap with CalibrationLinearExperts for MoE calibration
+        # this registers the module so moe_calibration_context can use it
+        calibration_experts = CalibrationLinearExperts(
+            original=linear_experts,
+            config=model.config,
+            calibrate_all_experts=calibrate_all_experts,
+        )
+
+        set_module_by_path(model, meta.path, calibration_experts)
