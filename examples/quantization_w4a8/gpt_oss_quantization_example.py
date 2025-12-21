@@ -27,6 +27,12 @@ import argparse
 from enum import Enum
 
 import torch
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+    QuantizationType,
+)
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -52,12 +58,6 @@ class QuantizationAlgorithm(str, Enum):
 
 def create_recipe(algorithm):
     """Create quantization recipe based on algorithm."""
-    from compressed_tensors.quantization import (
-        QuantizationArgs,
-        QuantizationScheme,
-        QuantizationStrategy,
-        QuantizationType,
-    )
 
     # Shared weights configuration for all algorithms
     weights_args = QuantizationArgs(
@@ -142,13 +142,13 @@ def parse_args():
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=None,
+        default=256,
         help="Number of calibration samples (default: 256)",
     )
     parser.add_argument(
         "--max-seq-length",
         type=int,
-        default=None,
+        default=2048,
         help="Maximum sequence length (default: 2048)",
     )
     parser.add_argument(
@@ -180,8 +180,8 @@ def main():
     args = parse_args()
 
     # Use sensible defaults if not provided
-    num_samples = args.num_samples or 256
-    max_seq_length = args.max_seq_length or 2048
+    num_samples = args.num_samples
+    max_seq_length = args.max_seq_length
 
     # Set output directory
     base_name = args.model.rstrip("/").split("/")[-1]
@@ -279,8 +279,8 @@ def main():
         tokenizer=use_tokenizer,
         max_seq_length=max_seq_length,
         num_calibration_samples=num_samples,
-        save_compressed=True,
-        trust_remote_code_model=True,
+        save_compressed=False,
+        output_dir=output_dir,
     )
     print("Quantization completed")
 
@@ -299,8 +299,6 @@ def main():
         print("\n[6/6] Skipping generation test")
 
     print(f"\nSaving quantized model to: {output_dir}")
-    model.save_pretrained(output_dir, save_compressed=True)
-    tokenizer.save_pretrained(output_dir)
     print("Model saved successfully")
 
     # ---- Display vLLM Instructions ----
