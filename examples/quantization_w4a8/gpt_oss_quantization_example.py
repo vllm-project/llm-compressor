@@ -164,17 +164,66 @@ def create_recipe(algorithm):
         )
 
     elif algorithm == "awq":
+        # Use explicit channel-wise quantization like W4A8 and GPTQ
+        # This avoids group size dimension mismatch issues with GPT-OSS
+        from compressed_tensors.quantization import (
+            QuantizationArgs,
+            QuantizationStrategy,
+            QuantizationType,
+        )
+
+        # Weights: 4-bit, channel-wise, symmetric, static
+        # Same strategy as W4A8 and GPTQ to avoid dimension mismatch
+        weights_args = QuantizationArgs(
+            num_bits=4,
+            type=QuantizationType.INT,
+            strategy=QuantizationStrategy.CHANNEL,  # Channel-wise, not grouped
+            symmetric=True,
+            dynamic=False,
+        )
+
+        config_groups = {
+            "group_0": {
+                "targets": ["Linear"],
+                "weights": weights_args,
+            }
+        }
+
         return AWQModifier(
             targets=["Linear"],
-            scheme="W4A16",
             ignore=["lm_head", "re:.*router$"],
+            config_groups=config_groups,
         )
 
     elif algorithm == "gptq":
+        # Use explicit channel-wise quantization like W4A8
+        # This avoids group size dimension mismatch issues with GPT-OSS
+        from compressed_tensors.quantization import (
+            QuantizationArgs,
+            QuantizationStrategy,
+            QuantizationType,
+        )
+
+        # Same strategy as W4A8 to avoid dimension mismatch
+        weights_args = QuantizationArgs(
+            num_bits=4,
+            type=QuantizationType.INT,
+            strategy=QuantizationStrategy.CHANNEL,  # Channel-wise, not grouped
+            symmetric=True,
+            dynamic=False,
+        )
+
+        config_groups = {
+            "group_0": {
+                "targets": ["Linear"],
+                "weights": weights_args,
+            }
+        }
+
         return GPTQModifier(
             targets=["Linear"],
-            scheme="W4A16",
             ignore=["lm_head", "re:.*router$"],
+            config_groups=config_groups,
         )
 
     else:
@@ -289,10 +338,9 @@ def main():
         print("\n[6/6] Testing generation with quantized model...")
         dispatch_for_generation(model)
         test_prompt = "Hello, my name is"
-        input_ids = tokenizer(test_prompt, return_tensors="pt").input_ids.to(
-            model.device
-        )
-        output = model.generate(input_ids, max_new_tokens=50)
+        inputs = tokenizer(test_prompt, return_tensors="pt")
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        output = model.generate(**inputs, max_new_tokens=50)
         generated_text = tokenizer.decode(output[0])
         print(f"      Prompt: {test_prompt}")
         print(f"      Generated: {generated_text}")
