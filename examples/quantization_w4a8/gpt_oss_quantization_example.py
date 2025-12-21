@@ -238,7 +238,7 @@ def main():
     ds = ds.map(preprocess)
 
     # Tokenize for GPTQ (required for GPTQ, optional for others)
-    if args.algorithm == "gptq":
+    if args.algorithm == QuantizationAlgorithm.GPTQ:
 
         def tokenize(sample):
             return tokenizer(
