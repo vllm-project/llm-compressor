@@ -68,13 +68,13 @@ def parse_args():
         "--num-samples",
         type=int,
         default=None,
-        help="Number of calibration samples (default: algorithm-specific)",
+        help="Number of calibration samples (default: 256)",
     )
     parser.add_argument(
         "--max-seq-length",
         type=int,
         default=None,
-        help="Maximum sequence length (default: algorithm-specific)",
+        help="Maximum sequence length (default: 2048)",
     )
     parser.add_argument(
         "--dataset",
@@ -101,48 +101,26 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_algorithm_defaults(algorithm):
-    """Get default hyperparameters for each algorithm."""
-    defaults = {
-        "w4a8": {
-            "num_samples": 128,
-            "max_seq_length": 512,
-            "description": "Fast quantization with 4-bit weights and 8-bit activations",
-        },
-        "awq": {
-            "num_samples": 256,
-            "max_seq_length": 512,
-            "description": "Activation-aware weight quantization for better accuracy",
-        },
-        "gptq": {
-            "num_samples": 512,
-            "max_seq_length": 2048,
-            "description": "Layer-wise optimal quantization for best accuracy",
-        },
-    }
-    return defaults[algorithm]
-
-
 def create_recipe(algorithm):
     """Create quantization recipe based on algorithm."""
+    from compressed_tensors.quantization import (
+        QuantizationArgs,
+        QuantizationScheme,
+        QuantizationStrategy,
+        QuantizationType,
+    )
+
+    # Shared weights configuration for all algorithms
+    weights_args = QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.CHANNEL,
+        symmetric=True,
+        dynamic=False,
+    )
+
     if algorithm == "w4a8":
-        from compressed_tensors.quantization import (
-            QuantizationArgs,
-            QuantizationScheme,
-            QuantizationStrategy,
-            QuantizationType,
-        )
-
-        # Weights: 4-bit, channelwise, symmetric, static
-        weights_args = QuantizationArgs(
-            num_bits=4,
-            type=QuantizationType.INT,
-            strategy=QuantizationStrategy.CHANNEL,
-            symmetric=True,
-            dynamic=False,
-        )
-
-        # Activations: 8-bit, per-token, asymmetric, dynamic
+        # W4A8 is unique - includes 8-bit activation quantization
         activations_args = QuantizationArgs(
             num_bits=8,
             type=QuantizationType.INT,
@@ -163,32 +141,15 @@ def create_recipe(algorithm):
             ignore=["lm_head"],
         )
 
-    elif algorithm == "awq":
-        # Use explicit channel-wise quantization like W4A8 and GPTQ
-        # This avoids group size dimension mismatch issues with GPT-OSS
-        from compressed_tensors.quantization import (
-            QuantizationArgs,
-            QuantizationStrategy,
-            QuantizationType,
-        )
-
-        # Weights: 4-bit, channel-wise, symmetric, static
-        # Same strategy as W4A8 and GPTQ to avoid dimension mismatch
-        weights_args = QuantizationArgs(
-            num_bits=4,
-            type=QuantizationType.INT,
-            strategy=QuantizationStrategy.CHANNEL,  # Channel-wise, not grouped
-            symmetric=True,
-            dynamic=False,
-        )
-
-        config_groups = {
-            "group_0": {
-                "targets": ["Linear"],
-                "weights": weights_args,
-            }
+    # AWQ and GPTQ share the same config_groups pattern
+    config_groups = {
+        "group_0": {
+            "targets": ["Linear"],
+            "weights": weights_args,
         }
+    }
 
+    if algorithm == "awq":
         return AWQModifier(
             targets=["Linear"],
             ignore=["lm_head", "re:.*router$"],
@@ -196,30 +157,6 @@ def create_recipe(algorithm):
         )
 
     elif algorithm == "gptq":
-        # Use explicit channel-wise quantization like W4A8
-        # This avoids group size dimension mismatch issues with GPT-OSS
-        from compressed_tensors.quantization import (
-            QuantizationArgs,
-            QuantizationStrategy,
-            QuantizationType,
-        )
-
-        # Same strategy as W4A8 to avoid dimension mismatch
-        weights_args = QuantizationArgs(
-            num_bits=4,
-            type=QuantizationType.INT,
-            strategy=QuantizationStrategy.CHANNEL,  # Channel-wise, not grouped
-            symmetric=True,
-            dynamic=False,
-        )
-
-        config_groups = {
-            "group_0": {
-                "targets": ["Linear"],
-                "weights": weights_args,
-            }
-        }
-
         return GPTQModifier(
             targets=["Linear"],
             ignore=["lm_head", "re:.*router$"],
@@ -233,10 +170,9 @@ def create_recipe(algorithm):
 def main():
     args = parse_args()
 
-    # Get algorithm defaults and override with user args
-    defaults = get_algorithm_defaults(args.algorithm)
-    num_samples = args.num_samples or defaults["num_samples"]
-    max_seq_length = args.max_seq_length or defaults["max_seq_length"]
+    # Use sensible defaults if not provided
+    num_samples = args.num_samples or 256
+    max_seq_length = args.max_seq_length or 2048
 
     # Set output directory
     base_name = args.model.rstrip("/").split("/")[-1]
@@ -247,7 +183,6 @@ def main():
     print("=" * 70)
     print(f"Model: {args.model}")
     print(f"Algorithm: {args.algorithm.upper()}")
-    print(f"Description: {defaults['description']}")
     print(f"Calibration samples: {num_samples}")
     print(f"Max sequence length: {max_seq_length}")
     print(f"Output directory: {output_dir}")
