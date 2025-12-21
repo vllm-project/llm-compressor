@@ -343,11 +343,6 @@ def convert_model_for_quantization_gptoss(
             during calibration. This is the recommended setting for proper
             quantization statistics. Set to False only if you want normal
             routing behavior during calibration.
-
-    Note:
-        The converted model is compatible with GPTQ and AWQ modifiers.
-        Use moe_calibration_context during calibration to activate the
-        calibrate_all_experts behavior.
     """
     metas = find_experts(model)
     for meta in metas:
@@ -380,7 +375,6 @@ def convert_model_for_quantization_gptoss(
         )
 
         # Step 2: Wrap with CalibrationLinearExperts for MoE calibration
-        # this registers the module so moe_calibration_context can use it
         calibration_experts = CalibrationLinearExperts(
             original=linear_experts,
             config=model.config,

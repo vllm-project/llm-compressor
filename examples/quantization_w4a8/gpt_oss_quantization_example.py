@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+from enum import Enum
 
 import torch
 from datasets import load_dataset
@@ -41,15 +42,89 @@ from llmcompressor.modifiers.quantization import (
 from llmcompressor.utils import dispatch_for_generation
 
 
+class QuantizationAlgorithm(str, Enum):
+    """Supported quantization algorithms for GPT-OSS."""
+
+    W4A8 = "w4a8"
+    AWQ = "awq"
+    GPTQ = "gptq"
+
+
+def create_recipe(algorithm):
+    """Create quantization recipe based on algorithm."""
+    from compressed_tensors.quantization import (
+        QuantizationArgs,
+        QuantizationScheme,
+        QuantizationStrategy,
+        QuantizationType,
+    )
+
+    # Shared weights configuration for all algorithms
+    weights_args = QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.CHANNEL,
+        symmetric=True,
+        dynamic=False,
+    )
+
+    if algorithm == QuantizationAlgorithm.W4A8:
+        # W4A8 is unique - includes 8-bit activation quantization
+        activations_args = QuantizationArgs(
+            num_bits=8,
+            type=QuantizationType.INT,
+            strategy=QuantizationStrategy.TOKEN,
+            symmetric=False,
+            dynamic=True,
+            observer=None,
+        )
+
+        scheme = QuantizationScheme(
+            targets=["Linear"],
+            weights=weights_args,
+            input_activations=activations_args,
+        )
+
+        return QuantizationModifier(
+            config_groups={"group_0": scheme},
+            ignore=["lm_head"],
+        )
+
+    # AWQ and GPTQ share the same config_groups pattern
+    config_groups = {
+        "group_0": {
+            "targets": ["Linear"],
+            "weights": weights_args,
+        }
+    }
+
+    if algorithm == QuantizationAlgorithm.AWQ:
+        return AWQModifier(
+            targets=["Linear"],
+            ignore=["lm_head", "re:.*router$"],
+            config_groups=config_groups,
+        )
+
+    elif algorithm == QuantizationAlgorithm.GPTQ:
+        return GPTQModifier(
+            targets=["Linear"],
+            ignore=["lm_head", "re:.*router$"],
+            config_groups=config_groups,
+        )
+
+    else:
+        raise ValueError(f"Unknown algorithm: {algorithm}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Quantize GPT-OSS models with various algorithms"
     )
     parser.add_argument(
         "--algorithm",
-        type=str,
-        choices=["w4a8", "awq", "gptq"],
-        default="w4a8",
+        type=QuantizationAlgorithm,
+        choices=list(QuantizationAlgorithm),
+        default=QuantizationAlgorithm.W4A8,
         help="Quantization algorithm to use (default: w4a8)",
     )
     parser.add_argument(
@@ -101,72 +176,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def create_recipe(algorithm):
-    """Create quantization recipe based on algorithm."""
-    from compressed_tensors.quantization import (
-        QuantizationArgs,
-        QuantizationScheme,
-        QuantizationStrategy,
-        QuantizationType,
-    )
-
-    # Shared weights configuration for all algorithms
-    weights_args = QuantizationArgs(
-        num_bits=4,
-        type=QuantizationType.INT,
-        strategy=QuantizationStrategy.CHANNEL,
-        symmetric=True,
-        dynamic=False,
-    )
-
-    if algorithm == "w4a8":
-        # W4A8 is unique - includes 8-bit activation quantization
-        activations_args = QuantizationArgs(
-            num_bits=8,
-            type=QuantizationType.INT,
-            strategy=QuantizationStrategy.TOKEN,
-            symmetric=False,
-            dynamic=True,
-            observer=None,
-        )
-
-        scheme = QuantizationScheme(
-            targets=["Linear"],
-            weights=weights_args,
-            input_activations=activations_args,
-        )
-
-        return QuantizationModifier(
-            config_groups={"group_0": scheme},
-            ignore=["lm_head"],
-        )
-
-    # AWQ and GPTQ share the same config_groups pattern
-    config_groups = {
-        "group_0": {
-            "targets": ["Linear"],
-            "weights": weights_args,
-        }
-    }
-
-    if algorithm == "awq":
-        return AWQModifier(
-            targets=["Linear"],
-            ignore=["lm_head", "re:.*router$"],
-            config_groups=config_groups,
-        )
-
-    elif algorithm == "gptq":
-        return GPTQModifier(
-            targets=["Linear"],
-            ignore=["lm_head", "re:.*router$"],
-            config_groups=config_groups,
-        )
-
-    else:
-        raise ValueError(f"Unknown algorithm: {algorithm}")
-
-
 def main():
     args = parse_args()
 
@@ -176,13 +185,13 @@ def main():
 
     # Set output directory
     base_name = args.model.rstrip("/").split("/")[-1]
-    output_dir = args.output_dir or f"{base_name}-{args.algorithm}"
+    output_dir = args.output_dir or f"{base_name}-{args.algorithm.value}"
 
     print("=" * 70)
-    print(f"GPT-OSS {args.algorithm.upper()} Quantization")
+    print(f"GPT-OSS {args.algorithm.value.upper()} Quantization")
     print("=" * 70)
     print(f"Model: {args.model}")
-    print(f"Algorithm: {args.algorithm.upper()}")
+    print(f"Algorithm: {args.algorithm.value.upper()}")
     print(f"Calibration samples: {num_samples}")
     print(f"Max sequence length: {max_seq_length}")
     print(f"Output directory: {output_dir}")
@@ -244,24 +253,30 @@ def main():
 
     print(f"Loaded {len(ds)} calibration samples")
 
-    print(f"\n[4/6] Creating {args.algorithm.upper()} quantization recipe...")
+    algo_name = args.algorithm.value.upper()
+    print(f"\n[4/6] Creating {algo_name} quantization recipe...")
     recipe = create_recipe(args.algorithm)
     print("Recipe created")
 
-    print(f"\n[5/6] Running {args.algorithm.upper()} quantization...")
+    print(f"\n[5/6] Running {algo_name} quantization...")
     print("      This will calibrate all experts for optimal quantization")
-    if args.algorithm == "gptq":
+    if args.algorithm == QuantizationAlgorithm.GPTQ:
         print(
             "      GPTQ uses layer-wise reconstruction (this may take a while)"
         )
-    elif args.algorithm == "awq":
+    elif args.algorithm == QuantizationAlgorithm.AWQ:
         print("      AWQ analyzes activation patterns for optimal scales")
+
+    # GPTQ requires pre-tokenized dataset, so we pass None for tokenizer
+    use_tokenizer = (
+        None if args.algorithm == QuantizationAlgorithm.GPTQ else tokenizer
+    )
 
     oneshot(
         model=model,
         dataset=ds,
         recipe=recipe,
-        tokenizer=tokenizer if args.algorithm != "gptq" else None,
+        tokenizer=use_tokenizer,
         max_seq_length=max_seq_length,
         num_calibration_samples=num_samples,
         save_compressed=True,
