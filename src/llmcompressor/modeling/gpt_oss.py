@@ -108,24 +108,13 @@ class LinearExperts(nn.Module):
             expert.down_proj.weight.copy_(legacy_down_W[i].t())
             expert.down_proj.bias.copy_(legacy_down_b[i])
 
-    def forward(
+    def _normalize_shapes(
         self,
-        hidden_states: torch.Tensor,  # [B, T, H]
-        router_indices: Optional[
-            torch.Tensor
-        ] = None,  # [B, T, top_k] or [tokens, top_k]
-        routing_weights: Optional[torch.Tensor] = None,  # [B, T, E] or [tokens, E]
-    ) -> torch.Tensor:
-        """
-        Implements the MoE computation using the router outputs.
-
-        This is compatible with the GPT-OSS MoE call pattern:
-            experts(hidden_states, router_indices, routing_weights)
-        """
-        assert (
-            routing_weights is not None and router_indices is not None
-        ), "router inputs required"
-
+        hidden_states: torch.Tensor,
+        router_indices: torch.Tensor,
+        routing_weights: torch.Tensor,
+    ):
+        """Normalize input shapes to 2D format for processing."""
         # Normalize shapes to [tokens, H], [tokens, top_k], [tokens, E]
         if hidden_states.dim() == 3:
             B, T, H = hidden_states.shape
@@ -141,108 +130,20 @@ class LinearExperts(nn.Module):
         if routing_weights.dim() == 3:
             routing_weights = routing_weights.reshape(-1, routing_weights.shape[-1])
 
+        return x, router_indices, routing_weights, B, H
+
+    def _route_and_compute(
+        self,
+        x: torch.Tensor,
+        router_indices: torch.Tensor,
+        routing_weights: torch.Tensor,
+        calibrate_all: bool = False,
+    ) -> torch.Tensor:
+        """Shared routing logic for expert computation."""
         num_experts_plus_dummy = routing_weights.shape[1]
         out = torch.zeros_like(x)
 
         # GPT-OSS router uses an extra "no expert" bucket at index E
-        with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(
-                router_indices, num_classes=num_experts_plus_dummy
-            ).permute(2, 1, 0)
-            expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
-
-        for idx in expert_hit:
-            e = idx[0].item()
-            if e == self.num_experts:
-                # Skip "no expert" bucket
-                continue
-
-            _, token_idx = torch.where(expert_mask[e])
-            xi = x[token_idx]
-
-            expert = self.experts[e]
-            yi = expert(xi)
-
-            w = routing_weights[token_idx, e, None]
-            out.index_add_(0, token_idx, (yi * w).to(out.dtype))
-
-        return out.view(B, -1, H)
-
-
-@MoECalibrationModule.register("LinearExperts")
-class CalibrationLinearExperts(MoECalibrationModule):
-    """
-    Calibration version of LinearExperts that sends all tokens to all experts.
-
-    This module wraps the already-linearized LinearExperts to provide
-    calibration support during quantization. Since LinearExperts already has
-    the correct structure (separate gate/up/down projections),just add the
-    calibrate_all_experts functionality.
-    """
-
-    is_permanent = True
-
-    def __init__(
-        self,
-        original: LinearExperts,
-        config,
-        calibrate_all_experts: bool = True,
-    ):
-        super().__init__()
-        self.hidden_size = original.hidden_size
-        self.expert_dim = original.expert_dim
-        self.num_experts = original.num_experts
-        self.alpha = original.alpha
-        self.limit = original.limit
-        self.experts = original.experts
-        self.calibrate_all_experts = calibrate_all_experts
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,  # [B, T, H]
-        router_indices: Optional[
-            torch.Tensor
-        ] = None,  # [B, T, top_k] or [tokens, top_k]
-        routing_weights: Optional[
-            torch.Tensor
-        ] = None,  # [B, T, E] or [tokens, E]
-    ) -> torch.Tensor:
-        """
-        Implements the MoE computation using the router outputs.
-
-        This is compatible with the GPT-OSS MoE call pattern:
-            experts(hidden_states, router_indices, routing_weights)
-
-        When calibrate_all_experts=True, all experts process all tokens
-        to ensure proper calibration statistics. Enables activations
-        through all expert paths.
-        """
-        assert (
-            routing_weights is not None and router_indices is not None
-        ), "router inputs required"
-
-        # Normalize shapes to [tokens, H], [tokens, top_k], [tokens, E]
-        if hidden_states.dim() == 3:
-            B, T, H = hidden_states.shape
-            x = hidden_states.reshape(-1, H)
-        else:
-            # Already flattened
-            B, _ = 1, hidden_states.shape[0]
-            H = hidden_states.shape[-1]
-            x = hidden_states
-
-        if router_indices.dim() == 3:
-            router_indices = router_indices.reshape(
-                -1, router_indices.shape[-1]
-            )
-        if routing_weights.dim() == 3:
-            routing_weights = routing_weights.reshape(
-                -1, routing_weights.shape[-1]
-            )
-
-        num_experts_plus_dummy = routing_weights.shape[1]
-        out = torch.zeros_like(x)
-
         with torch.no_grad():
             expert_mask = torch.nn.functional.one_hot(
                 router_indices, num_classes=num_experts_plus_dummy
@@ -260,18 +161,99 @@ class CalibrationLinearExperts(MoECalibrationModule):
             _, token_idx = torch.where(expert_mask[e])
             expert = self.experts[e]
 
-            if self.calibrate_all_experts:
-                # Process all tokens through this expert for calibration
+            if calibrate_all:
+                # Process all tokens through expert for calibration
                 yi = expert(x)[token_idx]
             else:
-                # Normal routing: only process tokens
-                # assigned to this expert
+                # Normal routing: only process assigned tokens
                 xi = x[token_idx]
                 yi = expert(xi)
 
             w = routing_weights[token_idx, e, None]
             out.index_add_(0, token_idx, (yi * w).to(out.dtype))
 
+        return out
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        router_indices: Optional[torch.Tensor] = None,
+        routing_weights: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Implements the MoE computation using the router outputs.
+
+        This is compatible with the GPT-OSS MoE call pattern:
+            experts(hidden_states, router_indices, routing_weights)
+        """
+        assert (
+            routing_weights is not None and router_indices is not None
+        ), "router inputs required"
+
+        x, router_indices, routing_weights, B, H = self._normalize_shapes(
+            hidden_states, router_indices, routing_weights
+        )
+
+        out = self._route_and_compute(x, router_indices, routing_weights)
+        return out.view(B, -1, H)
+
+
+@MoECalibrationModule.register("LinearExperts")
+class CalibrationLinearExperts(LinearExperts, MoECalibrationModule):
+    """
+    Calibration version of LinearExperts that sends all tokens to all experts.
+
+    This module wraps the already-linearized LinearExperts to provide
+    calibration support during quantization. Since LinearExperts already has
+    the correct structure (separate gate/up/down projections), just add the
+    calibrate_all_experts functionality.
+    """
+
+    is_permanent = True
+
+    def __init__(
+        self,
+        original: LinearExperts,
+        config,
+        calibrate_all_experts: bool = True,
+    ):
+        # Don't call LinearExperts.__init__, just copy attributes
+        nn.Module.__init__(self)
+        self.hidden_size = original.hidden_size
+        self.expert_dim = original.expert_dim
+        self.num_experts = original.num_experts
+        self.alpha = original.alpha
+        self.limit = original.limit
+        self.experts = original.experts
+        self.calibrate_all_experts = calibrate_all_experts
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        router_indices: Optional[torch.Tensor] = None,
+        routing_weights: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Implements the MoE computation using the router outputs.
+
+        This is compatible with the GPT-OSS MoE call pattern:
+            experts(hidden_states, router_indices, routing_weights)
+
+        When calibrate_all_experts=True, all experts process all tokens
+        to ensure proper calibration statistics. Enables activations
+        through all expert paths.
+        """
+        assert (
+            routing_weights is not None and router_indices is not None
+        ), "router inputs required"
+
+        x, router_indices, routing_weights, B, H = self._normalize_shapes(
+            hidden_states, router_indices, routing_weights
+        )
+
+        out = self._route_and_compute(
+            x, router_indices, routing_weights, self.calibrate_all_experts
+        )
         return out.view(B, -1, H)
 
 
