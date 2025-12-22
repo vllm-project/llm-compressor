@@ -131,13 +131,13 @@ class SmoothQuantModifier(Modifier):
             )
         self.ignore = [] if not self.ignore else self.ignore
         self.mappings = self._infer_mappings_from_model(state.model)
-        self.resolved_mappings_ = self._resolve_mappings(state.model)
         self.scales_ = {}
 
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
+        self.resolved_mappings_ = self._resolve_mappings(state.model)
         self._setup_scale_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
