@@ -112,8 +112,10 @@ class WandaPruningModifier(SparsityModifierBase):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with torch.no_grad(), align_module_device(module), CompressionLogger(
-                module
+            with (
+                torch.no_grad(),
+                align_module_device(module),
+                CompressionLogger(module),
             ):
                 sparsified_weight = sparsify_weight(
                     module=module,

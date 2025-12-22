@@ -23,9 +23,7 @@ from tests.testing_utils import requires_cadence, requires_gpu
 @pytest.mark.parametrize("model_stub", ["meta-llama/Llama-4-Scout-17B-16E-Instruct"])
 def test_calib_replace_llama4_moe_all_experts(model_stub):
     with skip_weights_download(Llama4ForConditionalGeneration):
-        model = Llama4ForConditionalGeneration.from_pretrained(
-            model_stub, torch_dtype="auto"
-        )
+        model = Llama4ForConditionalGeneration.from_pretrained(model_stub, dtype="auto")
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(calibration_forward_context(model))

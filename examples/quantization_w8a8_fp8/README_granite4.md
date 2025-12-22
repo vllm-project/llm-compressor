@@ -55,7 +55,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "ibm-granite/granite-4.0-tiny-preview"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 

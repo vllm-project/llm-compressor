@@ -14,7 +14,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "ibm-granite/granite-4.0-tiny-preview"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 skip_router_only = True  # assume we want to quantize input/output moe layers

@@ -33,7 +33,7 @@ def test_quantization_with_automatic_untie():
     # Test 1: Apply quantization WITHOUT manually untieing first
     # (relies on automatic untieing in start_calibration)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -87,7 +87,7 @@ def test_quantization_untie_only_when_targeted():
 
     # Test with targets that don't include embeddings
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -141,7 +141,7 @@ def test_spinquant_with_tied_embeddings(rotations):
 
     # Test with R1 rotation (should untie embeddings)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -204,7 +204,7 @@ def test_quip_with_tied_embeddings(rotations):
 
     # Test with QuIP rotations
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -263,7 +263,7 @@ def test_quip_untie_only_when_targeted(rotations):
 
     # Test with QuIP with default ignore (includes lm_head)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
