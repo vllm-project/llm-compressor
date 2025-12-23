@@ -119,7 +119,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
-    :param ignore: list of layers to ignore, even if they match a regex in mappings.
+    :param ignore: list of layers to ignore during quantization (not smoothing).
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
@@ -281,8 +281,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
         for mapping in self.mappings:
+            # we deliberately don't use the ignore list when matching mappings,
+            # ignore is applied to the targets for quantization rather than
+            # the mappings for smoothing.
             for smooth_layers, *nested_balance_layers in match_modules_set(
-                model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
+                model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
