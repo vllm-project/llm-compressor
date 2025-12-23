@@ -8,7 +8,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 

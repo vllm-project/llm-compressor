@@ -10,7 +10,7 @@ MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
 # Load model.
 model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-    MODEL_ID, torch_dtype=torch.bfloat16, device_map=None, trust_remote_code=True
+    MODEL_ID, dtype=torch.bfloat16, device_map=None, trust_remote_code=True
 )
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 

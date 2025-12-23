@@ -13,7 +13,7 @@ from llmcompressor.utils import dispatch_for_generation
 # Select model and load it.
 MODEL_ID = "openai/whisper-large-v3"
 
-model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
 
