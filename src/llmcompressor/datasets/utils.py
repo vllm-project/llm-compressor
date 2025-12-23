@@ -125,24 +125,13 @@ def format_calibration_data(
     tokenized_dataset: Dataset,
     processor: Processor,
 ) -> DataLoader:
-    # Use num_workers for parallel data loading if specified
-    # Note: Only use num_workers > 0 if data_collator is picklable
-    # Custom callable collators may not work with multiprocessing
-    num_workers = getattr(args, "dataloader_num_workers", 0)
-    # Disable multiprocessing for small datasets (to avoid overhead) or for custom
-    # collators (which may not be picklable).
-    # Note: Built-in collators ("truncation", "padding") are handled by
-    # _make_collate_fn, return picklable functions, and are safe.
-    if len(tokenized_dataset) < 100 or isinstance(args.data_collator, Callable):
-        num_workers = 0
-
     return DataLoader(
         tokenized_dataset,
         batch_size=args.batch_size,
         sampler=_make_sampler(args, tokenized_dataset),
         collate_fn=_make_collate_fn(args, processor),
         pin_memory=False,
-        num_workers=num_workers,
+        num_workers=args.dataloader_num_workers,
     )
 
 

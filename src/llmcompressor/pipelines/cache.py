@@ -239,11 +239,8 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                # Skip device transfer if tensor is already on target device
-                if offload_device is not None and value.device != offload_device:
-                    value = value.to(device=offload_device)
                 return IntermediateValue(
-                    value=value,
+                    value=value.to(device=offload_device),
                     device=(onload_device if onload_device else value.device),
                 )
             case list():
