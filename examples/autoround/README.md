@@ -91,7 +91,6 @@ oneshot(
     shuffle_calibration_samples=False,
 )
 
-
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
@@ -125,6 +124,7 @@ lm_eval --model vllm \
 
 We can see the resulting scores look good!
 
+```text
 ```bash
 | Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
 | ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
