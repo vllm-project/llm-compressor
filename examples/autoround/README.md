@@ -70,39 +70,15 @@ ds = get_dataset(
 ### 3) Apply Quantization
 
 With the dataset ready, we will now apply AutoRound quantization to the model.
-Add `--fp8_kv` when running the script if you want to quantize the kv cache.
 
 ```python
 from llmcompressor import oneshot
+from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Configure the quantization algorithm to run.
-if args.fp8_kv:
-    recipe = """
-    quant_stage:
-      quant_modifiers:
-        QuantizationModifier:
-          kv_cache_scheme:
-            num_bits: 8
-            type: float
-            strategy: tensor
-            dynamic: false
-            symmetric: true
-        AutoRoundModifier:
-          targets: [Linear]
-          scheme: W4A16
-          ignore: [lm_head]
-          iters: 200
-    """
-else:
-    recipe = """
-    quant_stage:
-      quant_modifiers:
-        AutoRoundModifier:
-          targets: [Linear]
-          scheme: W4A16
-          ignore: [lm_head]
-          iters: 200
-    """
+recipe = AutoRoundModifier(
+    targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=200
+)
 
 # Apply quantization.
 oneshot(
@@ -114,7 +90,6 @@ oneshot(
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
 )
-
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
@@ -140,7 +115,6 @@ Run the following to test accuracy on GSM-8K:
 
 ```bash
 lm_eval --model vllm \
-  # If KV cache is quantized, add 'kv_cache_dtype=fp8' to the --model_args below.
   --model_args pretrained="./Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound",add_bos_token=true \
   --tasks gsm8k \
   --num_fewshot 5 \
@@ -151,18 +125,11 @@ lm_eval --model vllm \
 We can see the resulting scores look good!
 
 ```text
-w/o kv cache quantization:
+```bash
 | Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
 | ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
 | gsm8k |       3 | flexible-extract |      5 | exact_match | ↑   | 0.737 | ±   | 0.0139 |
 |       |         | strict-match     |      5 | exact_match | ↑   | 0.736 | ±   | 0.0139 |
-
-w/ kv cache quantization:
-
-| Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
-| ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
-| gsm8k |       3 | flexible-extract |      5 | exact_match | ↑   | 0.740 | ±   | 0.0139 |
-|       |         | strict-match     |      5 | exact_match | ↑   | 0.742 | ±   | 0.0138 |
 ```
 > Note: quantized model accuracy may vary slightly due to nondeterminism.
 
