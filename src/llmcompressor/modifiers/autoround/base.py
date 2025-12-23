@@ -303,16 +303,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             )
             self._q_input = q_input
 
-            # auto-round will return WrapperWALayer if activation is quantized
-            for name, module in decoding_layer.named_modules():
-                if isinstance(module, WrapperWALayer):
-                    if "." in name:
-                        parent, child = name.rsplit(".", maxsplit=1)
-                        parent = decoding_layer.get_submodule(parent)
-                        setattr(parent, child, module.orig_layer)
-                    else:
-                        # It's a top-level module
-                        setattr(decoding_layer, name, module.orig_layer)
+            decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
 
             # Update offload parameters and remove temporary attributes
             for name, module in decoding_layer.named_modules():
@@ -332,7 +323,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     and hasattr(module, "input_scale")
                 ):
                     act_scale = module.act_scale
-                    assert act_scale.numel() == module.input_scale.numel(), "Activation scale size mismatch"
+                    assert act_scale.numel() == module.input_scale.numel(), (
+                        f"Expected act_scale of size {module.input_scale.numel()}, got {act_scale.numel()}"
+                    )
                     del module.act_scale
 
                     # activation scale shape maybe different
@@ -374,6 +367,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ):
                 unquantized_layers.append(name)
         return unquantized_layers
+
+    def _unwrapper_quantized_layer(self, model: torch.nn.Module):
+        # auto-round will return WrapperWALayer if activation is quantized
+        for name, module in model.named_modules():
+            if isinstance(module, WrapperWALayer):
+                if "." in name:
+                    parent, child = name.rsplit(".", maxsplit=1)
+                    parent = model.get_submodule(parent)
+                    setattr(parent, child, module.orig_layer)
+                else:
+                    # It's a top-level module
+                    setattr(model, name, module.orig_layer)
+        return model
 
     def _add_temporary_names(self, model: torch.nn.Module):
         for name, mod in model.named_modules():
@@ -456,6 +462,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:
                     act_group_size = 0
+                else:
+                    raise ValueError(f"{activation_args.strategy} is not supported in AutoRoundModifier")
 
             if act_data_type == "float":
                 act_data_type = "fp"
