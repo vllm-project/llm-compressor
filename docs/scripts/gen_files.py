@@ -45,7 +45,7 @@ def process_files(files: list[ProcessFile], project_root: Path):
             )
 
         content = source_path.read_text(encoding="utf-8")
-        
+
         # Only add frontmatter if title or weight are set
         if file.title is not None or file.weight is not None:
             frontmatter = "---\n"
@@ -91,10 +91,13 @@ def migrate_examples():
     project_root = find_project_root()
     examples_path = project_root / "examples"
     files = []
-    
+
     # Find all README.md files 2 levels down (examples/EXAMPLE_NAME/README.md)
     for example_dir in examples_path.iterdir():
-        if not example_dir.is_dir() or not (readme_path := example_dir / "README.md").exists():
+        if (
+            not example_dir.is_dir()
+            or not (readme_path := example_dir / "README.md").exists()
+        ):
             continue
 
         example_name = example_dir.name
@@ -106,7 +109,7 @@ def migrate_examples():
                 weight=-5,
             )
         )
-    
+
     process_files(files, project_root)
 
 

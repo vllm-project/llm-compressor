@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
