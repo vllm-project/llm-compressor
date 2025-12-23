@@ -39,25 +39,25 @@ recipe_modifier_full = AutoRoundModifier(
     },
 )
 
-rtn_recipe_modifier = AutoRoundModifier(
+w8a8_dynamic_recipe_modifier = AutoRoundModifier(
     ignore=["lm_head"],
     iters=0,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"],
-            weights=QuantizationArgs(num_bits=8, strategy="group", group_size=128),
-            input_activations=QuantizationArgs(num_bits=8, type="float", strategy="tensor", dynamic=True),
+            weights=QuantizationArgs(num_bits=8, strategy="channel"),
+            input_activations=QuantizationArgs(num_bits=8, type="float", strategy="token", dynamic=True),
         )
     },
 )
 
-act_quant_recipe_modifier = AutoRoundModifier(
+w8a8_static_recipe_modifier = AutoRoundModifier(
     ignore=["lm_head"],
     iters=0,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"],
-            weights=QuantizationArgs(num_bits=8, type="float", strategy="channel"),
+            weights=QuantizationArgs(num_bits=8, type="float", strategy="tensor"),
             input_activations=QuantizationArgs(num_bits=8, type="float", strategy="tensor"),
         )
     },
@@ -122,8 +122,8 @@ def test_oneshot_application(recipe, tmp_path):
 @pytest.mark.parametrize(
     "recipe",
     [
-        rtn_recipe_modifier,
-        act_quant_recipe_modifier
+        w8a8_dynamic_recipe_modifier,
+        w8a8_static_recipe_modifier
     ],
 )
 def test_rtn_oneshot(recipe, tmp_path):
