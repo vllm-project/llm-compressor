@@ -1,6 +1,9 @@
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+import torch.nn as nn
+from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from compressed_tensors.quantization import (
@@ -52,6 +55,33 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     first_param = next(layer.parameters())
     wrapped_model.dtype = first_param.dtype
     return wrapped_model
+
+
+@contextmanager
+def suspend_accelerate_hooks(model: nn.Module):
+    """
+    Temporarily suspend Accelerate hooks from a model.
+
+    This context manager detaches all Accelerate hooks (used for device offloading,
+    dtype casting, etc.) from the model, allowing Autoround to operate without interference.
+    On exit, the model is restored to its original device and all hooks are re-attached.
+    """
+    saved_hooks = {}
+    original_device = next(model.parameters()).device
+    for name, module in model.named_modules():
+        if hasattr(module, "_hf_hook"):
+            saved_hooks[name] = module._hf_hook
+
+    remove_hook_from_submodules(model)
+    try:
+        yield
+    finally:
+        remove_hook_from_submodules(model)
+        model.to(original_device)
+        for name, module in model.named_modules():
+            if name in saved_hooks:
+                logger.info("Restoring Accelerate hook for module: {}", name)
+                add_hook_to_module(module, saved_hooks[name], append=True)
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
@@ -110,6 +140,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
+    # optional device map for layer dispatch during tuning
+    # examples: "0,1" for cuda:0,cuda:1; "auto" to use all available GPUs
+    # when None, no dispatching and the model stays on its current device
+    device_ids: Optional[str] = None
 
     # private variables
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
@@ -215,8 +249,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         wrapped_model = _wrap_decoding_layer(decoding_layer)
         wrapped_model.name_or_path = state.model.name_or_path
 
-        with torch.enable_grad(), align_module_device(decoding_layer):
+        with torch.enable_grad(), align_module_device(
+            decoding_layer
+        ), suspend_accelerate_hooks(wrapped_model):
             ar_quant_scheme = self._mapping_config_to_autoround()
+            fp_layers = self.get_unquantized_layer_names(decoding_layer)
             ar = AutoRound(
                 model=wrapped_model,
                 tokenizer="",
@@ -224,6 +261,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
                 batch_size=self.batch_size,
+                device_map=self.device_ids,
+                fp_layers=",".join(fp_layers) if fp_layers else "",
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
@@ -232,21 +271,25 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             decoding_layer.tuning_device = device
+            # Leave offload for LLMC to handle if `device_ids` is not set
+            auto_offload = False
+            if self.device_ids is not None:
+                # When device_ids is set, we move decoding layer to CPU first,
+                # then the submodules will be re-dispatched by AutoRound.
+                decoding_layer.to("cpu")
+                auto_offload = True
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=cur_inputs,
                 q_input=self._q_input,
                 device=str(device),
-                # Leave offload for LLMC
-                auto_offload=False,
+                auto_offload=auto_offload,
             )
             self._q_input = q_input
             # Update offload parameters and remove temporary attributes
             for _, module in decoding_layer.named_modules():
-                if hasattr(module, "weight_scale") and hasattr(
-                    module, "weight_zero_point"
-                ):
+                if hasattr(module, "scale") and hasattr(module, "weight_zero_point"):
                     # Note: The model's weight is already q-dq in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
@@ -277,6 +320,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         return True
+
+    def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> List[str]:
+        unquantized_layers = []
+
+        for name, module in wrapped_model.named_modules():
+            if (
+                module.__class__.__name__ in self.resolved_targets
+                and getattr(module, "quantization_scheme", None) is None
+            ):
+                unquantized_layers.append(name)
+        return unquantized_layers
 
     def _add_temporary_names(self, model: torch.nn.Module):
         for name, mod in model.named_modules():
