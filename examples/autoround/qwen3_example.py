@@ -6,7 +6,7 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-model_id = "Qwen/Qwen3-235B-A22B/"
+model_id = "Qwen/Qwen3-235B-A22B"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
