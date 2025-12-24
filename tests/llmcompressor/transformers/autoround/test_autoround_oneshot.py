@@ -97,7 +97,7 @@ def test_oneshot_application(recipe, tmp_path):
 
 
 @requires_gpu(2)
-def test_oneshot_with_device_map(tmp_path):
+def test_oneshot_with_device_ids(tmp_path):
     output = tmp_path / "oneshot_output"
     model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     tokenizer = AutoTokenizer.from_pretrained(model)
@@ -118,7 +118,7 @@ def test_oneshot_with_device_map(tmp_path):
                 weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
             )
         },
-        device_map="0,1",
+        device_ids="0,1",
     )
 
     oneshot(

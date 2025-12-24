@@ -143,7 +143,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # optional device map for layer dispatch during tuning
     # examples: "0,1" for cuda:0,cuda:1; "auto" to use all available GPUs
     # when None, no dispatching and the model stays on its current device
-    device_map: Optional[str] = None
+    device_ids: Optional[str] = None
 
     # private variables
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
@@ -261,7 +261,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
                 batch_size=self.batch_size,
-                device_map=self.device_map,
+                device_map=self.device_ids,
                 fp_layers=",".join(fp_layers) if fp_layers else "",
             )
             # TODO: configure layer-wise config based on self.resolved_config
@@ -271,10 +271,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             decoding_layer.tuning_device = device
-            # Leave offload for LLMC to handle if `device_map` is not set
+            # Leave offload for LLMC to handle if `device_ids` is not set
             auto_offload = False
-            if self.device_map is not None:
-                # When device_map is set, we move decoding layer to CPU first,
+            if self.device_ids is not None:
+                # When device_ids is set, we move decoding layer to CPU first,
                 # then the submodules will be re-dispatched by AutoRound.
                 decoding_layer.to("cpu")
                 auto_offload = True

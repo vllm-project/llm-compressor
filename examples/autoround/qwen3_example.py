@@ -35,7 +35,7 @@ recipe = AutoRoundModifier(
     ],
     iters=ITERS,
     enable_torch_compile=False,
-    device_map="0,1,2,3",  # Use 4 A100 GPUs
+    device_ids="0,1,2,3",  # Use 4 A100 GPUs
 )
 
 
