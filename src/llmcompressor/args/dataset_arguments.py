@@ -143,7 +143,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
     shuffle_calibration_samples: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "whether to shuffle the dataset before selecting calibration data"
         },
