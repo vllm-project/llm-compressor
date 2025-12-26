@@ -173,7 +173,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
         for _, module in state.model.named_modules():
-            if self._is_decoding_layer(module) and self.iters > 0:
+            if self._is_decoding_layer(module):
                 # register input capture hook for decoding layers
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
