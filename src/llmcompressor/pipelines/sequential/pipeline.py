@@ -59,10 +59,6 @@ class SequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
-        # prepare model for sequential onloading
-        dispatch_for_sequential(model)
-        model_device = get_execution_device(model)
-
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers
         sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
@@ -72,6 +68,10 @@ class SequentialPipeline(CalibrationPipeline):
         sample_input = next(iter(dataloader))
         subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
         num_subgraphs = len(subgraphs)
+
+        # prepare model for sequential onloading
+        dispatch_for_sequential(model)
+        model_device = get_execution_device(model)
 
         LifecycleCallbacks.calibration_epoch_start()
 
