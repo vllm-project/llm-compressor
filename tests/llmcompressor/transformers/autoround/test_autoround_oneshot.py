@@ -38,6 +38,11 @@ recipe_modifier_full = AutoRoundModifier(
         )
     },
 )
+recipe_modifier_nvfp4 = AutoRoundModifier(
+    ignore=["lm_head"],
+    iters=2,
+    scheme="NVFP4",
+)
 
 
 @requires_gpu(1)
@@ -46,6 +51,7 @@ recipe_modifier_full = AutoRoundModifier(
     [
         recipe_str,
         recipe_modifier_full,
+        recipe_modifier_nvfp4,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):
