@@ -21,7 +21,7 @@ OriginalGlm4MoeMoE = pytest.importorskip(
 ).Glm4MoeMoE
 
 
-@requires_cadence("weekly")
+# @requires_cadence("weekly")  # Temporarily disabled to allow manual testing
 @pytest.mark.parametrize("model_stub", ["THUDM/glm-4-9b-chat"])  # Update with actual GLM4 MoE model stub
 def test_calib_replace_glm4moe_all_experts(model_stub):
     with skip_weights_download():
