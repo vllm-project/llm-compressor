@@ -25,7 +25,7 @@ OriginalGlm4MoeMoE = pytest.importorskip(
 @pytest.mark.parametrize("model_stub", ["THUDM/glm-4-9b-chat"])  # Update with actual GLM4 MoE model stub
 def test_calib_replace_glm4moe_all_experts(model_stub):
     with skip_weights_download():
-        model = AutoModelForCausalLM.from_pretrained(model_stub)
+        model = AutoModelForCausalLM.from_pretrained(model_stub, trust_remote_code=True)
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(calibration_forward_context(model))
