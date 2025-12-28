@@ -24,8 +24,15 @@ OriginalGlm4MoeMoE = pytest.importorskip(
 # @requires_cadence("weekly")  # Temporarily disabled to allow manual testing
 @pytest.mark.parametrize("model_stub", ["/media/fmodels/zai-org/GLM-4.7"])  # Update with actual GLM4 MoE model stub
 def test_calib_replace_glm4moe_all_experts(model_stub):
-    with skip_weights_download():
+    # Handle local paths vs HuggingFace repo IDs
+    import os
+    if os.path.exists(model_stub):
+        # Local path - load directly
         model = AutoModelForCausalLM.from_pretrained(model_stub, trust_remote_code=True)
+    else:
+        # HuggingFace repo - use skip_weights_download context
+        with skip_weights_download():
+            model = AutoModelForCausalLM.from_pretrained(model_stub, trust_remote_code=True)
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(calibration_forward_context(model))
