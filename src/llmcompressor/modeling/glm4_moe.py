@@ -62,25 +62,22 @@ class CalibrationGlm4MoeMoE(MoECalibrationModule):
             has_tokens = token_indices.numel() > 0
 
             if self.calibrate_all_experts:
-                # Send all tokens to this expert for calibration
-                expert_input = hidden_states
-                expert_output = expert(expert_input)
-
-                if has_tokens:
-                    # Still use routing weights for final output combination
-                    expert_weights = topk_weights[token_indices, weight_indices]
-                    weighted_output = expert_output[
-                        token_indices
-                    ] * expert_weights.unsqueeze(-1)
-                    final_hidden_states.index_add_(0, token_indices, weighted_output)
+                # When calibrating, run all tokens through the expert to gather stats.
+                # The output is still calculated using only the routed tokens.
+                expert_output_full = expert(hidden_states)
+                if not has_tokens:
+                    continue  # No tokens routed to this expert, but stats were gathered.
+                expert_output = expert_output_full[token_indices]
             else:
-                # Normal MoE: only process tokens routed to this expert
-                if has_tokens:
-                    expert_input = hidden_states[token_indices]
-                    expert_output = expert(expert_input)
-                    expert_weights = topk_weights[token_indices, weight_indices]
-                    weighted_output = expert_output * expert_weights.unsqueeze(-1)
-                    final_hidden_states.index_add_(0, token_indices, weighted_output)
+                # Standard MoE behavior: only process tokens routed to this expert.
+                if not has_tokens:
+                    continue
+                expert_output = expert(hidden_states[token_indices])
+
+            # Common logic for combining expert outputs
+            expert_weights = topk_weights[token_indices, weight_indices]
+            weighted_output = expert_output * expert_weights.unsqueeze(-1)
+            final_hidden_states.index_add_(0, token_indices, weighted_output)
         # End MoE
 
         hidden_states = final_hidden_states.type(hidden_states.dtype).view(*orig_shape)
