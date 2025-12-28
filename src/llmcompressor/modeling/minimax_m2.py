@@ -1,12 +1,9 @@
 import torch
 import torch.nn as nn
 
-from llmcompressor.transformers.moe.calibration import (
-    MoECalibrationModule,
-    register_moe_calibration,
-)
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 
-@register_moe_calibration("MiniMaxM2SparseMoeBlock")
+@MoECalibrationModule.register("MiniMaxM2SparseMoeBlock")
 class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
     """
     Calibration module for MiniMaxM2SparseMoeBlock that supports calibrating all experts.
@@ -17,13 +14,12 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
 
     def __init__(
         self,
-        original: MiniMaxM2SparseMoeBlock,
-        config: MiniMaxM2Config,
+        original: 'MiniMaxM2SparseMoeBlock',
+        config: 'MiniMaxM2Config',
         calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.original = original
-        self.num_experts = config.num_experts
 
         # gating
         self.calibrate_all_experts = calibrate_all_experts
@@ -49,10 +45,10 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
         final_hidden_states = torch.zeros_like(hidden_states_reshaped)
 
         expert_mask = torch.nn.functional.one_hot(
-            top_k_index, num_classes=self.num_experts
+            top_k_index, num_classes=self.experts.num_experts
         ).permute(2, 1, 0)
 
-        for expert_idx in range(num_experts):
+        for expert_idx in range(self.experts.num_experts):
             # Run expert on ALL tokens for calibration statistics
             expert_output = self.original.experts[expert_idx](hidden_states_reshaped)
 
