@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # MoE calibration is now handled automatically by the pipeline.
 # The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)
