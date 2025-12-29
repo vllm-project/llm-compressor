@@ -70,7 +70,7 @@ def match_names_set_eager(
     matched_sets = []
     matches = dict.fromkeys(targets, None)
 
-    def natural_key(s):
+    def natural_key(s: str) -> list[str | int]:
         return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", s)]
 
     # natural sort for consistent grouping
