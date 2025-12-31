@@ -44,6 +44,7 @@ from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_module_to_name_dict,
+    match_targets,
 )
 
 __all__ = ["AWQModifier"]
@@ -336,7 +337,26 @@ class AWQModifier(Modifier, QuantizationMixin):
                         parent_name=ancestor_name,
                     )
                 )
-        self._resolved_mappings = resolved_mappings
+
+        # Filter out mappings where all balance layers are in the ignore list
+        filtered_mappings = []
+        for mapping in resolved_mappings:
+            # Check if all balance layers are ignored
+            all_ignored = all(
+                match_targets(balance_name, self.ignore)[0]
+                for balance_name in mapping.balance_names
+            )
+
+            if not all_ignored:
+                filtered_mappings.append(mapping)
+            else:
+                logger.info(
+                    f"Skipping mapping for {mapping.smooth_name} because all "
+                    f"balance layers {mapping.balance_names} are in the ignore list"
+                )
+
+        self._resolved_mappings = filtered_mappings
+
         return
 
     def _setup_activation_cache_hooks(self) -> None:
