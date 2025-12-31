@@ -342,7 +342,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         filtered_mappings = []
         for mapping in resolved_mappings:
             # Check if all balance layers are ignored
-            all_ignored = all(
+            all_ignored = self.ignore and all(
                 match_targets(balance_name, self.ignore)[0]
                 for balance_name in mapping.balance_names
             )
