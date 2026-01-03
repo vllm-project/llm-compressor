@@ -174,4 +174,4 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear:
 
         # Compare outputs for each input
         for idx in range(len(SAMPLE_INPUT)):
-            assert torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
+            assert torch.equal(compressed_model_out[idx], decompressed_model_out[idx]), f"Output for sample input {idx} failed"
