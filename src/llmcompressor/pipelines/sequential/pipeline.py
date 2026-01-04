@@ -2,7 +2,6 @@ import contextlib
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.offload import offload_model
 from compressed_tensors.utils import disable_offloading
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -64,7 +63,6 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        offload_model(model, onload_device, offload_device)
         dispatch_for_sequential(model, onload_device, offload_device)
 
         # prepare to trace subgraphs
