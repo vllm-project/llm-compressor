@@ -59,11 +59,11 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 
 
 ### Support Matrix (WIP)
-| Scheme  | Examples                                | Note |
-| ------- | --------------------------------------- | ---- |
-| `wNa16` | [llama3_example](./quantization_w4a16/) |      |
-| `FP8`   | [llama3_example](./quantization_fp8/)   |      |
-| `NVFP4` | [llama3_example](./quantization_nvfp4/) |      |
+| Scheme  | Examples                                |
+| ------- | --------------------------------------- |
+| `wNa16` | [llama3_example](./quantization_w4a16/) |
+| `FP8`   | [llama4_example](./quantization_fp8/)   |
+| `NVFP4` | [llama3_example](./quantization_nvfp4/) |
 
 
 
