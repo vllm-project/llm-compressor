@@ -67,11 +67,11 @@ AutoRound provides four built-in recipes to balance accuracy and quantization sp
 
 
 ### Support Matrix (WIP)
-| Scheme  | Examples | Note |
-| ------- | -------- | ---- |
-| `wNa16` |          |      |
-| `FP8`   |          |      |
-| `NVFP4` |          |      |
+| Scheme  | Examples                                                 | Note |
+| ------- | -------------------------------------------------------- | ---- |
+| `wNa16` | (llama3_example)[./quantization_w4a16/llama3_example.py] |      |
+| `FP8`   |                                                          |      |
+| `NVFP4` |                                                          |      |
 
 
 
