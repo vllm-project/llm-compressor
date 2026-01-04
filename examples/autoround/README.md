@@ -41,7 +41,7 @@ AutoRound demonstrates clear advantages in specific quantization scenarios:
 
 The accuracy of the quantized model is configured by tuning-related parameters. AutoRound provides four recommended configurations to balance accuracy and quantization speed:
 
-| Recipe    | Batch Size | Iterations | Sequence Length | Calibration Samples | Learning Rate | Speed | Memory Usage | Accuracy |
+| Recipe    | Batch Size | Iterations | Sequence Length | Calibration Samples | Learning Rate | Quantization Speed | Memory Usage | Accuracy |
 |-----------|------------|------------|-----------------|---------------------|---------------|-------|--------------|----------|
 | `default` | 8          | 200        | 2048            | 128                 | Auto          | 🚀🚀   | 🟡 Medium    | 🎯🎯 Good |
 | `best`    | 8          | 1000       | 2048            | 512                 | Auto          | 🚀  | 🔴 High      | 🏆 Best  |
@@ -54,6 +54,8 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 > - Use `fast` when GPU memory is limited or for quick evaluation
 > - The `default` recipe provides a good balance for most use cases
 
+> [!NOTE]
+> These configurations are based on our experiments and may vary depending on the model architecture.
 
 
 ### Support Matrix (WIP)
