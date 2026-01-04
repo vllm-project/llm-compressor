@@ -12,6 +12,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
+    dispatch_for_sequential,
     get_sequential_targets,
     trace_subgraphs,
 )
@@ -60,6 +61,12 @@ class SequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
+        # prepare model for sequential onloading
+        onload_device = get_main_device()
+        offload_device = torch.device(dataset_args.sequential_offload_device)
+        offload_model(model, onload_device, offload_device)
+        dispatch_for_sequential(model, onload_device, offload_device)
+
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers
         sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
@@ -69,11 +76,6 @@ class SequentialPipeline(CalibrationPipeline):
         sample_input = next(iter(dataloader))
         subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
         num_subgraphs = len(subgraphs)
-
-        # prepare model for sequential onloading
-        onload_device = get_main_device()
-        offload_device = torch.device(dataset_args.sequential_offload_device)
-        offload_model(model, onload_device, offload_device)
 
         LifecycleCallbacks.calibration_epoch_start()
 
@@ -119,6 +121,7 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+                break
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

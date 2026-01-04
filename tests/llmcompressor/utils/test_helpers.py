@@ -1,11 +1,11 @@
 import pytest
 import torch
-from compressed_tensors.offload import dispatch_model, offload_model
 from transformers import (
     AutoModelForCausalLM,
     MllamaForConditionalGeneration,
 )
 
+from llmcompressor.pipelines.sequential.helpers import dispatch_for_sequential
 from llmcompressor.utils import (
     ALL_TOKEN,
     DisableQuantization,
@@ -17,7 +17,7 @@ from llmcompressor.utils import (
     interpolate,
     validate_str_iterable,
 )
-from llmcompressor.utils.dev import skip_weights_download
+from llmcompressor.utils.dev import dispatch_for_generation, skip_weights_download
 from tests.testing_utils import requires_gpu
 
 
@@ -157,9 +157,9 @@ def test_disable_cache(model_cls, model_stub):
 def test_disable_lm_head(offload):
     model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
     if offload == "sequential":
-        offload_model(model, onload_device="cuda", offload_device="cpu")
+        dispatch_for_sequential(model)
     if offload == "basic":
-        dispatch_model(model)
+        dispatch_for_generation(model)
     if offload == "none":
         model = model.to("cuda")
 
