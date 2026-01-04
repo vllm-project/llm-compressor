@@ -121,6 +121,13 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # Disable tokenizer parallelism to prevent warning when using
+        # multiprocessing for dataset preprocessing. The warning occurs because
+        # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
+        # See: https://github.com/vllm-project/llm-compressor/issues/2007
+        if "TOKENIZERS_PARALLELISM" not in os.environ:
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
         # Set up file logging (no default files):
         # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
         # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
