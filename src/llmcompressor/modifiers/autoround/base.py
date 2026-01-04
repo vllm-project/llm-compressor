@@ -110,6 +110,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
+    lr: Optional[float] = None
 
     # private variables
     _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
@@ -224,6 +225,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
                 batch_size=self.batch_size,
+                lr=self.lr,
             )
             # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
