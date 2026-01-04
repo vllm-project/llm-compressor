@@ -6,7 +6,13 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
-from compressed_tensors.utils import patch_attr
+from accelerate.hooks import remove_hook_from_module
+from compressed_tensors.offload import disable_onloading
+from compressed_tensors.utils import (
+    offloaded_dispatch,
+    patch_attr,
+    remove_dispatch,
+)
 from compressed_tensors.utils.match import match_targets
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
@@ -31,6 +37,7 @@ __all__ = [
     "trace_subgraphs",
     "Subgraph",
     "get_sequential_targets",
+    "dispatch_for_sequential",
 ]
 
 
@@ -97,9 +104,10 @@ def trace_subgraphs(
     # find modules
     targets = match_modules(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
+    offloaded = set()  # TODO: cleanup logic
 
     # initialize arguments
-    tracer = SequentialTracer(ancestors)
+    tracer = SequentialTracer(ancestors, offloaded)
     concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
@@ -120,6 +128,9 @@ def trace_subgraphs(
         stack.enter_context(patch_attr(type(model), "forward", unwrapped.__func__))
         assert isinstance(model.forward, MethodType)
         assert isinstance(type(model).forward, FunctionType)
+
+        # avoid device movement during tracing
+        stack.enter_context(disable_onloading())
 
         with append_autowrap_source_on_fail():
             graph = GraphModule(
@@ -160,17 +171,31 @@ class SequentialTracer(HFTracer):
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
-    sequential targets. Tracing outside of call ancestors of sequential targets will be
-    skipped
+    sequential targets
+
+    Tracing within sequential targets is unnecessary, and tracing within offloaded
+    modules may result in meta tensors being added to the model graph
 
     :param ancestors: modules which are ancestors of sequential targets
+    :param offloaded: modules which have offloaded params and should not be traced
     """
 
-    def __init__(self, ancestors: Set[Module]):
+    def __init__(self, ancestors: Set[Module], offloaded: Set[Module]):
         self.ancestors = ancestors
+        self.offloaded = offloaded
 
         # skip any mask creation functions not already caught by the autowrapper
         super().__init__(autowrap_functions=_get_autowrap_functions())
+
+        # check unlikely case that ancestors have direct params which are offloaded
+        offloaded_ancestors = offloaded & ancestors
+        for ancestor in offloaded_ancestors:
+            remove_hook_from_module(ancestor, recurse=False)
+            self.offloaded.remove(ancestor)
+            logger.warning(
+                f"Direct parameters attached to {ancestor.__class__.__name__} have "
+                "been onloaded in order to ensure safe graph capture and execution"
+            )
 
     def create_arg(self, a: Any) -> Argument:
         # special extension allows models which depend on config values to be traced
@@ -182,8 +207,8 @@ class SequentialTracer(HFTracer):
             return super().create_arg(a)
 
     def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-        # do not trace non-ancestors
-        return module not in self.ancestors
+        # do not trace non-ancestors or modules with offloaded params
+        return module not in self.ancestors or module in self.offloaded
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
@@ -502,6 +527,27 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
+    """
+    Dispatch a model for sequential calibration using a sequential pipeline.
+    The model will be offloaded to the CPU and dispatched to CUDA/XPU device
+    if available. Removes any existing hooks.
+
+    :param model: model to dispatch
+    :return: dispatched model
+    """
+    remove_dispatch(model)
+
+    if torch.cuda.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
+    else:
+        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+
+    return model
 
 
 def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:

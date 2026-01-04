@@ -109,19 +109,15 @@ class SparsityModifierBase(Modifier):
 
         :param state: session state storing input model and calibration data
         """
-        # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(state.model)
-
-        return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
-        # find target layers
         model: torch.nn.Module = state.model
         dataloader: torch.utils.data.DataLoader = state.data.calib
+
+        # infer module and sequential targets
+        self.sequential_targets = self._infer_sequential_targets(model)
         layers = get_layers(self.sequential_targets, model)
-        self._target_layers = get_layers(self.targets, model)
+        self._target_layers = get_layers(
+            self.targets, model
+        )  # layers containing targets
 
         # infer layer sparsities
         if self.sparsity_profile == "owl":
@@ -131,7 +127,7 @@ class SparsityModifierBase(Modifier):
             )
             self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
-        # validate sparsity
+        # get layers and validate sparsity
         if isinstance(self.sparsity, (list, dict)) and len(self._target_layers) != len(
             self.sparsity
         ):
@@ -139,6 +135,11 @@ class SparsityModifierBase(Modifier):
                 f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
                 f"sparsities values, but model has {len(layers)} target layers"
             )
+
+        return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        self.started_ = True
 
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):

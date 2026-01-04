@@ -71,8 +71,9 @@ class SequentialPipeline(CalibrationPipeline):
         num_subgraphs = len(subgraphs)
 
         # prepare model for sequential onloading
-        model_device = get_main_device()
-        offload_model(model, onload_device=model_device, offload_device="cpu")
+        onload_device = get_main_device()
+        offload_device = torch.device(dataset_args.sequential_offload_device)
+        offload_model(model, onload_device, offload_device)
 
         LifecycleCallbacks.calibration_epoch_start()
 
@@ -90,9 +91,8 @@ class SequentialPipeline(CalibrationPipeline):
                 stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
-            offload_device = torch.device(dataset_args.sequential_offload_device)
             activations = IntermediatesCache.from_dataloader(
-                dataloader, model_device, offload_device=offload_device
+                dataloader, onload_device, offload_device
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
