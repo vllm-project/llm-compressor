@@ -29,27 +29,17 @@ AutoRound demonstrates clear advantages in specific quantization scenarios:
 **Note**: AutoRound's advantages tend to diminish as model size increases and bit-width goes higher (approaching 8-bit), where quantization challenges are already less severe.
 
 ### Key Parameters
+- `scheme`: Quantization scheme (e.g., `W4A16`, `W816`, more schemes will be supported soon)
+- `iters`: Number of tuning iterations per block. Default: 200
+- `batch_size`: Batch size for calibration. Default: 8
+- `lr`: Learning rate for tuning. If `None`, auto-set to `1.0/iters`. Default: `None`
+- `NUM_CALIBRATION_SAMPLES`: Number of calibration samples. Default: 128
+- `MAX_SEQUENCE_LENGTH`: Sequence length of calibration samples. Default: 2048
 
-- iters
-- scheme
-- enable_torch_compile
-- batch_size
-- seqlen
-- lr
-- MAX_SEQUENCE_LENGTH
-- NUM_CALIBRATION_SAMPLES
 
-- `scheme`: Quantization scheme (`W4A16`, `W8A16`)
-- `iters`: Number of tuning iterations per decoding layer
-- `batch_size`: Batch size for calibration
-- `enable_torch_compile`: Enable PyTorch compilation for faster execution
-- `lr`: Learning rate for tuning (if None, auto-set to 1.0/iters)
-- `NUM_CALIBRATION_SAMPLES`: Number of calibration samples
-- `MAX_SEQUENCE_LENGTH`: Sequence length of calibration samples
+### Quantization Configurations
 
-### Quantization Recipes
-
-AutoRound provides four built-in recipes to balance accuracy and quantization speed:
+The accuracy of the quantized model is configured by tuning-related parameters. AutoRound provides four recommended configurations to balance accuracy and quantization speed:
 
 | Recipe    | Batch Size | Iterations | Sequence Length | Calibration Samples | Learning Rate | Use Case |
 |-----------|------------|------------|-----------------|---------------------|---------------|----------|
