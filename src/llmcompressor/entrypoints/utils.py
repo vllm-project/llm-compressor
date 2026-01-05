@@ -168,7 +168,7 @@ def initialize_model_from_path(
         "cache_dir": None,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
-        "torch_dtype": parse_dtype(model_args.precision),
+        "dtype": parse_dtype(model_args.precision),
         "trust_remote_code": model_args.trust_remote_code_model,
     }
 
