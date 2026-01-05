@@ -631,7 +631,6 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     w_qscheme = balance_layer.quantization_scheme.weights
                     
-                    # fake quantize the wight
                     balance_layer.weight.data = (
                         orig_layer_states[id(balance_layer)]['weight'] * _scalesview
                     ).to(balance_layer.weight.dtype)
@@ -686,9 +685,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         fp16_concat: torch.Tensor,
         int_w_outputs: list[torch.Tensor],
     ) -> float:
-        # Concatenate all tensors and compute MSE in a single operation
+        # Concatenate all tensors and compute MSE in a single operation 
+        # (faster than tensor by tensor)
         int_w_concat = torch.cat([out.flatten() for out in int_w_outputs]).to(fp16_concat.device)
-
         mse_loss = torch.nn.functional.mse_loss(fp16_concat, int_w_concat).item()
 
         return mse_loss
