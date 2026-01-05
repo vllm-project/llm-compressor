@@ -26,7 +26,8 @@ AutoRound demonstrates clear advantages in specific quantization scenarios:
 
 **New Data Types (MXFP4/NVFP4)**: For emerging floating-point formats, AutoRound consistently delivers accuracy improvements, positioning it as forward-compatible with evolving quantization standards.
 
-**Note**: AutoRound's advantages tend to diminish as model size increases and bit-width goes higher (approaching 8-bit), where quantization challenges are already less severe.
+> [!NOTE] 
+> AutoRound's advantages tend to diminish as model size increases and bit-width goes higher (approaching 8-bit), where quantization challenges are already less severe.
 
 ### Key Parameters
 - `scheme`: Quantization scheme (e.g., `W4A16`, `W8A16`, more schemes will be supported soon)
