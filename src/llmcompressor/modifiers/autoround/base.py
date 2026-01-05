@@ -133,6 +133,21 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     :param scheme: a single quantization scheme to apply to the model. This is a
         dictionary that supports all keys from QuantizationScheme except targets, which
         will be set to the targets parameter set at the modifier level.
+    :param sequential_targets: class names of decoding layers to tune sequentially. If
+        None, targets are inferred via `get_no_split_params()` to respect no-split
+        constraints for large models. Defaults to None.
+    :param iters: number of tuning iterations per block (decoding layer). Higher values
+        typically improve accuracy at the cost of longer tuning time. Defaults to 200.
+    :param enable_torch_compile: whether to enable `torch.compile` to accelerate the
+        tuning loop. Disable if your environment or model encounters compilation issues.
+        Defaults to True.
+    :param batch_size: calibration/tuning batch size used by AutoRound when optimizing
+        rounding/clipping parameters. Larger values can improve stability but require
+        more memory. Defaults to 8.
+    :param device_ids: optional device map string for layer dispatch during tuning.
+        Examples: "0,1" for cuda:0 and cuda:1, or "auto" to use all available GPUs.
+        When None, no dispatching occurs and the model remains on its current device.
+        Defaults to None.
     """
 
     sequential_targets: Union[str, List[str], None] = None
@@ -140,9 +155,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
-    # optional device map for layer dispatch during tuning
-    # examples: "0,1" for cuda:0,cuda:1; "auto" to use all available GPUs
-    # when None, no dispatching and the model stays on its current device
     device_ids: Optional[str] = None
 
     # private variables
