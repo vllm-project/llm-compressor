@@ -5,7 +5,7 @@ huggingface/transformers flows
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 import requests
 from huggingface_hub import (
@@ -47,7 +47,7 @@ def is_model_ct_quantized_from_path(path: str) -> bool:
     return False
 
 
-def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
+def infer_recipe_from_model_path(model_path: str | Path) -> str | None:
     """
     Infer the recipe from the model_path.
 
@@ -61,7 +61,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         model_path.as_posix() if isinstance(model_path, Path) else model_path.strip()
     )
     if model_path == "":
-        logger.debug("got path_or_name=<empty string>" "unable to find recipe")
+        logger.debug("got path_or_name=<empty string>unable to find recipe")
         return None
 
     if os.path.isdir(model_path) or os.path.isfile(model_path):
@@ -100,7 +100,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
 
 def recipe_from_huggingface_model_id(
     hf_stub: str, recipe_file_name: str = RECIPE_FILE_NAME
-) -> Optional[str]:
+) -> str | None:
     """
     Attempts to download the recipe from the Hugging Face model ID.
 

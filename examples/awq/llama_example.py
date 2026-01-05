@@ -8,7 +8,7 @@ from llmcompressor.utils import dispatch_for_generation
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
@@ -50,7 +50,9 @@ def tokenize(sample):
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+    AWQModifier(
+        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+    ),
 ]
 
 # Apply algorithms.

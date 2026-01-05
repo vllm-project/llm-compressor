@@ -2,23 +2,23 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.utils import dispatch_for_generation
-from compressed_tensors.quantization import QuantizationScheme, QuantizationArgs
 
 # Select model and load it.
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
-tokenizer = AutoTokenizer.from_pretrained(model_id)
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-# Select number of samples. 512 samples is a good place to start.
+# Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
+NUM_CALIBRATION_SAMPLES = 256
+MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
@@ -48,19 +48,12 @@ def tokenize(sample):
     )
 
 
-ds = ds.map(tokenize, remove_columns=ds.column_names)
-
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="attn_head"
-            ),
-        )
-    }
-)
+recipe = [
+    AWQModifier(
+        ignore=["lm_head"], scheme="FP8_BLOCK", targets=["Linear"], duo_scaling="both"
+    ),
+]
 
 # Apply algorithms.
 oneshot(
@@ -75,13 +68,14 @@ oneshot(
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-sample = tokenizer("Hello my name is", return_tensors="pt")
-sample = {key: value.to(model.device) for key, value in sample.items()}
-output = model.generate(**sample, max_new_tokens=100)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
+output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-attention-fp8-head"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

@@ -7,9 +7,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Load model.
 model_id = "OpenGVLab/InternVL3-8B-hf"
-model = AutoModelForImageTextToText.from_pretrained(
-    model_id, torch_dtype=torch.bfloat16
-)
+model = AutoModelForImageTextToText.from_pretrained(model_id, dtype=torch.bfloat16)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Load datasets
@@ -37,20 +35,14 @@ def preprocess_and_tokenize(example):
         return_dict=True,
         return_tensors="pt",
     )
+
+    # remove extra dim added by multimodal processors
+    inputs = {key: value[0] for key, value in inputs.items()}
+
     return inputs
 
 
-ds = ds.map(preprocess_and_tokenize)
-
-
-def data_collator(batch):
-    assert len(batch) == 1
-    item = {key: value for key, value in batch[0].items()}
-    item["attention_mask"] = torch.tensor([item["attention_mask"]])
-    item["input_ids"] = torch.LongTensor([item["input_ids"]])
-
-    return item
-
+ds = ds.map(preprocess_and_tokenize, remove_columns=ds.column_names)
 
 # Recipe
 recipe = GPTQModifier(
@@ -68,7 +60,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=data_collator,
 )
 
 # Save to disk compressed.
