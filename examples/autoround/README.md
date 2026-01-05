@@ -42,12 +42,12 @@ AutoRound demonstrates clear advantages in specific quantization scenarios:
 
 The accuracy of the quantized model is configured by tuning-related parameters. AutoRound provides four recommended configurations to balance accuracy and quantization speed:
 
-| Mode    | Batch Size | Iterations | Sequence Length | Calibration Samples | Learning Rate | Quantization Speed | Memory Usage | Accuracy |
-|---------|------------|------------|-----------------|---------------------|---------------|-------|--------------|----------|
-|`default`| 8          | 200        | 2048            | 128                 | Auto          | 🚀🚀   | 🟡 Medium    | 🎯🎯 Good |
-|`best`   | 8          | 1000       | 2048            | 512                 | Auto          | 🚀  | 🔴 High      | 🏆 Best  |
-|`light`  | 8          | 50         | 2048            | 128                 | 5e-3          | 🚀🚀🚀    | 🟡 Medium    | 🎯🎯 (slight drop in some of cases) |
-|`fast`   | 4          | 200        | 512             | 128                 | Auto          | 🚀🚀🚀  | 🟢 Low       | 🎯 |
+| Mode    | Batch Size | Iterations | Sequence Length | Calibration Samples | Learning Rate | Quantization Speed | Memory Usage | Accuracy   |
+|---------|------------|------------|-----------------|---------------------|---------------|--------------------|--------------|------------|
+|`default`| 8          | 200        | 2048            | 128                 | Auto          | 🚀🚀              | 🟡 Medium    | 🎯🎯 Good |
+|`best`   | 8          | 1000       | 2048            | 512                 | Auto          | 🚀                | 🔴 High      | 🏆 Best    |
+|`light`  | 8          | 50         | 2048            | 128                 | 5e-3          | 🚀🚀🚀           | 🟡 Medium    | 🎯🎯 (slight drop in some of cases) |
+|`fast`   | 4          | 200        | 512             | 128                 | Auto          | 🚀🚀🚀           | 🟢 Low       | 🎯         |
 
 > [!TIP]
 > - Use `best` for production models where accuracy is critical
