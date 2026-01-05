@@ -1,5 +1,4 @@
 import contextlib
-import os
 from functools import partial
 
 import pytest
@@ -12,14 +11,11 @@ from llmcompressor.modeling.llama4 import SequentialLlama4TextMoe
 from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import calibration_forward_context
-from tests.testing_utils import requires_cadence, requires_gpu
+from tests.testing_utils import requires_cadence, requires_gpu, requires_hf_token
 
 
 @requires_cadence("weekly")
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping tracing tests requiring gated model access",
-)
+@requires_hf_token
 @pytest.mark.parametrize("model_stub", ["meta-llama/Llama-4-Scout-17B-16E-Instruct"])
 def test_calib_replace_llama4_moe_all_experts(model_stub):
     with skip_weights_download(Llama4ForConditionalGeneration):
