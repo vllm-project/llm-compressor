@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+model = Llama4ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
