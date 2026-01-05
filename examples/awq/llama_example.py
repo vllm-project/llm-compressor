@@ -1,3 +1,5 @@
+import time
+
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -51,14 +53,15 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"],
-        scheme="W4A16_ASYM",
-        targets=["Linear"],
-        duo_scaling="both"
+        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
     ),
 ]
 
 # Apply algorithms.
+print("\n\n")
+print("========== STARTING AWQ QUANTIZATION ==============")
+start_time = time.time()
+
 oneshot(
     model=model,
     dataset=ds,
@@ -66,6 +69,12 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
+
+end_time = time.time()
+total_time = end_time - start_time
+print(f"========== AWQ QUANTIZATION COMPLETED ==============")
+print(f"Total time: {total_time:.2f} seconds ({total_time/60:.2f} minutes)")
+print("====================================================\n\n")
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
