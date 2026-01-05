@@ -59,7 +59,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 > These configurations are based on our experiments and may vary depending on the model architecture.
 
 
-### Support Matrix (WIP)
+### Support Matrix
 | Scheme  | Examples                                |
 | ------- | --------------------------------------- |
 | `wNa16` | [llama3_example](./quantization_w4a16/) |
