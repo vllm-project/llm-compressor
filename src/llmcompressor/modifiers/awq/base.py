@@ -119,7 +119,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
-    :param ignore: list of layers to ignore during quantization (not smoothing).
+    :param ignore: list of layers to ignore during quantization (not smoothed).
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
@@ -280,10 +280,17 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+        # Get names of modules targeted for quantization (excludes ignored)
+        targeted_names = set(
+            name
+            for name, _ in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        )
         for mapping in self.mappings:
             # we deliberately don't use the ignore list when matching mappings,
-            # ignore is applied to the targets for quantization rather than
-            # the mappings for smoothing.
+            # so that we can handle layers that need smoothing but not quantization
+            # we only skip if no layers in mapping are targeted for quantization.
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
@@ -304,19 +311,27 @@ class AWQModifier(Modifier, QuantizationMixin):
                     for balance_layer in balance_layers
                 ]
 
+                # Check if at least one layer is targeted for quantization
+                any_targeted = smooth_name in targeted_names or any(
+                    bn in targeted_names for bn in balance_names
+                )
+
                 all_compatible = _check_layers_are_compatible(
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                # skip mapping if any of the balance layers are incompatible
-                if not all_compatible or len(balance_layers) == 0:
+                skip_message: str | None = None
+                if not all_compatible:
+                    skip_message = " because found incompatible balance layers"
+                elif not any_targeted:
+                    skip_message = " because no layers are targeted for quantization"
+                elif len(balance_layers) == 0:
+                    skip_message = " because no balance layers were found"
+
+                if skip_message:
                     logger.warning(
                         f"skipping AWQ for {smooth_name} for mapping {mapping}"
-                        + (
-                            " because found incompatible balance layers"
-                            if not all_compatible
-                            else " because no balance layers were found"
-                        )
+                        + skip_message
                     )
 
                     continue
@@ -571,7 +586,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+            total_iterations = n_grid * len(duo_scalings)
+            for grid_idx, use_duo_scaling in tqdm(
+                product(range(n_grid), duo_scalings),
+                total=total_iterations,
+                desc="Grid search",
+            ):
                 # create new scales
                 ratio = grid_idx / n_grid
 
