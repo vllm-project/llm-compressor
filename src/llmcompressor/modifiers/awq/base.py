@@ -441,7 +441,10 @@ class AWQModifier(Modifier, QuantizationMixin):
             ):
                 # Retrieve cached FP16 baseline outputs (collected during calibration)
                 # Extract "output" from each batch's dictionary
-                fp16_outputs = [batch["output"] for batch in self._fp16_baseline_cache[parent_module]]
+                fp16_outputs = [
+                    batch["output"]
+                    for batch in self._fp16_baseline_cache[parent_module]
+                ]
 
                 if len(fp16_outputs) == 0:
                     logger.info(
@@ -568,8 +571,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Using id(layer) as key works correctly with MoE because each expert
         # is a separate module instance with unique id
         orig_layer_states = {
-            id(layer): {k: v.clone() for k, v in layer.state_dict().items()
-                       if v.device != torch.device("meta")}
+            id(layer): {
+                k: v.clone()
+                for k, v in layer.state_dict().items()
+                if v.device != torch.device("meta")
+            }
             for layer in balance_layers_to_patch
         }
 
@@ -630,9 +636,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                         continue
 
                     w_qscheme = balance_layer.quantization_scheme.weights
-                    
+
                     balance_layer.weight.data = (
-                        orig_layer_states[id(balance_layer)]['weight'] * _scalesview
+                        orig_layer_states[id(balance_layer)]["weight"] * _scalesview
                     ).to(balance_layer.weight.dtype)
 
                     call_observer(
@@ -647,7 +653,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                             balance_layer.weight,
                             "weight",
                             w_qscheme,
-                        ) / _scalesview
+                        )
+                        / _scalesview
                     ).to(balance_layer.weight.dtype)
 
                 # W * X
@@ -685,9 +692,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         fp16_concat: torch.Tensor,
         int_w_outputs: list[torch.Tensor],
     ) -> float:
-        # Concatenate all tensors and compute MSE in a single operation 
+        # Concatenate all tensors and compute MSE in a single operation
         # (faster than tensor by tensor)
-        int_w_concat = torch.cat([out.flatten() for out in int_w_outputs]).to(fp16_concat.device)
+        int_w_concat = torch.cat([out.flatten() for out in int_w_outputs]).to(
+            fp16_concat.device
+        )
         mse_loss = torch.nn.functional.mse_loss(fp16_concat, int_w_concat).item()
 
         return mse_loss
