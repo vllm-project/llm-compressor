@@ -34,7 +34,7 @@ Now, we will step through the code in the example. There are four steps:
 
 ### 1) Load Model
 
-Load the model using `AutoModelForCausalLM` for handling quantized saving and loading. 
+Load the model using `AutoModelForCausalLM` for handling quantized saving and loading.
 
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM

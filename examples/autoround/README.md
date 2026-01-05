@@ -29,7 +29,7 @@ AutoRound demonstrates clear advantages in specific quantization scenarios:
 **Note**: AutoRound's advantages tend to diminish as model size increases and bit-width goes higher (approaching 8-bit), where quantization challenges are already less severe.
 
 ### Key Parameters
-- `scheme`: Quantization scheme (e.g., `W4A16`, `W816`, more schemes will be supported soon)
+- `scheme`: Quantization scheme (e.g., `W4A16`, `W8A16`, more schemes will be supported soon)
 - `iters`: Number of tuning iterations per block. Default: 200
 - `batch_size`: Batch size for calibration. Default: 8
 - `lr`: Learning rate for tuning. If `None`, auto-set to `1.0/iters`. Default: `None`
@@ -62,9 +62,9 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | Scheme  | Examples                                |
 | ------- | --------------------------------------- |
 | `wNa16` | [llama3_example](./quantization_w4a16/) |
-| `FP8`   | [llama4_example](./quantization_fp8/)   |
-| `NVFP4` | [llama3_example](./quantization_nvfp4/) |
 
+> [!NOTE]
+> More quantization schemes (e.g.,  `NVFP4`, `MXFP4`,) are actively being developed. Stay tuned for updates!
 
 
 
