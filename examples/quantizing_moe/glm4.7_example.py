@@ -1,5 +1,4 @@
-import os
-from pathlib import Path
+import argparse
 
 from datasets import load_dataset, concatenate_datasets
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -11,35 +10,33 @@ from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE
 # This script does W4A16 AWQ quantization of the GLM-4.7 model.  It uses Group Size of 32 and two datasets (one specific for quantization and one for reasoning models)
 # Running this script on an RTX PRO 6000 Workstation cards sees up to 40GB of VRAM used and roughly ~3.5 hours of run time.
 # This model script uses the glm4 modeling file to make sure that for each calibration sample, all experts are engaged.
-# This script also uses a local .ENV file, for Source and Destination.  Change as needed.
+# This script accepts command-line arguments for source and destination directories.
 # GLM 4.7 has Dense layers for the first three layers, so we skip multiple sections of those layers.  We then need to add all of that to a mapping, to apply it during quantization.
 
 
 # =========================
-# Load ENV Variables
+# Parse Command-Line Arguments
 # =========================
-from dotenv import load_dotenv
+parser = argparse.ArgumentParser(description="Run W4A16 AWQ quantization on GLM-4.7 model.")
+parser.add_argument(
+    "model_path",
+    type=str,
+    help="Path to the source model directory."
+)
+parser.add_argument(
+    "output_path",
+    type=str,
+    help="Path to the destination directory for saving quantized model."
+)
 
-# Load the .env that sits next to this script (works regardless of where you run it)
-# The .env file should be in the directory this script is run from and should look like the following:
-# SRC_DIR=/media/fmodels/zai-org/GLM-4.7/
-# DST_DIR=/media/fmodels/TheHouseOfTheDude/GLM-4.7_Compressed-Tensors/W4A16_GS32
-# Those two lines are all that's needed.
-load_dotenv(Path(__file__).with_name(".env"))
-
-def require_env(key: str) -> str:
-    val = os.getenv(key)
-    if not val or not val.strip():
-        raise RuntimeError(f"Missing environment variable: {key}")
-    return val.strip()
-
-SRC_DIR = require_env("SRC_DIR")
-DST_DIR = require_env("DST_DIR")
+args = parser.parse_args()
+model_path = args.model_path
+output_path = args.output_path
 
 # =========================
 # Model (GLM / GLM-MoE)
 # =========================
-MODEL_ID = require_env("SRC_DIR")
+MODEL_ID = model_path
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
@@ -196,7 +193,7 @@ recipe = [
 # =========================
 # Quantize + save (writes quantization_config for vLLM)
 # =========================
-SAVE_DIR = require_env("DST_DIR")
+SAVE_DIR = output_path
 
 oneshot(
     model=model,
