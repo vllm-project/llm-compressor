@@ -1,3 +1,6 @@
+import time
+
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -5,11 +8,26 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.utils import dispatch_for_generation
 
+
+def print_gpu_memory():
+    """Print current GPU memory usage"""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**3  # Convert to GB
+        reserved = torch.cuda.memory_reserved() / 1024**3  # Convert to GB
+        max_allocated = torch.cuda.max_memory_allocated() / 1024**3  # Convert to GB
+        print(f"GPU Memory - Allocated: {allocated:.2f} GB | Reserved: {reserved:.2f} GB | Peak: {max_allocated:.2f} GB")
+    else:
+        print("No GPU available")
+
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+
+print("\n========== AFTER MODEL LOADING ==============")
+print_gpu_memory()
+print("=============================================\n")
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -56,6 +74,17 @@ recipe = [
 ]
 
 # Apply algorithms.
+print("\n\n")
+print("========== STARTING AWQ QUANTIZATION ==============")
+print("Before quantization:")
+print_gpu_memory()
+
+# Reset peak memory stats to track quantization process
+if torch.cuda.is_available():
+    torch.cuda.reset_peak_memory_stats()
+
+start_time = time.time()
+
 oneshot(
     model=model,
     dataset=ds,
@@ -63,6 +92,14 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
+
+end_time = time.time()
+total_time = end_time - start_time
+print(f"========== AWQ QUANTIZATION COMPLETED ==============")
+print(f"Total time: {total_time:.2f} seconds ({total_time/60:.2f} minutes)")
+print("After quantization:")
+print_gpu_memory()
+print("====================================================\n\n")
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
