@@ -62,5 +62,4 @@ print("==========================================\n\n")
 # Save to disk compressed.
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W8A8-Static-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
