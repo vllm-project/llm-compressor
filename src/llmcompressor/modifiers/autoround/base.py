@@ -63,8 +63,9 @@ def suspend_accelerate_hooks(model: nn.Module):
     Temporarily suspend Accelerate hooks from a model.
 
     This context manager detaches all Accelerate hooks (used for device offloading,
-    dtype casting, etc.) from the model, allowing Autoround to operate without interference.
-    On exit, the model is restored to its original device and all hooks are re-attached.
+    dtype casting, etc.) from the model, allowing Autoround to operate without
+    interference. On exit, the model is restored to its original device
+    and all hooks are re-attached.
     """
     saved_hooks = {}
     original_device = next(model.parameters()).device
