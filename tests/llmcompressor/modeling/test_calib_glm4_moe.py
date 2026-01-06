@@ -22,7 +22,7 @@ OriginalGlm4MoeMoE = pytest.importorskip(
 
 
 @requires_cadence("weekly")
-@pytest.mark.parametrize("model_stub", ["THUDM/glm-4-9b-chat"])  # Update with actual GLM4 MoE model stub
+@pytest.mark.parametrize("model_stub", ["zai-org/GLM-4.7"])  # Update with actual GLM4 MoE model stub
 def test_calib_replace_glm4moe_all_experts(model_stub):
     with skip_weights_download():
         model = AutoModelForCausalLM.from_pretrained(model_stub, trust_remote_code=True)
