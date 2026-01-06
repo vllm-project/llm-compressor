@@ -148,32 +148,9 @@ print(f"Combined calibration dataset: {len(ds)} samples")
 # =========================
 
 moe_ignores = [
-    # Layer 0: Dense layer - ignore attention and MLP
-    "model.layers.0.self_attn.q_proj",
-    "model.layers.0.self_attn.k_proj",
-    "model.layers.0.self_attn.v_proj",
-    "model.layers.0.self_attn.o_proj",
-    "model.layers.0.mlp.gate_proj",
-    "model.layers.0.mlp.up_proj",
-    "model.layers.0.mlp.down_proj",
-
-    # Layer 1: Dense layer - ignore attention and MLP
-    "model.layers.1.self_attn.q_proj",
-    "model.layers.1.self_attn.k_proj",
-    "model.layers.1.self_attn.v_proj",
-    "model.layers.1.self_attn.o_proj",
-    "model.layers.1.mlp.gate_proj",
-    "model.layers.1.mlp.up_proj",
-    "model.layers.1.mlp.down_proj",
-
-    # Layer 2: Dense layer - ignore attention and MLP
-    "model.layers.2.self_attn.q_proj",
-    "model.layers.2.self_attn.k_proj",
-    "model.layers.2.self_attn.v_proj",
-    "model.layers.2.self_attn.o_proj",
-    "model.layers.2.mlp.gate_proj",
-    "model.layers.2.mlp.up_proj",
-    "model.layers.2.mlp.down_proj",
+    # Layers 0-2: Dense layer - ignore attention and MLP
+    "model.layers.[0-2].self_attn.(q|k|v|o)_proj",
+    "model.layers.[0-2].mlp.(gate|up|down)_proj",
 
     # Layers 3-91: MoE layers - ignore shared_experts
     "model.layers.3.mlp.shared_experts.gate_proj",
