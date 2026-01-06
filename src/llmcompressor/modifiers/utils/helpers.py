@@ -7,8 +7,6 @@ neural network compression workflows. Supports specialized quantization
 strategies like NVFP4.
 """
 
-from typing import List
-
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
 from compressed_tensors.utils import align_modules, update_parameter_data
@@ -41,7 +39,7 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
             hasattr(module, "gate_proj") and hasattr(module, "up_proj")
         )
 
-    def _valid_tensor_group_quant(layer_list: List[Linear]):
+    def _valid_tensor_group_quant(layer_list: list[Linear]):
         """
         Return True if all the linear layers in the layer_list are
         TENSOR_GROUP quantized.
