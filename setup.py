@@ -123,9 +123,9 @@ setup(
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.7.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.7.0"),
         (
-            "transformers>=4.54.0,<=4.57.3"
+            "transformers>=4.56.1,<=4.57.3"
             if BUILD_TYPE == "release"
-            else "transformers>=4.54.0,<=4.57.3"
+            else "transformers>=4.56.1,<=4.57.3"
         ),
         ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
@@ -140,15 +140,15 @@ setup(
             else "accelerate>=1.6.0"
         ),
         (
-            "nvidia-ml-py>=12.560.30,<=13.580.82"
+            "nvidia-ml-py>=12.560.30,<=13.590.44"
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
         ("pillow>=10.4.0,<=12.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.12.2"
+            "compressed-tensors==0.13.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.12.3a2"
+            else "compressed-tensors>=0.13.1a2"
         ),
     ],
     extras_require={

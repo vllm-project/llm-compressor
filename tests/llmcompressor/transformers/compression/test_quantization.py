@@ -75,7 +75,7 @@ def setup_model_and_config(request, tmpdir_factory):
 
     output_dir = tmpdir_factory.mktemp("setup_model_and_config") / config["output"]
     model = AutoModelForCausalLM.from_pretrained(
-        config["model_stub"], torch_dtype=config["weight_dtype"]
+        config["model_stub"], dtype=config["weight_dtype"]
     )
     model = oneshot(
         model=model,
@@ -101,9 +101,7 @@ def setup_model_and_config(request, tmpdir_factory):
 def test_quantization_reload(setup_model_and_config):
     model, config, output_dir = setup_model_and_config
 
-    model_reloaded = AutoModelForCausalLM.from_pretrained(
-        output_dir, torch_dtype="auto"
-    )
+    model_reloaded = AutoModelForCausalLM.from_pretrained(output_dir, dtype="auto")
 
     og_weights, og_inputs = _get_quant_info(model)
     reloaded_weights, reloaded_inputs = _get_quant_info(model_reloaded)

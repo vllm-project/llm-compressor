@@ -10,7 +10,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
+    MODEL_ID, dtype=torch.bfloat16, trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
