@@ -75,7 +75,7 @@ class CompressionSession:
 
     def initialize(
         self,
-        recipe: str | list[str] | "Recipe" | list["Recipe"] | None = None,
+        recipe: str | list[str] | Recipe | list[Recipe] | None = None,
         recipe_stage: str | list[str] | None = None,
         recipe_args: dict[str, Any] | None = None,
         model: Any | None = None,
