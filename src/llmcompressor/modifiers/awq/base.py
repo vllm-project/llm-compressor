@@ -92,7 +92,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - resolve mappings
-        - capture kwargs needed for forward passes into modules
+        - set up hooks to capture forward pass kwargs and FP16 baseline outputs
     - on_start
         - set up activation cache hooks to capture input activations
             to balance layers
@@ -100,15 +100,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         - apply smoothing to each smoothing layer
             - consume cached activations across all batches
                 - clear cached activations as they are used
-            - find best smoothing scale for each smoothing layer
-            - apply to model weights
+            - find best smoothing scale for each smoothing layer via grid search
+            - apply best scales to model weights
             - raise error if any unused activations remain
     - on_end
         - re-run logic of sequential epoch end (in case of basic pipeline)
         - set scales and zero points
         - remove activation hooks
     - on_finalize
-        - clear resolved mappings and captured activations
+        - clear resolved mappings, cached activations, and FP16 baseline cache
 
     :param sequential_targets: list of module names to compress in
         the same calibration pass
@@ -159,7 +159,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         default_factory=dict
     )
     # Cache FP16 baseline outputs for each parent module
-    # Starts as list of flattened tensors, gets concatenated before use
+    # During calibration: list of flattened tensors, one per batch
+    # After calibration: single concatenated tensor
     _fp16_baseline_cache: dict[Module, list[torch.Tensor] | torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
@@ -343,8 +344,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _setup_activation_cache_hooks(self) -> None:
         """
-        Attach a forward hook to each activation we want to smooth. This allows us to
-        calculate the dynamic range during calibration
+        Attach forward hooks to cache data needed for AWQ smoothing:
+        1. Parent module kwargs (for replaying forward passes during grid search)
+        2. FP16 baseline outputs (flattened, to avoid recomputing during grid search)
+        3. Smooth layer input activations (to calculate activation means)
         """
 
         def cache_parent_kwargs_hook(
@@ -362,7 +365,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         ):
             # Extract first element if tuple (same logic as _run_samples)
             result = output[0] if isinstance(output, tuple) else output
-            # Initialize cache if this is the first time we see this module
             if module not in self._fp16_baseline_cache:
                 self._fp16_baseline_cache[module] = []
             self._fp16_baseline_cache[module].append(result.detach().flatten())
@@ -416,7 +418,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         Calculate the best scaling factors for each layer to smooth activations and
         apply the scaling factors to the weights of the next layer to offset the
-        smoothing
+        smoothing.
 
         :param model: model to apply smoothing to
         """
@@ -450,13 +452,20 @@ class AWQModifier(Modifier, QuantizationMixin):
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
 
-                # concatenate the fp16 baseline outputs into a single tensor
+                # Concatenate FP16 baseline outputs (if still a list from calibration)
+                # This happens once per parent module; subsequent mappings reuse it
+                # Store as single-element list to maintain consistent access pattern
                 if len(self._fp16_baseline_cache[parent_module]) > 1:
-                    self._fp16_baseline_cache[parent_module]=[
+                    self._fp16_baseline_cache[parent_module] = [
                         torch.cat(self._fp16_baseline_cache[parent_module])
                     ]
 
-                if not all([ref.isfinite().all() for ref in self._fp16_baseline_cache[parent_module]]):
+                if not all(
+                    [
+                        ref.isfinite().all()
+                        for ref in self._fp16_baseline_cache[parent_module]
+                    ]
+                ):
                     logger.warning(
                         f"Skipping smooth_layer {mapping.smooth_name}, NaN or inf "
                         "outputs found during forward pass of the parent module "
@@ -485,7 +494,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         update_offload_parameter(
                             module,
                             "weight",
-                            orig_layer_weights[module] * scales.view(1, -1)
+                            orig_layer_weights[module] * scales.view(1, -1),
                         )
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
@@ -525,9 +534,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         for v in self._parent_args_cache.values():
             v.batch_intermediates.clear()
-        # Clear FP16 baseline cache (dict values are either list or tensor, just clear dict)
         self._fp16_baseline_cache.clear()
-
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
@@ -540,15 +547,40 @@ class AWQModifier(Modifier, QuantizationMixin):
             for output in outputs
         ]
 
+    def _run_samples_preallocated(
+        self, module: Module, fp16_out_concat: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Run samples through module and accumulate outputs in preallocated tensor.
+
+        :param module: Module to run samples through
+        :param fp16_out_concat: Reference tensor to determine size and device
+        :return: Preallocated tensor filled with flattened outputs
+        """
+        # Preallocate tensor with same size and device as fp16_out_concat
+        int_w_concat = torch.empty_like(fp16_out_concat)
+        offset = 0
+
+        for batch_kwargs in self._parent_args_cache[module]:
+            output = module(**batch_kwargs)
+            # If tuple, assume that first argument is the output
+            result = output[0] if isinstance(output, tuple) else output
+            # Flatten and write to preallocated tensor
+            flattened = result.flatten()
+            size = flattened.numel()
+            int_w_concat[offset : offset + size] = flattened
+            offset += size
+
+        return int_w_concat
+
     def _compute_best_scale(
         self,
         mapping: ResolvedMapping,
         orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
     ) -> torch.Tensor:
         """
-        Select best scales for a given mapping in a grid search
-        Best scales are those that minimize MSE loss of quantized weight
-            outputs compared to fp16_out_concat
+        Select best scales for a given mapping via grid search.
+        Best scales minimize MSE loss between FP16 baseline and quantized outputs.
 
         L(s) = || Q(W * s) (s^-1 * X) - W * X ||
         Q: weight quantization function | _pseudo_quantize_tensor(W * s)
@@ -557,8 +589,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         s: per channel scaling factor   | s^-1 * X
 
         :param mapping: best scales will be found for the ResolvedMapping.
-        :param orig_layer_weights: original weights for balance layers to restore after grid search.
-        :return: tensor of best scales, one for each channel
+        :param orig_layer_weights: Original weights for balance layers
+        :return: Tensor of best scales, one per channel (on CPU)
         """
         history = []
         best_ratio = -1
@@ -572,7 +604,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             if hasattr(balance_layer, "quantization_scheme")
             and hasattr(balance_layer.quantization_scheme, "weights")
         ]
-
 
         device = get_execution_device(mapping.parent)
 
@@ -623,7 +654,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
 
-                # Q(W * s)
+                # Q(W * s) - Apply current scale ratio to original weights and quantize
                 for balance_layer in balance_layers_to_patch:
                     if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                         balance_layer.quantization_scheme, "weights"
@@ -652,11 +683,15 @@ class AWQModifier(Modifier, QuantizationMixin):
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
 
-                # W * X
-                int_w_outputs = self._run_samples(mapping.parent)
+                # W * X - Run forward passes and accumulate outputs
+                int_w_concat = self._run_samples_preallocated(
+                    mapping.parent, fp16_out_concat
+                )
 
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_out_concat, int_w_outputs)
+                # Compute mean squared error (L2 norm)
+                loss = torch.nn.functional.mse_loss(
+                    fp16_out_concat, int_w_concat
+                ).item()
 
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
@@ -680,21 +715,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         ), f"Nan found in scales: {best_scales}"
 
         return best_scales.detach().cpu()
-
-    @torch.no_grad()
-    def _compute_loss(
-        self,
-        fp16_out_concat: torch.Tensor,
-        int_w_outputs: list[torch.Tensor],
-    ) -> float:
-        # Concatenate all tensors and compute MSE in a single operation
-        # (faster than tensor by tensor)
-        int_w_concat = torch.cat([out.flatten() for out in int_w_outputs]).to(
-            fp16_out_concat.device
-        )
-        mse_loss = torch.nn.functional.mse_loss(fp16_out_concat, int_w_concat).item()
-
-        return mse_loss
 
     def _assert_all_activations_consumed(self):
         """
