@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import torch
-from compressed_tensors.utils import align_module_device, match_modules_set
+from compressed_tensors.utils import align_module_device, match_modules_set, match_named_modules
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
@@ -204,7 +204,7 @@ class SmoothQuantModifier(Modifier):
         # Get names of modules that are not ignored
         ignored_names = set()
         if self.ignore:
-            from compressed_tensors.utils import match_named_modules
+            
 
             ignored_names = set(
                 name for name, _ in match_named_modules(model, self.ignore)
