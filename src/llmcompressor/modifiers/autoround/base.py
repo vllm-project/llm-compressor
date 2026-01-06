@@ -7,7 +7,6 @@ from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from auto_round.wrapper import WrapperWALayer
-
 from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
@@ -324,12 +323,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 ):
                     act_scale = module.act_scale
                     assert act_scale.numel() == module.input_scale.numel(), (
-                        f"Expected act_scale of size {module.input_scale.numel()}, got {act_scale.numel()}"
+                        f"Expected act_scale of size {module.input_scale.numel()}, "
+                        "got {act_scale.numel()}"
                     )
                     del module.act_scale
 
                     # activation scale shape maybe different
-                    update_offload_parameter(module, "input_scale", act_scale.reshape(module.input_scale.shape))
+                    update_offload_parameter(
+                        module,
+                        "input_scale",
+                        act_scale.reshape(module.input_scale.shape)
+                    )
 
         decoding_layer.eval()
 
@@ -431,7 +435,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 group_size = 0
             else:
                 raise ValueError(
-                    "AutoRoundModifier only supports channel-wise and tensor-wise weight quantization"
+                    "AutoRoundModifier only supports channel-wise and tensor-wise "
+                    "weight quantization"
                 )
 
         if data_type == "float":
@@ -449,21 +454,28 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             act_symmetric = activation_args.symmetric
             act_bits = activation_args.num_bits
 
-            # activation is quantized dynamically, don't need to collect scale in auto-round
+            # activation is quantized dynamically, skip collecting scale in auto-round
             if act_dynamic:
                 act_bits = 16
 
             act_data_type = activation_args.type
             assert activation_args.strategy != QuantizationStrategy.GROUP, (
-                "Input activation group-wise quantization is not supported in AutoRoundModifier"
+                "Input activation group-wise quantization is not supported "
+                "in AutoRoundModifier"
             )
             if act_group_size is None:
-                if activation_args.strategy in [QuantizationStrategy.CHANNEL, QuantizationStrategy.TOKEN]:
+                if activation_args.strategy in [
+                    QuantizationStrategy.CHANNEL,
+                    QuantizationStrategy.TOKEN
+                ]:
                     act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:
                     act_group_size = 0
                 else:
-                    raise ValueError(f"{activation_args.strategy} is not supported in AutoRoundModifier")
+                    raise ValueError(
+                        f"{activation_args.strategy} is not supported "
+                        "in AutoRoundModifier"
+                    )
 
             if act_data_type == "float":
                 act_data_type = "fp"

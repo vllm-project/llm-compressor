@@ -1,5 +1,5 @@
 from auto_round.calib_dataset import get_dataset
-from transformers import AutoTokenizer, Llama4ForConditionalGeneration, AutoProcessor
+from transformers import AutoProcessor, AutoTokenizer, Llama4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
@@ -27,7 +27,14 @@ ds = get_dataset(
 recipe = AutoRoundModifier(
     targets="Linear",
     scheme="FP8_DYNAMIC",
-    ignore=["re:.*lm_head", "re:.*router", "re:.*self_attn.*", "re:.*shared_expert.*" , "re:multi_modal_projector.*", "re:vision_model"],
+    ignore=[
+        "re:.*lm_head",
+        "re:.*router",
+        "re:.*self_attn.*",
+        "re:.*shared_expert.*" ,
+        "re:multi_modal_projector.*",
+        "re:vision_model"
+    ],
     iters=0,
 )
 
