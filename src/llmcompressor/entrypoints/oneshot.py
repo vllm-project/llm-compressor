@@ -127,6 +127,11 @@ class Oneshot:
         # See: https://github.com/vllm-project/llm-compressor/issues/2007
         if "TOKENIZERS_PARALLELISM" not in os.environ:
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            logger.warning(
+                "Disabling tokenizer parallelism due to threading conflict between "
+                "FastTokenizer and Datasets. Set TOKENIZERS_PARALLELISM=false to "
+                "suppress this warning."
+            )
 
         # Set up file logging (no default files):
         # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.

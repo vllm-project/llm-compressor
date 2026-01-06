@@ -2,6 +2,8 @@ import os
 
 import pytest
 
+_TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
+
 
 class TestTokenizerParallelism:
     """Tests for tokenizer parallelism warning suppression (issue #2007)."""
@@ -16,7 +18,7 @@ class TestTokenizerParallelism:
 
         See: https://github.com/vllm-project/llm-compressor/issues/2007
         """
-        monkeypatch.delenv("TOKENIZERS_PARALLELISM", raising=False)
+        monkeypatch.delenv(_TOKENIZERS_PARALLELISM_ENV, raising=False)
 
         from llmcompressor.entrypoints.oneshot import Oneshot
 
@@ -25,7 +27,7 @@ class TestTokenizerParallelism:
         with pytest.raises(Exception):
             Oneshot(model="nonexistent-model")
 
-        assert os.environ.get("TOKENIZERS_PARALLELISM") == "false"
+        assert os.environ[_TOKENIZERS_PARALLELISM_ENV] == "false"
 
     def test_oneshot_respects_existing_tokenizers_parallelism(self, monkeypatch):
         """
@@ -33,11 +35,11 @@ class TestTokenizerParallelism:
 
         If a user has explicitly set TOKENIZERS_PARALLELISM, we should not override it.
         """
-        monkeypatch.setenv("TOKENIZERS_PARALLELISM", "true")
+        monkeypatch.setenv(_TOKENIZERS_PARALLELISM_ENV, "true")
 
         from llmcompressor.entrypoints.oneshot import Oneshot
 
         with pytest.raises(Exception):
             Oneshot(model="nonexistent-model")
 
-        assert os.environ.get("TOKENIZERS_PARALLELISM") == "true"
+        assert os.environ[_TOKENIZERS_PARALLELISM_ENV] == "true"
