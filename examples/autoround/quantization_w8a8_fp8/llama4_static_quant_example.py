@@ -1,5 +1,5 @@
 from auto_round.calib_dataset import get_dataset
-from transformers import AutoProcessor, AutoTokenizer, Llama4ForConditionalGeneration
+from transformers import AutoProcessor, Llama4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
