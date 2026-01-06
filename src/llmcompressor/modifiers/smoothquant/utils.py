@@ -77,7 +77,6 @@ MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
     "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
