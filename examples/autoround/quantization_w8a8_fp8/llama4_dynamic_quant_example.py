@@ -8,7 +8,6 @@ from llmcompressor.utils import dispatch_for_generation
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
-tokenizer = AutoTokenizer.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Select calibration dataset.
@@ -17,7 +16,7 @@ MAX_SEQUENCE_LENGTH = 2048
 # Get aligned calibration dataset.
 
 ds = get_dataset(
-    tokenizer=tokenizer,
+    tokenizer=processor.tokenizer,
     seqlen=MAX_SEQUENCE_LENGTH,
     nsamples=NUM_CALIBRATION_SAMPLES,
 )
@@ -53,10 +52,10 @@ oneshot(
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = processor(text="Hello my name is", return_tensors="pt")
 sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=1)
-print(tokenizer.decode(output[0]))
+print(processor.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
