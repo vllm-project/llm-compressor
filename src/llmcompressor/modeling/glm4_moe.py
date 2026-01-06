@@ -11,7 +11,6 @@ from llmcompressor.modeling.moe_context import MoECalibrationModule
 class CalibrationGlm4MoeMoE(MoECalibrationModule):
     """
     Calibration version of Glm4MoeMoE that sends all tokens to all experts.
-    
     During calibration, when calibrate_all_experts=True, all tokens are sent to
     all experts to ensure proper quantization statistics are collected for every
     expert, not just those activated by the calibration data routing.
@@ -35,12 +34,10 @@ class CalibrationGlm4MoeMoE(MoECalibrationModule):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """
         Forward pass with optional calibration mode.
-        
         When calibrate_all_experts=True:
             - All tokens are sent to all experts for calibration
             - Routing weights are still used for final output combination
             - This ensures all experts see calibration data
-        
         When calibrate_all_experts=False:
             - Normal MoE routing behavior (only routed tokens go to each expert)
         """
@@ -66,7 +63,8 @@ class CalibrationGlm4MoeMoE(MoECalibrationModule):
                 # The output is still calculated using only the routed tokens.
                 expert_output_full = expert(hidden_states)
                 if not has_tokens:
-                    continue  # No tokens routed to this expert, but stats were gathered.
+                    # No tokens routed to this expert, but stats were gathered.
+                    continue
                 expert_output = expert_output_full[token_indices]
             else:
                 # Standard MoE behavior: only process tokens routed to this expert.
@@ -87,7 +85,7 @@ class CalibrationGlm4MoeMoE(MoECalibrationModule):
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         """
         Restore the original module structure.
-        
+
         Since is_permanent=False, this method is called when exiting
         the calibration context to restore the original MoE module.
         """
