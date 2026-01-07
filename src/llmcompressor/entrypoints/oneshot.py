@@ -315,7 +315,7 @@ def oneshot(
         LLM Compressor disables lm_head output computations to reduce memory
         usage from large calibration batch sizes. Large batch sizes may result
         excess padding or truncation, depending on the data_collator
-    :param data_collator: The function to used to form a batch from the dataset. Can
+    :param data_collator: The function to use to form a batch from the dataset. Can
         also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
         lengths in a batch. Defaults to 'truncation'.
     :param num_calibration_samples: Number of samples to use for one-shot
