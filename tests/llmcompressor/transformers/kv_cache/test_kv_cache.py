@@ -22,7 +22,7 @@ MODEL_IDS = [
 ]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def oneshot_fixture():
     def _oneshot_fixture(tmp_path: Path):
         num_bits = 8
@@ -63,7 +63,7 @@ def oneshot_fixture():
     return _oneshot_fixture
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def kv_cache_fixture():
     def _kv_cache_fixture(recipe: str, tmp_path: Path):
         num_bits = 8
