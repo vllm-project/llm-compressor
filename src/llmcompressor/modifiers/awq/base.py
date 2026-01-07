@@ -600,7 +600,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                 leave=False,
             )
             for grid_idx, use_duo_scaling in pbar:
-
                 # create new scales
                 ratio = grid_idx / n_grid
 
