@@ -243,14 +243,15 @@ def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tens
 @torch.no_grad
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "n_balance_layers, group_size, n_input_features",
+    "n_balance_layers, n_input_features, strategy, group_size",
     [
-        (5, -1, 32),  # channel
-        (4, 10, 40),  # group
-        (4, torch.inf, 40),  # tensor
+        (5, 32, QuantizationStrategy.CHANNEL, None),  # channel
+        (4, 40, QuantizationStrategy.GROUP, 10),  # group
+        (4, 40, QuantizationStrategy.TENSOR, None),  # tensor
+        (3, 64, QuantizationStrategy.TENSOR_GROUP, 16),  # tensor_group
     ],
 )
-def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
+def test_compute_layer_means(n_balance_layers, n_input_features, strategy, group_size):
     """
     Confirm our logic to compute duo_scaling layer means via a running tally
     matches the original memory-intensive AutoAWQ implementation, which concats
@@ -260,17 +261,6 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
     balance_layers = [
         torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
     ]
-    group_size_arg = None
-    match group_size:
-        case -1:
-            strategy = QuantizationStrategy.CHANNEL
-            group_size = balance_layers[0].weight.shape[1]
-        case torch.inf:
-            strategy = QuantizationStrategy.TENSOR
-            group_size = n_input_features * 10
-        case _:
-            strategy = QuantizationStrategy.GROUP
-            group_size_arg = group_size
 
     for balance_layer in balance_layers:
         setattr(
@@ -280,12 +270,20 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
                 targets=["Linear"],
                 weights=QuantizationArgs(
                     strategy=strategy,
-                    group_size=group_size_arg,
+                    group_size=group_size,
                 ),
             ),
         )
 
-    auto_awq_means = _auto_awq_normalize(balance_layers, group_size).mean(0)
+    match strategy:
+        case QuantizationStrategy.GROUP | QuantizationStrategy.TENSOR_GROUP:
+            group_size_arg = group_size
+        case QuantizationStrategy.TENSOR:
+            group_size_arg = n_input_features * 10
+        case _:
+            group_size_arg = None
+
+    auto_awq_means = _auto_awq_normalize(balance_layers, group_size_arg).mean(0)
 
     llmc_awq_means = AWQModifier._compute_layer_means(balance_layers).to(
         auto_awq_means.dtype
