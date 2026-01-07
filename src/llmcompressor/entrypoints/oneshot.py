@@ -317,7 +317,7 @@ def oneshot(
         excess padding or truncation, depending on the data_collator
     :param data_collator: The function to used to form a batch from the dataset. Can
         also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
-        lengths in a batch. Defaults to 'padding'.
+        lengths in a batch. Defaults to 'truncation'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before
