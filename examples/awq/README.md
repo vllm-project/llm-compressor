@@ -42,4 +42,6 @@ In order to target weight and activation scaling locations within the model, the
 ]
 ```
 
-To support other model families, you can add supply your own mappings via the `mappings` argument with instantiating the `AWQModifier`, or you can add them to the registry [here](/src/llmcompressor/modifiers/awq/mappings.py) (contributions are welcome!)
+Note: the mappings define which layers get smoothed whereas targets and ignore define which layers get quantized. So if you include a layer in the ignore list that is going to get matched due to the included mappings, it will get smoothed but not quantized.
+
+To support other model families, you can supply your own mappings via the `mappings` argument with instantiating the `AWQModifier`, or you can add them to the registry [here](/src/llmcompressor/modifiers/awq/mappings.py) (contributions are welcome!)
