@@ -241,4 +241,3 @@ def test_rtn_oneshot(recipe, tmp_path):
     # Check lm-head is not quantized
     not_targetted = model_loaded.lm_head
     assert not hasattr(not_targetted, "quantization_scheme")
-

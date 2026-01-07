@@ -263,9 +263,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         wrapped_model.name_or_path = state.model.name_or_path
         wrapped_model.config = state.model.config
 
-        with torch.enable_grad(), align_module_device(
-            decoding_layer
-        ), suspend_accelerate_hooks(wrapped_model):
+        with (
+            torch.enable_grad(),
+            align_module_device(decoding_layer),
+            suspend_accelerate_hooks(wrapped_model),
+        ):
             ar_quant_scheme = self._mapping_config_to_autoround()
             fp_layers = self.get_unquantized_layer_names(decoding_layer)
             ar = AutoRound(
