@@ -261,6 +261,7 @@ def oneshot(
     streaming: bool = False,
     overwrite_cache: bool = False,
     preprocessing_num_workers: int | None = None,
+    dataloader_num_workers: int = 0,
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
     quantization_aware_calibration: bool = True,
@@ -329,6 +330,9 @@ def oneshot(
     :param streaming: True to stream data from a cloud dataset.
     :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
     :param preprocessing_num_workers: Number of processes for dataset preprocessing.
+    :param dataloader_num_workers: Number of worker processes for data loading. Set to 0
+        to disable multiprocessing. Note: Custom data collators may not work with
+        multiprocessing. Default is 0.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
     :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
