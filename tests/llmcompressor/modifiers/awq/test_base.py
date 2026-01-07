@@ -158,6 +158,65 @@ def test_validate():
 
 
 @pytest.mark.unit
+def test_ignore_behavior():
+    """Test that mapping is skipped when NO layers are targeted for quantization"""
+    # Test case 1: Some balance layers ignored but at least one is targeted
+    # Mapping should proceed
+    awq = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+            ),
+        ],
+        ignore=["re:.*q_proj", "re:.*k_proj"],  # Only 2 of 3 balance layers ignored
+        scheme="W4A16_ASYM",
+    )
+
+    self_attn = torch.nn.ModuleDict(
+        {
+            "q_proj": Linear(4, 4),
+            "k_proj": Linear(4, 4),
+            "v_proj": Linear(4, 4),
+        }
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": self_attn,
+                    "input_layernorm": torch.nn.LayerNorm(4),
+                }
+            )
+        }
+    )
+
+    awq._set_resolved_mappings(model)
+
+    # Mapping should exist because v_proj is targeted for quantization
+    assert len(awq._resolved_mappings) == 1
+
+    # Test case 2: All Linear layers ignored - mapping should be skipped
+    # because no layers are targeted for quantization
+    awq2 = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+            ),
+        ],
+        ignore=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+        scheme="W4A16_ASYM",
+    )
+
+    awq2._set_resolved_mappings(model)
+
+    # Mapping should be skipped because no layers are targeted for quantization
+    # (input_layernorm is LayerNorm, not Linear, so not targeted anyway)
+    assert len(awq2._resolved_mappings) == 0
+
+
+@pytest.mark.unit
 def test_moe_multiple_balance_layers():
     """Test AWQ mapping with multiple balance layers in MoE architecture"""
     awq = AWQModifier(

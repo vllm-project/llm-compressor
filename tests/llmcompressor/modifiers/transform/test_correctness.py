@@ -1,5 +1,3 @@
-import os
-
 import pytest
 import torch
 from transformers import AutoModelForCausalLM
@@ -10,28 +8,23 @@ from tests.testing_utils import requires_gpu
 
 
 @requires_gpu
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping correctness tests requiring gated model access",
-)
 @pytest.mark.parametrize(
     "modifier,model_dtype,precision,transform_block_size,exp_mse",
     [
-        (QuIPModifier, torch.bfloat16, torch.bfloat16, None, 5e-3),  # 0.0019
-        (QuIPModifier, torch.bfloat16, torch.float32, 16, 5e-3),  # 0.0022
-        (QuIPModifier, torch.float32, torch.float32, 32, 5e-10),  # 1.0e-10
-        (QuIPModifier, torch.float32, torch.float64, 64, 5e-11),  # 2.7e-11
-        (SpinQuantModifier, torch.bfloat16, torch.bfloat16, None, 5e-3),  # 0.0030
-        (SpinQuantModifier, torch.bfloat16, torch.float32, 16, 5e-3),  # 0.0029
-        (SpinQuantModifier, torch.float32, torch.float32, 32, 5e-4),  # 4e-4
-        (SpinQuantModifier, torch.float32, torch.float64, 64, 5e-4),  # 4e-4
+        (QuIPModifier, torch.bfloat16, torch.bfloat16, None, 9e-6),  # 8.5831e-06
+        (QuIPModifier, torch.bfloat16, torch.float32, 16, 6e-6),  # 5.4240e-06
+        (QuIPModifier, torch.float32, torch.float32, 32, 7e-15),  # 5.8138e-15
+        (SpinQuantModifier, torch.bfloat16, torch.bfloat16, None, 8e-3),  # 0.0079
+        (SpinQuantModifier, torch.bfloat16, torch.float32, 16, 8e-3),  # 0.0079
+        (SpinQuantModifier, torch.float32, torch.float32, 32, 8e-3),  # 0.0079
+        (SpinQuantModifier, torch.float32, torch.float64, 64, 8e-3),  # 0.0079
     ],
 )
 def test_apply_correctness(
     modifier, model_dtype, precision, transform_block_size, exp_mse
 ):
     model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Llama-3.2-1B-Instruct", device_map="cuda", dtype=model_dtype
+        "nm-testing/tinysmokellama-3.2", device_map="cuda", dtype=model_dtype
     )
 
     state = State(model=model)
