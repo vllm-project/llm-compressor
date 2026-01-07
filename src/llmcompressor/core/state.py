@@ -7,7 +7,7 @@ related to data, hardware, and model compression.
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from loguru import logger
 
@@ -32,10 +32,10 @@ class Data:
     :type calib: Optional[Any]
     """
 
-    train: Optional[Any] = None
-    val: Optional[Any] = None
-    test: Optional[Any] = None
-    calib: Optional[Any] = None
+    train: Any | None = None
+    val: Any | None = None
+    test: Any | None = None
+    calib: Any | None = None
 
 
 @dataclass
@@ -61,14 +61,14 @@ class Hardware:
     :type distributed_strategy: Optional[str]
     """
 
-    device: Optional[str] = None
-    devices: Optional[List[str]] = None
-    rank: Optional[int] = None
-    world_size: Optional[int] = None
-    local_rank: Optional[int] = None
-    local_world_size: Optional[int] = None
-    distributed: Optional[bool] = None
-    distributed_strategy: Optional[str] = None
+    device: str | None = None
+    devices: list[str] | None = None
+    rank: int | None = None
+    world_size: int | None = None
+    local_rank: int | None = None
+    local_world_size: int | None = None
+    distributed: bool | None = None
+    distributed_strategy: str | None = None
 
 
 @dataclass
@@ -108,9 +108,9 @@ class State:
     batch_data: Any = None
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
-    loggers: Optional[LoggerManager] = None
-    model_log_cadence: Optional[float] = None
-    _last_log_step: Union[float, int, None] = None
+    loggers: LoggerManager | None = None
+    model_log_cadence: float | None = None
+    _last_log_step: float | int | None = None
 
     @property
     def compression_ready(self) -> bool:
@@ -138,10 +138,10 @@ class State:
         start: float = None,
         steps_per_epoch: int = None,
         batches_per_step: int = None,
-        loggers: Union[None, LoggerManager, List[BaseLogger]] = None,
-        model_log_cadence: Optional[float] = None,
+        loggers: LoggerManager | list[BaseLogger] | None = None,
+        model_log_cadence: float | None = None,
         **kwargs,
-    ) -> Dict:
+    ) -> dict:
         """
         Update the state with the given parameters.
 
@@ -246,10 +246,10 @@ class ModifiedState:
     :type modifier_data: Optional[List[Dict[str, Any]]]
     """
 
-    model: Optional[Any] = None
-    optimizer: Optional[Any] = None
-    loss: Optional[Any] = None
-    modifier_data: Optional[List[Dict[str, Any]]] = None
+    model: Any | None = None
+    optimizer: Any | None = None
+    loss: Any | None = None
+    modifier_data: list[dict[str, Any]] | None = None
 
     def __init__(self, model, optimizer, loss, modifier_data):
         """
