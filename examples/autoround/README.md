@@ -14,20 +14,21 @@ cd llm-compressor
 pip install -e .
 ```
 
-
-
 ## When to Use AutoRound
-
-AutoRound demonstrates clear advantages in specific quantization scenarios:
-
-**INT4 for Small-to-Medium LLMs**: At W4G128 configuration, AutoRound outperforms GPTQ (with `act_order` enabled) in 3 out of 4 cases. Across 2–4 bit ranges, AutoRound wins in 14 out of 16 benchmark comparisons. See the [Intel Low-Bit Open LLM Leaderboard](https://huggingface.co/spaces/Intel/low_bit_open_llm_leaderboard) for comprehensive results.
-
-**Sub-4-Bit Quantization (INT2/INT3)**: AutoRound excels at aggressive compression, achieving 10–20% absolute accuracy improvements over alternatives at 2-bit quantization.
-
-**New Data Types (MXFP4/NVFP4)**: For emerging floating-point formats, AutoRound consistently delivers accuracy improvements, positioning it as forward-compatible with evolving quantization standards.
-
-> [!NOTE] 
-> AutoRound's advantages tend to diminish as model size increases and bit-width goes higher (approaching 8-bit), where quantization challenges are already less severe.
+ 
+In summary, AutoRound demonstrates leading or on-par performance at 4-bit precision, with clear advantages for sub-4-bit,as reported in **SignRoundV1** ([paper](https://arxiv.org/pdf/2309.05516)), **SignRoundV2** ([paper](http://arxiv.org/abs/2512.04746) )and  the **Intel Low-Bit Open LLM Leaderboard** ([link](https://huggingface.co/spaces/Intel/low_bit_open_llm_leaderboard)),
+ 
+**INT4 for Large Models (≈30B and above)**
+AutoRound achieves performance comparable to other PTQ methods, as the accuracy drop for these large models is generally minimal.
+ 
+**INT4 for Small-to-Medium LLMs**
+AutoRound is likely to deliver higher accuracy than existing PTQ methods, making it particularly effective for smaller models. See SignRoundV1 And Low Bit Open LLM Leaderboard for accuracy data.
+ 
+**Sub-4-Bit Quantization (INT2/INT3)**
+As the bit-width decreases, AutoRound shows increasing benefits, achieving 10–20% absolute accuracy improvements over PTQ methods, while matching QAT performance at 1–2 orders of magnitude lower tuning cost. See SignRound V2 for details.
+ 
+**New Data Types (MXFP4 / NVFP4)**
+For emerging floating-point formats, AutoRound consistently outperforms RTN in accuracy, demonstrating strong forward compatibility with evolving quantization standards. See SignRound V2 for details.
 
 ### Key Parameters
 - `scheme`: Quantization scheme (e.g., `W4A16`, `W8A16`, more schemes will be supported soon)
