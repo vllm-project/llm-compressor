@@ -70,15 +70,21 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 # Registry of layer mappings for different architectures
 #   Add more mappings here
 MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
-    "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "MixtralForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
-    "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
-    "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
-    "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
     "DeepseekV2ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "MixtralForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
+    "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
+    "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
 }
 
 
