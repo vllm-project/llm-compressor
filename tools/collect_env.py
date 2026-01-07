@@ -7,15 +7,18 @@ import platform
 import sys
 import importlib
 
+
 def get_version(pkg_name):
     try:
         return importlib.metadata.version(pkg_name)
     except importlib.metadata.PackageNotFoundError:
         return "None"
 
+
 def get_torch_hardware_info():
     try:
         import torch
+
         cuda_devices = []
         amd_devices = []
         if torch.cuda.is_available():
@@ -28,6 +31,7 @@ def get_torch_hardware_info():
         return cuda_devices, amd_devices
     except ImportError:
         return [], []
+
 
 def collect_environment_info():
     cuda_devices, amd_devices = get_torch_hardware_info()
@@ -46,6 +50,7 @@ def collect_environment_info():
     print("### Environment Information ###")
     for key, value in info.items():
         print(f"{key}: `{value}`")
+
 
 if __name__ == "__main__":
     collect_environment_info()

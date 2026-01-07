@@ -1,6 +1,5 @@
 import importlib
 import pkgutil
-from typing import Dict, Type
 
 from llmcompressor.modifiers.modifier import Modifier
 
@@ -16,10 +15,10 @@ class ModifierFactory:
     _EXPERIMENTAL_PACKAGE_PATH = "llmcompressor.modifiers.experimental"
 
     _loaded: bool = False
-    _main_registry: Dict[str, Type[Modifier]] = {}
-    _experimental_registry: Dict[str, Type[Modifier]] = {}
-    _registered_registry: Dict[str, Type[Modifier]] = {}
-    _errors: Dict[str, Exception] = {}
+    _main_registry: dict[str, type[Modifier]] = {}
+    _experimental_registry: dict[str, type[Modifier]] = {}
+    _registered_registry: dict[str, type[Modifier]] = {}
+    _errors: dict[str, Exception] = {}
 
     @staticmethod
     def refresh():
@@ -36,7 +35,7 @@ class ModifierFactory:
         ModifierFactory._loaded = True
 
     @staticmethod
-    def load_from_package(package_path: str) -> Dict[str, Type[Modifier]]:
+    def load_from_package(package_path: str) -> dict[str, type[Modifier]]:
         """
         :param package_path: The path to the package to load modifiers from
         :return: The loaded modifiers, as a mapping of name to class
@@ -130,7 +129,7 @@ class ModifierFactory:
         raise ValueError(f"No modifier of type '{type_}' found.")
 
     @staticmethod
-    def register(type_: str, modifier_class: Type[Modifier]):
+    def register(type_: str, modifier_class: type[Modifier]):
         """
         Register a modifier class to be used by the factory.
 

@@ -58,7 +58,7 @@ def _run_observer_test(
         scale,
         zero_point,
         weights_clean,
-        global_scale=global_scale if strategy == "tensor_group" else None
+        global_scale=global_scale if strategy == "tensor_group" else None,
     )
     mse = torch.nn.functional.mse_loss(quantized, tensor)
 
@@ -180,10 +180,9 @@ def test_mse_vs_minmax_extreme_values():
 
     tensor_small = torch.randn(64, 128) * 0.01
     tensor_large = torch.randn(64, 128) * 100.0
-    tensor_skewed = torch.cat([
-        torch.randn(64, 100) * 0.1,
-        torch.randn(64, 28) * 10.0
-    ], dim=1)
+    tensor_skewed = torch.cat(
+        [torch.randn(64, 100) * 0.1, torch.randn(64, 28) * 10.0], dim=1
+    )
 
     for tensor, name in [
         (tensor_small, "small"),
@@ -255,9 +254,7 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
     module_minmax = None
     module_mse = None
     if strategy == "tensor_group":
-        module_minmax = torch.nn.Linear(
-            weight_tensor.shape[1], weight_tensor.shape[0]
-        )
+        module_minmax = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
         module_minmax.weight.data = weight_tensor
         module_mse = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
         module_mse.weight.data = weight_tensor
@@ -285,4 +282,3 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
     _assert_mse_comparison(
         mse_mse, minmax_mse, strategy, symmetric, is_real_weights=True
     )
-

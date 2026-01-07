@@ -42,7 +42,7 @@ def test_consecutive_runs_gpu(config, tmp_path):
         config["model"]
     ), "The provided model is quantized. Please use a dense model."
     model = AutoModelForCausalLM.from_pretrained(
-        config["model"], device_map=config["device"], torch_dtype="auto"
+        config["model"], device_map=config["device"], dtype="auto"
     )
 
     _test_consecutive_runs(
@@ -74,7 +74,7 @@ def _test_consecutive_runs(
 
     first_model = AutoModelForCausalLM.from_pretrained(
         output_first,
-        torch_dtype="auto",
+        dtype="auto",
         quantization_config=quantization_config,
     )
 
@@ -99,7 +99,7 @@ def _test_consecutive_runs(
     second_model = AutoModelForCausalLM.from_pretrained(
         output_second,
         quantization_config=quantization_config,
-        torch_dtype="auto",
+        dtype="auto",
     )
 
     layer_0_sparse = tensor_sparsity(

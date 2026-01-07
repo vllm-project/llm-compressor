@@ -40,7 +40,7 @@ Load the model using `AutoModelForCausalLM` for handling quantized saving and lo
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -90,7 +90,6 @@ oneshot(
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
 )
-
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"

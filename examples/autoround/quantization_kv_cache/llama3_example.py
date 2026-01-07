@@ -1,8 +1,7 @@
-from datasets import load_dataset
+from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
@@ -11,47 +10,35 @@ model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
+# Get aligned calibration dataset.
 
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
+ds = get_dataset(
+    tokenizer=tokenizer,
+    seqlen=MAX_SEQUENCE_LENGTH,
+    nsamples=NUM_CALIBRATION_SAMPLES,
+)
 
 # Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+#   * quantize the kv cache to fp8
+#   * quantize the weights to 4 bit with AutoRound with a group size 128
+recipe = """
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      kv_cache_scheme:
+        num_bits: 8
+        type: float
+        strategy: tensor
+        dynamic: false
+        symmetric: true
+    AutoRoundModifier:
+      targets: [Linear]
+      scheme: W4A16
+      ignore: [lm_head]
+      iters: 200
+"""
 
 # Apply algorithms.
 oneshot(
@@ -60,6 +47,8 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    # disable shuffling to get slightly better mmlu score
+    shuffle_calibration_samples=False,
 )
 
 # Confirm generations of the quantized model look sane.
@@ -73,6 +62,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
