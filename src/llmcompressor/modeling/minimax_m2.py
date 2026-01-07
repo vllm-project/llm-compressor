@@ -14,8 +14,8 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
 
     def __init__(
         self,
-        original: 'MiniMaxM2SparseMoeBlock',
-        config: 'MiniMaxM2Config',
+        original: "MiniMaxM2SparseMoeBlock",
+        config: "MiniMaxM2Config",
         calibrate_all_experts: bool = True,
     ):
         super().__init__()
