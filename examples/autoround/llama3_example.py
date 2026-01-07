@@ -2,8 +2,8 @@ from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
-
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
