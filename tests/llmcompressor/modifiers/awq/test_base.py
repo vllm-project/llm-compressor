@@ -344,6 +344,12 @@ def test_compute_layer_means_does_not_modify_weights():
             8,
         ),
         (
+            4,
+            3,
+            2,
+            1,
+        ),
+        (
             10,
             10,
             10,
@@ -354,12 +360,6 @@ def test_compute_layer_means_does_not_modify_weights():
             256,
             128,
             128,
-        ),
-        (
-            4,
-            3,
-            2,
-            1,
         ),
     ],
 )
@@ -403,7 +403,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 
     # auto awq
     # we first reshape the weight such that it is effectively per-channel quantization
-    # so that we can use the existing _auto_awq_normalize function
+    # so that we can compare to the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
     q_args = lin.quantization_scheme.weights
     block_height, block_width = q_args.block_structure
