@@ -30,9 +30,9 @@ recipe = AutoRoundModifier(
         "re:.*lm_head",
         "re:.*router",
         "re:.*self_attn.*",
-        "re:.*shared_expert.*" ,
+        "re:.*shared_expert.*",
         "re:multi_modal_projector.*",
-        "re:vision_model"
+        "re:vision_model",
     ],
     iters=0,
 )

@@ -317,10 +317,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     # TODO: update zero_point after supporting asymmetric quantization
                     update_offload_parameter(module, "weight_scale", weight_scale)
 
-                if (
-                    hasattr(module, "act_scale")
-                    and hasattr(module, "input_scale")
-                ):
+                if hasattr(module, "act_scale") and hasattr(module, "input_scale"):
                     act_scale = module.act_scale
                     assert act_scale.numel() == module.input_scale.numel(), (
                         f"Expected act_scale of size {module.input_scale.numel()}, "
@@ -332,7 +329,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     update_offload_parameter(
                         module,
                         "input_scale",
-                        act_scale.reshape(module.input_scale.shape)
+                        act_scale.reshape(module.input_scale.shape),
                     )
 
         decoding_layer.eval()
@@ -416,9 +413,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
 
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
+            assert isinstance(scheme, QuantizationScheme), (
+                f"Expected QuantizationScheme, got {type(scheme)}"
+            )
             quant_scheme = scheme
         weight_args = quant_scheme.weights
         activation_args = quant_scheme.input_activations
@@ -466,7 +463,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if act_group_size is None:
                 if activation_args.strategy in [
                     QuantizationStrategy.CHANNEL,
-                    QuantizationStrategy.TOKEN
+                    QuantizationStrategy.TOKEN,
                 ]:
                     act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:

@@ -47,10 +47,7 @@ w8a8_dynamic_recipe_modifier = AutoRoundModifier(
             targets=["Linear"],
             weights=QuantizationArgs(num_bits=8, strategy="channel"),
             input_activations=QuantizationArgs(
-                num_bits=8,
-                type="float",
-                strategy="token",
-                dynamic=True
+                num_bits=8, type="float", strategy="token", dynamic=True
             ),
         )
     },
@@ -64,13 +61,12 @@ w8a8_static_recipe_modifier = AutoRoundModifier(
             targets=["Linear"],
             weights=QuantizationArgs(num_bits=8, type="float", strategy="tensor"),
             input_activations=QuantizationArgs(
-                num_bits=8,
-                type="float",
-                strategy="tensor"
+                num_bits=8, type="float", strategy="tensor"
             ),
         )
     },
 )
+
 
 @requires_gpu(1)
 @pytest.mark.parametrize(
@@ -127,13 +123,11 @@ def test_oneshot_application(recipe, tmp_path):
     not_targetted = model_loaded.lm_head
     assert not hasattr(not_targetted, "quantization_scheme")
 
+
 @requires_gpu(1)
 @pytest.mark.parametrize(
     "recipe",
-    [
-        w8a8_dynamic_recipe_modifier,
-        w8a8_static_recipe_modifier
-    ],
+    [w8a8_dynamic_recipe_modifier, w8a8_static_recipe_modifier],
 )
 def test_rtn_oneshot(recipe, tmp_path):
     output = tmp_path / "oneshot_output"
