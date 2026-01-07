@@ -124,7 +124,6 @@ lm_eval --model vllm \
 
 We can see the resulting scores look good!
 
-```text
 ```bash
 | Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
 | ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
