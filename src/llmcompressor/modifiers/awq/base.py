@@ -280,7 +280,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             for _, module in tqdm(named_modules, desc="Calibrating weights"):
                 update_weight_zp_scale(module)
 
-        self.end_calibration(state.model)
+            self.end_calibration(state.model)
 
         # remove activation hooks
         self.remove_hooks()
@@ -359,7 +359,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                #Occurs frequently depending on model size
+                # Occurs frequently depending on model size
                 if not all_compatible:
                     num_incompatible += 1
                     logger.debug(
@@ -368,7 +368,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
                     continue
 
-                #Warn that mappings or quantization config are malformed for model
+                # Warn that mappings or quantization config are malformed for model
                 if (not any_targeted) or len(balance_layers) == 0:
                     skip_message = (
                         "no balance layers were found."
