@@ -256,17 +256,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
 
-        # If quantization is disabled, remove quantization scheme/status on targeted modules
-        # otherwise, set qparams on targeted modules
-        if self.disable_quantization:
-            for _, module in named_modules:
-                QuantizationMetadata.clear_all_qparams(module)
-                # TODO move to QuantizationMetadata helper
-                if hasattr(module, "quantization_scheme"):
-                    delattr(module, "quantization_scheme")
-                if hasattr(module, "quantization_status"):
-                    delattr(module, "quantization_status")
-        else:
+        # If quantization is enabled, set qparams on targeted modules
+        if not self.disable_quantization:
             # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
             for _, module in tqdm(named_modules, desc="Updating global scales"):
                 update_weight_global_scale(module)
@@ -280,7 +271,18 @@ class AWQModifier(Modifier, QuantizationMixin):
             for _, module in tqdm(named_modules, desc="Calibrating weights"):
                 update_weight_zp_scale(module)
 
-            self.end_calibration(state.model)
+        self.end_calibration(state.model)
+
+        # If quantization is disabled, remove quantization scheme/status on targeted modules
+        if self.disable_quantization:
+            for _, module in named_modules:
+                # Causes downstream during `remove_dispatch`
+                # "ValueError: {module} does not have a parameter or a buffer named weight_scale."
+                # QuantizationMetadata.clear_all_qparams(module)
+
+                # TODO move to QuantizationMetadata helper
+                if hasattr(module, "quantization_scheme"):
+                    delattr(module, "quantization_scheme")
 
         # remove activation hooks
         self.remove_hooks()
@@ -716,7 +718,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_error = loss
                     best_ratio = ratio
                     best_scales = scales.clone()
-                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
+                # pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
                 mapping.parent.load_state_dict(org_sd, strict=False)
 
