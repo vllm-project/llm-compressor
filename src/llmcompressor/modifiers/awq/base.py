@@ -325,6 +325,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 model, self.resolved_targets, self.ignore
             )
         )
+        num_incompatible = 0
         for mapping in self.mappings:
             # we deliberately don't use the ignore list when matching mappings,
             # so that we can handle layers that need smoothing but not quantization
@@ -358,17 +359,25 @@ class AWQModifier(Modifier, QuantizationMixin):
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                skip_message: str | None = None
+                #Occurs frequently depending on model size
                 if not all_compatible:
-                    skip_message = "incompatible balance layers were found"
-                elif not any_targeted:
-                    skip_message = "no layers are targeted for quantization"
-                elif len(balance_layers) == 0:
-                    skip_message = "no balance layers were found"
-
-                if skip_message:
+                    num_incompatible += 1
                     logger.debug(
-                        f"skipping AWQ for {smooth_name} for mapping {mapping} because "
+                        f"Skipping {smooth_name} for mapping {mapping} because "
+                        + "incompatible balance layers were found."
+                    )
+                    continue
+
+                #Warn that mappings or quantization config are malformed for model
+                if (not any_targeted) or len(balance_layers) == 0:
+                    skip_message = (
+                        "no balance layers were found."
+                        if len(balance_layers) == 0
+                        else "no layers are targeted for quantization."
+                    )
+
+                    logger.warning(
+                        f"Skipping {smooth_name} for mapping {mapping} because "
                         + skip_message
                     )
 
@@ -388,6 +397,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                         parent_name=ancestor_name,
                     )
                 )
+
+        if num_incompatible > 0:
+            logger.warning(
+                f"{num_incompatible} mappings were skipped due to incompatible shapes. "
+                + "Set logging to DEBUG to view full list."
+            )
+
         self._resolved_mappings = resolved_mappings
         return
 
