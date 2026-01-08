@@ -299,7 +299,7 @@ class LengthAwareSampler(Sampler[int]):
             f"{self.num_samples} samples with batch size {self.batch_size}"
         )
 
-        sorted_lengths = sorted(lengths, reverse=True)[: self.num_samples]
+        sorted_lengths = [lengths[i] for i in self.order][: self.num_samples]
         total_tokens_removed = 0
         total_tokens_added = 0
 
