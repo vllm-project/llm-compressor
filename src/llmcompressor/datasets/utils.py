@@ -131,6 +131,7 @@ def format_calibration_data(
         sampler=_make_sampler(args, tokenized_dataset),
         collate_fn=_make_collate_fn(args, processor),
         pin_memory=False,
+        num_workers=args.dataloader_num_workers,
     )
 
 

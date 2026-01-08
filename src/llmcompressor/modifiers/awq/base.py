@@ -33,9 +33,11 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
+    update_weight_global_scale,
     update_weight_zp_scale,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -119,7 +121,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
-    :param ignore: list of layers to ignore, even if they match a regex in mappings.
+    :param ignore: list of layers to ignore during quantization (not smoothed).
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
@@ -239,10 +241,21 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
-        for _, module in tqdm(
-            match_named_modules(state.model, self.resolved_targets, self.ignore),
-            desc="Calibrating weights",
-        ):
+        named_modules = list(
+            match_named_modules(state.model, self.resolved_targets, self.ignore)
+        )
+
+        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
+        for _, module in tqdm(named_modules, desc="Updating global scales"):
+            update_weight_global_scale(module)
+
+        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
+        # This is a requirement for vLLM inference.
+        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
+            update_fused_layer_weight_global_scales(module)
+
+        # Calculate scales and zero points using the fused global scales
+        for _, module in tqdm(named_modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
         QuantizationMixin.end_calibration(self, state.model)
@@ -280,9 +293,19 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+        # Get names of modules targeted for quantization (excludes ignored)
+        targeted_names = set(
+            name
+            for name, _ in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        )
         for mapping in self.mappings:
+            # we deliberately don't use the ignore list when matching mappings,
+            # so that we can handle layers that need smoothing but not quantization
+            # we only skip if no layers in mapping are targeted for quantization.
             for smooth_layers, *nested_balance_layers in match_modules_set(
-                model, (mapping.smooth_layer, *mapping.balance_layers), self.ignore
+                model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
@@ -301,19 +324,27 @@ class AWQModifier(Modifier, QuantizationMixin):
                     for balance_layer in balance_layers
                 ]
 
+                # Check if at least one layer is targeted for quantization
+                any_targeted = smooth_name in targeted_names or any(
+                    bn in targeted_names for bn in balance_names
+                )
+
                 all_compatible = _check_layers_are_compatible(
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                # skip mapping if any of the balance layers are incompatible
-                if not all_compatible or len(balance_layers) == 0:
+                skip_message: str | None = None
+                if not all_compatible:
+                    skip_message = " because found incompatible balance layers"
+                elif not any_targeted:
+                    skip_message = " because no layers are targeted for quantization"
+                elif len(balance_layers) == 0:
+                    skip_message = " because no balance layers were found"
+
+                if skip_message:
                     logger.warning(
                         f"skipping AWQ for {smooth_name} for mapping {mapping}"
-                        + (
-                            " because found incompatible balance layers"
-                            if not all_compatible
-                            else " because no balance layers were found"
-                        )
+                        + skip_message
                     )
 
                     continue
@@ -568,7 +599,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+            total_iterations = n_grid * len(duo_scalings)
+            for grid_idx, use_duo_scaling in tqdm(
+                product(range(n_grid), duo_scalings),
+                total=total_iterations,
+                desc="Grid search",
+            ):
                 # create new scales
                 ratio = grid_idx / n_grid
 
@@ -595,11 +631,15 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.mul_(_scalesview)
+                    # For TENSOR_GROUP (nvfp4), need to calculate global scale
+                    should_calculate_gparam = (
+                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                    )
                     call_observer(
                         balance_layer,
                         "weight",
                         balance_layer.weight,
-                        # TODO test should_calculate_gparam for nvfp4 support
+                        should_calculate_gparam=should_calculate_gparam,
                     )
                     update_offload_parameter(
                         balance_layer,
@@ -612,6 +652,15 @@ class AWQModifier(Modifier, QuantizationMixin):
                         )
                         / _scalesview,
                     )
+
+                # Apply fused global scales for TENSOR_GROUP during grid search
+                # to match inference behavior
+                if balance_layers_to_patch and all(
+                    getattr(layer.quantization_scheme.weights, "strategy", None)
+                    == QuantizationStrategy.TENSOR_GROUP
+                    for layer in balance_layers_to_patch
+                ):
+                    update_fused_layer_weight_global_scales(mapping.parent)
 
                 # W * X
                 int_w_outputs = self._run_samples(mapping.parent)
@@ -711,7 +760,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     chunk_size = weight.numel()
                 case QuantizationStrategy.CHANNEL:
                     chunk_size = weight.size(1)
-                case QuantizationStrategy.GROUP:
+                case QuantizationStrategy.GROUP | QuantizationStrategy.TENSOR_GROUP:
                     chunk_size = q_args.group_size
                 case QuantizationStrategy.BLOCK:
                     block_height, block_width = q_args.block_structure
