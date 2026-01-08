@@ -6,16 +6,16 @@ algorithms: W4A8, AWQ, and GPTQ.
 
 Usage:
     # Basic W4A8 quantization
-    python gpt_oss_quantization_example.py --algorithm w4a8
+    python gpt_oss_20b.py --algorithm w4a8
 
     # AWQ quantization
-    python gpt_oss_quantization_example.py --algorithm awq
+    python gpt_oss_20b.py --algorithm awq
 
     # GPTQ quantization
-    python gpt_oss_quantization_example.py --algorithm gptq
+    python gpt_oss_20b.py --algorithm gptq
 
     # Custom options
-    python gpt_oss_quantization_example.py \
+    python gpt_oss_20b.py \
         --algorithm gptq \
         --model openai/gpt-oss-20b \
         --num-samples 512 \

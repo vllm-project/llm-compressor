@@ -21,7 +21,11 @@ class LinearExpert(nn.Module):
     """
 
     def __init__(
-        self, hidden_size: int, intermediate_size: int, alpha: float, limit: float
+        self,
+        hidden_size: int,
+        intermediate_size: int,
+        alpha: float,
+        limit: float,
     ):
         super().__init__()
         self.alpha = alpha
@@ -126,9 +130,13 @@ class LinearExperts(nn.Module):
             x = hidden_states
 
         if router_indices.dim() == 3:
-            router_indices = router_indices.reshape(-1, router_indices.shape[-1])
+            router_indices = router_indices.reshape(
+                -1, router_indices.shape[-1]
+            )
         if routing_weights.dim() == 3:
-            routing_weights = routing_weights.reshape(-1, routing_weights.shape[-1])
+            routing_weights = routing_weights.reshape(
+                -1, routing_weights.shape[-1]
+            )
 
         return x, router_indices, routing_weights, B, H
 
@@ -198,7 +206,7 @@ class LinearExperts(nn.Module):
         return out.view(B, -1, H)
 
 
-@MoECalibrationModule.register("LinearExperts")
+@MoECalibrationModule.register("GptOssExperts")
 class CalibrationLinearExperts(LinearExperts, MoECalibrationModule):
     """
     Calibration version of LinearExperts that sends all tokens to all experts.
@@ -276,7 +284,9 @@ def get_module_by_path(root: nn.Module, dotpath: str) -> nn.Module:
     return m
 
 
-def set_module_by_path(root: nn.Module, dotpath: str, new_module: nn.Module) -> None:
+def set_module_by_path(
+    root: nn.Module, dotpath: str, new_module: nn.Module
+) -> None:
     parts = dotpath.split(".")
     parent = get_module_by_path(root, ".".join(parts[:-1]))
     setattr(parent, parts[-1], new_module)
