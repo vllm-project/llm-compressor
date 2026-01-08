@@ -278,7 +278,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             for _, module in named_modules:
                 # Causes downstream during `remove_dispatch`
                 # "ValueError: {module} does not have a parameter or a buffer named weight_scale."
-                # QuantizationMetadata.clear_all_qparams(module)
+                QuantizationMetadata.clear_all_qparams(module)
 
                 # TODO move to QuantizationMetadata helper
                 if hasattr(module, "quantization_scheme"):
@@ -361,7 +361,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                # Occurs frequently depending on model size
+                # Incompatibility occurs frequently depending on model size
                 if not all_compatible:
                     num_incompatible += 1
                     logger.debug(
