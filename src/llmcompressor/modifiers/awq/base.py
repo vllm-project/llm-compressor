@@ -5,6 +5,7 @@ from typing import Iterator, Literal
 import torch
 from compressed_tensors.quantization import (
     QuantizationStrategy,
+    QuantizationMetadata,
     disable_quantization,
     forward_quantize,
 )
@@ -138,6 +139,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
         Defaults to 20
+    :param disable_quantization: option to disable quantization during AWQ. In this
+        case, weights are scaled to minimize quantization loss for a given quantization
+        config, but not subsequently quantized. This is to allow for flows involving
+        multiple modifiers, for example to run both AWQ and GPTQ. The value of doing so
+        is an open area of research, and not generally recommended for most users.
+        Defaults to False
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -149,6 +156,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     offload_device: torch.device | None = None
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
+    disable_quantization: bool = False
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -210,6 +218,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
+
         # AWQ performs forward passes during _apply_smoothing
         # before any scales or zero points are updated
         # Quantization must be disabled, otherwise NaNs will
@@ -247,20 +256,31 @@ class AWQModifier(Modifier, QuantizationMixin):
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
 
-        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
-        for _, module in tqdm(named_modules, desc="Updating global scales"):
-            update_weight_global_scale(module)
+        # If quantization is disabled, remove quantization scheme/status on targeted modules
+        # otherwise, set qparams on targeted modules
+        if self.disable_quantization:
+            for _, module in named_modules:
+                QuantizationMetadata.clear_all_qparams(module)
+                # TODO move to QuantizationMetadata helper
+                if hasattr(module, "quantization_scheme"):
+                    delattr(module, "quantization_scheme")
+                if hasattr(module, "quantization_status"):
+                    delattr(module, "quantization_status")
+        else:
+            # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
+            for _, module in tqdm(named_modules, desc="Updating global scales"):
+                update_weight_global_scale(module)
 
-        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # This is a requirement for vLLM inference.
-        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
-            update_fused_layer_weight_global_scales(module)
+            # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
+            # This is a requirement for vLLM inference.
+            for module in tqdm(state.model.modules(), desc="Fusing global scales"):
+                update_fused_layer_weight_global_scales(module)
 
-        # Calculate scales and zero points using the fused global scales
-        for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
+            # Calculate scales and zero points using the fused global scales
+            for _, module in tqdm(named_modules, desc="Calibrating weights"):
+                update_weight_zp_scale(module)
 
-        QuantizationMixin.end_calibration(self, state.model)
+        self.end_calibration(state.model)
 
         # remove activation hooks
         self.remove_hooks()
@@ -340,15 +360,15 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 skip_message: str | None = None
                 if not all_compatible:
-                    skip_message = " because found incompatible balance layers"
+                    skip_message = "incompatible balance layers were found"
                 elif not any_targeted:
-                    skip_message = " because no layers are targeted for quantization"
+                    skip_message = "no layers are targeted for quantization"
                 elif len(balance_layers) == 0:
-                    skip_message = " because no balance layers were found"
+                    skip_message = "no balance layers were found"
 
                 if skip_message:
-                    logger.warning(
-                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                    logger.debug(
+                        f"skipping AWQ for {smooth_name} for mapping {mapping} because "
                         + skip_message
                     )
 
@@ -606,13 +626,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             ],
         ):
             total_iterations = n_grid * len(duo_scalings)
-            pbar = tqdm(
-                product(range(n_grid), duo_scalings),
-                total=total_iterations,
-                desc=f"Grid search for {mapping.smooth_name}",
-                leave=False,
-            )
-            for grid_idx, use_duo_scaling in pbar:
+            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
                 # create new scales
                 ratio = grid_idx / n_grid
 

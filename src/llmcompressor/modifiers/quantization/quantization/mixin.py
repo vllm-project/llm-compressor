@@ -202,7 +202,8 @@ class QuantizationMixin(HooksMixin):
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Attach quantization schemes to modules in the model according to
+        Reset quantization status of any targeted modules and
+        attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
