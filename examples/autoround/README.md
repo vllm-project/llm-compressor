@@ -61,14 +61,15 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 
 
 ### Support Matrix
-| Scheme              | Examples                                | Note                                  |
-| ------------------- | --------------------------------------- | ------------------------------------- |
-| `wNa16`             | [llama3_example](./quantization_w4a16/) |                                       |
-| `wNa16`             | [qwen3_example](./quantization_w4a16/)  | Multiple cards for `Qwen3-235B-A22B`  |
-| `wNa16` + `FP8KV`  | [llama3_example](./quantization_kv_cache/) |                                       |
+| Scheme              | Examples                                   | Note                                  |
+| ------------------- | ------------------------------------------ | ------------------------------------- |
+| `wNa16`             | [llama3_example](./quantization_w4a16/)    |                                       |
+| `wNa16`             | [qwen3_example](./quantization_w4a16/)     | Multiple cards for `Qwen3-235B-A22B`  |
+| `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/) |                                       |
+| `W8A8-FP8`          | [llama4_example](./quantization_w8a8_fp8/) |                                       |
 
 > [!NOTE]
-> More quantization schemes (e.g., `W8A8-FP8`, `NVFP4`, `MXFP4`,) are actively being developed. Stay tuned for updates!
+> More quantization schemes (e.g., `NVFP4`, `MXFP4`,) are actively being developed. Stay tuned for updates!
 
 
 
