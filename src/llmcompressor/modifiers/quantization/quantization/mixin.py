@@ -202,9 +202,7 @@ class QuantizationMixin(HooksMixin):
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Reset quantization status of any targeted modules and
-        attach quantization schemes to modules in the model according to
-        the quantization config specified on this modifier
+        Reset quantization status of any targeted modules and disable quantization
 
         :param model: model to attach schemes and observers to
         """
@@ -212,18 +210,21 @@ class QuantizationMixin(HooksMixin):
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
-
         # disable quantization until calibration
         model.apply(disable_quantization)
 
     def start_calibration(self, model: torch.nn.Module):
         """
+        Attach quantization schemes to modules in the model according to
+        the quantization config specified on this modifier
+
         Attach observers, register activation calibration hooks (including
         kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
+        apply_quantization_config(model, self.resolved_config)
+
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
