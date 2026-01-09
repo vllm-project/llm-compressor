@@ -1,5 +1,4 @@
 from datasets import load_dataset
-from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -79,19 +78,13 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-logger.info(
-    "Running sample generation. ",
-    "Note: Inference with the quantized kv_cache is not supported. ",
-    "Please use vLLM for inference with the quantized kv_cache.",
-)
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to(model.device) for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 

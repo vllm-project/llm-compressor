@@ -78,23 +78,13 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-print(
-    "Note: Inference with the quantized kv_cache is not supported. ",
-    "Please use vLLM for inference with the quantized kv_cache.",
-)
 # Confirm generations of the quantized model look sane.
-
-# NOTE: transformers 4.49.0 results in a generation error with gemma2.
-# Consider either downgrading your transformers version to a previous version
-# or use vLLM for sample generation.
-# Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
 print("\n\n")
-dispatch_for_generation(model)
 print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100, disable_compile=True)
+dispatch_for_generation(model)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to(model.device) for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
