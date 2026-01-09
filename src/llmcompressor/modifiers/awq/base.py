@@ -275,14 +275,22 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # If quantization is disabled, remove quantization scheme/status on targeted modules
         if self.disable_quantization:
-            for _, module in named_modules:
-                # Causes downstream during `remove_dispatch`
-                # "ValueError: {module} does not have a parameter or a buffer named weight_scale."
-                QuantizationMetadata.clear_all_qparams(module)
+            with HooksMixin.disable_hooks():
+                for _, module in named_modules:
+                    # Causes downstream during `remove_dispatch`
+                    # "ValueError: {module} does not have a parameter or a buffer named weight_scale."
+                    QuantizationMetadata.clear_all_qparams(module)
 
-                # TODO move to QuantizationMetadata helper
-                if hasattr(module, "quantization_scheme"):
-                    delattr(module, "quantization_scheme")
+                    # TODO move to QuantizationMetadata helper
+                    if hasattr(module, "quantization_scheme"):
+                        delattr(module, "quantization_scheme")
+
+                    module.forward = module.forward.__wrapped__.__get__(module)
+                    # setattr(
+                    #     module,
+                    #     "forward",
+                    #     module.forward.__wrapped__.__get__(module, module.__class__),
+                    # )
 
         # remove activation hooks
         self.remove_hooks()
