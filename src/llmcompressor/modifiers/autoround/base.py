@@ -157,6 +157,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
+    lr: Optional[float] = None
     device_ids: Optional[str] = None
 
     # private variables
@@ -277,6 +278,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 iters=self.iters,
                 enable_torch_compile=self.enable_torch_compile,
                 batch_size=self.batch_size,
+                lr=self.lr,
                 device_map=self.device_ids,
                 fp_layers=",".join(fp_layers) if fp_layers else "",
             )
