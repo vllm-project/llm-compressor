@@ -4,13 +4,14 @@ from typing import Iterator, Literal
 
 import torch
 from compressed_tensors.quantization import (
-    QuantizationStrategy,
     QuantizationMetadata,
+    QuantizationStrategy,
     disable_quantization,
     forward_quantize,
 )
 from compressed_tensors.utils import (
     align_modules,
+    disable_hf_hook,
     get_execution_device,
     get_lowest_common_ancestor_name,
     getattr_chain,
@@ -273,27 +274,20 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.end_calibration(state.model)
 
-        # If quantization is disabled, remove quantization scheme/status on targeted modules
-        if self.disable_quantization:
-            with HooksMixin.disable_hooks():
-                for _, module in named_modules:
-                    # Causes downstream during `remove_dispatch`
-                    # "ValueError: {module} does not have a parameter or a buffer named weight_scale."
-                    QuantizationMetadata.clear_all_qparams(module)
-
-                    # TODO move to QuantizationMetadata helper
-                    if hasattr(module, "quantization_scheme"):
-                        delattr(module, "quantization_scheme")
-
-                    module.forward = module.forward.__wrapped__.__get__(module)
-                    # setattr(
-                    #     module,
-                    #     "forward",
-                    #     module.forward.__wrapped__.__get__(module, module.__class__),
-                    # )
-
         # remove activation hooks
         self.remove_hooks()
+
+        # If quantization is disabled, remove quantization from targeted modules
+        # TODO move to QuantizationMetadata helper
+        if self.disable_quantization:
+            for _, module in named_modules:
+                with disable_hf_hook(module):
+                    module.forward = module.forward.__wrapped__.__get__(module)
+
+                    QuantizationMetadata.clear_all_qparams(module)
+
+                    if hasattr(module, "quantization_scheme"):
+                        delattr(module, "quantization_scheme")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -651,7 +645,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            total_iterations = n_grid * len(duo_scalings)
             for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
                 # create new scales
                 ratio = grid_idx / n_grid
