@@ -558,21 +558,18 @@ def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:
         return tuple()
 
 
-def handle_sequential_oom():
+def handle_sequential_oom(func):
     """Catch ooms and suggest changing sequential targets"""
 
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except torch.cuda.OutOfMemoryError as e:
-                raise torch.cuda.OutOfMemoryError(
-                    "Sequential pipeline ran out of memory. "
-                    "Please consider choosing a smaller module "
-                    "for `sequential_targets` argument, ex. 'Linear'"
-                ) from e
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except torch.cuda.OutOfMemoryError as e:
+            raise torch.cuda.OutOfMemoryError(
+                "Sequential pipeline ran out of memory. "
+                "Please consider choosing a smaller module "
+                "for `sequential_targets` argument, ex. 'Linear'"
+            ) from e
 
-        return wrapper
-
-    return decorator
+    return wrapper
