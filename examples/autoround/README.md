@@ -16,7 +16,7 @@ pip install -e .
 
 ## When to Use AutoRound
  
-In summary, AutoRound demonstrates leading or on-par performance at 4-bit precision, with clear advantages for sub-4-bit, as reported in **SignRoundV1** ([paper](https://arxiv.org/pdf/2309.05516)), **SignRoundV2** ([paper](http://arxiv.org/abs/2512.04746))and the **Intel Low-Bit Open LLM Leaderboard** ([link](https://huggingface.co/spaces/Intel/low_bit_open_llm_leaderboard)),
+In summary, AutoRound demonstrates leading or on-par performance at 4-bit precision, with clear advantages for sub-4-bit, as reported in **SignRoundV1** ([paper](https://arxiv.org/pdf/2309.05516)), **SignRoundV2** ([paper](http://arxiv.org/abs/2512.04746)) and the **Intel Low-Bit Open LLM Leaderboard** ([link](https://huggingface.co/spaces/Intel/low_bit_open_llm_leaderboard)),
  
 **INT4 for Large Models (≈30B and above)**
 AutoRound achieves performance comparable to other PTQ methods, as the accuracy drop for these large models is generally minimal.
@@ -66,8 +66,8 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | `wNa16`             | [llama3_example](./quantization_w4a16/llama3_example.py)                  |                                       |
 | `wNa16`             | [qwen3_example](./quantization_w4a16/qwen3_example.py)                    | Multiple cards for `Qwen3-235B-A22B`  |
 | `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/llama3_example.py)               |                                       |
-| `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py) |                                       |
-| `W8A8-FP8` Dyanmic  | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py)  |                                       |
+| `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
+| `W8A8-FP8` Dyanmic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
 
 > [!NOTE]
 > More quantization schemes (e.g., `NVFP4`, `MXFP4`,) are actively being developed. Stay tuned for updates!
