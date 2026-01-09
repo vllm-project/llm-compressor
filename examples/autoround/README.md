@@ -73,7 +73,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+Currently, `llm-compressor` supports applying AutoRound only on the WNA16 and W8A8-FP8 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
 ### Questions or Feature Request?
 

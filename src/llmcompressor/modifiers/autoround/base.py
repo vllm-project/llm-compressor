@@ -6,6 +6,7 @@ import torch.nn as nn
 from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
+from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
@@ -193,8 +194,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
-            # Note: No need to register observers for auto-round
-            self._calibration_hooks |= self._initialize_hooks(module)
+            # skip register observers for auto-round
             apply_calibration_status(module)
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
@@ -262,10 +262,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         wrapped_model = _wrap_decoding_layer(decoding_layer)
         wrapped_model.name_or_path = state.model.name_or_path
+        wrapped_model.config = state.model.config
 
-        with torch.enable_grad(), align_module_device(
-            decoding_layer
-        ), suspend_accelerate_hooks(wrapped_model):
+        with (
+            torch.enable_grad(),
+            align_module_device(decoding_layer),
+            suspend_accelerate_hooks(wrapped_model),
+        ):
             ar_quant_scheme = self._mapping_config_to_autoround()
             fp_layers = self.get_unquantized_layer_names(decoding_layer)
             ar = AutoRound(
@@ -302,14 +305,37 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 auto_offload=auto_offload,
             )
             self._q_input = q_input
+
+            decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
+
             # Update offload parameters and remove temporary attributes
-            for _, module in decoding_layer.named_modules():
-                if hasattr(module, "scale") and hasattr(module, "weight_zero_point"):
+            for name, module in decoding_layer.named_modules():
+                if (
+                    hasattr(module, "weight_scale")
+                    and hasattr(module, "weight_zero_point")
+                    and hasattr(module, "scale")
+                ):
                     # Note: The model's weight is already q-dq in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
                     # TODO: update zero_point after supporting asymmetric quantization
                     update_offload_parameter(module, "weight_scale", weight_scale)
+
+                if hasattr(module, "act_scale") and hasattr(module, "input_scale"):
+                    act_scale = module.act_scale
+                    assert act_scale.numel() == module.input_scale.numel(), (
+                        f"Expected act_scale of size {module.input_scale.numel()}, "
+                        "got {act_scale.numel()}"
+                    )
+                    del module.act_scale
+
+                    # activation scale shape maybe different
+                    update_offload_parameter(
+                        module,
+                        "input_scale",
+                        act_scale.reshape(module.input_scale.shape),
+                    )
+
         decoding_layer.eval()
 
     def post_autoround_cleanup(self):
@@ -347,6 +373,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 unquantized_layers.append(name)
         return unquantized_layers
 
+    def _unwrapper_quantized_layer(self, model: torch.nn.Module):
+        # auto-round will return WrapperWALayer if activation is quantized
+        for name, module in model.named_modules():
+            if isinstance(module, WrapperWALayer):
+                if "." in name:
+                    parent, child = name.rsplit(".", maxsplit=1)
+                    parent = model.get_submodule(parent)
+                    setattr(parent, child, module.orig_layer)
+                else:
+                    # It's a top-level module
+                    setattr(model, name, module.orig_layer)
+        return model
+
     def _add_temporary_names(self, model: torch.nn.Module):
         for name, mod in model.named_modules():
             mod._tmp_name = name
@@ -383,23 +422,74 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ), f"Expected QuantizationScheme, got {type(scheme)}"
             quant_scheme = scheme
         weight_args = quant_scheme.weights
-        assert weight_args.strategy == QuantizationStrategy.GROUP, (
-            "Only group-wise quantization is supported in AutoRoundModifier for now, "
-            f"got {weight_args.strategy}"
-        )
-        assert quant_scheme.input_activations is None, (
-            "Input activation quantization is not supported in AutoRoundModifier, "
-            f"got {quant_scheme.input_activations}"
-        )
+        activation_args = quant_scheme.input_activations
         assert quant_scheme.output_activations is None, (
             "Output activation quantization is not supported in AutoRoundModifier, "
             f"got {quant_scheme.output_activations}"
         )
+        group_size = weight_args.group_size
+        data_type = weight_args.type
+        if group_size is None:
+            if weight_args.strategy == QuantizationStrategy.CHANNEL:
+                group_size = -1
+            elif weight_args.strategy == QuantizationStrategy.TENSOR:
+                group_size = 0
+            else:
+                raise ValueError(
+                    "AutoRoundModifier only supports channel-wise and tensor-wise "
+                    "weight quantization"
+                )
+
+        if data_type == "float":
+            data_type = "fp"
+
+        if activation_args is None:
+            act_bits = 16
+            act_group_size = None
+            act_symmetric = None
+            act_dynamic = None
+            act_data_type = None
+        else:
+            act_dynamic = activation_args.dynamic
+            act_group_size = activation_args.group_size
+            act_symmetric = activation_args.symmetric
+            act_bits = activation_args.num_bits
+
+            # activation is quantized dynamically, skip collecting scale in auto-round
+            if act_dynamic:
+                act_bits = 16
+
+            act_data_type = activation_args.type
+            assert activation_args.strategy != QuantizationStrategy.GROUP, (
+                "Input activation group-wise quantization is not supported "
+                "in AutoRoundModifier"
+            )
+            if act_group_size is None:
+                if activation_args.strategy in [
+                    QuantizationStrategy.CHANNEL,
+                    QuantizationStrategy.TOKEN,
+                ]:
+                    act_group_size = -1
+                elif activation_args.strategy == QuantizationStrategy.TENSOR:
+                    act_group_size = 0
+                else:
+                    raise ValueError(
+                        f"{activation_args.strategy} is not supported "
+                        "in AutoRoundModifier"
+                    )
+
+            if act_data_type == "float":
+                act_data_type = "fp"
+
         ar_quant_scheme = ARQuantizationScheme(
             bits=weight_args.num_bits,
             sym=weight_args.symmetric,
-            group_size=weight_args.group_size,
-            data_type=weight_args.type,
-            act_bits=16,
+            group_size=group_size,
+            data_type=data_type,
+            act_bits=act_bits,
+            act_group_size=act_group_size,
+            act_sym=act_symmetric,
+            act_dynamic=act_dynamic,
+            act_data_type=act_data_type,
         )
         return ar_quant_scheme
