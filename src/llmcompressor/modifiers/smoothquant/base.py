@@ -1,8 +1,12 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable
 
 import torch
-from compressed_tensors.utils import align_module_device, match_modules_set
+from compressed_tensors.utils import (
+    align_module_device,
+    match_modules_set,
+    match_named_modules,
+)
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
@@ -51,7 +55,7 @@ class SmoothQuantMapping:
 
     smooth_name: str
     smooth_layer: Module
-    balance_layers: List[Module]
+    balance_layers: list[Module]
 
 
 class SmoothQuantModifier(Modifier):
@@ -86,9 +90,10 @@ class SmoothQuantModifier(Modifier):
         achieve the smoothing. If regex is used, it matches layers with the largest
         overlap in module name.  If not supplied the argument will be inferred from the
         model architecture.
-     :param ignore: list of layers to ignore, even if they match a regex in mappings.
-        It should match the name of layers whose outputs are scaled to achieve
-        smoothing (the second entry of the mappings list).
+     :param ignore: list of layers to ignore during smoothing.
+        Mappings are only skipped if all layers in the mapping are ignored.
+        It should match the name of layers whose outputs are scaled to
+        achieve smoothing (the second entry of the mappings list).
      :param num_calibration_steps: number of samples to use for calibration, or None to
      use the whole dataset
     :param calibration_function: optional function to use for the forward pass, or None
@@ -96,15 +101,15 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: Optional[List[Union[Tuple, List]]] = None
-    ignore: Optional[List[str]] = None
-    num_calibration_steps: Optional[int] = None
-    calibration_function: Optional[Callable] = None
+    mappings: list[tuple | list] | None = None
+    ignore: list[str] | None = None
+    num_calibration_steps: int | None = None
+    calibration_function: Callable | None = None
 
-    resolved_mappings_: Optional[List[SmoothQuantMapping]] = Field(
+    resolved_mappings_: list[SmoothQuantMapping] | None = Field(
         default=None, repr=False
     )
-    scales_: Optional[Dict] = Field(default=None, repr=False)
+    scales_: dict | None = Field(default=None, repr=False)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -178,7 +183,7 @@ class SmoothQuantModifier(Modifier):
     def _infer_mappings_from_model(
         self,
         model: Module,
-    ) -> List[Tuple]:
+    ) -> list[tuple]:
         if self.mappings is not None:
             return self.mappings
 
@@ -188,7 +193,7 @@ class SmoothQuantModifier(Modifier):
         )
 
     @handle_mapping_resolution_errors
-    def _resolve_mappings(self, model: Module) -> List[SmoothQuantMapping]:
+    def _resolve_mappings(self, model: Module) -> list[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
@@ -200,9 +205,19 @@ class SmoothQuantModifier(Modifier):
         """
         resolved_mappings = []
         module_to_name = get_module_to_name_dict(model)
+        # Get names of modules that are not ignored
+        ignored_names = set()
+        if self.ignore:
+            ignored_names = set(
+                name for name, _ in match_named_modules(model, self.ignore)
+            )
+
         for mapping in self.mappings:
+            # we deliberately don't use the ignore list when matching mappings
+            # so that we can handle layers that need smoothing but not all operations
+            # we only skip if no layers in mapping would be smoothed.
             for *nested_balance_layers, smooth_layers in match_modules_set(
-                model, tree_leaves(mapping), self.ignore
+                model, tree_leaves(mapping)
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
@@ -213,6 +228,30 @@ class SmoothQuantModifier(Modifier):
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layers[0])
                 balance_layers = tree_leaves(nested_balance_layers)
+                balance_names = [
+                    module_to_name.get(balance_layer)
+                    for balance_layer in balance_layers
+                ]
+
+                # Check if at least one layer would be smoothed (not ignored)
+                any_not_ignored = smooth_name not in ignored_names or any(
+                    bn not in ignored_names for bn in balance_names
+                )
+
+                if not any_not_ignored:
+                    logger.warning(
+                        f"Skipping SmoothQuant for {smooth_name} because all layers "
+                        "in the mapping are in the ignore list"
+                    )
+                    continue
+
+                if len(balance_layers) == 0:
+                    logger.warning(
+                        f"Skipping SmoothQuant for {smooth_name} because no balance "
+                        "layers were found"
+                    )
+                    continue
+
                 resolved_mappings.append(
                     SmoothQuantMapping(smooth_name, smooth_layer, balance_layers)
                 )
@@ -309,8 +348,8 @@ class SmoothQuantModifier(Modifier):
             del self.scales_[mapping.smooth_name]
 
     def _calculate_smoothing_scales(
-        self, balance_layers: List[Module], activation_scales: torch.Tensor
-    ) -> List[float]:
+        self, balance_layers: list[Module], activation_scales: torch.Tensor
+    ) -> torch.Tensor:
         """
         Calculate how much smoothing to apply to each channel based on the dynamic
         range of the activation and the following weights

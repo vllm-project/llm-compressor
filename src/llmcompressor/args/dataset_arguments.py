@@ -247,6 +247,14 @@ class DatasetArguments(CustomDatasetArguments):
             "Default is set to True."
         },
     )
+    dataloader_num_workers: int = field(
+        default=0,
+        metadata={
+            "help": "Number of worker processes for data loading. Set to 0 to disable "
+            "multiprocessing. Note: Custom data collators may not work with "
+            "multiprocessing. Default is 0."
+        },
+    )
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None

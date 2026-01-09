@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from typing import Mapping, TypeVar
 
@@ -68,6 +69,12 @@ def match_names_set_eager(
 ) -> list[MatchedNamesSet] | tuple[list[MatchedNamesSet], MatchedNamesSet]:
     matched_sets = []
     matches = dict.fromkeys(targets, None)
+
+    def natural_key(s: str) -> list[str | int]:
+        return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", s)]
+
+    # natural sort for consistent grouping
+    names = sorted(names, key=natural_key)
 
     for name in names:
         # match until we get a full set

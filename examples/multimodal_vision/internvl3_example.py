@@ -7,9 +7,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Load model.
 model_id = "OpenGVLab/InternVL3-8B-hf"
-model = AutoModelForImageTextToText.from_pretrained(
-    model_id, torch_dtype=torch.bfloat16
-)
+model = AutoModelForImageTextToText.from_pretrained(model_id, dtype=torch.bfloat16)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Load datasets

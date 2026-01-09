@@ -47,8 +47,9 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
     for linear in linears:
         # NOTE: spinquant does this op in float64
         exec_device = get_execution_device(norm)
-        with align_module_device(norm, exec_device), align_module_device(
-            linear, exec_device
+        with (
+            align_module_device(norm, exec_device),
+            align_module_device(linear, exec_device),
         ):
             weight_dtype = linear.weight.dtype
             new_weight = linear.weight.to(PRECISION) * norm.weight.to(PRECISION)

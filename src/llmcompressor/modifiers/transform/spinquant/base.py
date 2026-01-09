@@ -185,9 +185,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     def _get_targets(self, model: torch.nn.Module) -> NamedModules:
-        if not self.initialized_:
-            raise ValueError("Cannot get targets before modifier has been initialized")
-
         return [
             (name, module)
             for scheme in self.transform_config.config_groups.values()
