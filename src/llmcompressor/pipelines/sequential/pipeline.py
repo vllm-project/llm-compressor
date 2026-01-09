@@ -13,13 +13,13 @@ from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
+    handle_sequential_oom,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import (
     DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
-    handle_sequential_oom,
 )
 
 if TYPE_CHECKING:
