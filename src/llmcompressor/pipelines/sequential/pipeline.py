@@ -19,6 +19,7 @@ from llmcompressor.utils.helpers import (
     DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
+    handle_sequential_oom,
 )
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ __all__ = ["SequentialPipeline"]
 @CalibrationPipeline.register("sequential")
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
+    @handle_sequential_oom
     def __call__(
         model: torch.nn.Module,
         dataloader: DataLoader,

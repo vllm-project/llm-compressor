@@ -2,6 +2,7 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
+from functools import wraps
 from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -38,6 +39,7 @@ __all__ = [
     "Subgraph",
     "get_sequential_targets",
     "dispatch_for_sequential",
+    "handle_sequential_oom",
 ]
 
 
@@ -554,3 +556,23 @@ def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:
         return tuple(LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.values())
     except ImportError:
         return tuple()
+
+
+def handle_sequential_oom():
+    """Catch ooms and suggest changing sequential targets"""
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except torch.cuda.OutOfMemoryError as e:
+                raise torch.cuda.OutOfMemoryError(
+                    "Sequential pipeline ran out of memory. "
+                    "Please consider choosing a smaller module "
+                    "for `sequential_targets` argument, ex. 'Linear'"
+                ) from e
+
+        return wrapper
+
+    return decorator
