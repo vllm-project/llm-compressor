@@ -47,7 +47,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 |---------|------------|------------|-----------------|---------------------|---------------|--------------------|--------------|------------|
 |`default`| 8          | 200        | 2048            | 128                 | Auto          | 🚀🚀              | 🟡 Medium    | 🎯🎯 Good |
 |`best`   | 8          | 1000       | 2048            | 512                 | Auto          | 🚀                | 🔴 High      | 🏆 Best    |
-|`light`  | 8          | 50         | 2048            | 128                 | 5e-3          | 🚀🚀🚀           | 🟡 Medium    | 🎯🎯 (slight drop in some of cases) |
+|`light`  | 8          | 50         | 2048            | 128                 | 5e-3          | 🚀🚀🚀           | 🟡 Medium    | 🎯🎯 (slight drop in some cases) |
 |`fast`   | 4          | 200        | 512             | 128                 | Auto          | 🚀🚀🚀           | 🟢 Low       | 🎯         |
 
 > [!TIP]
@@ -77,6 +77,6 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 ### Known Issues
 Currently, `llm-compressor` supports applying AutoRound only on the WNA16 and W8A8-FP8 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
-### Questions or Feature Request?
+### Questions or Feature Requests?
 
 Please open up an issue on [vllm-project/llm-compressor](https://github.com/vllm-project/llm-compressor) or [intel/auto-round](https://github.com/intel/auto-round).
