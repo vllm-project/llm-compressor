@@ -14,128 +14,69 @@ cd llm-compressor
 pip install -e .
 ```
 
-## Quickstart
+## When to Use AutoRound
+ 
+In summary, AutoRound demonstrates leading or on-par performance at 4-bit precision, with clear advantages for sub-4-bit, as reported in **SignRoundV1** ([paper](https://arxiv.org/pdf/2309.05516)), **SignRoundV2** ([paper](http://arxiv.org/abs/2512.04746)) and the **Intel Low-Bit Open LLM Leaderboard** ([link](https://huggingface.co/spaces/Intel/low_bit_open_llm_leaderboard)),
+ 
+**INT4 for Large Models (≈30B and above)**
+AutoRound achieves performance comparable to other PTQ methods, as the accuracy drop for these large models is generally minimal.
+ 
+**INT4 for Small-to-Medium LLMs**
+AutoRound is likely to deliver higher accuracy than existing PTQ methods, making it particularly effective for smaller models. See SignRoundV1 And Low Bit Open LLM Leaderboard for accuracy data.
+ 
+**Sub-4-Bit Quantization (INT2/INT3)**
+As the bit-width decreases, AutoRound shows increasing benefits, achieving 10–20% absolute accuracy improvements over PTQ methods, while matching QAT performance at 1–2 orders of magnitude lower tuning cost. See SignRound V2 for details.
+ 
+**New Data Types (MXFP4 / NVFP4)**
+For emerging floating-point formats, AutoRound consistently outperforms RTN in accuracy, demonstrating strong forward compatibility with evolving quantization standards. See SignRound V2 for details.
 
-The example includes an end-to-end script for applying the AutoRound quantization algorithm.
-
-```bash
-python3 llama3_example.py
-```
-
-The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound` is ready to be loaded into vLLM.
-
-## Code Walkthrough
-
-Now, we will step through the code in the example. There are four steps:
-1) Load model
-2) Prepare calibration data
-3) Apply quantization
-4) Evaluate accuracy in vLLM
-
-### 1) Load Model
-
-Load the model using `AutoModelForCausalLM` for handling quantized saving and loading. 
-
-```python
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-```
-
-### 2) Prepare Calibration Data
-
-When quantizing model weights with AutoRound, you’ll need a small set of sample data to run the algorithm. By default, we are using [NeelNanda/pile-10k](https://huggingface.co/datasets/NeelNanda/pile-10k) as our calibration dataset.
-Recommended starting points:
-- 128 samples — typically sufficient for stable calibration (increase if accuracy degrades).
-- 2048 sequence length — a good baseline for most LLMs.
-- 200 tuning steps — usually enough to converge (increase if accuracy drops).
-
-```python
-# Select calibration dataset.
-from auto_round.calib_dataset import get_dataset
-
-NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 2048
-
-# Get aligned calibration dataset.
-ds = get_dataset(
-    tokenizer=tokenizer,
-    seqlen=MAX_SEQUENCE_LENGTH,
-    nsamples=NUM_CALIBRATION_SAMPLES,
-)
-```
-
-### 3) Apply Quantization
-
-With the dataset ready, we will now apply AutoRound quantization to the model.
-
-```python
-from llmcompressor import oneshot
-from llmcompressor.modifiers.autoround import AutoRoundModifier
-
-# Configure the quantization algorithm to run.
-recipe = AutoRoundModifier(
-    targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=200
-)
-
-# Apply quantization.
-oneshot(
-    model=model,
-    dataset=ds,
-    recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    # disable shuffling to get slightly better mmlu score
-    shuffle_calibration_samples=False,
-)
+### Key Parameters
+- `scheme`: Quantization scheme (e.g., `W4A16`, `W8A16`, more schemes will be supported soon)
+- `iters`: Number of tuning iterations per block. Default: 200
+- `batch_size`: Batch size for calibration. Default: 8
+- `lr`: Learning rate for tuning. If `None`, auto-set to `1.0/iters`. Default: `None`
+- `NUM_CALIBRATION_SAMPLES`: Number of calibration samples. Default: 128
+- `MAX_SEQUENCE_LENGTH`: Sequence length of calibration samples. Default: 2048
 
 
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
-```
+### Quantization Configurations
 
-We have successfully created an `int4` model!
+The accuracy of the quantized model is configured by tuning-related parameters. AutoRound provides four recommended configurations to balance accuracy and quantization speed:
 
-### 4) Evaluate Accuracy
+| Mode    | Batch Size | Iterations | Sequence Length | Calibration Samples | Learning Rate | Quantization Speed | Memory Usage | Accuracy   |
+|---------|------------|------------|-----------------|---------------------|---------------|--------------------|--------------|------------|
+|`default`| 8          | 200        | 2048            | 128                 | Auto          | 🚀🚀              | 🟡 Medium    | 🎯🎯 Good |
+|`best`   | 8          | 1000       | 2048            | 512                 | Auto          | 🚀                | 🔴 High      | 🏆 Best    |
+|`light`  | 8          | 50         | 2048            | 128                 | 5e-3          | 🚀🚀🚀           | 🟡 Medium    | 🎯🎯 (slight drop in some cases) |
+|`fast`   | 4          | 200        | 512             | 128                 | Auto          | 🚀🚀🚀           | 🟢 Low       | 🎯         |
 
-With the model created, we can now load and run in vLLM (after installing).
+> [!TIP]
+> - Use `best` for production models where accuracy is critical
+> - Use `light` for rapid iteration during development (2-3× speedup)
+> - Use `fast` when GPU memory is limited or for quick evaluation
+> - The `default` recipe provides a good balance for most use cases
 
-```python
-from vllm import LLM
-model = LLM("./Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound")
-```
+> [!NOTE]
+> These configurations are based on our experiments and may vary depending on the model architecture.
 
-We can evaluate accuracy with `lm_eval` (`pip install lm-eval==0.4.9.1`):
-> Note: quantized models can be sensitive to the presence of the `bos` token. `lm_eval` does not add a `bos` token by default, so make sure to include the `add_bos_token=True` argument when running your evaluations.
 
-Run the following to test accuracy on GSM-8K:
+### Support Matrix
+| Scheme              | Examples                                                                  | Note                                  |
+| ------------------- | ------------------------------------------------------------------------- | ------------------------------------- |
+| `wNa16`             | [llama3_example](./quantization_w4a16/llama3_example.py)                  |                                       |
+| `wNa16`             | [qwen3_example](./quantization_w4a16/qwen3_example.py)                    | Multiple cards for `Qwen3-235B-A22B`  |
+| `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/llama3_example.py)               |                                       |
+| `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
+| `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
 
-```bash
-lm_eval --model vllm \
-  --model_args pretrained="./Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound",add_bos_token=true \
-  --tasks gsm8k \
-  --num_fewshot 5 \
-  --limit 1000 \
-  --batch_size 'auto'
-```
+> [!NOTE]
+> More quantization schemes (e.g., `NVFP4`, `MXFP4`) are actively being developed. Stay tuned for updates!
 
-We can see the resulting scores look good!
 
-```bash
-| Tasks | Version | Filter           | n-shot | Metric      |     | Value |     | Stderr |
-| ----- | ------: | ---------------- | -----: | ----------- | --- | ----: | --- | -----: |
-| gsm8k |       3 | flexible-extract |      5 | exact_match | ↑   | 0.737 | ±   | 0.0139 |
-|       |         | strict-match     |      5 | exact_match | ↑   | 0.736 | ±   | 0.0139 |
-```
-> Note: quantized model accuracy may vary slightly due to nondeterminism.
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound only on the `wNa16` quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+Currently, `llm-compressor` supports applying AutoRound only on the WNA16 and W8A8-FP8 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
-### Questions or Feature Request?
+### Questions or Feature Requests?
 
 Please open up an issue on [vllm-project/llm-compressor](https://github.com/vllm-project/llm-compressor) or [intel/auto-round](https://github.com/intel/auto-round).
