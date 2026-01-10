@@ -33,9 +33,11 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
+    update_weight_global_scale,
     update_weight_zp_scale,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -158,6 +160,8 @@ class AWQModifier(Modifier, QuantizationMixin):
     _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
+    # List to store error metrics for each layer
+    _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -239,10 +243,21 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
-        for _, module in tqdm(
-            match_named_modules(state.model, self.resolved_targets, self.ignore),
-            desc="Calibrating weights",
-        ):
+        named_modules = list(
+            match_named_modules(state.model, self.resolved_targets, self.ignore)
+        )
+
+        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
+        for _, module in tqdm(named_modules, desc="Updating global scales"):
+            update_weight_global_scale(module)
+
+        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
+        # This is a requirement for vLLM inference.
+        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
+            update_fused_layer_weight_global_scales(module)
+
+        # Calculate scales and zero points using the fused global scales
+        for _, module in tqdm(named_modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
         QuantizationMixin.end_calibration(self, state.model)
@@ -260,9 +275,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
+        self._log_error_metrics()
+
         self._parent_args_cache.clear()
         self._smooth_activation_means.clear()
         self._resolved_mappings.clear()
+        self._error_metrics.clear()
 
         return True
 
@@ -373,11 +391,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
-                self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    # Assume that first argument is the input
-                    args[0].cpu().abs().detach().flatten(0, -2),
+                act_mean, count = _accumulate_mean(
+                    args[0].abs().detach().flatten(0, -2),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
+                self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
 
             return cache_smooth_activations_hook
 
@@ -542,6 +560,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
+        initial_error = None
 
         org_sd = {
             k: v.cpu()
@@ -587,11 +606,13 @@ class AWQModifier(Modifier, QuantizationMixin):
             ],
         ):
             total_iterations = n_grid * len(duo_scalings)
-            for grid_idx, use_duo_scaling in tqdm(
+            pbar = tqdm(
                 product(range(n_grid), duo_scalings),
                 total=total_iterations,
-                desc="Grid search",
-            ):
+                desc=f"Grid search for {mapping.smooth_name}",
+                leave=False,
+            )
+            for grid_idx, use_duo_scaling in pbar:
                 # create new scales
                 ratio = grid_idx / n_grid
 
@@ -618,11 +639,15 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.mul_(_scalesview)
+                    # For TENSOR_GROUP (nvfp4), need to calculate global scale
+                    should_calculate_gparam = (
+                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                    )
                     call_observer(
                         balance_layer,
                         "weight",
                         balance_layer.weight,
-                        # TODO test should_calculate_gparam for nvfp4 support
+                        should_calculate_gparam=should_calculate_gparam,
                     )
                     update_offload_parameter(
                         balance_layer,
@@ -636,11 +661,23 @@ class AWQModifier(Modifier, QuantizationMixin):
                         / _scalesview,
                     )
 
+                # Apply fused global scales for TENSOR_GROUP during grid search
+                # to match inference behavior
+                if balance_layers_to_patch and all(
+                    getattr(layer.quantization_scheme.weights, "strategy", None)
+                    == QuantizationStrategy.TENSOR_GROUP
+                    for layer in balance_layers_to_patch
+                ):
+                    update_fused_layer_weight_global_scales(mapping.parent)
+
                 # W * X
                 int_w_outputs = self._run_samples(mapping.parent)
 
                 # compute mean squared error (L2 norm)
                 loss = self._compute_loss(fp16_outputs, int_w_outputs)
+
+                if initial_error is None:
+                    initial_error = loss
 
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
@@ -649,6 +686,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_error = loss
                     best_ratio = ratio
                     best_scales = scales.clone()
+                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
                 mapping.parent.load_state_dict(org_sd, strict=False)
 
@@ -660,6 +698,25 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "module. If you encounter this error, raise an issue at "
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
+
+        err_reduction = best_error / initial_error if initial_error > 0 else 1.0
+        logger.debug(
+            f"AWQ grid search for {mapping.smooth_name}: "
+            f"initial error = {initial_error:.3e}, "
+            f"best error = {best_error:.3e}, "
+            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
+        )
+
+        # Store error metrics for this layer
+        self._error_metrics.append(
+            {
+                "layer_name": mapping.smooth_name,
+                "parent_name": mapping.parent_name,
+                "initial_error": initial_error,
+                "best_error": best_error,
+                "reduction": err_reduction,
+            }
+        )
 
         assert (
             torch.isnan(best_scales).sum() == 0
@@ -679,7 +736,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Compute the MSE loss for each batch
         for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
             loss += torch.nn.functional.mse_loss(
-                fp16_batch, int_w_batch.to(fp16_batch.device)
+                fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
             ).item()
             num_elements += fp16_batch.numel()
 
@@ -687,6 +744,37 @@ class AWQModifier(Modifier, QuantizationMixin):
         loss /= num_elements
 
         return loss
+
+    def _log_error_metrics(self):
+        """
+        Log the error metrics (initial error, best error, reduction).
+        """
+
+        # Prepare data for saving
+        metrics_data = {
+            "quantization_config": {
+                "duo_scaling": self.duo_scaling,
+                "n_grid": self.n_grid,
+            },
+            "total_layers": len(self._error_metrics),
+            "metrics": self._error_metrics,
+        }
+
+        # Save to disk
+        logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
+
+        # Also print summary statistics
+        reductions = [m["reduction"] for m in self._error_metrics]
+        avg_reduction = sum(reductions) / len(reductions)
+        min_reduction = min(reductions)
+        max_reduction = max(reductions)
+        sorted_reductions = sorted(reductions)
+        median_reduction = sorted_reductions[len(sorted_reductions) // 2]
+        logger.debug(
+            f"Error reduction statistics: "
+            f"avg={avg_reduction:.4f}, median={median_reduction:.4f}, "
+            f"min={min_reduction:.4f}, max={max_reduction:.4f}"
+        )
 
     def _assert_all_activations_consumed(self):
         """
@@ -734,7 +822,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     chunk_size = weight.numel()
                 case QuantizationStrategy.CHANNEL:
                     chunk_size = weight.size(1)
-                case QuantizationStrategy.GROUP:
+                case QuantizationStrategy.GROUP | QuantizationStrategy.TENSOR_GROUP:
                     chunk_size = q_args.group_size
                 case QuantizationStrategy.BLOCK:
                     block_height, block_width = q_args.block_structure
@@ -834,9 +922,10 @@ def _accumulate_mean(
     sum_added = inp.sum(dim=0)
     num_added = inp.size(0)
     if prev_mean_and_count is None:
-        return sum_added, num_added
+        return sum_added / num_added, num_added
 
     prev_mean, prev_count = prev_mean_and_count
+    prev_mean = prev_mean.to(inp.device)
 
     prev_sum = prev_mean * prev_count
     new_count = prev_count + num_added
