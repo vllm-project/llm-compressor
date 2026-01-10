@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
 
 
+TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
+
+
 class Oneshot:
     """
     Class responsible for carrying out one-shot calibration on a pretrained model.
@@ -125,12 +128,12 @@ class Oneshot:
         # multiprocessing for dataset preprocessing. The warning occurs because
         # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
         # See: https://github.com/vllm-project/llm-compressor/issues/2007
-        if "TOKENIZERS_PARALLELISM" not in os.environ:
-            os.environ["TOKENIZERS_PARALLELISM"] = "false"
-            logger.warn("Disabling tokenizer parallelism due to threading conflict between FastTokenizer and Datasets. Please use TOKENIZERS_PARALLELISM=0 to avoid this warning in the future")
+        if TOKENIZERS_PARALLELISM_ENV not in os.environ:
+            os.environ[TOKENIZERS_PARALLELISM_ENV] = "false"
             logger.warning(
                 "Disabling tokenizer parallelism due to threading conflict between "
-                "FastTokenizer and Datasets. Set TOKENIZERS_PARALLELISM=false to "
+                "FastTokenizer and Datasets. Set "
+                f"{TOKENIZERS_PARALLELISM_ENV}=false to "
                 "suppress this warning."
             )
 

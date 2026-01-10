@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-_TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
+from llmcompressor.entrypoints.oneshot import TOKENIZERS_PARALLELISM_ENV as _TOKENIZERS_PARALLELISM_ENV
 
 
 class TestTokenizerParallelism:
