@@ -316,13 +316,6 @@ class LengthAwareSampler(Sampler[int]):
             total_tokens_removed += tokens_removed
             total_tokens_added += tokens_added
 
-            if tokens_removed > 0 or tokens_added > 0:
-                logger.debug(
-                    f"LengthAwareSampler: Batch {i // self.batch_size}: "
-                    f"tokens removed (truncation): {tokens_removed}, "
-                    f"tokens added (padding): {tokens_added}"
-                )
-
         if total_tokens_removed > 0 or total_tokens_added > 0:
             logger.debug(
                 f"LengthAwareSampler: Total token overhead - "
