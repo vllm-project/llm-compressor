@@ -127,6 +127,7 @@ class Oneshot:
         # See: https://github.com/vllm-project/llm-compressor/issues/2007
         if "TOKENIZERS_PARALLELISM" not in os.environ:
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            logger.warn("Disabling tokenizer parallelism due to threading conflict between FastTokenizer and Datasets. Please use TOKENIZERS_PARALLELISM=0 to avoid this warning in the future")
             logger.warning(
                 "Disabling tokenizer parallelism due to threading conflict between "
                 "FastTokenizer and Datasets. Set TOKENIZERS_PARALLELISM=false to "
