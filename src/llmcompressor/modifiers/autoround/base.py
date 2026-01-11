@@ -444,10 +444,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for name, module in model.named_modules():
             # Mapping qparams from AutoRound to LLMC naming
             for ar_param_name, llmc_param_name in qparams_mapping.items():
-                if (
-                    hasattr(module, ar_param_name)
-                    and llmc_param_name in llmc_registered_qparams.get(name, {})
-                ):
+                if hasattr(
+                    module, ar_param_name
+                ) and llmc_param_name in llmc_registered_qparams.get(name, {}):
                     # Get AutoRound param value
                     ar_value = getattr(module, ar_param_name)
                     if ar_value is None:
@@ -468,8 +467,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     # Align shape, dtype and device with LLMC registered qparams
                     llmc_value = llmc_registered_qparams[name][llmc_param_name]
                     ar_value = (
-                        ar_value
-                        .to(llmc_value.dtype)
+                        ar_value.to(llmc_value.dtype)
                         .to(llmc_value.device)
                         .reshape(llmc_value.shape)
                     )
