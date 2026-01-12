@@ -12,7 +12,7 @@ from compressed_tensors.quantization import QuantizationStrategy, is_attention_m
 from compressed_tensors.utils import align_modules, update_parameter_data
 from torch.nn import Linear, Module
 
-__all__ = ["is_attention_module", "update_fused_layer_weight_global_scales"]
+__all__ = ["update_fused_layer_weight_global_scales"]
 
 
 def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
