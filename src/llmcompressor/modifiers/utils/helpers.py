@@ -9,7 +9,7 @@ strategies like NVFP4.
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.quantization.lifecycle.initialize import is_attention_module
+from compressed_tensors.quantization import is_attention_module
 from compressed_tensors.utils import align_modules, update_parameter_data
 from torch.nn import Linear, Module
 
