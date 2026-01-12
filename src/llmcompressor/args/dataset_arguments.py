@@ -83,9 +83,9 @@ class CustomDatasetArguments(DVCDatasetArguments):
         default="truncation",
         metadata={
             "help": (
-                "The function to used to form a batch from the dataset. Can also "
+                "The function to use to form a batch from the dataset. Can also "
                 "specify 'truncation' or 'padding' to truncate or pad non-uniform "
-                "sequence lengths in a batch. Defaults to 'padding'."
+                "sequence lengths in a batch. Defaults to 'truncation'."
             )
         },
     )
@@ -143,7 +143,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
     shuffle_calibration_samples: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "whether to shuffle the dataset before selecting calibration data"
         },
