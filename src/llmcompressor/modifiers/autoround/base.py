@@ -7,7 +7,6 @@ from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import PRESET_SCHEMES as AR_PRESET_SCHEMES
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
-from auto_round.utils import is_mllm_model
 from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.quantization import (
     QuantizationMetadata,
@@ -276,7 +275,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         ar_quant_scheme = self._mapping_config_to_autoround()
         fp_layers = self.get_unquantized_layer_names(decoding_layer)
         kwargs = {
-            "tokenizer": tokenizer,
+            "tokenizer": "",  # A placeholder
             "scheme": ar_quant_scheme,
             "iters": self.iters,
             "lr": self.lr,
@@ -285,11 +284,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "device_map": self.device_ids,
             "fp_layers": ",".join(fp_layers) if fp_layers else "",
         }
-        if is_mllm_model(wrapped_model):
-            processor = AutoProcessor.from_pretrained(
-                wrapped_model.name_or_path, trust_remote_code=True
-            )
-            kwargs["processor"] = processor
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
         with (
