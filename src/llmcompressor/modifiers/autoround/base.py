@@ -327,10 +327,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
 
-            # Update offload parameters and remove temporary attributes
-            decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
-
         decoding_layer.eval()
+        # Update offload parameters and remove temporary attributes
         self._postprocess_qparams(decoding_layer, llmc_registered_qparams)
 
     def post_autoround_cleanup(self):
