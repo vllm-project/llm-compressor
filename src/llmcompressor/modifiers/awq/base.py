@@ -11,7 +11,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.utils import (
     align_modules,
-    disable_hf_hook,
     get_execution_device,
     get_lowest_common_ancestor_name,
     getattr_chain,
@@ -278,16 +277,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         self.remove_hooks()
 
         # If quantization is disabled, remove quantization from targeted modules
-        # TODO move to QuantizationMetadata helper
         if self.disable_quantization:
             for _, module in named_modules:
-                with disable_hf_hook(module):
-                    module.forward = module.forward.__wrapped__.__get__(module)
-
-                    QuantizationMetadata.clear_all_qparams(module)
-
-                    if hasattr(module, "quantization_scheme"):
-                        delattr(module, "quantization_scheme")
+                QuantizationMetadata.clear_quantization(module)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -645,7 +637,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
+            total_iterations = n_grid * len(duo_scalings)
+            pbar = tqdm(
+                product(range(n_grid), duo_scalings),
+                total=total_iterations,
+                desc=f"Grid search for {mapping.smooth_name}",
+                leave=False,
+            )
+            for grid_idx, use_duo_scaling in pbar:
                 # create new scales
                 ratio = grid_idx / n_grid
 
@@ -719,7 +718,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_error = loss
                     best_ratio = ratio
                     best_scales = scales.clone()
-                # pbar.set_postfix({"best_error": f"{best_error:.3e}"})
+                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
                 mapping.parent.load_state_dict(org_sd, strict=False)
 
