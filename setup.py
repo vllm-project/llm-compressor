@@ -130,9 +130,9 @@ setup(
         ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
             # auto-round 0.9.1 cannot work with accelerate <1.10.0
-            "auto-round>=0.9.2,<=0.9.2"
+            "auto-round>=0.9.4,<=0.9.4"
             if BUILD_TYPE == "release"
-            else "auto-round>=0.9.2"
+            else "auto-round>=0.9.4"
         ),
         (
             "accelerate>=1.6.0,<=1.12.0"
