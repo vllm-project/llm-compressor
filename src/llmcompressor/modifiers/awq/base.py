@@ -24,7 +24,7 @@ from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
@@ -391,8 +391,28 @@ class AWQModifier(Modifier, QuantizationMixin):
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
+                activations = args[0].abs().detach()
+
+                # Get loss mask for current batch from state
+                session = active_session()
+                state = session.state
+                loss_masks = state.loss_masks if state else None
+                batch_idx = state.current_batch_idx if state else -1
+                loss_mask = (
+                    loss_masks[batch_idx] if loss_masks and batch_idx >= 0 else None
+                )
+
+                if loss_mask is not None:
+                    # Mask: [batch, seq] -> [batch, seq, 1]
+                    mask = loss_mask.to(activations.device).unsqueeze(-1)
+                    flat_activations = activations.flatten(0, -2)  # [batch*seq, hidden]
+                    flat_mask = mask.flatten(0, -2).squeeze(-1)
+                    masked_activations = flat_activations[flat_mask.bool()]
+                else:
+                    masked_activations = activations.flatten(0, -2)
+
                 act_mean, count = _accumulate_mean(
-                    args[0].abs().detach().flatten(0, -2),
+                    masked_activations,
                     self._smooth_activation_means.get(smooth_name, None),
                 )
                 self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
@@ -417,8 +437,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
+            layer_to_hook = mapping.parent.mlp if hasattr(mapping.parent, 'mlp') else mapping.balance_layers[0]
             self.register_hook(
-                mapping.balance_layers[0],
+                layer_to_hook,
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
                 "forward",
             )
@@ -616,7 +637,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # create new scales
                 ratio = grid_idx / n_grid
 
-                # NOTE: s^-1 * x is fused here, according to paper
+                # NOTE: s^-1 * x is fused here, according to paperzx
                 if use_duo_scaling:
                     scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
                         min=1e-4
@@ -730,18 +751,35 @@ class AWQModifier(Modifier, QuantizationMixin):
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
     ) -> float:
+        session = active_session()
+        loss_masks = session.state.loss_masks if session.state else None
+
         loss = 0.0
         num_elements = 0
 
         # Compute the MSE loss for each batch
-        for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            loss += torch.nn.functional.mse_loss(
-                fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
-            ).item()
-            num_elements += fp16_batch.numel()
+        for batch_idx, (fp16_batch, int_w_batch) in enumerate(
+            zip(fp16_outputs, int_w_outputs)
+        ):
+            loss_mask = loss_masks[batch_idx] if loss_masks else None
+
+            if loss_mask is not None:
+                mask = loss_mask.to(fp16_batch.device)
+                if fp16_batch.dim() == 3:
+                    mask = mask.unsqueeze(-1).expand_as(fp16_batch)
+                diff = (fp16_batch - int_w_batch.to(fp16_batch.device)) ** 2
+                masked_diff = diff * mask
+                loss += masked_diff.sum().item()
+                num_elements += mask.sum().item()
+            else:
+                loss += torch.nn.functional.mse_loss(
+                    fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
+                ).item()
+                num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
-        loss /= num_elements
+        if num_elements > 0:
+            loss /= num_elements
 
         return loss
 
