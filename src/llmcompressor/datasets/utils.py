@@ -235,7 +235,9 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
 
         return RandomSampler(dataset, num_samples=num_samples)
     else:
-        return LengthAwareSampler(dataset, num_samples=num_samples)
+        return LengthAwareSampler(
+            dataset, num_samples=num_samples, batch_size=batch_size
+        )
 
 
 def data_collator_with_truncation(
@@ -269,9 +271,11 @@ class LengthAwareSampler(Sampler[int]):
         self,
         data_source: Dataset,
         num_samples: Optional[int] = None,
+        batch_size: int = 1,
     ) -> None:
         self.data_source = data_source
         self._num_samples = num_samples or len(data_source)
+        self.batch_size = batch_size
 
         if "input_ids" in data_source.column_names:
             feature_name = "input_ids"
@@ -284,6 +288,40 @@ class LengthAwareSampler(Sampler[int]):
 
         lengths = [len(sample) for sample in data_source[feature_name]]
         self.order = torch.argsort(torch.tensor(lengths), descending=True).tolist()
+        self._calculate_and_log_batch_stats(lengths)
+
+    def _calculate_and_log_batch_stats(self, lengths: list[int]):
+        if self.batch_size == 1:
+            return
+
+        logger.debug(
+            "LengthAwareSampler: Calculating batch statistics for "
+            f"{self.num_samples} samples with batch size {self.batch_size}"
+        )
+
+        sorted_lengths = [lengths[i] for i in self.order][: self.num_samples]
+        total_tokens_removed = 0
+        total_tokens_added = 0
+
+        for i in range(0, self.num_samples, self.batch_size):
+            batch_lengths = sorted_lengths[i : i + self.batch_size]
+            if not batch_lengths:
+                continue
+
+            shortest_in_batch = min(batch_lengths)
+            longest_in_batch = max(batch_lengths)
+            tokens_removed = sum(lgth - shortest_in_batch for lgth in batch_lengths)
+            tokens_added = sum(longest_in_batch - lgth for lgth in batch_lengths)
+
+            total_tokens_removed += tokens_removed
+            total_tokens_added += tokens_added
+
+        if total_tokens_removed > 0 or total_tokens_added > 0:
+            logger.debug(
+                f"LengthAwareSampler: Total token overhead - "
+                f"removed (truncation): {total_tokens_removed}, "
+                f"added (padding): {total_tokens_added}"
+            )
 
     @property
     def num_samples(self) -> int:
