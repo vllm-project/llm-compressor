@@ -16,11 +16,17 @@ pip install llmcompressor
 
 The example includes an end-to-end script for applying the quantization algorithm.
 
+**For standard language models:**
 ```bash
 python3 llama3_example.py
 ```
 
-The resulting model `Meta-Llama-3-8B-Instruct-FP8-Dynamic` is ready to be loaded into vLLM.
+**For reranker models (e.g., Qwen3-Reranker):**
+```bash
+python3 qwen3_reranker_example.py
+```
+
+The resulting models are ready to be loaded into vLLM.
 
 ## Code Walkthough
 
