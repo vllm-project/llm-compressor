@@ -1,6 +1,5 @@
 import functools
 from collections import namedtuple
-from typing import Dict, List, Tuple
 
 from loguru import logger
 
@@ -10,10 +9,10 @@ __all__ = [
     "DEFAULT_SMOOTHQUANT_MAPPINGS",
 ]
 
-LayerMapType = Tuple[List[str], str]
+LayerMapType = tuple[list[str], str]
 LayerMap: LayerMapType = namedtuple("LayerMap", ["balance_layers", "smooth_layers"])
 
-DEFAULT_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+DEFAULT_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         smooth_layers="re:.*input_layernorm",
@@ -23,13 +22,13 @@ DEFAULT_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
         smooth_layers="re:.*post_attention_layernorm",
     ),
 ]
-MIXTRAL_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+MIXTRAL_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         smooth_layers="re:.*input_layernorm",
     ),
 ]
-BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+BLOOM_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*query_key_value"],
         smooth_layers="re:.*input_layernorm",
@@ -39,7 +38,7 @@ BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
         smooth_layers="re:.*post_attention_layernorm",
     ),
 ]
-PHI3_VISION_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+PHI3_VISION_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*qkv_proj"],
         smooth_layers="re:.*input_layernorm",
@@ -49,7 +48,7 @@ PHI3_VISION_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
         smooth_layers="re:.*post_attention_layernorm",
     ),
 ]
-WHISPER_V2_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+WHISPER_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*k_proj", "re:.*v_proj", "re:.*q_proj"],
         smooth_layers="re:.*self_attn_layer_norm",
@@ -60,7 +59,7 @@ WHISPER_V2_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
     ),
 ]
 
-DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj", "re:.*kv_a_proj_with_mqa"],
         smooth_layers="re:.*input_layernorm",
@@ -70,20 +69,26 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
 
 # Registry of layer mappings for different architectures
 #   Add more mappings here
-MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
-    "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "MixtralForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
-    "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
-    "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
-    "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
     "DeepseekV2ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "MixtralForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
+    "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
+    "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
 }
 
 
-def get_layer_mappings_from_architecture(architecture: str) -> List[LayerMap]:
+def get_layer_mappings_from_architecture(architecture: str) -> list[LayerMap]:
     """
     :param architecture: str: The architecture of the model
     :return: list: The layer mappings for the given architecture
