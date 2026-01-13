@@ -1,3 +1,4 @@
+pull_request_rules:
 - name: ping author on conflicts and add 'needs-rebase' label
   conditions:
     - label != stale
