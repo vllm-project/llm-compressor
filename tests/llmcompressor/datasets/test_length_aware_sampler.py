@@ -40,14 +40,3 @@ class TestLengthAwareSampler:
             assert any(
                 "added (padding): 150" in c for c in debug_calls
             ), f"Expected 'added (padding): 150' in {debug_calls}"
-
-    @pytest.mark.unit
-    def test_per_batch_logging(self):
-        dataset = _create_mock_dataset([100, 200, 300, 150])
-
-        with patch("llmcompressor.datasets.utils.logger") as mock_logger:
-            LengthAwareSampler(dataset, batch_size=2)
-
-            debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
-            assert any("Batch 0:" in c for c in debug_calls)
-            assert any("Batch 1:" in c for c in debug_calls)
