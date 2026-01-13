@@ -4,7 +4,7 @@ from datasets import load_dataset, concatenate_datasets
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 
 # This script does W4A16 AWQ quantization of the GLM-4.7 model.
@@ -46,7 +46,7 @@ output_path = args.output_path
 # Model (GLM / GLM-MoE)
 # =========================
 MODEL_ID = model_path
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # =========================
@@ -159,9 +159,10 @@ print(f"Combined calibration dataset: {len(ds)} samples")
 # =========================
 
 moe_ignores = [
-    # Layers 0-2: Dense layer - ignore attention and MLP
-    "model.layers.[0-2].self_attn.(q|k|v|o)_proj",
-    "model.layers.[0-2].mlp.(gate|up|down)_proj",
+    # Layers 0-2: Dense layer - ignore entire layers
+    "model.layers.0.*",
+    "model.layers.1.*",
+    "model.layers.2.*",
 
     # Layers 3-91: MoE layers - ignore shared_experts
     "re:.*model.layers.([3-9]|[1-8][0-9]|9[01]).mlp.shared_experts.(gate|up|down)_proj",
@@ -170,24 +171,9 @@ moe_ignores = [
     "lm_head",
 ]
 
-# Create explicit mappings that skip layers 0-2
-mappings = []
-for layer_idx in range(3, 92):  # Skip dense layers 0-2
-    mappings.append(
-        AWQMapping(
-            smooth_layer=f"model.layers.{layer_idx}.input_layernorm",
-            balance_layers=[
-                f"model.layers.{layer_idx}.self_attn.q_proj",
-                f"model.layers.{layer_idx}.self_attn.k_proj",
-                f"model.layers.{layer_idx}.self_attn.v_proj",
-            ]
-        )
-    )
-
 recipe = [
     AWQModifier(
         ignore=moe_ignores,
-        mappings=mappings,  # Provide explicit mappings
         config_groups={
             "group_0": {
                 "targets": ["Linear"],
