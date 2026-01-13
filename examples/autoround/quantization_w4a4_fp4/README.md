@@ -19,7 +19,7 @@ pip install -e .
 The example includes an end-to-end script for applying the AutoRound quantization algorithm.
 
 ```bash
-python3 llama3_example.py
+python3 llama3.1_example.py
 ```
 
 The resulting model `Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound` is ready to be loaded into vLLM.
@@ -52,13 +52,20 @@ lm_eval --model vllm \
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7710|±  |0.0116|
 |     |       |strict-match    |     5|exact_match|↑  |0.7043|±  |0.0126|
 
-#### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (iters=0)
+#### Meta-Llama-3.1-8B-Instruct-NVFP4 (QuantizationModifier)
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7248|±  |0.0123|
+|     |       |strict-match    |     5|exact_match|↑  |0.6611|±  |0.0130|
+
+
+#### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=0)
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7362|±  |0.0121|
 |     |       |strict-match    |     5|exact_match|↑  |0.6702|±  |0.0129|
 
-#### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (iters=200)
+#### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=200)
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7210|±  |0.0124|
