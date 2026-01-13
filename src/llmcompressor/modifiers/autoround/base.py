@@ -22,7 +22,6 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import PrivateAttr
-from transformers import AutoProcessor, AutoTokenizer
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -269,9 +268,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         wrapped_model.config = state.model.config
 
         # Build kwargs for AutoRound initialization
-        tokenizer = AutoTokenizer.from_pretrained(
-            wrapped_model.name_or_path, trust_remote_code=True
-        )
         ar_quant_scheme = self._mapping_config_to_autoround()
         fp_layers = self.get_unquantized_layer_names(decoding_layer)
         kwargs = {
