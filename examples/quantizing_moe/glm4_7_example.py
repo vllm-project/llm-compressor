@@ -21,6 +21,28 @@ from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 # to apply it during quantization.
 
 
+def fix_generation_config(model):
+    """
+    Fix generation config validation issue before saving.
+
+    If temperature is set but do_sample is False, enable do_sample=True
+    to make temperature valid. This prevents validation errors when saving
+    models with generation configs.
+
+    :param model: The model to fix generation_config for
+    """
+    if hasattr(model, 'generation_config') and model.generation_config is not None:
+        # If temperature is set but do_sample is False, either enable do_sample
+        # or remove temperature
+        if (
+            hasattr(model.generation_config, 'temperature')
+            and model.generation_config.temperature is not None
+        ):
+            if not getattr(model.generation_config, 'do_sample', False):
+                # Set do_sample=True to make temperature valid, or remove temperature
+                model.generation_config.do_sample = True
+
+
 # =========================
 # Parse Command-Line Arguments
 # =========================
@@ -205,16 +227,7 @@ oneshot(
 )
 
 # Fix generation config validation issue before saving
-if hasattr(model, 'generation_config') and model.generation_config is not None:
-    # If temperature is set but do_sample is False, either enable do_sample
-    # or remove temperature
-    if (
-        hasattr(model.generation_config, 'temperature')
-        and model.generation_config.temperature is not None
-    ):
-        if not getattr(model.generation_config, 'do_sample', False):
-            # Set do_sample=True to make temperature valid, or remove temperature
-            model.generation_config.do_sample = True
+fix_generation_config(model)
 
 # (Optional redundant save)
 model.save_pretrained(SAVE_DIR, save_compressed=True)
