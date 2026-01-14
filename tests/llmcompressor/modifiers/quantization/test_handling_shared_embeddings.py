@@ -1,5 +1,3 @@
-import os
-
 import pytest
 import torch
 from transformers import AutoModelForCausalLM
@@ -15,10 +13,6 @@ _EXP_MSE = 8e-3
 
 
 @requires_gpu
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping correctness tests requiring gated model access",
-)
 def test_quantization_with_automatic_untie():
     """
     Test that quantization with automatic untie_word_embeddings produces the same
@@ -33,7 +27,7 @@ def test_quantization_with_automatic_untie():
     # Test 1: Apply quantization WITHOUT manually untieing first
     # (relies on automatic untieing in start_calibration)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -71,10 +65,6 @@ def test_quantization_with_automatic_untie():
 
 
 @requires_gpu
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping correctness tests requiring gated model access",
-)
 def test_quantization_untie_only_when_targeted():
     """
     Test that embeddings are only untied when they
@@ -87,7 +77,7 @@ def test_quantization_untie_only_when_targeted():
 
     # Test with targets that don't include embeddings
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -123,10 +113,6 @@ def test_quantization_untie_only_when_targeted():
 
 
 @requires_gpu
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping correctness tests requiring gated model access",
-)
 @pytest.mark.parametrize("rotations", [["R1"], ["R2"], ["R4"]])
 def test_spinquant_with_tied_embeddings(rotations):
     """
@@ -141,7 +127,7 @@ def test_spinquant_with_tied_embeddings(rotations):
 
     # Test with R1 rotation (should untie embeddings)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -177,16 +163,9 @@ def test_spinquant_with_tied_embeddings(rotations):
 
 
 @requires_gpu
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping correctness tests requiring gated model access",
-)
 @pytest.mark.parametrize(
     "rotations",
-    [
-        ["v"],
-        # ["u"], ["v", "u"]
-    ],
+    [["v"], ["u"], ["v", "u"]],
 )
 def test_quip_with_tied_embeddings(rotations):
     """
@@ -204,7 +183,7 @@ def test_quip_with_tied_embeddings(rotations):
 
     # Test with QuIP rotations
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied
@@ -241,10 +220,6 @@ def test_quip_with_tied_embeddings(rotations):
 
 
 @requires_gpu
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping correctness tests requiring gated model access",
-)
 @pytest.mark.parametrize(
     "rotations",
     [
@@ -263,7 +238,7 @@ def test_quip_untie_only_when_targeted(rotations):
 
     # Test with QuIP with default ignore (includes lm_head)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", torch_dtype=torch.bfloat16
+        model_id, device_map="cuda", dtype=torch.bfloat16
     )
 
     # Verify embeddings are initially tied

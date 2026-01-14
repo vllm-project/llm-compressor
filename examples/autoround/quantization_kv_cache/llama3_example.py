@@ -2,12 +2,11 @@ from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
@@ -21,13 +20,25 @@ ds = get_dataset(
     nsamples=NUM_CALIBRATION_SAMPLES,
 )
 
-
 # Configure the quantization algorithm to run.
+#   * quantize the kv cache to fp8
 #   * quantize the weights to 4 bit with AutoRound with a group size 128
-recipe = AutoRoundModifier(
-    targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=200
-)
-
+recipe = """
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      kv_cache_scheme:
+        num_bits: 8
+        type: float
+        strategy: tensor
+        dynamic: false
+        symmetric: true
+    AutoRoundModifier:
+      targets: [Linear]
+      scheme: W4A16
+      ignore: [lm_head]
+      iters: 200
+"""
 
 # Apply algorithms.
 oneshot(

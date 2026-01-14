@@ -8,7 +8,7 @@ from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"
-model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+model = LlavaForConditionalGeneration.from_pretrained(model_id, dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
