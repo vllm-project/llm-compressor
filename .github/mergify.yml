@@ -4,7 +4,7 @@ pull_request_rules:
   schedule:
     - cron: 0 0 * * *   # runs daily at midnight UTC
   conditions:
-    - updated-since > 60 days
+    - updated-at>=60 days ago
     - label != stale
   actions:
     label:
