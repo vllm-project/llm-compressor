@@ -43,9 +43,13 @@ def process_file(
 
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
+
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
+        is_targeted = (is_linear_weight and "Linear" in scheme.targets) or any(
+            _match_name(module_name, target) for target in scheme.targets
+        )
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        if not is_linear_weight or is_ignored:
+        if is_ignored or not is_targeted:
             continue
 
         # 1. initialize module with qparams (on device)
@@ -104,8 +108,11 @@ def process_file_microscale_scheme(
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
+        is_targeted = (is_linear_weight and "Linear" in scheme.targets) or any(
+            _match_name(module_name, target) for target in scheme.targets
+        )
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        if not is_linear_weight or is_ignored:
+        if is_ignored or not is_targeted:
             continue
 
         # 1. initialize module with qparams (on device)
