@@ -2,9 +2,9 @@ pull_request_rules:
 
 - name: mark pull requests as stale after 60 days of inactivity
   schedule:
-    - cron: 0 0 * * *   # runs daily at midnight UTC
+    cron: 0 0 * * *   # runs daily at midnight UTC
   conditions:
-    - updated-at<=14 days ago
+    - updated-at<=60 days ago
     - label != stale
   actions:
     label:
