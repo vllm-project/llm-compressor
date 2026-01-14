@@ -1,5 +1,4 @@
-pull_request_rules:
-
+schedule:
 - name: mark pull requests as stale after 60 days of inactivity
   cron: 0 0 * * *
   conditions:
@@ -14,6 +13,7 @@ pull_request_rules:
         This pull request has not been updated in over 60 days and is being marked as stale.
         Please update or comment to keep it active. Please close or resolve the PR, @{{author}}.
 
+pull_request_rules:
 - name: label-documentation
   description: Automatically apply documentation label
   conditions:
