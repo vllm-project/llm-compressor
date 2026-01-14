@@ -11,7 +11,7 @@ schedule:
     comment:
       message: |
         This pull request has not been updated in over 60 days and is being marked as stale.
-        Please update or comment to keep it active. Please close or resolve the PR, @{{author}}.
+        Please update or comment to keep it active, @{{author}}.
 
 pull_request_rules:
 - name: label-documentation
