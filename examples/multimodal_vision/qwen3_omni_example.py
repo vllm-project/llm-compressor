@@ -1,7 +1,6 @@
 import requests
 import soundfile as sf
 from PIL import Image
-from qwen3_omni_patch import fast_pos_embed_interpolate
 from transformers import (
     AutoProcessor,
     Qwen3OmniMoeForConditionalGeneration,
@@ -9,6 +8,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.patch.qwen3_omni_patch import fast_pos_embed_interpolate
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -22,7 +22,7 @@ model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
-# Apply patch
+# Apply patch to fix accelerate offloading, can be removed after #2148
 model.thinker.visual.fast_pos_embed_interpolate = fast_pos_embed_interpolate.__get__(
     model.thinker.visual
 )
