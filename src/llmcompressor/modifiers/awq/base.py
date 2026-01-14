@@ -41,7 +41,6 @@ from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scale
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_module_to_name_dict,
@@ -509,14 +508,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                                 module.bias.div_(scales),
                             )
 
-                parent = get_fsdp_parent(mapping.smooth_name, model)
-                if parent is not None:
-                    parent.apply(_smooth)
-                else:
-                    # if we're not running with FSDP we can apply smoothing directly
-                    for layer in balance_layers:
-                        _smooth(layer)
-                    _smooth(smooth_layer)
+                for layer in balance_layers:
+                    _smooth(layer)
+                _smooth(smooth_layer)
 
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_means[mapping.smooth_name]
