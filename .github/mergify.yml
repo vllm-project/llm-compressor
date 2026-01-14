@@ -51,3 +51,18 @@ pull_request_rules:
     label:
       remove:
         - needs-rebase
+
+- name: add quality-failed label
+  conditions:
+    - label != stale
+    - status-success('quality-check') = false
+  actions:
+    label:
+      add:
+        - quality-failed
+    comment:
+      body: |
+        The quality checks have failed. Please run `make style` and `make quality` under
+        the root directory to adddress the lint failures. You will need to install the
+        dev optional install to get the required linting packages:
+        https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md
