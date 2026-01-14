@@ -71,7 +71,7 @@ pip install llmcompressor
 
 ## Get Started
 
-### End-to-End Examples
+### End-to-End Quant Examples
 
 Applying quantization with `llmcompressor`:
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
