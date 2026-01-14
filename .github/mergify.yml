@@ -13,7 +13,7 @@ pull_request_rules:
         - documentation
     comment:
       message: "Documentation update"
-      
+
 - name: ping author on conflicts and add 'needs-rebase' label
   conditions:
     - label != stale
@@ -25,10 +25,10 @@ pull_request_rules:
         - needs-rebase
     comment:
       message: |
-       This pull request has merge conflicts that must be resolved before it can be
-       merged. Please rebase the PR, @{{author}}.
+        This pull request has merge conflicts that must be resolved before it can be
+        merged. Please rebase the PR, @{{author}}.
 
-       https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+        https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
 
 - name: remove 'needs-rebase' label when conflict is resolved
   conditions:
