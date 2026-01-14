@@ -69,3 +69,13 @@ pull_request_rules:
         the root directory to adddress the lint failures. You will need to install the
         dev optional install to get the required linting packages:
         https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md
+
+- name: remove quality-failed label
+  conditions:
+    - label != stale
+    - -check-failure = quality-check
+    - -closed
+  actions:
+    label:
+      remove:
+        - quality-failed
