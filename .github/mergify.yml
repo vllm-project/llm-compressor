@@ -57,7 +57,7 @@ pull_request_rules:
 - name: add quality-failed label
   conditions:
     - label != stale
-    - status-success("quality-check") = false
+    - check-failure = quality-check
     - -closed
   actions:
     label:
