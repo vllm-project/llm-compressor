@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from typing import Callable
 
 import torch
-from compressed_tensors.utils import align_module_device, match_modules_set
+from compressed_tensors.utils import (
+    align_module_device,
+    match_modules_set,
+    match_named_modules,
+)
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
@@ -14,7 +18,6 @@ from llmcompressor.modifiers.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
-from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
@@ -86,9 +89,10 @@ class SmoothQuantModifier(Modifier):
         achieve the smoothing. If regex is used, it matches layers with the largest
         overlap in module name.  If not supplied the argument will be inferred from the
         model architecture.
-     :param ignore: list of layers to ignore, even if they match a regex in mappings.
-        It should match the name of layers whose outputs are scaled to achieve
-        smoothing (the second entry of the mappings list).
+     :param ignore: list of layers to ignore during smoothing.
+        Mappings are only skipped if all layers in the mapping are ignored.
+        It should match the name of layers whose outputs are scaled to
+        achieve smoothing (the second entry of the mappings list).
      :param num_calibration_steps: number of samples to use for calibration, or None to
      use the whole dataset
     :param calibration_function: optional function to use for the forward pass, or None
@@ -200,9 +204,19 @@ class SmoothQuantModifier(Modifier):
         """
         resolved_mappings = []
         module_to_name = get_module_to_name_dict(model)
+        # Get names of modules that are not ignored
+        ignored_names = set()
+        if self.ignore:
+            ignored_names = set(
+                name for name, _ in match_named_modules(model, self.ignore)
+            )
+
         for mapping in self.mappings:
+            # we deliberately don't use the ignore list when matching mappings
+            # so that we can handle layers that need smoothing but not all operations
+            # we only skip if no layers in mapping would be smoothed.
             for *nested_balance_layers, smooth_layers in match_modules_set(
-                model, tree_leaves(mapping), self.ignore
+                model, tree_leaves(mapping)
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
@@ -213,6 +227,30 @@ class SmoothQuantModifier(Modifier):
                 smooth_layer = smooth_layers[0]
                 smooth_name = module_to_name.get(smooth_layers[0])
                 balance_layers = tree_leaves(nested_balance_layers)
+                balance_names = [
+                    module_to_name.get(balance_layer)
+                    for balance_layer in balance_layers
+                ]
+
+                # Check if at least one layer would be smoothed (not ignored)
+                any_not_ignored = smooth_name not in ignored_names or any(
+                    bn not in ignored_names for bn in balance_names
+                )
+
+                if not any_not_ignored:
+                    logger.warning(
+                        f"Skipping SmoothQuant for {smooth_name} because all layers "
+                        "in the mapping are in the ignore list"
+                    )
+                    continue
+
+                if len(balance_layers) == 0:
+                    logger.warning(
+                        f"Skipping SmoothQuant for {smooth_name} because no balance "
+                        "layers were found"
+                    )
+                    continue
+
                 resolved_mappings.append(
                     SmoothQuantMapping(smooth_name, smooth_layer, balance_layers)
                 )
@@ -296,14 +334,9 @@ class SmoothQuantModifier(Modifier):
                         if hasattr(module, "bias") and module.bias is not None:
                             module.bias.div_(scales)
 
-            parent = get_fsdp_parent(mapping.smooth_name, model)
-            if parent is not None:
-                parent.apply(smooth)
-            else:
-                # if we're not running with FSDP we can apply smoothing directly
-                for layer in balance_layers:
-                    smooth(layer)
-                smooth(smooth_layer)
+            for layer in balance_layers:
+                smooth(layer)
+            smooth(smooth_layer)
 
             # clear calibration data
             del self.scales_[mapping.smooth_name]

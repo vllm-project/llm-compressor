@@ -158,6 +158,65 @@ def test_validate():
 
 
 @pytest.mark.unit
+def test_ignore_behavior():
+    """Test that mapping is skipped when NO layers are targeted for quantization"""
+    # Test case 1: Some balance layers ignored but at least one is targeted
+    # Mapping should proceed
+    awq = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+            ),
+        ],
+        ignore=["re:.*q_proj", "re:.*k_proj"],  # Only 2 of 3 balance layers ignored
+        scheme="W4A16_ASYM",
+    )
+
+    self_attn = torch.nn.ModuleDict(
+        {
+            "q_proj": Linear(4, 4),
+            "k_proj": Linear(4, 4),
+            "v_proj": Linear(4, 4),
+        }
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": self_attn,
+                    "input_layernorm": torch.nn.LayerNorm(4),
+                }
+            )
+        }
+    )
+
+    awq._set_resolved_mappings(model)
+
+    # Mapping should exist because v_proj is targeted for quantization
+    assert len(awq._resolved_mappings) == 1
+
+    # Test case 2: All Linear layers ignored - mapping should be skipped
+    # because no layers are targeted for quantization
+    awq2 = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+            ),
+        ],
+        ignore=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+        scheme="W4A16_ASYM",
+    )
+
+    awq2._set_resolved_mappings(model)
+
+    # Mapping should be skipped because no layers are targeted for quantization
+    # (input_layernorm is LayerNorm, not Linear, so not targeted anyway)
+    assert len(awq2._resolved_mappings) == 0
+
+
+@pytest.mark.unit
 def test_moe_multiple_balance_layers():
     """Test AWQ mapping with multiple balance layers in MoE architecture"""
     awq = AWQModifier(
@@ -243,14 +302,15 @@ def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tens
 @torch.no_grad
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "n_balance_layers, group_size, n_input_features",
+    "n_balance_layers, n_input_features, strategy, group_size",
     [
-        (5, -1, 32),  # channel
-        (4, 10, 40),  # group
-        (4, torch.inf, 40),  # tensor
+        (5, 32, QuantizationStrategy.CHANNEL, None),  # channel
+        (4, 40, QuantizationStrategy.GROUP, 10),  # group
+        (4, 40, QuantizationStrategy.TENSOR, None),  # tensor
+        (3, 64, QuantizationStrategy.TENSOR_GROUP, 16),  # tensor_group
     ],
 )
-def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
+def test_compute_layer_means(n_balance_layers, n_input_features, strategy, group_size):
     """
     Confirm our logic to compute duo_scaling layer means via a running tally
     matches the original memory-intensive AutoAWQ implementation, which concats
@@ -260,17 +320,6 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
     balance_layers = [
         torch.nn.Linear(n_input_features, 10) for _ in range(n_balance_layers)
     ]
-    group_size_arg = None
-    match group_size:
-        case -1:
-            strategy = QuantizationStrategy.CHANNEL
-            group_size = balance_layers[0].weight.shape[1]
-        case torch.inf:
-            strategy = QuantizationStrategy.TENSOR
-            group_size = n_input_features * 10
-        case _:
-            strategy = QuantizationStrategy.GROUP
-            group_size_arg = group_size
 
     for balance_layer in balance_layers:
         setattr(
@@ -280,12 +329,20 @@ def test_compute_layer_means(n_balance_layers, group_size, n_input_features):
                 targets=["Linear"],
                 weights=QuantizationArgs(
                     strategy=strategy,
-                    group_size=group_size_arg,
+                    group_size=group_size,
                 ),
             ),
         )
 
-    auto_awq_means = _auto_awq_normalize(balance_layers, group_size).mean(0)
+    match strategy:
+        case QuantizationStrategy.GROUP | QuantizationStrategy.TENSOR_GROUP:
+            group_size_arg = group_size
+        case QuantizationStrategy.TENSOR:
+            group_size_arg = n_input_features * 10
+        case _:
+            group_size_arg = None
+
+    auto_awq_means = _auto_awq_normalize(balance_layers, group_size_arg).mean(0)
 
     llmc_awq_means = AWQModifier._compute_layer_means(balance_layers).to(
         auto_awq_means.dtype
@@ -346,6 +403,12 @@ def test_compute_layer_means_does_not_modify_weights():
             8,
         ),
         (
+            4,
+            3,
+            2,
+            1,
+        ),
+        (
             10,
             10,
             10,
@@ -356,12 +419,6 @@ def test_compute_layer_means_does_not_modify_weights():
             256,
             128,
             128,
-        ),
-        (
-            4,
-            3,
-            2,
-            1,
         ),
     ],
 )
@@ -405,7 +462,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 
     # auto awq
     # we first reshape the weight such that it is effectively per-channel quantization
-    # so that we can use the existing _auto_awq_normalize function
+    # so that we can compare to the existing _auto_awq_normalize function
     orig_shape = lin.weight.shape
     q_args = lin.quantization_scheme.weights
     block_height, block_width = q_args.block_structure

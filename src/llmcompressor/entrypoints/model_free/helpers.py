@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from typing import Mapping, TypeVar
 
@@ -32,8 +33,13 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device("xpu:0")
 
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        return torch.device("npu:0")
+
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning(
+            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
+        )
         return torch.device("cpu")
 
 
@@ -68,6 +74,12 @@ def match_names_set_eager(
 ) -> list[MatchedNamesSet] | tuple[list[MatchedNamesSet], MatchedNamesSet]:
     matched_sets = []
     matches = dict.fromkeys(targets, None)
+
+    def natural_key(s: str) -> list[str | int]:
+        return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", s)]
+
+    # natural sort for consistent grouping
+    names = sorted(names, key=natural_key)
 
     for name in names:
         # match until we get a full set
