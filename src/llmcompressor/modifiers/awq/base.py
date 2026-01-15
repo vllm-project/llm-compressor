@@ -437,9 +437,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
-            layer_to_hook = mapping.parent.mlp if hasattr(mapping.parent, 'mlp') else mapping.balance_layers[0]
             self.register_hook(
-                layer_to_hook,
+                mapping.balance_layers[0],
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
                 "forward",
             )
