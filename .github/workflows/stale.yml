@@ -1,0 +1,35 @@
+name: 'Close inactive issues and PRs'
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+
+jobs:
+  close-issues-and-pull-requests:
+    # Prevents triggering on forks or other repos
+    if: github.repository == 'vllm-project/llm-compressor'
+    permissions:
+      issues: write
+      pull-requests: write
+      actions: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@997185467fa4f803885201cee163a9f38240193d # v10.1.1
+        with:
+          # Increasing this value ensures that changes to this workflow
+          # propagate to all issues and PRs in days rather than months
+          operations-per-run: 1000
+          exempt-draft-pr: true
+
+          days-before-pr-stale: 60
+          days-before-pr-close: 30
+          stale-pr-label: 'stale'
+          stale-pr-message: >
+            This pull request has been automatically marked as stale because it
+            has not had any activity within 90 days. It will be automatically
+            closed if no further activity occurs within 30 days. Leave a comment
+            if you feel this pull request should remain open. Thank you!
+          close-pr-message: >
+            This pull request has been automatically closed due to inactivity.
+            Please feel free to reopen if you intend to continue working on it.
+            Thank you!
