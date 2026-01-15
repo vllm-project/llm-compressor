@@ -1,0 +1,8 @@
+quant_stage:
+  quant_modifiers:
+    AWQModifier:
+      ignore: ["lm_head"]
+      scheme: "NVFP4A16"
+      duo_scaling: "both"
+      targets: ["Linear"]
+      
