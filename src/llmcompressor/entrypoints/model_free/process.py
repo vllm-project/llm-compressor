@@ -45,16 +45,16 @@ def process_file(
         module_name, param_name = name.rsplit(".", 1)
 
         # rename params from modelopt to CT convention
-        # Found by inspection
-        # model.layers.0.mlp.down_proj.weight
-        # model.layers.0.mlp.gate_proj.weight
-        # model.layers.0.mlp.up_proj.weight
-        # model.layers.3.mlp.shared_experts.down_proj.weight
-        # model.layers.3.mlp.shared_experts.gate_proj.weight
-        # model.layers.3.mlp.shared_experts.up_proj.weight
-        # model.layers.3.mlp.experts.0.down_proj.weight
-        # model.layers.3.mlp.experts.0.gate_proj.weight
-        # model.layers.3.mlp.experts.0.up_proj.weight
+        # modelopt's nvfp4-quantized layers, found by inspection
+        # - model.layers.0.mlp.down_proj.weight
+        # - model.layers.0.mlp.gate_proj.weight
+        # - model.layers.0.mlp.up_proj.weight
+        # - model.layers.3.mlp.shared_experts.down_proj.weight
+        # - model.layers.3.mlp.shared_experts.gate_proj.weight
+        # - model.layers.3.mlp.shared_experts.up_proj.weight
+        # - model.layers.3.mlp.experts.0.down_proj.weight
+        # - model.layers.3.mlp.experts.0.gate_proj.weight
+        # - model.layers.3.mlp.experts.0.up_proj.weight
         if _match_name(module_name, "re:.*mlp.*\.(gate|up|down)_proj$"):
             match param_name:
                 # input_scale -> input_global_scale F32
