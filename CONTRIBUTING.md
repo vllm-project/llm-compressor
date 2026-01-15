@@ -30,7 +30,10 @@ make style
 make quality
 ```
 
-### Testing
+### Run base testss
+
+Prior to putting up your change for review, you can run base tests locally using the following command.
+Once your PR is posted for review, a full suite of tests will be enabled.
 
 ```bash
 make test
