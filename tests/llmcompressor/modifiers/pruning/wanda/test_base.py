@@ -17,6 +17,6 @@ def test_wanda_is_registered():
         targets=targets,
     )
 
-    assert isinstance(
-        type_, WandaPruningModifier
-    ), "PyTorch WandaPruningModifier not registered"
+    assert isinstance(type_, WandaPruningModifier), (
+        "PyTorch WandaPruningModifier not registered"
+    )
