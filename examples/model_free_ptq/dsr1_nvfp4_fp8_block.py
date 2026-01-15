@@ -10,42 +10,44 @@ from compressed_tensors.quantization import (
 MODEL_ID = "nvidia/DeepSeek-R1-NVFP4"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
 
+
 # Apply FP8-Block to the model's compatible self_attn Linear layers
 # Once quantized, the model is saved to SAVE_DIR.
-model_free_ptq(
-    model_stub=MODEL_ID,
-    save_directory=SAVE_DIR,
-    scheme=QuantizationScheme(
-        weights=QuantizationArgs(
-            num_bits=8,
-            type=QuantizationType.FLOAT,
-            strategy=QuantizationStrategy.BLOCK,
-            symmetric=True,
-            dynamic=False,
-            block_structure=[128, 128],
+def run_model_free_ptq():
+    model_free_ptq(
+        model_stub=MODEL_ID,
+        save_directory=SAVE_DIR,
+        scheme=QuantizationScheme(
+            weights=QuantizationArgs(
+                num_bits=8,
+                type=QuantizationType.FLOAT,
+                strategy=QuantizationStrategy.BLOCK,
+                symmetric=True,
+                dynamic=False,
+                block_structure=[128, 128],
+            ),
+            input_activations=QuantizationArgs(
+                num_bits=8,
+                type=QuantizationType.FLOAT,
+                strategy=QuantizationStrategy.GROUP,
+                symmetric=True,
+                dynamic=True,
+                observer=None,
+                group_size=128,
+            ),
+            targets=[
+                # NOTE: self_attn.kv_a_proj_with_mqa has shape 576x7168, incompatible with block size 128x128
+                # NOTE: self_attn.kv_b_proj is already dequantized by MLA
+                # Target the remaining self_attn layers:
+                #   - self_attn.o_proj
+                #   - self_attn.q_a_proj
+                #   - self_attn.q_b_proj
+                "re:.*self_attn.(o_proj|q_a_proj|q_b_proj).*"
+            ],
         ),
-        input_activations=QuantizationArgs(
-            num_bits=8,
-            type=QuantizationType.FLOAT,
-            strategy=QuantizationStrategy.GROUP,
-            symmetric=True,
-            dynamic=True,
-            observer=None,
-            group_size=128,
-        ),
-        targets=[
-            # NOTE: self_attn.kv_a_proj_with_mqa has shape 576x7168, incompatible with block size 128x128
-            # NOTE: self_attn.kv_b_proj is already dequantized by MLA
-            # Target the remaining self_attn layers:
-            #   - self_attn.o_proj
-            #   - self_attn.q_a_proj
-            #   - self_attn.q_b_proj
-            "re:.*self_attn.(o_proj|q_a_proj|q_b_proj).*"
-        ],
-    ),
-    max_workers=8,
-    device="cuda:0",
-)
+        max_workers=8,
+        device="cuda:0",
+    )
 
 
 def merge_configs():
@@ -81,4 +83,6 @@ def merge_configs():
         os.remove(hf_quant_config_path)
 
 
-merge_configs()
+if __name__ == "__main__":
+    run_model_free_ptq()
+    merge_configs()
