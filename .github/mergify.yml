@@ -1,8 +1,25 @@
+schedule:
+- name: mark pull requests as stale after 60 days of inactivity
+  cron: 0 0 * * *
+  conditions:
+    - updated-at<=60 days ago
+    - label != stale
+    - -closed
+  actions:
+    label:
+      add: 
+        - stale
+    comment:
+      message: |
+        This pull request has not been updated in over 60 days and is being marked as stale.
+        Please update or comment to keep it active, @{{author}}.
+
 pull_request_rules:
 - name: label-documentation
   description: Automatically apply documentation label
   conditions:
     - label != stale
+    - -closed
     - or:
       - files~=^[^/]+\.md$
       - files~=^docs/
@@ -11,8 +28,6 @@ pull_request_rules:
     label:
       add:
         - documentation
-    comment:
-      message: "Documentation update"
 
 - name: ping author on conflicts and add 'needs-rebase' label
   conditions:
@@ -38,3 +53,29 @@ pull_request_rules:
     label:
       remove:
         - needs-rebase
+
+- name: add quality-failed label
+  conditions:
+    - label != stale
+    - check-failure = quality-check
+    - -closed
+  actions:
+    label:
+      add:
+        - quality-failed
+    comment:
+      message: |
+        The quality checks have failed. Please run `make style` and `make quality` under
+        the root directory to adddress the lint failures. You will need to install the
+        dev optional install to get the required linting packages:
+        https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md
+
+- name: remove quality-failed label
+  conditions:
+    - label != stale
+    - -check-failure = quality-check
+    - -closed
+  actions:
+    label:
+      remove:
+        - quality-failed
