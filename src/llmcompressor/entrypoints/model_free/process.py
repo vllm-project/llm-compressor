@@ -44,6 +44,39 @@ def process_file(
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
 
+        # rename params from modelopt to CT convention
+        # Found by inspection
+        # model.layers.0.mlp.down_proj.weight
+        # model.layers.0.mlp.gate_proj.weight
+        # model.layers.0.mlp.up_proj.weight
+        # model.layers.3.mlp.shared_experts.down_proj.weight
+        # model.layers.3.mlp.shared_experts.gate_proj.weight
+        # model.layers.3.mlp.shared_experts.up_proj.weight
+        # model.layers.3.mlp.experts.0.down_proj.weight
+        # model.layers.3.mlp.experts.0.gate_proj.weight
+        # model.layers.3.mlp.experts.0.up_proj.weight
+        if _match_name(module_name, "re:.*mlp.*\.(gate|up|down)_proj$"):
+            match param_name:
+                # input_scale -> input_global_scale F32
+                case "input_scale":
+                    tensors[f"{module_name}.input_global_scale"] = tensors[name]
+                    del tensors[name]
+                # weight -> weight_packed U8
+                case "weight":
+                    # TODO reverse packing order(?)
+                    tensors[f"{module_name}.weight_packed"] = tensors[name]
+                    del tensors[name]
+                # weight_scale -> weight_scale F8_E4M3
+                case "weight_scale":
+                    pass
+                # weight_scale_2 -> weight_global_scale F32
+                case "weight_scale_2":
+                    # TODO reverse modelopt tensor scale x -> 1/x(?)
+                    tensors[f"{module_name}.weight_global_scale"] = tensors[name]
+                    del tensors[name]
+                case _:
+                    print(f"Hit unexpected tensor {name}")
+
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
         is_targeted = (is_linear_weight and "Linear" in scheme.targets) or any(
             _match_name(module_name, target) for target in scheme.targets
