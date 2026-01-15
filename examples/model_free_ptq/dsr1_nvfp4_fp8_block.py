@@ -33,20 +33,16 @@ model_free_ptq(
             observer=None,
             group_size=128,
         ),
-        # TODO cannot set targets here, must be ["Linear"]
-        # targets=[
-        #     "re:.*self_attn.(o_proj|q_a_proj|q_b_proj).*"
-        # ],
+        targets=[
+            # NOTE: self_attn.kv_a_proj_with_mqa has incompatible shape 576x7168 with block size 128x128
+            # NOTE: self_attn.kv_b_proj is already dequantized by MLA
+            # Target the remaining self_attn layers:
+            #   - self_attn.o_proj
+            #   - self_attn.q_a_proj
+            #   - self_attn.q_b_proj
+            "re:.*self_attn.(o_proj|q_a_proj|q_b_proj).*"
+        ],
     ),
-    ignore=[
-        # NOTE: self_attn.kv_a_proj_with_mqa has incompatible shape 576x7168 with block size 128x128
-        # NOTE: self_attn.kv_b_proj is already dequantized by MLA
-        # This regex matches all strings that don't contain one of the following substrings:
-        #   - self_attn.o_proj
-        #   - self_attn.q_a_proj
-        #   - self_attn.q_b_proj
-        "re:^(?!.*self_attn.(o_proj|q_a_proj|q_b_proj)).*$"
-    ],
     max_workers=8,
     device="cuda:0",
 )
