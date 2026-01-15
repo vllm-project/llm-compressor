@@ -438,7 +438,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
 
-            # The line below is useful for models that use parallel transformer block, such as gemma 3, command A. 
+            # The line below is useful for models that use parallel transformer block, such as gemma 3, command A.
             # Need a better way to integrate it to the code
             # layer_to_hook = mapping.parent.mlp if hasattr(mapping.parent, 'mlp') else mapping.balance_layers[0]
             self.register_hook(
@@ -640,7 +640,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # create new scales
                 ratio = grid_idx / n_grid
 
-                # NOTE: s^-1 * x is fused here, according to paperzx
+                # NOTE: s^-1 * x is fused here, according to paper
                 if use_duo_scaling:
                     scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
                         min=1e-4

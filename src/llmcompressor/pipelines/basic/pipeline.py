@@ -56,7 +56,9 @@ class BasicPipeline(CalibrationPipeline):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-            for batch_idx, batch in enumerate(tqdm.tqdm(dataloader, desc="Calibrating")):
+            for batch_idx, batch in enumerate(
+                tqdm.tqdm(dataloader, desc="Calibrating")
+            ):
                 batch = apply_pad_mask_to_batch(batch)
 
                 # Collect loss mask from this batch before moving to device
