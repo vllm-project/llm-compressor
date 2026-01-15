@@ -59,7 +59,6 @@ class BasicPipeline(CalibrationPipeline):
             for batch_idx, batch in enumerate(
                 tqdm.tqdm(dataloader, desc="Calibrating")
             ):
-                batch = apply_pad_mask_to_batch(batch)
 
                 # Collect loss mask from this batch before moving to device
                 if use_loss_mask:
