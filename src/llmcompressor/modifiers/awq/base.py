@@ -438,9 +438,13 @@ class AWQModifier(Modifier, QuantizationMixin):
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
 
-            # The line below is useful for models that use parallel transformer block, such as gemma 3, command A.
-            # Need a better way to integrate it to the code
-            # layer_to_hook = mapping.parent.mlp if hasattr(mapping.parent, 'mlp') else mapping.balance_layers[0]
+            # The line below is useful for models that use parallel transformer block,
+            # such as gemma 3, command A. Need a better way to integrate it to the code.
+            # layer_to_hook = (
+            #     mapping.parent.mlp
+            #     if hasattr(mapping.parent, 'mlp')
+            #     else mapping.balance_layers[0]
+            # )
             self.register_hook(
                 mapping.balance_layers[0],
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
