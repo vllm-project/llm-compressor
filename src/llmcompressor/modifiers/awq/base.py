@@ -4,6 +4,7 @@ from typing import Iterator, Literal
 
 import torch
 from compressed_tensors.quantization import (
+    QuantizationMetadata,
     QuantizationStrategy,
     disable_quantization,
     forward_quantize,
@@ -137,6 +138,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
         Defaults to 20
+    :param disable_quantization: option to disable quantization during AWQ. In this
+        case, weights are scaled to minimize quantization loss for a given quantization
+        config, but not subsequently quantized. This is to allow for flows involving
+        multiple modifiers, for example to run both AWQ and GPTQ. The value of doing so
+        is an open area of research, and not generally recommended for most users.
+        Defaults to False
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -148,6 +155,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     offload_device: torch.device | None = None
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
+    disable_quantization: bool = False
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -209,6 +217,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
+
         # AWQ performs forward passes during _apply_smoothing
         # before any scales or zero points are updated
         # Quantization must be disabled, otherwise NaNs will
@@ -246,23 +255,30 @@ class AWQModifier(Modifier, QuantizationMixin):
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
 
-        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
-        for _, module in tqdm(named_modules, desc="Updating global scales"):
-            update_weight_global_scale(module)
+        # If quantization is enabled, set qparams on targeted modules
+        if not self.disable_quantization:
+            # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
+            for _, module in tqdm(named_modules, desc="Updating global scales"):
+                update_weight_global_scale(module)
 
-        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # This is a requirement for vLLM inference.
-        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
-            update_fused_layer_weight_global_scales(module)
+            # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
+            # This is a requirement for vLLM inference.
+            for module in tqdm(state.model.modules(), desc="Fusing global scales"):
+                update_fused_layer_weight_global_scales(module)
 
-        # Calculate scales and zero points using the fused global scales
-        for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
+            # Calculate scales and zero points using the fused global scales
+            for _, module in tqdm(named_modules, desc="Calibrating weights"):
+                update_weight_zp_scale(module)
 
-        QuantizationMixin.end_calibration(self, state.model)
+        self.end_calibration(state.model)
 
         # remove activation hooks
         self.remove_hooks()
+
+        # If quantization is disabled, remove quantization from targeted modules
+        if self.disable_quantization:
+            for _, module in named_modules:
+                QuantizationMetadata.clear_quantization(module)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -304,6 +320,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 model, self.resolved_targets, self.ignore
             )
         )
+        num_incompatible = 0
         for mapping in self.mappings:
             # we deliberately don't use the ignore list when matching mappings,
             # so that we can handle layers that need smoothing but not quantization
@@ -337,17 +354,25 @@ class AWQModifier(Modifier, QuantizationMixin):
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                skip_message: str | None = None
+                # Incompatibility occurs frequently depending on model size
                 if not all_compatible:
-                    skip_message = " because found incompatible balance layers"
-                elif not any_targeted:
-                    skip_message = " because no layers are targeted for quantization"
-                elif len(balance_layers) == 0:
-                    skip_message = " because no balance layers were found"
+                    num_incompatible += 1
+                    logger.debug(
+                        f"Skipping {smooth_name} for mapping {mapping} because "
+                        + "incompatible balance layers were found."
+                    )
+                    continue
 
-                if skip_message:
+                # Warn that mappings or quantization config are malformed for model
+                if (not any_targeted) or len(balance_layers) == 0:
+                    skip_message = (
+                        "no balance layers were found."
+                        if len(balance_layers) == 0
+                        else "no layers are targeted for quantization."
+                    )
+
                     logger.warning(
-                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                        f"Skipping {smooth_name} for mapping {mapping} because "
                         + skip_message
                     )
 
@@ -367,6 +392,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                         parent_name=ancestor_name,
                     )
                 )
+
+        if num_incompatible > 0:
+            logger.warning(
+                f"{num_incompatible} mappings were skipped due to incompatible shapes. "
+                + "Set logging to DEBUG to view full list."
+            )
+
         self._resolved_mappings = resolved_mappings
         return
 
