@@ -20,9 +20,9 @@ def test_logarithmic_equalization_is_registered():
         mappings=mappings,
     )
 
-    assert isinstance(
-        modifier, LogarithmicEqualizationModifier
-    ), "PyTorch LogarithmicEqualizationModifier not registered"
+    assert isinstance(modifier, LogarithmicEqualizationModifier), (
+        "PyTorch LogarithmicEqualizationModifier not registered"
+    )
     assert isinstance(modifier, SmoothQuantModifier)
     assert modifier.smoothing_strength == smoothing_strength
     assert modifier.mappings == mappings

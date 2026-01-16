@@ -120,9 +120,9 @@ class LinearExperts(nn.Module):
         This is compatible with the GPT-OSS MoE call pattern:
             experts(hidden_states, router_indices, routing_weights)
         """
-        assert (
-            routing_weights is not None and router_indices is not None
-        ), "router inputs required"
+        assert routing_weights is not None and router_indices is not None, (
+            "router inputs required"
+        )
 
         # Normalize shapes to [tokens, H], [tokens, top_k], [tokens, E]
         if hidden_states.dim() == 3:
