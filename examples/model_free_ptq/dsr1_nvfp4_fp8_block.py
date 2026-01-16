@@ -1,9 +1,10 @@
-from llmcompressor import model_free_ptq
-from compressed_tensors.quantization.quant_scheme import NVFP4
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
 )
+from compressed_tensors.quantization.quant_scheme import NVFP4
+
+from llmcompressor import model_free_ptq
 
 MODEL_ID = "nvidia/DeepSeek-R1-NVFP4"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
@@ -18,8 +19,10 @@ def run_model_free_ptq():
         scheme=QuantizationScheme(
             **NVFP4,
             targets=[
-                # NOTE: self_attn.kv_a_proj_with_mqa has shape 576x7168, incompatible with block size 128x128
-                # NOTE: self_attn.kv_b_proj is already dequantized by MLA
+                # NOTE: skipping self_attn.kv_a_proj_with_mqa
+                #  shape 576x7168 is incompatible with block size 128x128
+                # NOTE: skipping self_attn.kv_b_proj
+                #  already dequantized by MLA
                 # Target the remaining self_attn layers:
                 #   - self_attn.o_proj
                 #   - self_attn.q_a_proj
