@@ -59,7 +59,11 @@ def process_file(
             match param_name:
                 # input_scale -> input_global_scale F32
                 case "input_scale":
-                    tensors[f"{module_name}.input_global_scale"] = tensors[name]
+                    # convert modelopt input_scale x -> 1/x
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1070-L1073
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1134
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/compressed_tensors/schemes/compressed_tensors_w4a4_nvfp4.py#L190
+                    tensors[f"{module_name}.input_global_scale"] = 1 / tensors[name]
                     del tensors[name]
                 # weight -> weight_packed U8
                 case "weight":
@@ -71,8 +75,10 @@ def process_file(
                     pass
                 # weight_scale_2 -> weight_global_scale F32
                 case "weight_scale_2":
-                    # TODO reverse modelopt tensor scale x -> 1/x(?)
-                    tensors[f"{module_name}.weight_global_scale"] = tensors[name]
+                    # convert modelopt weight_scale_2 x -> 1/x
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1066-L1068
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/compressed_tensors/schemes/compressed_tensors_w4a4_nvfp4.py#L163-L166
+                    tensors[f"{module_name}.weight_global_scale"] = 1 / tensors[name]
                     del tensors[name]
                 case _:
                     print(f"Hit unexpected tensor {name}")
