@@ -1,10 +1,8 @@
 from llmcompressor import model_free_ptq
+from compressed_tensors.quantization.quant_scheme import NVFP4
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
-    QuantizationArgs,
-    QuantizationStrategy,
-    QuantizationType,
 )
 
 MODEL_ID = "nvidia/DeepSeek-R1-NVFP4"
@@ -18,23 +16,7 @@ def run_model_free_ptq():
         model_stub=MODEL_ID,
         save_directory=SAVE_DIR,
         scheme=QuantizationScheme(
-            weights=QuantizationArgs(
-                num_bits=8,
-                type=QuantizationType.FLOAT,
-                strategy=QuantizationStrategy.BLOCK,
-                symmetric=True,
-                dynamic=False,
-                block_structure=[128, 128],
-            ),
-            input_activations=QuantizationArgs(
-                num_bits=8,
-                type=QuantizationType.FLOAT,
-                strategy=QuantizationStrategy.GROUP,
-                symmetric=True,
-                dynamic=True,
-                observer=None,
-                group_size=128,
-            ),
+            **NVFP4,
             targets=[
                 # NOTE: self_attn.kv_a_proj_with_mqa has shape 576x7168, incompatible with block size 128x128
                 # NOTE: self_attn.kv_b_proj is already dequantized by MLA
@@ -58,8 +40,6 @@ def merge_configs():
     import json
     import os
 
-    from compressed_tensors.quantization.quant_scheme import NVFP4
-
     with open(os.path.join(SAVE_DIR, "config.json")) as f:
         config = json.load(f)
 
@@ -68,7 +48,7 @@ def merge_configs():
     num_groups = len(quant_config.config_groups)
 
     quant_config.config_groups[f"config_group_{num_groups}"] = QuantizationScheme(
-        targets=["re:.*mlp.*\.(gate|up|down)_proj$"], **NVFP4
+        **NVFP4, targets=["re:.*mlp.*\.(gate|up|down)_proj$"]
     )
     quant_config.format = "mixed-precision"
 
