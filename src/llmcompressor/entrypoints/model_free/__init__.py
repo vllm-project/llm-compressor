@@ -37,7 +37,7 @@ def model_free_ptq(
     model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
-    ignore: Optional[list[str]] = None,
+    ignore: list[str] = ["lm_head"],
     max_workers: int = 1,
     device: Optional[torch.device | str] = None,
 ):
@@ -55,7 +55,6 @@ def model_free_ptq(
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
     scheme_name, scheme = validate_scheme(scheme)
-    ignore = ignore or []
     device = gpu_if_available(device)
     validate_safetensors_index(model_files, scheme)
 
