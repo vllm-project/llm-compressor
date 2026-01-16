@@ -17,6 +17,8 @@ jobs:
         with:
           operations-per-run: 1000
           exempt-draft-pr: true
+          exempt-issue-labels: 'keep-open'
+          exempt-pr-labels: 'keep-open'
 
           days-before-issue-stale: 90
           days-before-issue-close: 30
