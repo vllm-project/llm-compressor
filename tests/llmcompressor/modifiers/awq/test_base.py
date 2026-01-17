@@ -279,6 +279,82 @@ def test_moe_multiple_balance_layers():
     assert parent_name == "" and parent == model
 
 
+@pytest.mark.unit
+def test_qwen3_next_moe_with_shared_expert():
+    """Test AWQ mapping for Qwen3Next architecture with shared_expert.
+
+    Qwen3Next includes a shared_expert in addition to the MoE experts.
+    This test verifies that the mapping correctly resolves both experts
+    and shared_expert projections.
+    """
+    awq = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*post_attention_layernorm",
+                [
+                    "re:.*mlp.experts.*.gate_proj",
+                    "re:.*mlp.experts.*.up_proj",
+                    "re:.*mlp.shared_expert.gate_proj",
+                    "re:.*mlp.shared_expert.up_proj",
+                ],
+            ),
+        ],
+        scheme="W4A16_ASYM",
+    )
+
+    # Create a Qwen3Next-like MoE model structure with shared_expert
+    mlp = torch.nn.ModuleDict(
+        {
+            "experts": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "gate_proj": Linear(4, 4),
+                            "up_proj": Linear(4, 4),
+                            "down_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            ),
+            "shared_expert": torch.nn.ModuleDict(
+                {
+                    "gate_proj": Linear(4, 4),
+                    "up_proj": Linear(4, 4),
+                    "down_proj": Linear(4, 4),
+                }
+            ),
+        }
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "layer": torch.nn.ModuleDict(
+                {
+                    "post_attention_layernorm": torch.nn.LayerNorm(4),
+                    "mlp": mlp,
+                }
+            )
+        }
+    )
+
+    awq._set_resolved_mappings(model)
+
+    # Should have one mapping for post_attention_layernorm
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
+
+    # Should map to all gate_proj and up_proj across experts AND shared_expert
+    expected_balance_names = {
+        "layer.mlp.experts.0.gate_proj",
+        "layer.mlp.experts.0.up_proj",
+        "layer.mlp.experts.1.gate_proj",
+        "layer.mlp.experts.1.up_proj",
+        "layer.mlp.shared_expert.gate_proj",
+        "layer.mlp.shared_expert.up_proj",
+    }
+    assert set(mapping.balance_names) == expected_balance_names
+
+
 def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tensor:
     """
     Original AutoAwq implementation (need to call .mean(0) to get normalized layer
