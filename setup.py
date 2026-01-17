@@ -123,9 +123,9 @@ setup(
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.7.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.7.0"),
         (
-            "transformers>=4.56.1,<=4.57.3"
+            "transformers>=4.56.1,<=4.57.5"
             if BUILD_TYPE == "release"
-            else "transformers>=4.56.1,<=4.57.3"
+            else "transformers>=4.56.1,<=4.57.5"
         ),
         ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
