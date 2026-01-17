@@ -101,6 +101,7 @@ class TestCase(NamedTuple):
         "compressed_inference/fp8_compressed_inference.py",
         "quantization_kv_cache/llama3_fp8_kv_example.py",
         "quantization_w4a16/llama3_example.py",
+        "quantization_w4a8_fp8/llama3_example.py",
         "quantization_w8a8_fp8/gemma2_example.py",
         "quantization_w8a8_fp8/fp8_block_example.py",
         "quantization_w8a8_fp8/llama3_example.py",
