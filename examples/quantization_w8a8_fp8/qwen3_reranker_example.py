@@ -10,9 +10,8 @@ model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     torch_dtype="auto",
     device_map="auto",
-    trust_remote_code=True
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
