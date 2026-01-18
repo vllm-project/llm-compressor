@@ -76,7 +76,7 @@ jobs:
           coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   pytorch-tests:
-    runs-on: ibm-wdc-k8s-vllm-h100-solo
+    runs-on: gcp-k8s-vllm-l4-solo
     env:
       COVERAGE_FILE: ".coverage.pytorch"
       HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
