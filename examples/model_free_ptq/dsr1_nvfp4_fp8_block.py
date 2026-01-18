@@ -2,7 +2,7 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
 )
-from compressed_tensors.quantization.quant_scheme import NVFP4
+from compressed_tensors.quantization.quant_scheme import NVFP4, FP8_BLOCK
 
 from llmcompressor import model_free_ptq
 
@@ -17,7 +17,7 @@ def run_model_free_ptq():
         model_stub=MODEL_ID,
         save_directory=SAVE_DIR,
         scheme=QuantizationScheme(
-            **NVFP4,
+            **FP8_BLOCK,
             targets=[
                 # NOTE: skipping self_attn.kv_a_proj_with_mqa
                 #  shape 576x7168 is incompatible with block size 128x128
