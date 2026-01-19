@@ -1,5 +1,4 @@
 from abc import abstractmethod
-from typing import Optional
 
 from pydantic import ConfigDict
 
@@ -34,11 +33,11 @@ class Modifier(ModifierInterface, HooksMixin):
 
     model_config = ConfigDict(extra="forbid")
 
-    index: Optional[int] = None
-    group: Optional[str] = None
-    start: Optional[float] = None
-    end: Optional[float] = None
-    update: Optional[float] = None
+    index: int | None = None
+    group: str | None = None
+    start: float | None = None
+    end: float | None = None
+    update: float | None = None
 
     initialized_: bool = False
     finalized_: bool = False
