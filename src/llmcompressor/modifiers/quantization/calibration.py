@@ -64,8 +64,16 @@ def initialize_observer(
     # training is no longer supported: always use memoryless for weights
     if base_name == "weight" and args.observer in ("static_minmax", "minmax"):
         observer = "memoryless_minmax"
+        logger.warning(
+            "Overriding weight observer for lower memory usage "
+            f"({args.observer} -> {observer})"
+        )
     if base_name == "weight" and args.observer in ("mse",):
         observer = "memoryless_mse"
+        logger.warning(
+            "Overriding weight observer for lower memory usage "
+            f"({args.observer} -> {observer})"
+        )
 
     if args is not None and args.dynamic is not True:
         observer = Observer.load_from_registry(
