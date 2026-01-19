@@ -75,5 +75,7 @@ print("==========================================\n\n")
 # Save to disk compressed.
 # Use quantization_format="pack-quantized" for vLLM compatibility
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4AFP8"
-model.save_pretrained(SAVE_DIR, save_compressed=True, quantization_format="pack-quantized")
+model.save_pretrained(
+    SAVE_DIR, save_compressed=True, quantization_format="pack-quantized"
+)
 tokenizer.save_pretrained(SAVE_DIR)
