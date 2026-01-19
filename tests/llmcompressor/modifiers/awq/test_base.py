@@ -290,12 +290,12 @@ def test_qwen3_next_moe_with_shared_expert():
     awq = AWQModifier(
         mappings=[
             AWQMapping(
-                "re:.*post_attention_layernorm",
+                "re:.*post_attention_layernorm$",
                 [
-                    "re:.*mlp.experts.*.gate_proj",
-                    "re:.*mlp.experts.*.up_proj",
-                    "re:.*mlp.shared_expert.gate_proj",
-                    "re:.*mlp.shared_expert.up_proj",
+                    "re:.*mlp.experts.*.gate_proj$",
+                    "re:.*mlp.experts.*.up_proj$",
+                    "re:.*mlp.shared_expert.gate_proj$",
+                    "re:.*mlp.shared_expert.up_proj$",
                 ],
             ),
         ],
