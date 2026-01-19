@@ -1,21 +1,29 @@
+from typing import TYPE_CHECKING
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from llmcompressor.modeling.moe_context import MoECalibrationModule
 
+if TYPE_CHECKING:
+    from transformers import MiniMaxM2Config
+    from transformers.models.minimax_m2.modeling_minimax_m2 import (
+        MiniMaxM2SparseMoeBlock,
+    )
+
+
 @MoECalibrationModule.register("MiniMaxM2SparseMoeBlock")
 class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
     """
-    Calibration module for MiniMaxM2SparseMoeBlock that supports calibrating all experts.
+    Calibration module for MiniMaxM2SparseMoeBlock that supports calibrating all experts
     """
 
     is_permanent = False
 
     def __init__(
         self,
-        original: "MiniMaxM2SparseMoeBlock",
-        config: "MiniMaxM2Config",
+        original: MiniMaxM2SparseMoeBlock,
+        config: MiniMaxM2Config,
         calibrate_all_experts: bool = True,
     ):
         super().__init__()
@@ -30,13 +38,17 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
 
         # MiniMax specific parameters
         self.jitter_noise = original.jitter_noise
-        self.register_buffer("e_score_correction_bias", original.e_score_correction_bias)
+        self.register_buffer(
+            "e_score_correction_bias", original.e_score_correction_bias
+        )
         self.route_tokens_to_experts = original.route_tokens_to_experts
 
     def forward(self, hidden_states: torch.Tensor):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         if self.training and self.jitter_noise > 0:
-            hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
+            hidden_states *= torch.empty_like(hidden_states).uniform_(
+                1.0 - self.jitter_noise, 1.0 + self.jitter_noise
+            )
         hidden_states = hidden_states.view(-1, hidden_dim)
         router_logits = self.gate(hidden_states)
         top_k_index, top_k_weights = self.route_tokens_to_experts(router_logits)
