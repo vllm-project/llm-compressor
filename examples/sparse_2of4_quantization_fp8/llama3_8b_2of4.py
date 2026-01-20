@@ -77,7 +77,7 @@ def get_recipe(fp8_enabled):
 args = parse_args()
 
 # Load model and tokenizer
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Load and preprocess dataset

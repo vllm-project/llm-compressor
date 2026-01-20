@@ -28,15 +28,18 @@ quality:
 	ruff format --check $(CHECKDIRS);
 
 # style the code according to accepted standards for the repo
+# Note: We run `ruff format` twice. Once to fix long lines before lint check
+# and again to fix any formatting issues introduced by ruff check --fix
 style:
 	@echo "Running python styling";
+	ruff format $(CHECKDIRS); 
 	ruff check --fix $(CHECKDIRS);
-	ruff format $(CHECKDIRS);
+	ruff format --silent $(CHECKDIRS); 
 
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	pytest tests $(PYTEST_ARGS)
+	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval
 
 # creates wheel file
 .PHONY: build

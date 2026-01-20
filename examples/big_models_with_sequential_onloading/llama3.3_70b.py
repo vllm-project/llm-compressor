@@ -10,7 +10,7 @@ from llmcompressor.utils import dispatch_for_generation
 model_id = "meta-llama/Llama-3.3-70B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    torch_dtype="auto",
+    dtype="auto",
     device_map=None,
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)

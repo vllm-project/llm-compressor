@@ -37,7 +37,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         the kv_cache_scheme gets converted into a QuantizationScheme that:
             - targets the `q_proj` and `k_proj` modules of the model. The outputs
               of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aformentioned layers, so that
+            - quantizes the outputs of the aforementioned layers, so that
               keys and values are compressed before storing them in the cache
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
@@ -71,16 +71,23 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
 
         named_modules = list(
-            match_named_modules(state.model, self.targets, self.ignore)
+            match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
         # TODO: this step can be combined with update_weight_zp_scale
         # once update_fused_layer_weight_global_scales is removed
         # and not required by vLLM
-        for _, module in tqdm.tqdm(named_modules):
+        for _, module in tqdm.tqdm(named_modules, desc="Updating global scales"):
             update_weight_global_scale(module)
 
-        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
+        # NOTE: update_fused_layer_weight_global_scales operates on Attention
+        # and MLP layers, not quantizable Linear layers. Rather than running
+        # on targeted modules, we need to run on all modules.
+        # Because this call is idempotent, setting all global_scales to the
+        # min value, it is ok to run potentially multiple times for all modules
+        for module in tqdm.tqdm(state.model.modules(), desc="Fusing global scales"):
             update_fused_layer_weight_global_scales(module)
+
+        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
     def on_event(self, state: State, event: Event, **kwargs):

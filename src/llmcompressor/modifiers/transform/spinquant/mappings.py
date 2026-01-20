@@ -14,6 +14,7 @@ class SpinQuantMapping(BaseModel):
     layers (https://arxiv.org/pdf/2405.16406 Fig. 1).
 
     :param embedding: name or regex of embedding layer
+    :param attn: name or regex of attention block in decoder layer
     :param attn_q: name or regex of q_proj layer in attention block
     :param attn_k: name or regex of k_proj layer in attention block
     :param attn_v: name or regex of v_proj layer in attention block
@@ -24,11 +25,12 @@ class SpinQuantMapping(BaseModel):
     :param mlp_in: list of names or regexes for the mlp blocks that
         receive the input to the MLP block, usually up_proj and gate_proj
     :param mlp_out: list of names or regexes for the mlp blocks that
-        consitute the output of the MLP block, usually down_proj
+        constitute the output of the MLP block, usually down_proj
     """
 
     embedding: str
 
+    attn: str
     attn_q: str
     attn_k: str
     attn_v: str
@@ -50,6 +52,7 @@ class SpinQuantMapping(BaseModel):
 
 _default_mappings = SpinQuantMapping(
     embedding="re:.*embed_tokens$",
+    attn="re:.*self_attn$",
     attn_q="re:.*q_proj$",
     attn_k="re:.*k_proj$",
     attn_v="re:.*v_proj$",

@@ -2,6 +2,7 @@ import os
 import random
 import shutil
 from pathlib import Path
+from typing import Optional, Union
 
 import numpy
 import pandas as pd
@@ -12,9 +13,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from llmcompressor.core import active_session
-from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
+from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import cached_lm_eval_run, requires_gpu
 
 
 class LmEvalConfig(BaseModel):
@@ -23,12 +24,21 @@ class LmEvalConfig(BaseModel):
     task: str = "gsm8k"
     num_fewshot: int = 5
     limit: int = 1000
-    metrics: dict
     batch_size: int = 100
+    apply_chat_template: bool = False
+    # Recovery testing (default): compare against base model performance
+    # Default threshold is 0.95 (retain ≥95% of base), can be overridden
+    recovery_threshold: Union[float, dict] = 0.95
+    # Optional absolute metrics for warnings (not failures)
+    metrics: Optional[dict] = None
 
 
 try:
     import lm_eval
+    import lm_eval.api.registry
+
+    # needed to populate model registry
+    import lm_eval.models  # noqa
 
     lm_eval_installed = True
 except ImportError:
@@ -39,7 +49,7 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
-# Will run each test case in its own process through run_tests.sh
+# Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
 @requires_gpu(1)
 @pytest.mark.parametrize(
@@ -62,6 +72,16 @@ class TestLMEval:
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
     be used for quantization. Otherwise, the recipe will always be used if given.
+
+    Recovery Testing (DEFAULT):
+    Tests now use recovery-based validation by default, comparing compressed model
+    performance against the base model. Default threshold is 0.95 (≥95% recovery).
+
+    Config options:
+    - recovery_threshold: 0.95 (default if not specified)
+    - recovery_threshold: 0.93 (override default globally)
+    - recovery_threshold: {"metric1": 0.95, "metric2": 0.90} (per-metric)
+    - metrics: {...} (optional - used for warnings only, not failures)
     """  # noqa: E501
 
     def set_up(self, test_data_file: str):
@@ -80,15 +100,20 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+        self.seed = eval_config.get("seed", None)
 
-        seed = eval_config.get("seed", None)
-        if seed is not None:
-            random.seed(seed)
-            numpy.random.seed(seed)
-            torch.manual_seed(seed)
+        if self.seed is not None:
+            random.seed(self.seed)
+            numpy.random.seed(self.seed)
+            torch.manual_seed(self.seed)
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
+        logger.info(
+            f"Recovery threshold: {self.lmeval.recovery_threshold} (default: 0.95)"
+        )
+        if self.lmeval.metrics:
+            logger.info("Absolute metrics provided - will show warnings if outside ±5%")
 
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
@@ -96,6 +121,10 @@ class TestLMEval:
     def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model
         self.set_up(test_data_file)
+
+        # Always evaluate base model for recovery testing
+        logger.info("================= Evaluating BASE model ======================")
+        base_results = self._eval_base_model()
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -119,10 +148,48 @@ class TestLMEval:
         # Reset session for next test case
         self._handle_recipe()
 
-        logger.info("================= Running LM Eval ======================")
-        self._run_lm_eval()
+        logger.info("================= Running LM Eval on COMPRESSED model ==========")
+        compressed_results = self._eval_compressed_model()
+
+        # Always use recovery testing
+        self._validate_recovery(base_results, compressed_results)
+
+        # If absolute metrics provided, show warnings (not failures)
+        if self.lmeval.metrics:
+            self._check_absolute_warnings(compressed_results)
 
         self.tear_down()
+
+    @log_time
+    @cached_lm_eval_run
+    def _eval_base_model(self) -> dict:
+        """Evaluate the base (uncompressed) model with caching."""
+        return self._eval_model(self.model)
+
+    @log_time
+    def _eval_compressed_model(self) -> dict:
+        """Evaluate the compressed model."""
+        return self._eval_model(self.save_dir)
+
+    def _eval_model(self, model: str) -> dict:
+        # NOTE: pass in PreTrainedModel to avoid lm_eval's model-loading logic
+        # https://github.com/EleutherAI/lm-evaluation-harness/pull/3393
+        lm_eval_cls = lm_eval.api.registry.get_model(self.lmeval.model)
+
+        results = lm_eval.simple_evaluate(
+            model=lm_eval_cls(
+                pretrained=load_model(model, self.model_class, device_map="cuda:0"),
+                batch_size=self.lmeval.batch_size,
+                **self.lmeval.model_args,
+            ),
+            tasks=[self.lmeval.task],
+            num_fewshot=self.lmeval.num_fewshot,
+            limit=self.lmeval.limit,
+            apply_chat_template=self.lmeval.apply_chat_template,
+            batch_size=self.lmeval.batch_size,
+        )
+
+        return results
 
     @log_time
     def _save_compressed_model(self, oneshot_model, processor):
@@ -138,60 +205,141 @@ class TestLMEval:
             fp.write(recipe_yaml_str)
         session.reset()
 
-    @log_time
-    def _run_lm_eval(self):
-        model_args = {"pretrained": self.save_dir}
-        model_args.update(self.lmeval.model_args)
-        results = lm_eval.simple_evaluate(
-            model=self.lmeval.model,
-            model_args=model_args,
-            tasks=[self.lmeval.task],
-            num_fewshot=self.lmeval.num_fewshot,
-            limit=self.lmeval.limit,
-            device="cuda:0",
-            batch_size=self.lmeval.batch_size,
+    def _validate_recovery(self, base_results, compressed_results):
+        """Validate using recovery testing - compare against base model."""
+        base_metrics = base_results["results"][self.lmeval.task]
+        compressed_metrics = compressed_results["results"][self.lmeval.task]
+        higher_is_better_map = compressed_results.get("higher_is_better", {}).get(
+            self.lmeval.task, {}
         )
+
+        logger.info("=" * 80)
+        logger.info("RECOVERY TESTING COMPARISON")
+        logger.info("=" * 80)
+
+        # Get default threshold from config schema
+        default_threshold = self.lmeval.model_fields["recovery_threshold"].default
+
+        failures = []
+        # Iterate over compressed metrics (what we actually got)
+        for metric_key, compressed_val in compressed_metrics.items():
+            # Skip stderr and other metadata
+            if "stderr" in metric_key or metric_key.startswith("alias"):
+                continue
+
+            base_val = base_metrics.get(metric_key)
+            if base_val is None:
+                logger.warning(
+                    f"Metric {metric_key} in compressed results "
+                    f"not found in base results, skipping"
+                )
+                continue
+
+            # Get threshold for this metric
+            if isinstance(self.lmeval.recovery_threshold, dict):
+                threshold = self.lmeval.recovery_threshold.get(
+                    metric_key, default_threshold
+                )
+            else:
+                threshold = self.lmeval.recovery_threshold
+
+            # Get direction
+            base_metric_name = metric_key.split(",")[0]
+            higher_is_better = higher_is_better_map.get(base_metric_name, True)
+
+            # Compute recovery
+            if base_val == 0:
+                recovery = 1.0 if compressed_val == 0 else 0.0
+            elif higher_is_better:
+                recovery = compressed_val / base_val
+            else:
+                # For "lower is better", invert ratio
+                recovery = base_val / compressed_val
+
+            # Check threshold - rounds to the nearest percent - 0.94567 -> 0.95
+            recovery = (torch.round(torch.tensor(recovery) * 100) / 100).item()
+            passed = recovery >= threshold
+            direction = "↑" if higher_is_better else "↓"
+
+            msg = (
+                f"{metric_key:40} | Base: {base_val:.4f} | "
+                f"Compressed: {compressed_val:.4f} | "
+                f"Recovery: {recovery:6.2%} {direction} | Threshold: ≥{threshold:.2%}"
+            )
+
+            if passed:
+                logger.info(f"✓ {msg}")
+            else:
+                logger.error(f"✗ {msg}")
+                failures.append(
+                    f"{metric_key}: {recovery:.2%} < {threshold:.2%} "
+                    f"(base={base_val:.4f}, compressed={compressed_val:.4f})"
+                )
+
+        # Validate that config thresholds match actual results
+        if isinstance(self.lmeval.recovery_threshold, dict):
+            for config_metric_key in self.lmeval.recovery_threshold.keys():
+                if config_metric_key not in compressed_metrics:
+                    logger.warning(
+                        f"Metric {config_metric_key} in recovery_threshold config "
+                        f"not found in results"
+                    )
+
+        logger.info("=" * 80)
+
+        if failures:
+            failure_msg = "\n".join(failures)
+            raise AssertionError(f"Recovery testing failed:\n{failure_msg}")
+
+        logger.info("✓ ALL METRICS PASSED RECOVERY THRESHOLDS")
+        logger.info("=" * 80)
+
+    def _check_absolute_warnings(self, results):
+        """Check absolute metrics and warn if outside ±5% tolerance (not a failure)."""
+        logger.info("=" * 80)
+        logger.info("ABSOLUTE METRICS CHECK (warnings only, not failures)")
+        logger.info("=" * 80)
 
         metrics: dict = results["results"][self.lmeval.task]
         for metric_key, expected_val in self.lmeval.metrics.items():
-            # stderr metrics are only used as absolute tolerance
-            # checks for actual values
+            # Skip stderr metrics
             if "stderr" in metric_key:
                 continue
+
             actual_val = metrics.get(metric_key)
-            higher_is_better = results["higher_is_better"][self.lmeval.task].get(
-                metric_key.split(",")[0], True
+            if actual_val is None:
+                logger.warning(
+                    f"Metric {metric_key} in config not found in results, "
+                    f"skipping warning check"
+                )
+                continue
+
+            higher_is_better = (
+                results.get("higher_is_better", {})
+                .get(self.lmeval.task, {})
+                .get(metric_key.split(",")[0], True)
             )
-            stderr_key = metric_key.replace(",", "_stderr,")
-            std_err = self.lmeval.metrics.get(stderr_key)
 
-            # If stderr is provided, use it as absolute tolerance
-            # Otherwise, default to a 5% relative tolerance
-            if std_err is None:
-                logger.info(
-                    f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"relative tolerance ±5%, Got {actual_val}. "
-                    f"Higher is better: {higher_is_better}"
-                )
-                # If higher is better, assert actual val >= expected val * (1 - stderr)
-                if higher_is_better:
-                    assert actual_val >= expected_val * (0.95)
-                # If higher is worse, assert actual val <= expected val * (1 + stderr)
-                else:
-                    assert actual_val <= expected_val * (1.05)
+            # Check if within ±5% relative tolerance
+            lower_bound = expected_val * 0.95
+            upper_bound = expected_val * 1.05
 
+            if higher_is_better:
+                # For higher is better, we care about lower bound
+                if actual_val < lower_bound:
+                    logger.warning(
+                        f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
+                        f"Got: {actual_val:.4f} | Below expected range"
+                    )
             else:
-                logger.info(
-                    f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"absolute tolerance ±{std_err*100}%, Got {actual_val}. "
-                    f"Higher is better: {higher_is_better}"
-                )
-                # If higher is better, assert actual val >= expected val - stderr
-                if higher_is_better:
-                    assert actual_val >= expected_val - std_err
-                # If higher is worse, assert actual val <= expected val + stderr
-                else:
-                    assert actual_val <= expected_val + std_err
+                # For lower is better, we care about upper bound
+                if actual_val > upper_bound:
+                    logger.warning(
+                        f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
+                        f"Got: {actual_val:.4f} | Above expected range"
+                    )
+
+        logger.info("=" * 80)
 
     def tear_down(self):
         timer = get_singleton_manager()

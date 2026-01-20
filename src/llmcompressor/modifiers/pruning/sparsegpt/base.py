@@ -1,5 +1,4 @@
 import contextlib
-from typing import Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.utils import (
@@ -26,24 +25,28 @@ class SparseGPTModifier(SparsityModifierBase):
     """
     Modifier for applying the one-shot SparseGPT algorithm to a model
 
-    | Sample yaml:
-    |   test_stage:
-    |       obcq_modifiers:
-    |           SparseGPTModifier:
-    |               sparsity: 0.5
-    |               mask_structure: "2:4"
-    |               dampening_frac: 0.001
-    |               block_size: 128
-    |               targets: ['Linear']
-    |               ignore: ['re:.*lm_head']
+    Sample yaml:
+
+    ```yaml
+    test_stage:
+      obcq_modifiers:
+        SparseGPTModifier:
+          sparsity: 0.5
+          mask_structure: "2:4"
+          dampening_frac: 0.001
+          block_size: 128
+          targets: ['Linear']
+          ignore: ['re:.*lm_head']
+    ```
 
     Lifecycle:
-        - on_initialize
-            - register_hook(module, calibrate_module, "forward")
-        - on_sequential_batch_end
-            - sparsify_weight
-        - on_finalize
-            - remove_hooks()
+
+    - on_initialize
+        - register_hook(module, calibrate_module, "forward")
+    - on_sequential_batch_end
+        - sparsify_weight
+    - on_finalize
+        - remove_hooks()
 
     :param sparsity: Sparsity to compress model to
     :param sparsity_profile: Can be set to 'owl' to use Outlier Weighed
@@ -73,18 +76,18 @@ class SparseGPTModifier(SparsityModifierBase):
 
     # modifier arguments
     block_size: int = 128
-    dampening_frac: Optional[float] = 0.01
+    dampening_frac: float | None = 0.01
     preserve_sparsity_mask: bool = False
     offload_hessians: bool = False
 
     # private variables
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
 
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         """
@@ -92,7 +95,7 @@ class SparseGPTModifier(SparsityModifierBase):
 
         :param module: module being calibrated
         :param args: inputs to the module, the first element of which is the
-            cannonical input
+            canonical input
         :param _output: uncompressed module output, unused
         """
         # Assume that the first argument is the input
@@ -123,9 +126,11 @@ class SparseGPTModifier(SparsityModifierBase):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with torch.no_grad(), align_module_device(module), CompressionLogger(
-                module
-            ) as comp_logger:
+            with (
+                torch.no_grad(),
+                align_module_device(module),
+                CompressionLogger(module) as comp_logger,
+            ):
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
                     hessians_dict=self._hessians,

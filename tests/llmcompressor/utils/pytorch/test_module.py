@@ -29,6 +29,10 @@ def test_get_layer_by_name(example_nested_module):
     layer = get_layer_by_name("2.1", example_nested_module)
     assert layer == example_nested_module[2][1]
 
+    # Test that empty string returns the module itself
+    layer = get_layer_by_name("", example_nested_module)
+    assert layer == example_nested_module
+
     # Test getting the parent of a non-existent layer
     with pytest.raises(AttributeError):
         get_layer_by_name("non_existent_layer", example_nested_module)

@@ -38,4 +38,12 @@ Follow the guides below to get started with LLM Compressor and optimize your mod
 
     [:octicons-arrow-right-24: Deployment Guide](deploy.md)
 
+- :material-rocket-launch:{ .lg .middle } FAQ
+
+    ---
+
+    View the most frequently asked questions for LLM Compressor.
+
+    [:octicons-arrow-right-24: FAQ](faq.md)
+
 </div>

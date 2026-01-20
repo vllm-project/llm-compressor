@@ -10,7 +10,7 @@ LLM Compressor provides a straightforward way to compress your models using vari
 
 Before you begin, ensure that your environment meets the following prerequisites:
 - **Operating System:** Linux (recommended for GPU support)
-- **Python Version:** 3.9 or newer
+- **Python Version:** 3.10 or newer
 - **Available GPU:** For optimal performance, it's recommended to use a GPU. LLM Compressor supports the latest PyTorch and CUDA versions for compatibility with NVIDIA GPUs.
 
 ## Select a Model and Dataset
@@ -33,6 +33,7 @@ Compression schemes use quantization methods including the following:
 | **AWQ** | Uses channelwise scaling to better preserve important outliers in weights and activations | Better accuracy recovery with faster runtime than GPTQ |
 | **SmoothQuant** | Smooths outliers in activations by folding them into weights, ensuring better accuracy for weight and activation quantized models | Good accuracy recovery with minimal calibration time; composable with other methods |
 | **Round-To-Nearest (RTN)** | Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments. |
+| **AutoRound** | AutoRound optimizes rounding and clipping ranges via sign-gradient descent. | Delivers leading 4-bit and superior sub-4-bit accuracy compared to GPTQ/AWQ, with runtime faster than GPTQ and on par with AWQ. |
 
 For this guide, we'll use `GPTQ` composed with `SmoothQuant` to create an `INT W8A8` quantized model. This combination provides a good balance for performance, accuracy, and compatability across a wide range of hardware.
 
@@ -113,4 +114,13 @@ This hessian matrix is used to increase the accuracy recovery of the algorithm, 
 | **DeepSeek-R1-0528-BF16** | mem(684B params) ~= 1368Gb | mem(1 Layer) * 2 ~= 44.8Gb |
 | **Qwen2.5-VL-7B-Instruct** | mem(7B params) ~= 14Gb | max(mem(1 Text Layer)~= 0.4B, mem(Vision tower)~=1.3B)*2 ~= 2.6Gb |
 
+## Runtime requirements for LLM Compressor
 
+The following are typical runtimes for each LLM Compressor algorithm based on runs using Meta-Llama-3-8B-Instruct on a NVIDIA A100 Tensor Core GPU.   
+
+| Algorithm| Estimated Time 
+|--------|-------------|
+| **RTN (QuantizationModifier)** <br> Weights only (no activation quant) | ~ 1 minutes |
+| **RTN (QuantizationModifier)** <br> Weights and activations | ~ 20 minutes  |
+| **GPTQ** (weights only) | ~ 30 minutes | 
+| **AWQ** (weights only) | ~ 30 minutes | 

@@ -14,14 +14,18 @@ from llmcompressor.utils import dispatch_for_generation
 # NOTE: because the datafree pipeline is being used in this
 # example, you can use additional GPUs to support larger models
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm to run.
 #   * apply quip transforms to model in order to make quantization easier
 #   * quantize the weights to 4 bit with a group size 128
+#   * NOTE: if a model has activation shapes not divisble by 2^N, consider using
+#           `random-hadamard` (random hadamard kernels will be added in the future)
 recipe = [
-    QuIPModifier(rotations=["v", "u"], transform_type="random-hadamard"),
+    QuIPModifier(
+        rotations=["v", "u"], transform_block_size=128, transform_type="hadamard"
+    ),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 

@@ -1,42 +1,35 @@
-import inspect
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 from compressed_tensors.quantization import (
     DynamicType,
-    KVCacheScaleType,
-    QuantizationScheme,
+    QuantizationArgs,
     QuantizationStatus,
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils import align_module_device, update_offload_parameter
+from compressed_tensors.utils import (
+    align_module_device,
+    getattr_chain,
+    update_offload_parameter,
+)
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
-from llmcompressor.utils.helpers import getattr_chain
-
-DEFAULT_MAXSHRINK = 0.20
-DEFAULT_PATIENCE = 5
-DEFAULT_AVERAGING_CONSTANT = 0.01
-DEFAULT_GRID = 100.0
-DEFAULT_NORM = 2.4
 
 __all__ = [
     "initialize_observer",
     "update_weight_zp_scale",
     "calibrate_input_hook",
     "calibrate_output_hook",
-    "calibrate_kv_cache_input_hook",
-    "calibrate_kv_cache_output_hook",
-    "initialize_quantized_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
     "update_weight_global_scale",
+    "calibrate_query_hook",
+    "calibrate_key_hook",
+    "calibrate_value_hook",
 ]
 
 
@@ -50,35 +43,41 @@ def initialize_observer(
     The name is then used to load the observer from the registry and attached
     to the module. The name of the observer uses the base_name provided.
 
+    This function always initializes memoryless observers for weights
+
     :param module: torch.nn.Module that the observer is being attached to
     :param base_name: str used to name the observer attribute
 
     """
+    if base_name == "weight":
+        arg_name = "weights"
+    elif base_name == "output":
+        arg_name = "output_activations"
+    else:  # input, q, k, v
+        arg_name = "input_activations"
 
-    arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    if not quantization_scheme:
-        # no quantization scheme nothing to do
-        return
+    args: QuantizationArgs = getattr_chain(
+        module, f"quantization_scheme.{arg_name}", None
+    )
+    observer = args.observer
 
-    quantization_args = getattr(quantization_scheme, arg_name, None)
-    # dont need observers for dynamic
-    if quantization_args is not None and quantization_args.dynamic in (
-        False,
-        DynamicType.LOCAL,
-    ):
-        observer_kwargs = quantization_args.observer_kwargs or {}
+    # training is no longer supported: always use memoryless for weights
+    if base_name == "weight" and args.observer in ("static_minmax", "minmax"):
+        observer = "memoryless_minmax"
+        logger.warning(
+            "Overriding weight observer for lower memory usage "
+            f"({args.observer} -> {observer})"
+        )
+    if base_name == "weight" and args.observer in ("mse",):
+        observer = "memoryless_mse"
+        logger.warning(
+            "Overriding weight observer for lower memory usage "
+            f"({args.observer} -> {observer})"
+        )
+
+    if args is not None and args.dynamic is not True:
         observer = Observer.load_from_registry(
-            quantization_args.observer,
-            quantization_args=quantization_args,
-            averaging_constant=observer_kwargs.get(
-                "averaging_constant", DEFAULT_AVERAGING_CONSTANT
-            ),
-            # used by mse observer only, will be ignored by minmax observer
-            maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
-            patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
-            grid=observer_kwargs.get("grid", DEFAULT_GRID),
-            norm=observer_kwargs.get("norm", DEFAULT_NORM),
+            observer, base_name=base_name, args=args, module=module
         )
         module.register_module(f"{base_name}_observer", observer)
 
@@ -100,36 +99,19 @@ def call_observer(
         base_name is "weight", then the module's weight tensor will be used
     """
     with align_module_device(module):
-        if base_name == "weight":
+        if value is None and base_name == "weight":
             value = module.weight
-            g_idx = getattr(module, "weight_g_idx", None)
-        elif value is not None:
-            g_idx = None
-        else:
-            raise ValueError(
-                "Must provide a value to observe if not using weight observer"
-            )
-
-        observer = getattr(module, f"{base_name}_observer")
+        observer: Observer = getattr(module, f"{base_name}_observer")
 
         if should_calculate_gparam:
-            global_scale = observer(
-                value,
-                should_calculate_gparam=True,
-            )
+            global_scale = observer.get_global_scale(value)
             update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
-        else:
-            global_scale = getattr(module, f"{base_name}_global_scale", None)
 
         if should_calculate_qparams:
-            updated_scale, updated_zero_point = observer(
-                value, g_idx=g_idx, global_scale=global_scale
-            )
-            # register or update scale & zero_point parameters (supports block shapes)
-            scale_name = f"{base_name}_scale"
-            zp_name = f"{base_name}_zero_point"
-            update_offload_parameter(module, scale_name, updated_scale)
-            update_offload_parameter(module, zp_name, updated_zero_point)
+            scale, zero_point = observer(value)
+            update_offload_parameter(module, f"{base_name}_scale", scale)
+            if hasattr(module, f"{base_name}_zero_point"):
+                update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
 
 
 def update_weight_global_scale(module: Module):
@@ -148,7 +130,6 @@ def update_weight_global_scale(module: Module):
         should_calculate_gparam=True,
         should_calculate_qparams=False,
     )
-    module.weight_observer.reset()
 
 
 def update_weight_zp_scale(module: Module):
@@ -188,8 +169,9 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     if value.numel() == 0:
         return
 
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    quantization_args = getattr(quantization_scheme, f"{base_name}_activations", None)
+    field_name = "input" if base_name != "output" else "output"  # input,q,k,v,output
+    args_attr = f"quantization_scheme.{field_name}_activations"
+    quantization_args = getattr_chain(module, args_attr, None)
 
     calculate_qparams = True
     calculate_gparam = False
@@ -239,60 +221,16 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     return output
 
 
-def calibrate_kv_cache_input_hook(
-    module: Module, args: Any, kwargs: Dict[str, Any]
-) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
-    """
-    Hook to update inputs to attention layers when running
-    kv_cache quantization. Will update the passed in
-    kv_cache to singleton QuantizedKVParameterCache.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    if not hasattr(module, "_past_kv_name"):
-        # Determine which past KV parameter name to use once and cache it
-        # TODO: Find a better place to cache this
-        module._past_kv_name = (
-            "past_key_value"  # transformers#39956
-            if "past_key_value" in inspect.signature(module.forward).parameters
-            else "past_key_values"
-        )
-
-    kwargs[module._past_kv_name] = kv_cache
-    kwargs["use_cache"] = False
-    return args, kwargs
+def calibrate_query_hook(module: Module, query_states: torch.Tensor):
+    calibrate_activations(module, query_states, base_name="q")
 
 
-def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Tensor):
-    """
-    Hook to update k_scale and v_scale parameters when running kv_cache quantization.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    k_scale = kv_cache.k_scales[module.layer_idx]
-    v_scale = kv_cache.v_scales[module.layer_idx]
-    update_offload_parameter(module, KVCacheScaleType.KEY.value, k_scale)
-    update_offload_parameter(module, KVCacheScaleType.VALUE.value, v_scale)
+def calibrate_key_hook(module: Module, key_states: torch.Tensor):
+    calibrate_activations(module, key_states, base_name="k")
 
 
-def initialize_quantized_kv_cache(module: Module):
-    """
-    Initialize a quantized kv_cache on a module (analogous to initializing an observer)
-    When a config specifying kv_cache quantization is applied to a model, the kv_cache
-    args are redefined as the output_activations targeting attention modules.
-
-    This function should be called on attention modules with output_activations
-    """
-    scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
-    existing_kv_cache = getattr(module, "kv_cache", None)
-
-    if (
-        scheme is None
-        or not is_kv_cache_quant_scheme(scheme)
-        or isinstance(existing_kv_cache, QuantizedKVParameterCache)
-    ):
-        return
-
-    quantized_kv_cache = QuantizedKVParameterCache(scheme.output_activations)
-    setattr(module, "kv_cache", quantized_kv_cache)
+def calibrate_value_hook(module: Module, value_states: torch.Tensor):
+    calibrate_activations(module, value_states, base_name="v")
 
 
 def apply_calibration_status(module: Module):
@@ -321,15 +259,10 @@ def freeze_module_quantization(module: Module):
         return
 
     # remove observers
-    for name in ("input", "weight", "output"):
+    for name in ("input", "weight", "output", "q", "k", "v"):
         obs_name = f"{name}_observer"
         if hasattr(module, obs_name):
             delattr(module, obs_name)
-
-    # remove quantized kv_cache
-    kv_cache = getattr(module, "kv_cache", None)
-    if isinstance(kv_cache, QuantizedKVParameterCache):
-        delattr(module, "kv_cache")
 
     module.quantization_status = QuantizationStatus.FROZEN
 

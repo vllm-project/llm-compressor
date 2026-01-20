@@ -1,6 +1,6 @@
 # Quantizing Mixtral-8x7B-Instruct-v0.1 Model with FP8
 
-This directory contains an example script for quantizing the `Mixtral-8x7B-Instruct-v0.1` model using the static per-tensor FP8 quantization scheme.
+This directory contains example scripts for quantizing LLMs using the static per-tensor FP8 quantization scheme.
 
 ## Installation
 
@@ -32,7 +32,7 @@ python mixtral_example.py
 
 ### Step 1: Select a Model, Dataset, and Recipe
 
-In this step, you'll choose a baseline model for quantization, a dataset for calibration, and a quantization recipe.
+In this step, you'll choose a base model for quantization, a dataset for calibration, and a quantization recipe.
 
 - **Models**: Can be referenced from a local directory or retrieved from the Hugging Face Hub.
 - **Datasets**: Can also be from a local directory or the Hugging Face Hub.

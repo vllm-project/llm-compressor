@@ -12,7 +12,7 @@ vLLM is a high-performance inference engine designed for large language models, 
 
 Before deploying your model, ensure you have the following prerequisites:
 - **Operating System:** Linux (recommended for GPU support)
-- **Python Version:** 3.9 or newer
+- **Python Version:** 3.10 or newer
 - **Available GPU:** For optimal performance, it's recommended to use a GPU. vLLM supports a range of accelerators, including NVIDIA GPUs, AMD GPUs, TPUs, and other accelerators.
 - **vLLM Installed:** Ensure you have vLLM installed. You can install it using pip:
   ```bash

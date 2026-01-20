@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollato
 from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.utils.dev import dispatch_for_generation
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -75,7 +75,7 @@ def setup_model_and_config(request, tmpdir_factory):
 
     output_dir = tmpdir_factory.mktemp("setup_model_and_config") / config["output"]
     model = AutoModelForCausalLM.from_pretrained(
-        config["model_stub"], torch_dtype=config["weight_dtype"]
+        config["model_stub"], dtype=config["weight_dtype"]
     )
     model = oneshot(
         model=model,
@@ -101,9 +101,7 @@ def setup_model_and_config(request, tmpdir_factory):
 def test_quantization_reload(setup_model_and_config):
     model, config, output_dir = setup_model_and_config
 
-    model_reloaded = AutoModelForCausalLM.from_pretrained(
-        output_dir, torch_dtype="auto"
-    )
+    model_reloaded = AutoModelForCausalLM.from_pretrained(output_dir, dtype="auto")
 
     og_weights, og_inputs = _get_quant_info(model)
     reloaded_weights, reloaded_inputs = _get_quant_info(model_reloaded)
@@ -145,15 +143,19 @@ def test_perplexity(setup_model_and_config):
     dispatch_for_generation(model)
 
     total_ppl = 0.0
-    total_non_nan = 0
-    for idx, sample in enumerate(dataloader):
-        if idx >= config["num_eval"]:
+    total_samples = 0
+    for sample in dataloader:
+        if total_samples >= config["num_eval"]:
             break
-        output = model(**tensors_to_device(sample, "cuda:0"))
-        if torch.isnan(output.loss):
+        # -100 in labels indicates that the token is not part of the loss calculation
+        pct_labels_in_sample = (sample["labels"] != -100).to(torch.float).mean().item()
+        if pct_labels_in_sample <= 0.25:
+            # At least 25% of the tokens in the sample must be part of loss calculation
+            # otherwise the perplexity is too volatile and can skew the results
             continue
+        output = model(**tensors_to_device(sample, "cuda:0"))
         total_ppl += torch.exp(output.loss).item()
-        total_non_nan += 1
+        total_samples += 1
 
-    avg_ppl = total_ppl / total_non_nan
+    avg_ppl = total_ppl / total_samples
     assert avg_ppl <= config["ppl_threshold"]

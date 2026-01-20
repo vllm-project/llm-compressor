@@ -12,7 +12,7 @@ def q_config_kwargs(config_0, config_1):
         config_groups=dict(
             group_0=dict(
                 targets=["Linear"],
-                input_activations=dict(num_bits=8, symmetric=False, strategy="token"),
+                input_activations=dict(num_bits=8, symmetric=False, strategy="tensor"),
                 weights=dict(
                     num_bits=4,
                     symmetric=True,
@@ -23,7 +23,7 @@ def q_config_kwargs(config_0, config_1):
             ),
             group_1=dict(
                 targets=["Linear"],
-                input_activations=dict(num_bits=8, symmetric=False, strategy="token"),
+                input_activations=dict(num_bits=8, symmetric=False, strategy="tensor"),
                 weights=dict(
                     num_bits=4,
                     symmetric=True,
@@ -159,3 +159,55 @@ def test_serialize_actorder(has_actorder, actorder, exp_actorder):
         modifier = GPTQModifier(targets=["Linear"], scheme="W8A8")
 
     assert modifier.model_dump()["actorder"] == exp_actorder
+
+
+@pytest.mark.parametrize(
+    "scheme,targets,config_groups,resolved_targets,should_error",
+    [
+        ("W4A16", ["Linear"], None, {"Linear"}, False),
+        (
+            "W4A16",
+            [r"re:.*q_proj$", r"re:.*k_proj$"],
+            None,
+            {r"re:.*q_proj$", r"re:.*k_proj$"},
+            False,
+        ),
+        (
+            None,
+            ["Linear"],
+            dict(
+                group_0=dict(
+                    targets=[r"re:.*q_proj$"],
+                ),
+                group_1=dict(
+                    targets=[r"re:.*k_proj$"],
+                ),
+            ),
+            {r"re:.*q_proj$", r"re:.*k_proj$"},
+            False,
+        ),
+        (
+            "W4AA16",
+            ["Linear"],
+            dict(
+                group_0=dict(
+                    targets=[r"re:.*q_proj$"],
+                ),
+            ),
+            {},
+            True,
+        ),
+    ],
+)
+def test_resolved_targets(
+    scheme, targets, config_groups, should_error, resolved_targets
+):
+    if should_error:
+        with pytest.raises(ValueError):
+            GPTQModifier(targets=targets, scheme=scheme, config_groups=config_groups)
+    else:
+        modifier = GPTQModifier(
+            targets=targets, scheme=scheme, config_groups=config_groups
+        )
+
+        assert modifier.resolved_targets == resolved_targets

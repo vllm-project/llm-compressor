@@ -7,7 +7,7 @@ registration, and state tracking.
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -75,22 +75,22 @@ class CompressionSession:
 
     def initialize(
         self,
-        recipe: Union[str, List[str], "Recipe", List["Recipe"], None] = None,
-        recipe_stage: Union[str, List[str], None] = None,
-        recipe_args: Union[Dict[str, Any], None] = None,
-        model: Optional[Any] = None,
-        teacher_model: Optional[Any] = None,
-        optimizer: Optional[Any] = None,
+        recipe: str | list[str] | Recipe | list[Recipe] | None = None,
+        recipe_stage: str | list[str] | None = None,
+        recipe_args: dict[str, Any] | None = None,
+        model: Any | None = None,
+        teacher_model: Any | None = None,
+        optimizer: Any | None = None,
         attach_optim_callbacks: bool = True,
-        train_data: Optional[Any] = None,
-        val_data: Optional[Any] = None,
-        test_data: Optional[Any] = None,
-        calib_data: Optional[Any] = None,
+        train_data: Any | None = None,
+        val_data: Any | None = None,
+        test_data: Any | None = None,
+        calib_data: Any | None = None,
         copy_data: bool = True,
-        start: Optional[float] = None,
-        steps_per_epoch: Optional[int] = None,
-        batches_per_step: Optional[int] = None,
-        loggers: Union[None, LoggerManager, List[BaseLogger]] = None,
+        start: float | None = None,
+        steps_per_epoch: int | None = None,
+        batches_per_step: int | None = None,
+        loggers: LoggerManager | list[BaseLogger] | None = None,
         **kwargs,
     ) -> ModifiedState:
         """
@@ -171,8 +171,8 @@ class CompressionSession:
     def event(
         self,
         event_type: EventType,
-        batch_data: Optional[Any] = None,
-        loss: Optional[Any] = None,
+        batch_data: Any | None = None,
+        loss: Any | None = None,
         **kwargs,
     ) -> ModifiedState:
         """
@@ -194,7 +194,7 @@ class CompressionSession:
             modifier_data=mod_data,
         )
 
-    def log(self, event_type: EventType, loss: Optional[Any] = None):
+    def log(self, event_type: EventType, loss: Any | None = None):
         """
         Log model and loss information for the current event type
 
@@ -217,7 +217,7 @@ class CompressionSession:
         self.lifecycle.initialized_ = False
         self.lifecycle.finalized = False
 
-    def get_serialized_recipe(self) -> Optional[str]:
+    def get_serialized_recipe(self) -> str | None:
         """
         :return: serialized string of the current compiled recipe
         """

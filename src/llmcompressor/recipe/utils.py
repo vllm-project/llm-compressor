@@ -48,9 +48,7 @@ def _parse_recipe_from_md(file_path, yaml_str):
     else:
         # fail if we know whe should have extracted front matter out
         raise RuntimeError(
-            "Could not extract YAML front matter from recipe card:" " {}".format(
-                file_path
-            )
+            "Could not extract YAML front matter from recipe card: {}".format(file_path)
         )
     return yaml_str
 

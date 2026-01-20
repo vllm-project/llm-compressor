@@ -7,7 +7,7 @@ compression workflows. Supports both epoch-based and step-based logging
 with configurable modes and intervals.
 """
 
-from typing import Literal, Optional, Union
+from typing import Literal
 
 __all__ = [
     "FrequencyManager",
@@ -17,7 +17,7 @@ __all__ = [
     "log_ready",
 ]
 
-LogStepType = Union[int, float, None]
+LogStepType = int | float | None
 LoggingModeType = Literal["on_change", "exact"]
 FrequencyType = Literal["epoch", "step"]
 
@@ -253,10 +253,10 @@ class FrequencyManager:
 
 
 def log_ready(
-    current_log_step: Optional[LogStepType],
-    last_log_step: Optional[LogStepType],
-    log_frequency: Optional[LogStepType],
-    last_model_update_step: Optional[LogStepType] = None,
+    current_log_step: LogStepType | None,
+    last_log_step: LogStepType | None,
+    log_frequency: LogStepType | None,
+    last_model_update_step: LogStepType = None,
     check_model_update: bool = False,
 ):
     """

@@ -24,8 +24,11 @@ from urllib.parse import urlparse
 import numpy
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
+from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
+
+from llmcompressor.utils import get_embeddings
 
 __all__ = [
     "ALL_TOKEN",
@@ -65,8 +68,10 @@ __all__ = [
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
+    "disable_lm_head",
     "patch_attr",
     "disable_hf_kernels",
+    "DISABLE_QAC_MODIFIERS",
 ]
 
 
@@ -84,6 +89,7 @@ ROOT_PATH = Path(__file__).resolve().parents[1]
 ##############################
 
 
+@deprecated()
 def flatten_iterable(li: Iterable):
     """
     :param li: a possibly nested iterable of items to be flattened
@@ -101,6 +107,7 @@ def flatten_iterable(li: Iterable):
     return list(_flatten_gen(li))
 
 
+@deprecated()
 def convert_to_bool(val: Any):
     """
     :param val: the value to be converted to a bool,
@@ -115,6 +122,7 @@ def convert_to_bool(val: Any):
     )
 
 
+@deprecated()
 def validate_str_iterable(
     val: Union[str, Iterable[str]], error_desc: str = ""
 ) -> Union[str, Iterable[str]]:
@@ -140,6 +148,7 @@ def validate_str_iterable(
     raise ValueError("unsupported type ({}) given in {}".format(val, error_desc))
 
 
+@deprecated()
 def bucket_iterable(
     val: Iterable[Any],
     num_buckets: int = 3,
@@ -187,6 +196,7 @@ def bucket_iterable(
 INTERPOLATION_FUNCS = ["linear", "cubic", "inverse_cubic"]
 
 
+@deprecated(future_name="torch.lerp")
 def interpolate(
     x_cur: float, x0: float, x1: float, y0: Any, y1: Any, inter_func: str = "linear"
 ) -> Any:
@@ -239,6 +249,7 @@ def interpolate(
     return y_per * (y1 - y0) + y0
 
 
+@deprecated(future_name="torch.lerp")
 def interpolate_list_linear(
     measurements: List[Tuple[float, float]], x_val: Union[float, List[float]]
 ) -> List[Tuple[float, float]]:
@@ -275,6 +286,7 @@ def interpolate_list_linear(
     return interpolated
 
 
+@deprecated(future_name="torch.lerp")
 def interpolated_integral(measurements: List[Tuple[float, float]]):
     """
     Calculate the interpolated integal for a group of measurements of the form
@@ -304,6 +316,7 @@ def interpolated_integral(measurements: List[Tuple[float, float]]):
     return integral
 
 
+@deprecated()
 def clean_path(path: str) -> str:
     """
     :param path: the directory or file path to clean
@@ -312,6 +325,7 @@ def clean_path(path: str) -> str:
     return os.path.abspath(os.path.expanduser(path))
 
 
+@deprecated()
 def create_dirs(path: str):
     """
     :param path: the directory path to try and create
@@ -328,6 +342,7 @@ def create_dirs(path: str):
             raise
 
 
+@deprecated()
 def create_parent_dirs(path: str):
     """
     :param path: the file path to try to create the parent directories for
@@ -336,6 +351,7 @@ def create_parent_dirs(path: str):
     create_dirs(parent)
 
 
+@deprecated()
 def create_unique_dir(path: str, check_number: int = 0) -> str:
     """
     :param path: the file path to create a unique version of
@@ -351,6 +367,7 @@ def create_unique_dir(path: str, check_number: int = 0) -> str:
     return create_unique_dir(path, check_number + 1)
 
 
+@deprecated()
 def path_file_count(path: str, pattern: str = "*") -> int:
     """
     Return the number of files that match the given pattern under the given path
@@ -364,6 +381,7 @@ def path_file_count(path: str, pattern: str = "*") -> int:
     return len(fnmatch.filter(os.listdir(path), pattern))
 
 
+@deprecated()
 def path_file_size(path: str) -> int:
     """
     Return the total size, in bytes, for a path on the file system
@@ -401,6 +419,7 @@ def path_file_size(path: str) -> int:
     return total_size
 
 
+@deprecated()
 def is_url(val: str):
     """
     :param val: value to check if it is a url or not
@@ -425,6 +444,7 @@ def is_url(val: str):
 NDARRAY_KEY = "ndarray"
 
 
+@deprecated()
 def load_numpy(file_path: str) -> Union[numpy.ndarray, Dict[str, numpy.ndarray]]:
     """
     Load a numpy file into either an ndarray or an OrderedDict representing what
@@ -445,6 +465,7 @@ def load_numpy(file_path: str) -> Union[numpy.ndarray, Dict[str, numpy.ndarray]]
     return array
 
 
+@deprecated()
 def save_numpy(
     array: Union[numpy.ndarray, Dict[str, numpy.ndarray], Iterable[numpy.ndarray]],
     export_dir: str,
@@ -484,6 +505,7 @@ def save_numpy(
     return export_path
 
 
+@deprecated()
 def _fix_loaded_numpy(array) -> Union[numpy.ndarray, Dict[str, numpy.ndarray]]:
     if not isinstance(array, numpy.ndarray):
         tmp_arrray = array
@@ -494,6 +516,7 @@ def _fix_loaded_numpy(array) -> Union[numpy.ndarray, Dict[str, numpy.ndarray]]:
     return array
 
 
+@deprecated()
 def load_numpy_from_tar(
     path: str,
 ) -> List[Union[numpy.ndarray, Dict[str, numpy.ndarray]]]:
@@ -518,6 +541,7 @@ def load_numpy_from_tar(
     return data
 
 
+@deprecated()
 def load_numpy_list(
     data: Union[str, Iterable[Union[str, numpy.ndarray, Dict[str, numpy.ndarray]]]],
 ) -> List[Union[numpy.ndarray, Dict[str, numpy.ndarray]]]:
@@ -549,6 +573,7 @@ def load_numpy_list(
     return loaded
 
 
+@deprecated()
 def load_labeled_data(
     data: Union[str, Iterable[Union[str, numpy.ndarray, Dict[str, numpy.ndarray]]]],
     labels: Union[
@@ -627,6 +652,7 @@ class NumpyArrayBatcher(object):
 
         return len(self._items[list(self._items.keys())[0]])
 
+    @deprecated()
     def append(self, item: Union[numpy.ndarray, Dict[str, numpy.ndarray]]):
         """
         Append a new item into the current batch.
@@ -680,6 +706,7 @@ class NumpyArrayBatcher(object):
 
                 self._items[key].append(val)
 
+    @deprecated()
     def stack(self) -> Dict[str, numpy.ndarray]:
         """
         Stack the current items into a batch along a new, zeroed dimension
@@ -694,6 +721,7 @@ class NumpyArrayBatcher(object):
         return batch_dict
 
 
+@deprecated()
 def tensor_export(
     tensor: Union[numpy.ndarray, Dict[str, numpy.ndarray], Iterable[numpy.ndarray]],
     export_dir: str,
@@ -730,6 +758,7 @@ def tensor_export(
     return export_path
 
 
+@deprecated()
 def tensors_export(
     tensors: Union[numpy.ndarray, Dict[str, numpy.ndarray], Iterable[numpy.ndarray]],
     export_dir: str,
@@ -761,6 +790,7 @@ def tensors_export(
     return exported_paths
 
 
+@deprecated()
 def _tensors_export_recursive(
     tensors: Union[numpy.ndarray, Iterable[numpy.ndarray]],
     export_dir: str,
@@ -795,6 +825,7 @@ def _tensors_export_recursive(
     )
 
 
+@deprecated()
 def _tensors_export_batch(
     tensors: Union[numpy.ndarray, Dict[str, numpy.ndarray], Iterable[numpy.ndarray]],
     export_dir: str,
@@ -841,6 +872,7 @@ def _tensors_export_batch(
     )
 
 
+@deprecated()
 def json_to_jsonl(json_file_path: str, overwrite: bool = True):
     """
     Converts a json list file to jsonl file format (used for sharding efficienty)
@@ -872,6 +904,7 @@ def json_to_jsonl(json_file_path: str, overwrite: bool = True):
             jsonl_file.write("\n")  # newline
 
 
+@deprecated()
 def deprecation_warning(message: str):
     warnings.simplefilter("always", DeprecationWarning)
     warnings.warn(
@@ -942,6 +975,7 @@ def import_from_path(path: str) -> str:
         raise AttributeError(f"Cannot find {class_name} in {_path}")
 
 
+@deprecated()
 def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
     """
     Chain multiple getattr calls, separated by `.`
@@ -1048,11 +1082,51 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable the KV cache
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
+    - Disable lm head (input and weights can still be calibrated, output will be meta)
     """
-    with torch.no_grad(), disable_cache(model), eval_context(model), disable_hf_kernels(
-        model
-    ):
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(torch.no_grad())
+        stack.enter_context(disable_cache(model))
+        stack.enter_context(eval_context(model))
+        stack.enter_context(disable_hf_kernels(model))
+        stack.enter_context(disable_lm_head(model))
         yield
+
+
+@contextlib.contextmanager
+def disable_lm_head(model: torch.nn.Module):
+    """
+    Disable the lm_head of a model by moving it to the meta device. This function
+    does not untie parameters and restores the model proper loading upon exit
+    """
+    _, lm_head = get_embeddings(model)
+    if lm_head is None:
+        logger.warning(
+            f"Attempted to disable lm_head of instance {model.__class__.__name__}, "
+            "but was unable to to find lm_head. This may lead to unexpected OOM."
+        )
+        yield
+        return
+
+    elif not isinstance(lm_head, torch.nn.Linear):
+        logger.warning(f"Cannot disable LM head of type {lm_head.__class__.__name__}")
+        yield
+        return
+
+    else:
+        dummy_weight = lm_head.weight.to("meta")
+
+        def dummy_forward(self, input: torch.Tensor) -> torch.Tensor:
+            return input.to("meta") @ dummy_weight.T
+
+        with contextlib.ExitStack() as stack:
+            lm_head_forward = dummy_forward.__get__(lm_head)
+            stack.enter_context(patch_attr(lm_head, "forward", lm_head_forward))
+
+            if hasattr(model, "_hf_hook"):
+                stack.enter_context(patch_attr(model._hf_hook, "io_same_device", False))
+
+            yield
 
 
 @contextlib.contextmanager
@@ -1082,3 +1156,6 @@ def patch_attr(base: object, attr: str, value: Any):
             setattr(base, attr, original_value)
         else:
             delattr(base, attr)
+
+
+DISABLE_QAC_MODIFIERS = ["GPTQModifier", "AWQModifier", "AutoRoundModifier"]

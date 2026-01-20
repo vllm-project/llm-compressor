@@ -66,10 +66,3 @@ One-shot pruning algorithms often introduce accuracy degradation that can be rec
 modifier ensures that the sparsity mask of the model is maintained during finetuning, allowing a sparse 
 model to recover accuracy while maintaining its sparsity structure. It is intended to be used after a pruning modifier
 such as `SparseGPT` or `WANDA` has already been applied.
-
-### [Distillation](./distillation/output/base.py)
-To better recover accuracy of sparse models during finetuning, we can also use a teacher model of the same architecture
-to influence the loss. This modifier is intended to be used in conjunction with `ConstantPruning` modifier on a 
-pruned model, with the dense version of the model being used as the teacher. Both output distillation loss and 
-layer-by-layer distillation loss are supported. The layer-by-layer implementation follows the Square Head distillation 
-algorithm presented in [Sparse Fine-tuning for Inference Acceleration of Large Language Models](https://arxiv.org/pdf/2310.06927).

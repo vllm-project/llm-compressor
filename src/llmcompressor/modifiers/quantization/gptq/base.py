@@ -36,40 +36,44 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
     Implements the GPTQ algorithm from https://arxiv.org/abs/2210.17323. This modifier
     uses activations to calibrate a hessian matrix, which is then used to determine
-    optimal quantizion values and orderings for the model weights.
+    optimal quantization values and orderings for the model weights.
 
-    | Sample yaml:
-    | test_stage:
-    |    obcq_modifiers:
-    |      GPTQModifier:
-    |          block_size: 128
-    |          dampening_frac: 0.001
-    |          offload_hessians: False
-    |          actorder: static
-    |          config_groups:
-    |            group_0:
-    |                targets:
-    |                  - "Linear"
-    |                input_activations: null
-    |                output_activations: null
-    |                weights:
-    |                    num_bits: 8
-    |                    type: "int"
-    |                    symmetric: true
-    |                    strategy: group
-    |                    group_size: 128
+    Sample yaml:
+
+    ```yaml
+    test_stage:
+      obcq_modifiers:
+        GPTQModifier:
+          block_size: 128
+          dampening_frac: 0.001
+          offload_hessians: False
+          actorder: static
+          config_groups:
+            group_0:
+              targets:
+                - "Linear"
+              input_activations: null
+              output_activations: null
+              weights:
+                num_bits: 8
+                type: "int"
+                symmetric: true
+                strategy: group
+                group_size: 128
+    ```
 
     Lifecycle:
-        - on_initialize
-            - apply config to model
-        - on_start
-            - add activation calibration hooks
-            - add gptq weight calibration hooks
-        - on_sequential_epoch_end
-            - quantize_weight
-        - on_finalize
-            - remove_hooks()
-            - model.apply(freeze_module_quantization)
+
+    - on_initialize
+        - apply config to model
+    - on_start
+        - add activation calibration hooks
+        - add gptq weight calibration hooks
+    - on_sequential_epoch_end
+        - quantize_weight
+    - on_finalize
+        - remove_hooks()
+        - model.apply(freeze_module_quantization)
 
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
@@ -99,7 +103,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         the kv_cache_scheme gets converted into a QuantizationScheme that:
             - targets the `q_proj` and `k_proj` modules of the model. The outputs
               of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aformentioned layers, so that
+            - quantizes the outputs of the aforementioned layers, so that
               keys and values are compressed before storing them in the cache
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
@@ -162,7 +166,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # prepare module names
         self._module_names = {
             m: name
-            for name, m in match_named_modules(state.model, self.targets, self.ignore)
+            for name, m in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
         }
 
         return True
@@ -176,7 +182,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for _, module in match_named_modules(state.model, self.targets, self.ignore):
+        for _, module in match_named_modules(
+            state.model, self.resolved_targets, self.ignore
+        ):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
@@ -216,7 +224,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param module: module being calibrated
         :param args: inputs to the module, the first element of which is the
-            cannonical input
+            canonical input
         :param _output: uncompressed module output, unused
         """
         # Assume that first argument is the input
@@ -249,11 +257,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
             logger.info(f"Quantizing {name} using {num_samples} samples")
-            with torch.no_grad(), align_module_device(
-                module
-            ), self._maybe_onload_hessian(module), CompressionLogger(
-                module
-            ) as comp_logger:
+            with (
+                torch.no_grad(),
+                align_module_device(module),
+                self._maybe_onload_hessian(module),
+                CompressionLogger(module) as comp_logger,
+            ):
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                     module=module,
                     quant_args=quant_args,

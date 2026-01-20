@@ -1,20 +1,37 @@
 import dataclasses
 import enum
+import hashlib
+import json
 import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
+from functools import wraps
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
-from typing import Callable, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
+import pandas as pd
 import pytest
 import torch
 import yaml
 from datasets import Dataset
+from loguru import logger
 from transformers import ProcessorMixin
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+DISABLE_LMEVAL_CACHE = os.environ.get("DISABLE_LMEVAL_CACHE", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+LMEVAL_CACHE_DIR = Path(os.environ.get("LMEVAL_CACHE_DIR", ".lmeval_cache"))
+LMEVAL_CACHE_FILE = LMEVAL_CACHE_DIR / "cache.csv"
+
+
+def _sha256_hash(text: str, length: Optional[int] = None) -> str:
+    hash_result = hashlib.sha256(text.encode()).hexdigest()
+    return hash_result[:length] if length else hash_result
 
 
 # TODO: maybe test type as decorators?
@@ -97,6 +114,12 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
         f"{actual_vram:.1f} GiB GPU memory found"
     )
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
+
+
+requires_hf_token: callable = pytest.mark.skipif(
+    (not os.getenv("HF_TOKEN")),
+    reason="Skipping tests requiring gated model access",
+)
 
 
 def _load_yaml(config_path: str):
@@ -218,45 +241,12 @@ def process_dataset(
                 add_special_tokens=False,
             )
 
-    elif ds_name == "llm_compression_calibration":
-
-        def process(sample):
-            return processor(
-                processor.apply_chat_template(
-                    sample["text"],
-                    tokenize=False,
-                ),
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
     elif ds_name == "open-platypus":
         # use the output rather than the instruction
         def process(sample):
             return processor(
                 processor.apply_chat_template(
                     sample["output"],
-                    tokenize=False,
-                ),
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
-    elif ds_name == "slimorca-deduped-cleaned-corrected":
-        # find the first element corresponding to a message from a human
-        def process(sample):
-            conversation_idx = 0
-            for idx, conversation in enumerate(sample["conversations"]):
-                if conversation["from"] == "human":
-                    conversation_idx = idx
-                    break
-            return processor(
-                processor.apply_chat_template(
-                    sample["conversations"][conversation_idx]["value"],
                     tokenize=False,
                 ),
                 padding=False,
@@ -285,17 +275,30 @@ def process_dataset(
                 "images": sample["image"],
             }
 
-    elif ds_name == "pile-val-backup":
+    # "neuralmagic/calibration"
+    elif ds_name == "calibration":
 
-        def preprocess(example):
-            return {
-                "input_ids": processor.encode(example["text"].strip())[:max_seq_length]
-            }
+        def process(example):
+            messages = []
+            for message in example["messages"]:
+                messages.append(
+                    {
+                        "role": message["role"],
+                        "content": [{"type": "text", "text": message["content"]}],
+                    }
+                )
 
-        ds = ds.map(preprocess, remove_columns=ds.column_names)
-        # Note: potentially swap filtering to pad for AWQ
-        ds = ds.filter(lambda example: len(example["input_ids"]) >= max_seq_length)
-        return ds
+            return processor.apply_chat_template(
+                messages,
+                return_tensors="pt",
+                padding=False,
+                truncation=True,
+                max_length=max_seq_length,
+                tokenize=True,
+                add_special_tokens=False,
+                return_dict=True,
+                add_generation_prompt=False,
+            )
 
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
@@ -312,3 +315,143 @@ def requires_cadence(cadence: Union[str, List[str]]) -> Callable:
     return pytest.mark.skipif(
         (current_cadence not in cadence), reason="cadence mismatch"
     )
+
+
+@dataclass(frozen=True)
+class LMEvalCacheKey:
+    """Cache key for LM Eval results based on evaluation parameters."""
+
+    model: str
+    task: str
+    num_fewshot: int
+    limit: int
+    batch_size: int
+    model_args_hash: str
+    lmeval_version: str
+    seed: Optional[int]
+
+    @classmethod
+    def from_test_instance(cls, test_instance: Any) -> "LMEvalCacheKey":
+        """Create cache key from test instance."""
+        try:
+            import lm_eval
+
+            lmeval_version = lm_eval.__version__
+        except (ImportError, AttributeError):
+            lmeval_version = "unknown"
+
+        lmeval = test_instance.lmeval
+        model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
+        seed = getattr(test_instance, "seed", None)
+
+        return cls(
+            model=test_instance.model,
+            task=lmeval.task,
+            num_fewshot=lmeval.num_fewshot,
+            limit=lmeval.limit,
+            batch_size=lmeval.batch_size,
+            model_args_hash=_sha256_hash(model_args_json, 16),
+            lmeval_version=lmeval_version,
+            seed=seed,
+        )
+
+    def _matches(self, row: pd.Series) -> bool:
+        """Check if a DataFrame row matches this cache key."""
+        # Handle NaN for seed comparison (pandas reads None as NaN)
+        seed_matches = (pd.isna(row["seed"]) and self.seed is None) or (
+            row["seed"] == self.seed
+        )
+        return (
+            row["model"] == self.model
+            and row["task"] == self.task
+            and row["num_fewshot"] == self.num_fewshot
+            and row["limit"] == self.limit
+            and row["batch_size"] == self.batch_size
+            and row["model_args_hash"] == self.model_args_hash
+            and row["lmeval_version"] == self.lmeval_version
+            and seed_matches
+        )
+
+    def get_cached_result(self) -> Optional[Dict]:
+        """Load cached result from CSV file."""
+        if not LMEVAL_CACHE_FILE.exists():
+            return None
+
+        try:
+            df = pd.read_csv(LMEVAL_CACHE_FILE)
+            matches = df[df.apply(self._matches, axis=1)]
+
+            if matches.empty:
+                return None
+
+            return json.loads(matches.iloc[0]["result"])
+
+        except Exception as e:
+            logger.debug(f"Cache read failed: {e}")
+            return None
+
+    def store_result(self, result: Dict) -> None:
+        """Store result in CSV file."""
+        try:
+            LMEVAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+            new_row = {
+                "model": self.model,
+                "task": self.task,
+                "num_fewshot": self.num_fewshot,
+                "limit": self.limit,
+                "batch_size": self.batch_size,
+                "model_args_hash": self.model_args_hash,
+                "lmeval_version": self.lmeval_version,
+                "seed": self.seed,
+                "result": json.dumps(result, default=str),
+            }
+
+            # Load existing cache or create new
+            if LMEVAL_CACHE_FILE.exists():
+                df = pd.read_csv(LMEVAL_CACHE_FILE)
+                # Remove duplicate entries for this key
+                df = df[~df.apply(self._matches, axis=1)]
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            else:
+                df = pd.DataFrame([new_row])
+
+            df.to_csv(LMEVAL_CACHE_FILE, index=False)
+            logger.info(f"LM-Eval cache WRITE: {self.model}/{self.task}")
+
+        except Exception as e:
+            logger.debug(f"Cache write failed: {e}")
+
+
+def cached_lm_eval_run(func: Callable) -> Callable:
+    """
+    Decorator to cache lm_eval results in CSV format.
+
+    Caches results based on model, task, num_fewshot, limit, batch_size,
+    and model_args to avoid redundant base model evaluations.
+
+    Environment variables:
+        DISABLE_LMEVAL_CACHE: Set to "1"/"true"/"yes" to disable
+        LMEVAL_CACHE_DIR: Custom cache directory (default: .lmeval_cache)
+    """
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Skip caching if disabled
+        if DISABLE_LMEVAL_CACHE:
+            return func(self, *args, **kwargs)
+
+        # Try to get cached result
+        cache_key = LMEvalCacheKey.from_test_instance(self)
+        if (cached_result := cache_key.get_cached_result()) is not None:
+            logger.info(f"LM-Eval cache HIT: {cache_key.model}/{cache_key.task}")
+            return cached_result
+
+        # Run evaluation and cache result
+        logger.info(f"LM-Eval cache MISS: {cache_key.model}/{cache_key.task}")
+        result = func(self, *args, **kwargs)
+        cache_key.store_result(result)
+
+        return result
+
+    return wrapper

@@ -126,7 +126,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
-docs/.cache/
+docs/.cache/*
 
 # mypy
 .mypy_cache/
@@ -804,6 +804,9 @@ wandb/
 timings/
 output_finetune/
 env_log.json
+
+# LM Eval cache
+.lmeval_cache/
 
 # uv artifacts
 uv.lock

@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
 # Load model.
-model = LlavaForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = LlavaForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="FP8_DYNAMIC",
-    ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_tower.*"],
+    ignore=["re:.*lm_head", "re:.*multi_modal_projector.*", "re:.*vision_tower.*"],
 )
 
 # Apply quantization and save to disk in compressed-tensors format.

@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 # Load model.
-model = MllamaForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = MllamaForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="FP8_DYNAMIC",
-    ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+    ignore=["re:.*lm_head", "re:.*multi_modal_projector.*", "re:.*vision_model.*"],
 )
 
 # Apply quantization and save to disk in compressed-tensors format.
