@@ -54,13 +54,21 @@ _moe_default_mappings = [
     ),
 ]
 
-# Qwen3Next includes a shared_expert in addition to the MoE experts
+# Qwen3Next uses hybrid attention: self_attn (layers 3,7,11,...) and
+# linear_attn/Gated DeltaNet (all other layers). Layer-specific patterns
+# are required since different layers have different projection structures.
+# Also includes shared_expert in the MoE MLP.
 _qwen3_next_moe_mappings = [
     AWQMapping(
-        "re:.*input_layernorm$",
-        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+        "re:.*layers\\.(3|7|11|15|19|23|27|31|35|39|43|47)\\.input_layernorm$",
+        ["re:.*self_attn.q_proj$", "re:.*self_attn.k_proj$", "re:.*self_attn.v_proj$"],
     ),
-    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
+    AWQMapping(
+        "re:.*layers\\.(0|1|2|4|5|6|8|9|10|12|13|14|16|17|18|20|21|22|24|25|26|28|29|30|32|33|34|36|37|38|40|41|42|44|45|46)\\.input_layernorm$",
+        ["re:.*linear_attn.in_proj_qkvz$", "re:.*linear_attn.in_proj_ba$"],
+    ),
+    AWQMapping("re:.*linear_attn.norm$", ["re:.*linear_attn.out_proj$"]),
     AWQMapping(
         "re:.*post_attention_layernorm$",
         [
@@ -70,10 +78,7 @@ _qwen3_next_moe_mappings = [
             "re:.*mlp.shared_expert.up_proj$",
         ],
     ),
-    AWQMapping(
-        "re:.*up_proj$",
-        ["re:.*down_proj$"],
-    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
 # Phi merges
