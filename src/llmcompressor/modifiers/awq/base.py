@@ -484,11 +484,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # updated when the parent changes.
                 if fp16_outputs is None or mapping.parent != prev_parent:
                     device = get_execution_device(mapping.parent)
-                    fp16_outputs = [ref["output"].to(device) for ref in self._fp16_baseline_cache[mapping.parent]]
+                    fp16_outputs = [
+                        ref["output"].to(device)
+                        for ref in self._fp16_baseline_cache[mapping.parent]
+                    ]
                     prev_parent = mapping.parent
-                    self._fp16_baseline_cache[mapping.parent].batch_intermediates.clear()
+                    self._fp16_baseline_cache[
+                        mapping.parent
+                    ].batch_intermediates.clear()
 
-                    no_activations = len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs)
+                    no_activations = len(fp16_outputs) == 0 or all(
+                        f.numel() == 0 for f in fp16_outputs
+                    )
                     non_finite_activations = not all(
                         [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
                     )
@@ -520,16 +527,21 @@ class AWQModifier(Modifier, QuantizationMixin):
                     and hasattr(balance_layer.quantization_scheme, "weights")
                 }
 
-                best_scales = self._compute_best_scale(mapping, fp16_outputs, orig_layer_weights)
+                best_scales = self._compute_best_scale(
+                    mapping, fp16_outputs, orig_layer_weights
+                )
 
                 @torch.no_grad()
-                def _smooth(module: Module):
+                def _smooth(
+                    module: Module, orig_layer_weights: dict[Module, torch.Tensor]
+                ):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
                         update_offload_parameter(
                             module,
                             "weight",
-                            orig_layer_weights[module].to(module.weight.device) * scales.view(1, -1),
+                            orig_layer_weights[module].to(module.weight.device)
+                            * scales.view(1, -1),
                         )
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
@@ -556,8 +568,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                             )
 
                 for layer in balance_layers:
-                    _smooth(layer)
-                _smooth(smooth_layer)
+                    _smooth(layer, orig_layer_weights)
+                _smooth(smooth_layer, orig_layer_weights)
 
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_means[mapping.smooth_name]
@@ -605,7 +617,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_scales = None
         best_error = float("inf")
         initial_error = None
-
 
         device = get_execution_device(mapping.parent)
 
@@ -678,7 +689,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.data.copy_(
-                        orig_layer_weights[balance_layer].to(_scalesview.device) * _scalesview
+                        orig_layer_weights[balance_layer].to(_scalesview.device)
+                        * _scalesview
                     )
 
                     should_calculate_gparam = (
@@ -779,7 +791,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
-        return (loss/num_elements).item()
+        return (loss / num_elements).item()
 
     def _log_error_metrics(self):
         """
