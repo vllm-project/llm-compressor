@@ -2,7 +2,7 @@ import ast
 import builtins
 from typing import Set, Tuple
 
-from llmcompressor.utils import patch_attr
+from compressed_tensors.utils import patch_attr
 
 
 class NameAnalyzer(ast.NodeVisitor):

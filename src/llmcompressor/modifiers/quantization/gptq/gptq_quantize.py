@@ -286,7 +286,7 @@ def _apply_activation_ordering(
     W: torch.Tensor, H: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Permute weight and hessian in order of greatest outupt activations
+    Permute weight and hessian in order of greatest output activations
 
     :param W: weight to permute
     :param H: hessian used to determine activation ordering

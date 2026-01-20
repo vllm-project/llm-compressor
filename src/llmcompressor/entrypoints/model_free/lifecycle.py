@@ -3,7 +3,6 @@ from compressed_tensors.compressors import BaseCompressor
 from compressed_tensors.config.format import _get_quant_compression_format
 from compressed_tensors.quantization import (
     QuantizationScheme,
-    QuantizationStrategy,
     initialize_module_for_quantization,
 )
 
@@ -17,7 +16,8 @@ from llmcompressor.modifiers.quantization.calibration import (
 
 __all__ = [
     "initialize_quantized_linear",
-    "calibrate_weights",
+    "calibrate_global_scale",
+    "calibrate_scale_zp",
     "compress_module",
 ]
 
@@ -35,15 +35,17 @@ def initialize_quantized_linear(
     return module
 
 
-def calibrate_weights(module: torch.nn.Linear):
-    scheme: QuantizationScheme = getattr(module, "quantization_scheme")
+def calibrate_global_scale(module: torch.nn.Linear):
     initialize_observer(module, "weight")
-
     apply_calibration_status(module)
-    if scheme.weights.strategy == QuantizationStrategy.TENSOR_GROUP:
-        update_weight_global_scale(module)
-    update_weight_zp_scale(module)
+    update_weight_global_scale(module)
+    freeze_module_quantization(module)
 
+
+def calibrate_scale_zp(module: torch.nn.Linear):
+    initialize_observer(module, "weight")
+    apply_calibration_status(module)
+    update_weight_zp_scale(module)
     freeze_module_quantization(module)
 
 

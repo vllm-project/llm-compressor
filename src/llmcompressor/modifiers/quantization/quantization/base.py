@@ -37,7 +37,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         the kv_cache_scheme gets converted into a QuantizationScheme that:
             - targets the `q_proj` and `k_proj` modules of the model. The outputs
               of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aformentioned layers, so that
+            - quantizes the outputs of the aforementioned layers, so that
               keys and values are compressed before storing them in the cache
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case

@@ -13,6 +13,7 @@ from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
+    handle_sequential_oom,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import (
@@ -30,6 +31,7 @@ __all__ = ["SequentialPipeline"]
 @CalibrationPipeline.register("sequential")
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
+    @handle_sequential_oom
     def __call__(
         model: torch.nn.Module,
         dataloader: DataLoader,
@@ -66,7 +68,6 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers
         sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
-
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs
@@ -90,7 +91,10 @@ class SequentialPipeline(CalibrationPipeline):
                 stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(dataloader, model_device)
+            offload_device = torch.device(dataset_args.sequential_offload_device)
+            activations = IntermediatesCache.from_dataloader(
+                dataloader, model_device, offload_device=offload_device
+            )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts

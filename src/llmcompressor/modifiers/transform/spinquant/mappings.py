@@ -25,7 +25,7 @@ class SpinQuantMapping(BaseModel):
     :param mlp_in: list of names or regexes for the mlp blocks that
         receive the input to the MLP block, usually up_proj and gate_proj
     :param mlp_out: list of names or regexes for the mlp blocks that
-        consitute the output of the MLP block, usually down_proj
+        constitute the output of the MLP block, usually down_proj
     """
 
     embedding: str

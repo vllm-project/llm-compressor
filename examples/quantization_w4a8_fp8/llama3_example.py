@@ -2,9 +2,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
-from compressed_tensors.quantization import QuantizationScheme, QuantizationArgs
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -51,16 +50,8 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="attn_head"
-            ),
-        )
-    }
-)
+# W4AFP8 scheme: 4-bit integer weights (group 128) + FP8 dynamic per-token activations
+recipe = GPTQModifier(targets="Linear", scheme="W4AFP8", ignore=["lm_head"])
 
 # Apply algorithms.
 oneshot(
@@ -82,6 +73,9 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-attention-fp8-head"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
+# Use quantization_format="pack-quantized" for vLLM compatibility
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4AFP8"
+model.save_pretrained(
+    SAVE_DIR, save_compressed=True, quantization_format="pack-quantized"
+)
 tokenizer.save_pretrained(SAVE_DIR)

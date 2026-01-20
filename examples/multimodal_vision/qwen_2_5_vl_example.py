@@ -12,7 +12,7 @@ from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments

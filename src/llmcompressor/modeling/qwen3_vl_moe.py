@@ -116,15 +116,3 @@ class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
             self[i].gate_proj.weight.data = gate_proj.t().clone().contiguous()
             self[i].up_proj.weight.data = up_proj.t().clone().contiguous()
             self[i].down_proj.weight.data = down.t().clone().contiguous()
-
-
-def replace(
-    config: "Qwen3VLMoeConfig",
-    original: "Qwen3VLMoeTextSparseMoeBlock",
-    calibrate_all_experts: bool,
-):
-    return CalibrateQwen3VLMoeTextSparseMoeBlock(
-        original=original,
-        config=config,
-        calibrate_all_experts=calibrate_all_experts,
-    )

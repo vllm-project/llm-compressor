@@ -1,18 +1,27 @@
 import inspect
 from itertools import product
-from typing import Literal
+from typing import Iterator, Literal
 
 import torch
-from compressed_tensors.quantization import disable_quantization
+from compressed_tensors.quantization import (
+    QuantizationStrategy,
+    disable_quantization,
+    forward_quantize,
+)
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
+    get_lowest_common_ancestor_name,
+    getattr_chain,
+    match_modules_set,
     match_named_modules,
+    patch_attrs,
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr, model_validator
+from pydantic import ConfigDict, PrivateAttr, field_validator
 from torch.nn import Module
+from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
@@ -22,13 +31,20 @@ from llmcompressor.modifiers.awq.mappings import (
     ResolvedMapping,
     get_layer_mappings_from_architecture,
 )
-from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
+from llmcompressor.modifiers.quantization.calibration import (
+    call_observer,
+    update_weight_global_scale,
+    update_weight_zp_scale,
+)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layer_by_name
+from llmcompressor.utils.pytorch.module import (
+    get_module_to_name_dict,
+)
 
 __all__ = ["AWQModifier"]
 
@@ -58,7 +74,6 @@ class AWQModifier(Modifier, QuantizationMixin):
           balance_layers: ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]
         - smooth_layer: "re:.*final_layer_norm"
           balance_layers: ["re:.*fc1"]
-      ]
       ignore: ["lm_head"]
       config_groups:
         group_0:
@@ -75,25 +90,26 @@ class AWQModifier(Modifier, QuantizationMixin):
     ```
 
     Lifecycle:
-        - on_initialize
-            - resolve mappings
-            - capture kwargs needed for forward passes into modules
-        - on_start
-            - set up activation cache hooks to capture input activations
-                to balance layers
-        - on sequential epoch end
-            - apply smoothing to each smoothing layer
-                - consume cached activations across all batches
-                    - clear cached activations as they are used
-                - find best smoothing scale for each smoothing layer
-                - apply to model weights
-                - raise error if any unused activations remain
-        - on_end
-            - re-run logic of sequential epoch end (in case of basic pipeline)
-            - set scales and zero points
-            - remove activation hooks
-        - on_finalize
-            - clear resolved mappings and captured activations
+
+    - on_initialize
+        - resolve mappings
+        - capture kwargs needed for forward passes into modules
+    - on_start
+        - set up activation cache hooks to capture input activations
+            to balance layers
+    - on sequential epoch end
+        - apply smoothing to each smoothing layer
+            - consume cached activations across all batches
+                - clear cached activations as they are used
+            - find best smoothing scale for each smoothing layer
+            - apply to model weights
+            - raise error if any unused activations remain
+    - on_end
+        - re-run logic of sequential epoch end (in case of basic pipeline)
+        - set scales and zero points
+        - remove activation hooks
+    - on_finalize
+        - clear resolved mappings and captured activations
 
     :param sequential_targets: list of module names to compress in
         the same calibration pass
@@ -104,7 +120,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
-    :param ignore: list of layers to ignore, even if they match a regex in mappings.
+    :param ignore: list of layers to ignore during quantization (not smoothed).
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
@@ -133,11 +149,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
 
-    # Private vars set during validation
-    _num_bits: int | None = PrivateAttr(default=None)
-    _symmetric: bool | None = PrivateAttr(default=None)
-    _group_size: int | None = PrivateAttr(default=None)
-
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache list of forward input args for each parent module, one dict for each batch
@@ -148,74 +159,8 @@ class AWQModifier(Modifier, QuantizationMixin):
     _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
-
-    # NOTE: different name chosen to avoid collision with
-    # QuantizationMixin.validate_model_after, which must be called first
-    @model_validator(mode="after")
-    def validate_awq_after(model: "AWQModifier") -> "AWQModifier":
-        """
-        Confirm only one configuration for group_size, symmetric, and num_bits,
-        as AWQ algorithm depends on it
-        Confirm no activation quantization, as AWQ only works with WNA16
-        """
-        config = model.resolve_quantization_config()
-
-        num_bits_set = set(
-            group.weights.num_bits
-            for group in config.config_groups.values()
-            if group.weights is not None
-        )
-        assert (
-            len(num_bits_set) == 1
-        ), "In AWQ, all config groups must use the same configuration for num_bits"
-
-        model._num_bits = next(iter(num_bits_set))
-
-        symmetric_set = set(
-            group.weights.symmetric
-            for group in config.config_groups.values()
-            if group.weights is not None
-        )
-        assert (
-            len(symmetric_set) == 1
-        ), "In AWQ, all config groups must use the same configuration for symmetric"
-
-        model._symmetric = next(iter(symmetric_set))
-
-        group_size_set = set(
-            group.weights.group_size
-            for group in config.config_groups.values()
-            if group.weights is not None
-        )
-        assert (
-            len(group_size_set) == 1
-        ), "In AWQ, all config groups must use the same configuration for group_size"
-
-        model._group_size = next(iter(group_size_set))
-        if model._group_size is None:
-            model._group_size = -1
-
-        in_num_bits_set = set(
-            group.input_activations.num_bits
-            for group in config.config_groups.values()
-            if group.input_activations is not None
-        )
-        assert len(in_num_bits_set) == 0 or in_num_bits_set == {16}, (
-            "AWQ activations must be 16-bit precision, "
-            f"input activations {in_num_bits_set} not allowed"
-        )
-
-        out_num_bits_set = set(
-            group.output_activations.num_bits
-            for group in config.config_groups.values()
-            if group.output_activations is not None
-        )
-        assert len(out_num_bits_set) == 0 or out_num_bits_set == {16}, (
-            "AWQ activations must be 16-bit precision, "
-            f"output activations {out_num_bits_set} not allowed"
-        )
-
-        return model
+    # List to store error metrics for each layer
+    _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -229,6 +174,24 @@ class AWQModifier(Modifier, QuantizationMixin):
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
+
+        # Validate that duo_scaling is only used with per-channel quantization
+        if self.duo_scaling is not False:
+            for _, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            ):
+                if (
+                    hasattr(module, "quantization_scheme")
+                    and hasattr(module.quantization_scheme, "weights")
+                    and module.quantization_scheme.weights.strategy
+                    == QuantizationStrategy.TENSOR
+                ):
+                    raise ValueError(
+                        "duo_scaling is only supported with per-channel quantization "
+                        "strategies (group or channel), but found TENSOR strategy. "
+                        "Please set duo_scaling=False or use a per-channel "
+                        "quantization strategy."
+                    )
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
@@ -279,10 +242,21 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
-        for _, module in tqdm(
-            match_named_modules(state.model, self.resolved_targets, self.ignore),
-            desc="Calibrating weights",
-        ):
+        named_modules = list(
+            match_named_modules(state.model, self.resolved_targets, self.ignore)
+        )
+
+        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
+        for _, module in tqdm(named_modules, desc="Updating global scales"):
+            update_weight_global_scale(module)
+
+        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
+        # This is a requirement for vLLM inference.
+        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
+            update_fused_layer_weight_global_scales(module)
+
+        # Calculate scales and zero points using the fused global scales
+        for _, module in tqdm(named_modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
         QuantizationMixin.end_calibration(self, state.model)
@@ -300,9 +274,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
+        self._log_error_metrics()
+
         self._parent_args_cache.clear()
         self._smooth_activation_means.clear()
         self._resolved_mappings.clear()
+        self._error_metrics.clear()
 
         return True
 
@@ -319,64 +296,66 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        for mapping_idx, mapping in enumerate(self.mappings):
-            num_skipped_mappings = 0
-
-            for smooth_name, smooth_layer in (
-                pbar := tqdm(
-                    match_named_modules(model, [mapping.smooth_layer], self.ignore)
-                )
+        module_to_name = get_module_to_name_dict(model)
+        # Get names of modules targeted for quantization (excludes ignored)
+        targeted_names = set(
+            name
+            for name, _ in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        )
+        for mapping in self.mappings:
+            # we deliberately don't use the ignore list when matching mappings,
+            # so that we can handle layers that need smoothing but not quantization
+            # we only skip if no layers in mapping are targeted for quantization.
+            for smooth_layers, *nested_balance_layers in match_modules_set(
+                model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
-                pbar.set_description(
-                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
-                    f" ({num_skipped_mappings} skipped)"
+                if len(smooth_layers) > 1:
+                    raise ValueError(
+                        "AWQ needs to match a single smoothlayer for each mapping but "
+                        f"got {[module_to_name.get(s) for s in smooth_layers]}"
+                        f" for mapping: {mapping}"
+                    )
+                smooth_layer = smooth_layers[0]
+                smooth_name = module_to_name.get(smooth_layer)
+
+                # [[b00, b01, b02...], [b10, b11, b12,...], ...] ↓
+                #                             [b00, b01, b02, ..., b10, b11, b12, ...]
+                balance_layers = tree_leaves(nested_balance_layers)
+                balance_names = [
+                    module_to_name.get(balance_layer)
+                    for balance_layer in balance_layers
+                ]
+
+                # Check if at least one layer is targeted for quantization
+                any_targeted = smooth_name in targeted_names or any(
+                    bn in targeted_names for bn in balance_names
                 )
 
-                smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
-                smooth_parent = get_layer_by_name(smooth_parent_name, model)
+                all_compatible = _check_layers_are_compatible(
+                    smooth_layer, smooth_name, balance_layers, balance_names
+                )
 
-                balance_layers, balance_names = [], []
-                for balance_regex in mapping.balance_layers:
-                    # find the submodules that match the activation layer
-                    for balance_suffix, balance_layer in match_named_modules(
-                        smooth_parent, [balance_regex], self.ignore
-                    ):
-                        balance_name = f"{smooth_parent_name}.{balance_suffix}"
+                skip_message: str | None = None
+                if not all_compatible:
+                    skip_message = " because found incompatible balance layers"
+                elif not any_targeted:
+                    skip_message = " because no layers are targeted for quantization"
+                elif len(balance_layers) == 0:
+                    skip_message = " because no balance layers were found"
 
-                        # exclude v_proj->o_proj mappings whose shapes are incompatible
-                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                        if (
-                            isinstance(smooth_layer, torch.nn.Linear)
-                            and isinstance(balance_layer, torch.nn.Linear)
-                            and balance_name.endswith(".o_proj")
-                            and (
-                                (
-                                    smooth_name.endswith(".v_proj")
-                                    and smooth_layer.out_features
-                                    != balance_layer.in_features
-                                )
-                                or (
-                                    smooth_name.endswith(".qkv_proj")
-                                    and smooth_layer.out_features
-                                    != 3 * balance_layer.in_features
-                                )
-                            )
-                        ):
-                            num_skipped_mappings += 1
-                            continue
+                if skip_message:
+                    logger.warning(
+                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                        + skip_message
+                    )
 
-                        balance_layers.append(balance_layer)
-                        balance_names.append(balance_name)
-
-                if len(balance_layers) == 0:
                     continue
 
-                elif len(balance_layers) == 1:
-                    # for single balance layer, parent is the balance layer
-                    parent_name, parent = balance_name, balance_layer
-                else:
-                    # for multiple balance layers, find lowest common parent
-                    parent_name, parent = get_lowest_common_parent(balance_names, model)
+                ancestor_name, ancestor = get_lowest_common_ancestor_with_avoid(
+                    balance_names, model, torch.nn.ModuleList
+                )
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -384,8 +363,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_layer,
                         balance_layers,
                         balance_names=balance_names,
-                        parent=parent,
-                        parent_name=parent_name,
+                        parent=ancestor,
+                        parent_name=ancestor_name,
                     )
                 )
         self._resolved_mappings = resolved_mappings
@@ -398,7 +377,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
 
         def cache_parent_kwargs_hook(
-            module: torch.nn.Module,
+            module: Module,
             args: tuple[torch.Tensor, ...],
             kwargs,
         ):
@@ -407,15 +386,15 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
-                _module: torch.nn.Module,
+                _module: Module,
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
-                self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    # Assume that first argument is the input
-                    args[0].cpu().abs().detach().squeeze(),
+                act_mean, count = _accumulate_mean(
+                    args[0].abs().detach().flatten(0, -2),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
+                self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
 
             return cache_smooth_activations_hook
 
@@ -453,7 +432,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         :param model: model to apply smoothing to
         """
         # NOTE: When using SequentialPipeline, not all the mappings
-        # will have cached activations in the segment being udpated
+        # will have cached activations in the segment being updated
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
@@ -469,28 +448,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                # [STEP 1]: Compute per-channel mean of normalised weights
-                # All layer weights are concatted together
-                weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
-                org_shape = weight.shape
-                # The weights are reshaped to be organised by quantization group
-                if self._group_size > 0:
-                    weight = weight.view(-1, self._group_size)
-                # Calculates the relative magnitude of the weights within
-                # each of the quantization groups, and rescales each group
-                # individually so that each group has weights on a 0-1 scale.
-                weight.abs_()
-                weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-                if self._group_size > 0:
-                    # Resizes the rescaled weight matrix back up to
-                    # its original dimensions
-                    weight = weight.view(org_shape)
-                # Gets the average rescaled magnitude for each output channel
-                w_mean = weight.mean(0)
-                del weight
-
-                # [STEP 3]: Compute output of module
-                # could cache from hook, rather than recomputing here
+                # Compute output of unquantized module
                 fp16_outputs = self._run_samples(parent_module)
                 if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
                     logger.info(
@@ -515,15 +473,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
 
-                x_mean = self._smooth_activation_means[mapping.smooth_name][0]
-
-                # [STEP 4]: Compute loss
-                best_scales = self._compute_best_scale(
-                    x_mean, w_mean, parent_module, balance_layers, fp16_outputs
-                )
+                best_scales = self._compute_best_scale(mapping, fp16_outputs)
 
                 @torch.no_grad()
-                def _smooth(module):
+                def _smooth(module: Module):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
                         update_offload_parameter(
@@ -555,14 +508,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                                 module.bias.div_(scales),
                             )
 
-                parent = get_fsdp_parent(mapping.smooth_name, model)
-                if parent is not None:
-                    parent.apply(_smooth)
-                else:
-                    # if we're not running with FSDP we can apply smoothing directly
-                    for layer in balance_layers:
-                        _smooth(layer)
-                    _smooth(smooth_layer)
+                for layer in balance_layers:
+                    _smooth(layer)
+                _smooth(smooth_layer)
 
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_means[mapping.smooth_name]
@@ -576,42 +524,49 @@ class AWQModifier(Modifier, QuantizationMixin):
             module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
         ]
         return [
-            # If Tuple, assume that first argument is the input
+            # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
             for output in outputs
         ]
 
     def _compute_best_scale(
         self,
-        x_mean: torch.Tensor,
-        w_mean: torch.Tensor,
-        parent_module: torch.nn.Module,
-        linears2scale: list[torch.nn.Linear],
+        mapping: ResolvedMapping,
         fp16_outputs: list[torch.Tensor],
     ) -> torch.Tensor:
         """
-        Compute loss and select best scales
+        Select best scales for a given mapping in a grid search
+        Best scales are those that minimize MSE loss of quantized weight
+            outputs compared to fp16_outputs
 
         L(s) = || Q(W * s) (s^-1 * X) - W * X ||
         Q: weight quantization function | _pseudo_quantize_tensor(W * s)
         X: inputs from calib dataset    | X
         W: original weights in FP16     | layer
         s: per channel scaling factor   | s^-1 * X
+
+        :param mapping: best scales will be found for the ResolvedMapping.
+        :param fp16_outputs: output of mapping.parent in unquantized case,
+            one tensor for each batch.
+        :return: tensor of best scales, one for each channel
         """
         history = []
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
+        initial_error = None
 
         org_sd = {
             k: v.cpu()
-            for k, v in parent_module.state_dict().items()
+            for k, v in mapping.parent.state_dict().items()
             if v.device != torch.device("meta")
         }
 
-        device = get_execution_device(parent_module)
-        x_mean = x_mean.view(-1).to(device)
-        w_mean = w_mean.view(-1).to(device)
+        device = get_execution_device(mapping.parent)
+
+        x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
+        if self.duo_scaling:
+            w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
         match self.duo_scaling:
             # if self.duo_scaling is "both", perform half the grid search with
@@ -622,52 +577,112 @@ class AWQModifier(Modifier, QuantizationMixin):
             case _:
                 n_grid = self.n_grid
                 duo_scalings = [self.duo_scaling]
-        for grid_idx, use_duo_scaling in product(range(n_grid), duo_scalings):
-            # create new scales
-            ratio = grid_idx / n_grid
 
-            # NOTE: s^-1 * x is fused here, according to paper
-            if use_duo_scaling:
-                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
-                    min=1e-4
+        # Where appropriate, replace observers with memoryless_minmax
+        # for duration of grid search
+        balance_layers_to_patch = [
+            balance_layer
+            for balance_layer in mapping.balance_layers
+            if hasattr(balance_layer, "quantization_scheme")
+            and hasattr(balance_layer.quantization_scheme, "weights")
+        ]
+        with patch_attrs(
+            balance_layers_to_patch,
+            "weight_observer",
+            [
+                Observer.load_from_registry(
+                    "memoryless_minmax",
+                    base_name="weight",
+                    args=balance_layer.quantization_scheme.weights,
+                    module=balance_layer,
                 )
-            else:
-                scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
-            scales = scales / (scales.max() * scales.min()).sqrt()
-            _scalesview = scales.view(1, -1).to(device)
+                for balance_layer in balance_layers_to_patch
+            ],
+        ):
+            total_iterations = n_grid * len(duo_scalings)
+            pbar = tqdm(
+                product(range(n_grid), duo_scalings),
+                total=total_iterations,
+                desc=f"Grid search for {mapping.smooth_name}",
+                leave=False,
+            )
+            for grid_idx, use_duo_scaling in pbar:
+                # create new scales
+                ratio = grid_idx / n_grid
 
-            # avoid scaling values that overflow
-            scales[torch.isinf(scales)] = 1
-            scales[torch.isnan(scales)] = 1
+                # NOTE: s^-1 * x is fused here, according to paper
+                if use_duo_scaling:
+                    scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
+                        min=1e-4
+                    )
+                else:
+                    scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
+                scales = scales / (scales.max() * scales.min()).sqrt()
+                _scalesview = scales.view(1, -1).to(device)
 
-            # Q(W * s)
-            for linear in linears2scale:
-                linear.weight.mul_(_scalesview)
-                update_offload_parameter(
-                    linear,
-                    "weight",
-                    _pseudo_quantize_tensor(
-                        w=linear.weight.data,
-                        symmetric=self._symmetric,
-                        bit_width=self._num_bits,
-                        group_size=self._group_size,
-                    )[0]
-                    / _scalesview,
+                # avoid scaling values that overflow
+                scales[torch.isinf(scales)] = 1
+                scales[torch.isnan(scales)] = 1
+
+                # Q(W * s)
+                for balance_layer in balance_layers_to_patch:
+                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
+                        balance_layer.quantization_scheme, "weights"
+                    ):
+                        continue
+
+                    w_qscheme = balance_layer.quantization_scheme.weights
+                    balance_layer.weight.mul_(_scalesview)
+                    # For TENSOR_GROUP (nvfp4), need to calculate global scale
+                    should_calculate_gparam = (
+                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                    )
+                    call_observer(
+                        balance_layer,
+                        "weight",
+                        balance_layer.weight,
+                        should_calculate_gparam=should_calculate_gparam,
+                    )
+                    update_offload_parameter(
+                        balance_layer,
+                        "weight",
+                        forward_quantize(
+                            balance_layer,
+                            balance_layer.weight.data,
+                            "weight",
+                            w_qscheme,
+                        )
+                        / _scalesview,
+                    )
+
+                # Apply fused global scales for TENSOR_GROUP during grid search
+                # to match inference behavior
+                if balance_layers_to_patch and all(
+                    getattr(layer.quantization_scheme.weights, "strategy", None)
+                    == QuantizationStrategy.TENSOR_GROUP
+                    for layer in balance_layers_to_patch
+                ):
+                    update_fused_layer_weight_global_scales(mapping.parent)
+
+                # W * X
+                int_w_outputs = self._run_samples(mapping.parent)
+
+                # compute mean squared error (L2 norm)
+                loss = self._compute_loss(fp16_outputs, int_w_outputs)
+
+                if initial_error is None:
+                    initial_error = loss
+
+                history.append(
+                    {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
                 )
+                if loss < best_error:
+                    best_error = loss
+                    best_ratio = ratio
+                    best_scales = scales.clone()
+                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
-            # W * X
-            int_w_outputs = self._run_samples(parent_module)
-
-            # compute mean squared error (L2 norm)
-            loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
-
-            history.append(loss)
-            if loss < best_error:
-                best_error = loss
-                best_ratio = ratio
-                best_scales = scales.clone()
-
-            parent_module.load_state_dict(org_sd, strict=False)
+                mapping.parent.load_state_dict(org_sd, strict=False)
 
         if best_ratio == -1:
             logger.debug(history)
@@ -677,6 +692,25 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "module. If you encounter this error, raise an issue at "
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
+
+        err_reduction = best_error / initial_error if initial_error > 0 else 1.0
+        logger.debug(
+            f"AWQ grid search for {mapping.smooth_name}: "
+            f"initial error = {initial_error:.3e}, "
+            f"best error = {best_error:.3e}, "
+            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
+        )
+
+        # Store error metrics for this layer
+        self._error_metrics.append(
+            {
+                "layer_name": mapping.smooth_name,
+                "parent_name": mapping.parent_name,
+                "initial_error": initial_error,
+                "best_error": best_error,
+                "reduction": err_reduction,
+            }
+        )
 
         assert (
             torch.isnan(best_scales).sum() == 0
@@ -689,28 +723,52 @@ class AWQModifier(Modifier, QuantizationMixin):
         self,
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
-        device: torch.device,
-    ) -> torch.Tensor:
+    ) -> float:
         loss = 0.0
         num_elements = 0
 
         # Compute the MSE loss for each batch
         for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            batch_loss = (
-                (fp16_batch.to(device) - int_w_batch.to(device))
-                .view(-1)
-                .float()
-                .pow(2)
-                .sum()
-                .item()
-            )
-            loss += batch_loss
+            loss += torch.nn.functional.mse_loss(
+                fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
+            ).item()
             num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
         loss /= num_elements
 
         return loss
+
+    def _log_error_metrics(self):
+        """
+        Log the error metrics (initial error, best error, reduction).
+        """
+
+        # Prepare data for saving
+        metrics_data = {
+            "quantization_config": {
+                "duo_scaling": self.duo_scaling,
+                "n_grid": self.n_grid,
+            },
+            "total_layers": len(self._error_metrics),
+            "metrics": self._error_metrics,
+        }
+
+        # Save to disk
+        logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
+
+        # Also print summary statistics
+        reductions = [m["reduction"] for m in self._error_metrics]
+        avg_reduction = sum(reductions) / len(reductions)
+        min_reduction = min(reductions)
+        max_reduction = max(reductions)
+        sorted_reductions = sorted(reductions)
+        median_reduction = sorted_reductions[len(sorted_reductions) // 2]
+        logger.debug(
+            f"Error reduction statistics: "
+            f"avg={avg_reduction:.4f}, median={median_reduction:.4f}, "
+            f"min={min_reduction:.4f}, max={max_reduction:.4f}"
+        )
 
     def _assert_all_activations_consumed(self):
         """
@@ -720,48 +778,135 @@ class AWQModifier(Modifier, QuantizationMixin):
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
 
+    @staticmethod
+    def _compute_layer_means(layers: list[Module]) -> torch.Tensor:
+        """
+        Compute per-channel/group/block/tensor mean of normalised weights
+        for all passed in layers taking into account the quantization_scheme.
 
-def _pseudo_quantize_tensor(
-    w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
+        To minimize memory requirements, layers are reduced to a running total
+            of sums and counts when calculating mean
+        """
+        # to calculate mean without having to carry full population
+        weight_total_count = 0
+        weight_total_sum = 0
+
+        for layer in layers:
+            if not hasattr(layer, "weight"):
+                logger.warning(
+                    "Unable to find weight param for targeted"
+                    f" layer {type(layer)}, skipping"
+                )
+                continue
+            weight = layer.weight.clone()
+            orig_shape = weight.shape
+
+            q_args = getattr_chain(layer, "quantization_scheme.weights", None)
+            if not q_args:
+                logger.warning(
+                    "Unable to find quantization scheme for "
+                    f"targeted layer {type(layer)}, skipping"
+                )
+                continue
+
+            match q_args.strategy:
+                # chunk size is the size of the size of the
+                # set of elements that get quantized together
+                case QuantizationStrategy.TENSOR:
+                    chunk_size = weight.numel()
+                case QuantizationStrategy.CHANNEL:
+                    chunk_size = weight.size(1)
+                case QuantizationStrategy.GROUP | QuantizationStrategy.TENSOR_GROUP:
+                    chunk_size = q_args.group_size
+                case QuantizationStrategy.BLOCK:
+                    block_height, block_width = q_args.block_structure
+                    weight = (  # (row, col) = (num_H*block_H, num_W*block_W)
+                        weight.unflatten(0, (-1, block_height))
+                        .unflatten(-1, (-1, block_width))
+                        .transpose(1, 2)  # ↳ (num_H, num_W, block_H, block_W)
+                    )
+                    intermediate_shape = weight.shape
+                    chunk_size = block_height * block_width
+
+            # need to get to shape (num_chunks x chunk_size)
+            weight = weight.reshape(-1, chunk_size)
+            # normalize
+            weight.abs_()
+            weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+            # Reshape back to original dimensions
+            if q_args.strategy == QuantizationStrategy.BLOCK:
+                weight = weight.view(intermediate_shape).transpose(1, 2)
+
+            # back to (rows, cols)
+            weight = weight.reshape(orig_shape)
+            # Gets the average rescaled magnitude for each output channel
+            weight_total_count += weight.size(0)
+            weight_sum = weight.sum(0, dtype=torch.float64)
+            weight_total_sum += weight_sum
+
+        return weight_total_sum / weight_total_count
+
+    @field_validator("duo_scaling")
+    @classmethod
+    def validate_duo_scaling(cls, v):
+        """Validate that duo_scaling is either True, False, or 'both' (lowercase)"""
+        if v not in (True, False, "both"):
+            raise ValueError(f"duo_scaling must be True, False, or 'both', got {v!r}")
+        return v
+
+
+def _check_layers_are_compatible(
+    smooth_layer, smooth_name, balance_layers, balance_names
 ):
-    org_w_shape = w.shape
-    if group_size > 0:
-        assert org_w_shape[-1] % group_size == 0, (
-            f"org_w_shape ({org_w_shape[-1]}) must be a multiple "
-            + f"of group_size ({group_size})!"
-        )
-        w = w.reshape(-1, group_size)
-    assert w.dim() == 2
-    assert torch.isnan(w).sum() == 0
+    """
+    returns True if they are all compatible
+    returns False if any smooth & balance layers are incompatible
+    """
+    for balance_layer, balance_name in zip(balance_layers, balance_names):
+        # exclude v_proj->o_proj mappings whose shapes are incompatible
+        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+        if (
+            isinstance(smooth_layer, torch.nn.Linear)
+            and isinstance(balance_layer, torch.nn.Linear)
+            and balance_name.endswith(".o_proj")
+            and (
+                (
+                    smooth_name.endswith(".v_proj")
+                    and smooth_layer.out_features != balance_layer.in_features
+                )
+                or (
+                    smooth_name.endswith(".qkv_proj")
+                    and smooth_layer.out_features != 3 * balance_layer.in_features
+                )
+            )
+        ):
+            return False
+    return True
 
-    # zero point quantization
-    if not symmetric:
-        max_val = w.amax(dim=1, keepdim=True)
-        min_val = w.amin(dim=1, keepdim=True)
-        max_int = 2**bit_width - 1
-        min_int = 0
-        scales = (max_val - min_val).clamp(min=1e-5) / max_int
-        zeros = (-torch.round(min_val / scales)).clamp_(min_int, max_int)
-        w = (
-            torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
-        ) * scales
-        zeros = (zeros - 2 ** (bit_width - 1)).view(org_w_shape[0], -1)
-    else:
-        max_val = w.abs().amax(dim=1, keepdim=True)
-        max_val = max_val.clamp(min=1e-5)
-        max_int = 2 ** (bit_width - 1) - 1
-        min_int = -(2 ** (bit_width - 1))
-        scales = max_val / max_int
-        zeros = None
-        w = torch.clamp(torch.round(w / scales), min_int, max_int) * scales
 
-    assert torch.isnan(scales).sum() == 0
-    assert torch.isnan(w).sum() == 0
+def get_lowest_common_ancestor_with_avoid(
+    balance_names: Iterator[str], model: Module, avoid=torch.nn.ModuleList
+):
+    """
+    Get the lowest ancestor that is not the avoided class/type.
+    see compressed_tensors.utils.get_lowest_common_ancestor_name
+    for detail on case handling.
 
-    scales = scales.view(org_w_shape[0], -1)
-    w = w.reshape(org_w_shape)
+    NOTE: primarily used to exclude parents of type ModuleList, which don't play
+    nicely with hooks because their forward method is never directly
+    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
+    are selected based on router output and their forward method is called.
+    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
+    """
+    ancestor_name = get_lowest_common_ancestor_name(balance_names)
 
-    return w, scales, zeros
+    while True:
+        if ancestor_name == "":
+            return "", model
+        ancestor = model.get_submodule(ancestor_name)
+        if not isinstance(ancestor, avoid):
+            return ancestor_name, ancestor
+        ancestor_name = ".".join(ancestor_name.split(".")[:-1])
 
 
 def _accumulate_mean(
@@ -771,43 +916,12 @@ def _accumulate_mean(
     sum_added = inp.sum(dim=0)
     num_added = inp.size(0)
     if prev_mean_and_count is None:
-        return sum_added, num_added
+        return sum_added / num_added, num_added
 
     prev_mean, prev_count = prev_mean_and_count
+    prev_mean = prev_mean.to(inp.device)
 
     prev_sum = prev_mean * prev_count
     new_count = prev_count + num_added
 
     return (prev_sum + sum_added) / new_count, new_count
-
-
-def get_lowest_common_parent(names: list[str], module: Module) -> tuple[str, Module]:
-    """
-    Given a list of names, returns the lowest-scope common parent.
-
-    NOTE: function excludes parents of type ModuleList, which don't play
-    nicely with hooks because their forward method is never directly
-    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
-    are selected based on router output and their forward method is called.
-    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
-
-    Returns name of parent and pointer to parent module
-
-    Implementation is a small alteration of os.path.commonprefix
-    https://docs.python.org/3/library/os.path.html#os.path.commonprefix
-    """
-    s1 = min(names)
-    s2 = max(names)
-    parent_name = ""
-    for i, c in enumerate(s1):
-        if c != s2[i]:
-            parent_name = s1[:i].rstrip(".")
-            break
-
-    while True:
-        if parent_name == "":
-            return "", module
-        parent = get_layer_by_name(parent_name, module)
-        if not isinstance(parent, torch.nn.ModuleList):
-            return parent_name, parent
-        parent_name = ".".join(parent_name.split(".")[:-1])

@@ -68,20 +68,3 @@ class CalibrationDeepseekV3MoE(MoECalibrationModule):
         hidden_states = final_hidden_states.type(hidden_states.dtype).view(*orig_shape)
         hidden_states = hidden_states + self.shared_experts(residuals)
         return hidden_states
-
-
-# Legacy function for backward compatibility
-def replace(
-    config: DeepseekV3Config,
-    module: OriginalDeepseekV3MoE,
-    calibrate_all_experts: bool,
-):
-    """
-    Legacy replacement function.
-    Use CalibrationDeepseekV3MoE instead.
-    """
-    return CalibrationDeepseekV3MoE(
-        module,
-        config,
-        calibrate_all_experts=calibrate_all_experts,
-    )

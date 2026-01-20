@@ -2,6 +2,7 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
+from functools import wraps
 from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -10,6 +11,7 @@ from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.utils import (
     has_offloaded_params,
     offloaded_dispatch,
+    patch_attr,
     remove_dispatch,
 )
 from compressed_tensors.utils.match import match_targets
@@ -24,7 +26,7 @@ from transformers.configuration_utils import PretrainedConfig
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
-from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
@@ -37,6 +39,7 @@ __all__ = [
     "Subgraph",
     "get_sequential_targets",
     "dispatch_for_sequential",
+    "handle_sequential_oom",
 ]
 
 
@@ -540,8 +543,12 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
         offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("npu:0"))
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning(
+            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
+        )
 
     return model
 
@@ -553,3 +560,20 @@ def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:
         return tuple(LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.values())
     except ImportError:
         return tuple()
+
+
+def handle_sequential_oom(func):
+    """Catch ooms and suggest changing sequential targets"""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except torch.cuda.OutOfMemoryError as e:
+            raise torch.cuda.OutOfMemoryError(
+                "Sequential pipeline ran out of memory. "
+                "Please consider choosing a smaller module "
+                "for `sequential_targets` argument, ex. 'Linear'"
+            ) from e
+
+    return wrapper

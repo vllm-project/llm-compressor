@@ -1,17 +1,12 @@
 import os
 import weakref
-from collections.abc import Generator
 from functools import wraps
-from typing import Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
     ModelCompressor,
     SparsityCompressionConfig,
-    delete_offload_parameter,
-    has_offloaded_params,
-    register_offload_parameter,
 )
 from compressed_tensors.config import CompressionFormat
 from loguru import logger
@@ -25,7 +20,7 @@ from llmcompressor.transformers.compression.sparsity_metadata_config import (
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
-__all__ = ["modify_save_pretrained", "untie_word_embeddings"]
+__all__ = ["modify_save_pretrained"]
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -54,8 +49,8 @@ def modify_save_pretrained(model: PreTrainedModel):
         @wraps(original_save_pretrained)
         def save_pretrained_wrapper(
             save_directory: str,
-            sparsity_config: Optional[SparsityCompressionConfig] = None,
-            quantization_format: Optional[str] = None,
+            sparsity_config: SparsityCompressionConfig | None = None,
+            quantization_format: str | None = None,
             save_compressed: bool = True,
             safe_serialization: bool = True,
             skip_sparsity_compression_stats: bool = True,
@@ -118,123 +113,10 @@ def modify_save_pretrained(model: PreTrainedModel):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
-def untie_word_embeddings(model: PreTrainedModel):
-    """
-    Patches bug where HF transformers will fail to untie weights under specific
-    circumstances (https://github.com/huggingface/transformers/issues/33689).
-
-    This function detects those cases and unties the tensors if applicable
-
-    :param model: model to fix
-    """
-    try:
-        input_embed = model.get_input_embeddings()
-        output_embed = model.get_output_embeddings()
-    except NotImplementedError as e:
-        logger.warning(
-            f"cannot untie model of type {model.__class__} which doesn't have "
-            f"get_input_embeddings and get_output_embeddings implmented\n{e}"
-        )
-        return
-
-    for module in (input_embed, output_embed):
-        if module is None or not hasattr(module, "weight"):
-            logger.warning(f"Cannot untie {module} which does not have weight param")
-            continue
-
-        # this could be replaced by a `get_offloaded_parameter` util
-        if not has_offloaded_params(module):
-            untied_data = module.weight.data.clone()
-        else:
-            untied_data = module._hf_hook.weights_map["weight"].clone()
-
-        requires_grad = module.weight.requires_grad
-        new_parameter = torch.nn.Parameter(untied_data, requires_grad=requires_grad)
-        delete_offload_parameter(module, "weight")
-        register_offload_parameter(module, "weight", new_parameter)
-
-    if hasattr(model.config, "tie_word_embeddings"):
-        model.config.tie_word_embeddings = False
-
-
-def _get_embeddings_or_warn(
-    model: torch.nn.Module,
-) -> tuple[torch.nn.Module | None, torch.nn.Module | None]:
-    if not (
-        hasattr(model, "get_input_embeddings")
-        and hasattr(model, "get_output_embeddings")
-    ):
-        logger.warning(
-            f"{model.__class__} doesn't have attribute get_input_embeddings and"
-            " get_output_embeddings implemented."
-            "\nThis can cause"
-            " problems when quantizing layers with shared weights"
-        )
-        return None, None
-
-    try:
-        input_embeddings, output_embeddings = (
-            model.get_input_embeddings(),
-            model.get_output_embeddings(),
-        )
-    except NotImplementedError as e:
-        logger.warning(
-            f"{model.__class__} doesn't have get_input_embeddings and "
-            "get_output_embeddings implemented."
-            "\nThis can cause"
-            " problems when quantizing layers with shared weights"
-            f"\n{e}"
-        )
-        return None, None
-
-    if not (
-        isinstance(input_embeddings, torch.nn.Module)
-        and isinstance(output_embeddings, torch.nn.Module)
-    ):
-        logger.warning(
-            f"expected modules from {model.__class__} get_input_embeddings and"
-            f" get_output_embeddings but got {type(input_embeddings)}"
-            f"  and {type(output_embeddings)}."
-            "\nThis can cause"
-            " problems when quantizing layers with shared weights"
-        )
-        return None, None
-    return input_embeddings, output_embeddings
-
-
-def untie_if_target_shared_embedding(
-    model: torch.nn.Module, matched_module_generator: Generator[torch.nn.Module]
-):
-    """
-    Helper method that checks for shared input/output embedding and unties them
-    if either shows up in the matched_module_generator
-
-    :param model: model to untie if embeddings are shared and targeted by
-        matched_module_generator
-    :param matched_module_generator: Generator of all modules (not names) which
-            will be modified by quantization or transformation
-    """
-    input_embeddings, output_embeddings = _get_embeddings_or_warn(model)
-
-    if None in (input_embeddings, output_embeddings):  # if couldn't find embeddings
-        return
-
-    if (
-        input_embeddings.weight is not output_embeddings.weight
-    ):  # if not shared, can ignore
-        return
-
-    # if shared, check if either is targeted
-    for module in matched_module_generator:
-        if module in (input_embeddings, output_embeddings):
-            untie_word_embeddings(model)
-            return
-
-
 def get_model_compressor(
     model: torch.nn.Module,
-    sparsity_config: Optional[SparsityCompressionConfig] = None,
-    quantization_format: Optional[str] = None,
+    sparsity_config: SparsityCompressionConfig | None = None,
+    quantization_format: str | None = None,
     save_compressed: bool = True,
     skip_sparsity_compression_stats: bool = True,
     disable_sparse_compression: bool = False,

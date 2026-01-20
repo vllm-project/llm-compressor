@@ -7,14 +7,12 @@ from typing import Type
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
 from accelerate.utils import get_balanced_memory
-from compressed_tensors.utils import remove_dispatch
+from compressed_tensors.utils import patch_attr, remove_dispatch
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
 from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
-
-from llmcompressor.utils.helpers import patch_attr
 
 __all__ = [
     "skip_weights_download",
@@ -70,9 +68,12 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
 
         return model
 
-    with tempfile.TemporaryDirectory() as tmp_dir, patch_attr(
-        model_class, "from_pretrained", patched
-    ), skip_weights_initialize(), patch_transformers_logger_level():
+    with (
+        tempfile.TemporaryDirectory() as tmp_dir,
+        patch_attr(model_class, "from_pretrained", patched),
+        skip_weights_initialize(),
+        patch_transformers_logger_level(),
+    ):
         yield
 
 

@@ -15,7 +15,8 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
 )
 from loguru import logger
-from transformers.file_utils import CONFIG_NAME
+
+from .helpers import find_config_path, find_safetensors_index_path
 
 __all__ = ["update_config", "update_safetensors_index"]
 
@@ -47,7 +48,7 @@ def update_config(
     }
 
     # write results to config.json file
-    config_file_path = _find_config_path(save_directory)
+    config_file_path = find_config_path(save_directory)
     if config_file_path is not None:
         with open(config_file_path, "r") as file:
             config_data = json.load(file)
@@ -69,33 +70,19 @@ def update_safetensors_index(
     total_size: int,
     weight_map: dict[str, str],
 ):
-    file_path = _find_safetensors_index_path(save_directory)
+    file_path = find_safetensors_index_path(save_directory)
     if file_path is None:
         return
 
     with open(file_path, "w") as file:
         json.dump(
             {
-                "total_size": total_size,
+                "metadata": {
+                    "total_size": total_size,
+                },
                 "weight_map": weight_map,
             },
             file,
             indent=2,
             sort_keys=True,
         )
-
-
-def _find_config_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name in (CONFIG_NAME, "params.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None
-
-
-def _find_safetensors_index_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name.endswith("safetensors.index.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None

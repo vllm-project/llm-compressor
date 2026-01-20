@@ -97,20 +97,3 @@ class CalibrationQwen3MoeSparseMoeBlock(MoECalibrationModule):
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         return original
-
-
-# Legacy function for backward compatibility
-def replace(
-    config: Qwen3MoeConfig,
-    module: OriginalQwen3MoeSparseMoeBlock,
-    calibrate_all_experts: bool,
-):
-    """
-    Legacy replacement function.
-    Use CalibrationQwen3MoeSparseMoeBlock instead.
-    """
-    return CalibrationQwen3MoeSparseMoeBlock(
-        module,
-        config,
-        calibrate_all_experts=calibrate_all_experts,
-    )

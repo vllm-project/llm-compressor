@@ -10,15 +10,12 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.quantization.utils import is_module_quantized
+from loguru import logger
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
-from llmcompressor.utils.fsdp.context import (
-    fix_fsdp_module_name,
-    summon_full_params_context,
-)
 
 try:
     quant_err = None
@@ -130,8 +127,6 @@ def match_layers_params(
     targets_found = [False for _ in range(len(targets))]
 
     for name, layer in module.named_modules():
-        # due to nesting, FSDP may not be the top layer
-        name = fix_fsdp_module_name(name)
         match, match_index = match_targets(name, targets)
         if match and not params:
             targets_found[match_index] = True
@@ -200,17 +195,13 @@ def get_layer(target: str, module: Module) -> Tuple[str, Module]:
 
 
 def set_layer(target: str, layer: Module, module: Module) -> Module:
-    with summon_full_params_context(module):
-        # importing here to avoid circular import
-        from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-        parent_target = ".".join(target.split(".")[:-1])
-        if parent_target != "":
-            parent_layer = get_layer(parent_target, module)[1]
-        else:
-            parent_layer = maybe_get_wrapped(module)
-        old_layer = getattr(parent_layer, target.split(".")[-1])
-        setattr(parent_layer, target.split(".")[-1], layer)
+    parent_target = ".".join(target.split(".")[:-1])
+    if parent_target != "":
+        parent_layer = get_layer(parent_target, module)[1]
+    else:
+        parent_layer = module
+    old_layer = getattr(parent_layer, target.split(".")[-1])
+    setattr(parent_layer, target.split(".")[-1], layer)
 
     return old_layer
 
@@ -346,10 +337,6 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 
     :return: list of class names that shouldn't be split
     """
-    # importing here to avoid circular import
-    from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-    model = maybe_get_wrapped(model)
     no_split_modules = model._get_no_split_modules("auto")
     if len(no_split_modules) <= 0:
         return ALL_TARGET
@@ -361,8 +348,23 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 def get_layer_by_name(layer_name: str, module: Module) -> Module:
     """
     Get the layer of a module by name.
-    :param layer_name: Name of the layer to find.
+    :param layer_name: Name of the layer to find. Empty string returns the
+        module itself.
     :param module: Module in which to search for layer_name
     :return: Module, the layer with name layer_name
     """
+    if not layer_name:
+        return module
     return attrgetter(layer_name)(module)
+
+
+def get_module_to_name_dict(model: Module) -> dict[Module, str]:
+    module_to_name = {}
+    for name, module in model.named_modules():
+        if module in module_to_name:
+            logger.warning(
+                f"Warning, {name} and {module_to_name[module]} both "
+                "share the same module, which can result in unexpected behavior"
+            )
+        module_to_name[module] = name
+    return module_to_name

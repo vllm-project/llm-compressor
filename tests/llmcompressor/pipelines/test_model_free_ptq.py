@@ -41,7 +41,8 @@ def _get_tiny_block_quant():
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "scheme", [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant()]
+    "scheme",
+    [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant(), "NVFP4A16"],
 )
 def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
     model = "nm-testing/tinysmokellama-3.2"

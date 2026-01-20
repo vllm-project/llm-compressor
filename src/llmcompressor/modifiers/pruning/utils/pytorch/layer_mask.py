@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict
 
 import torch
 from torch.nn import Parameter
@@ -23,7 +22,7 @@ def setup_mask_for_param(param: Parameter, mask: torch.Tensor) -> torch.Tensor:
 
     if mask.shape != param.data.shape:
         raise ValueError(
-            f"Mask shape {mask.shape} does not match " f"param shape {param.data.shape}"
+            f"Mask shape {mask.shape} does not match param shape {param.data.shape}"
         )
 
     if mask.dtype != torch.bool:
@@ -39,8 +38,8 @@ class ParameterizedLayerMaskSettings:
 
 
 class LayerParamMasking(HooksMixin):
-    _mask_settings: Dict[str, ParameterizedLayerMaskSettings] = {}
-    _masked_layer_params: Dict[str, ModelParameterizedLayer] = {}
+    _mask_settings: dict[str, ParameterizedLayerMaskSettings] = {}
+    _masked_layer_params: dict[str, ModelParameterizedLayer] = {}
     enabled_: bool = False
 
     def add_mask(

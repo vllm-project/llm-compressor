@@ -8,9 +8,7 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
-
-from transformers import DefaultDataCollator
+from typing import Callable
 
 
 @dataclass
@@ -69,9 +67,27 @@ class CustomDatasetArguments(DVCDatasetArguments):
         },
     )
 
-    data_collator: Callable[[Any], Any] = field(
-        default_factory=lambda: DefaultDataCollator(),
-        metadata={"help": "The function to used to form a batch from the dataset"},
+    batch_size: int = field(
+        default=1,
+        metadata={
+            "help": (
+                "Calibration batch size. During calibration, LLM Compressor disables "
+                "lm_head output computations to reduce memory usage from large "
+                "batch sizes. Large batch sizes may result in excess padding or "
+                "truncation, depending on the data_collator"
+            )
+        },
+    )
+
+    data_collator: str | Callable = field(
+        default="truncation",
+        metadata={
+            "help": (
+                "The function to use to form a batch from the dataset. Can also "
+                "specify 'truncation' or 'padding' to truncate or pad non-uniform "
+                "sequence lengths in a batch. Defaults to 'truncation'."
+            )
+        },
     )
 
 
@@ -126,7 +142,7 @@ class DatasetArguments(CustomDatasetArguments):
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
-    shuffle_calibration_samples: bool | None = field(
+    shuffle_calibration_samples: bool = field(
         default=True,
         metadata={
             "help": "whether to shuffle the dataset before selecting calibration data"
@@ -142,7 +158,7 @@ class DatasetArguments(CustomDatasetArguments):
     )
     preprocessing_num_workers: int | None = field(
         default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
+        metadata={"help": "The number of workers to use for dataset processing."},
     )
     pad_to_max_length: bool = field(
         default=True,
@@ -214,6 +230,14 @@ class DatasetArguments(CustomDatasetArguments):
             "definition"
         },
     )
+    sequential_offload_device: str = field(
+        default="cpu",
+        metadata={
+            "help": "Device used to offload intermediate activations between "
+            "sequential layers. It is recommended to use `cuda:1` if using more "
+            "than one gpu. Default is cpu."
+        },
+    )
     quantization_aware_calibration: bool = field(
         default=True,
         metadata={
@@ -221,6 +245,14 @@ class DatasetArguments(CustomDatasetArguments):
             "When True, quantization is applied during forward pass in calibration. "
             "When False, quantization is disabled during forward pass in calibration. "
             "Default is set to True."
+        },
+    )
+    dataloader_num_workers: int = field(
+        default=0,
+        metadata={
+            "help": "Number of worker processes for data loading. Set to 0 to disable "
+            "multiprocessing. Note: Custom data collators may not work with "
+            "multiprocessing. Default is 0."
         },
     )
 

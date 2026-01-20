@@ -49,7 +49,7 @@ def test_sparsities(tmp_path, config):
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_sparsities_gpu(tmp_path, config, _clear_cuda_cache):
     model = AutoModelForCausalLM.from_pretrained(
-        config["model"], device_map=config["device"], torch_dtype=torch.bfloat16
+        config["model"], device_map=config["device"], dtype=torch.bfloat16
     )
     model = oneshot(
         model=model,

@@ -1,5 +1,4 @@
 import pytest
-import torch
 from datasets import IterableDataset, load_dataset
 
 from llmcompressor.args import DatasetArguments
@@ -142,7 +141,6 @@ def test_datasets(tiny_llama_tokenizer, dataset_key, dataset_config, split, do_c
             assert len(tokenized_dataset[i]["input_ids"]) <= manager.max_seq_length
 
 
-@pytest.mark.skip("Dataset load broken on Hugging Face")
 @pytest.mark.unit
 def test_evol(tiny_llama_tokenizer):
     dataset_args = DatasetArguments(
@@ -255,14 +253,9 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
     assert "input_ids" in data_cols
     assert "attention_mask" in data_cols
 
-    # confirm turning shuffle off works
-
     calib_dataloader = format_calibration_data(
-        tokenized_dataset=calib_dataset,
-        num_calibration_samples=num_calibration_samples,
-        do_shuffle=dataset_args.shuffle_calibration_samples,
+        dataset_args, calib_dataset, tiny_llama_tokenizer
     )
     assert len(calib_dataloader) == num_calibration_samples
     dataloader_sample = next(iter(calib_dataloader))["input_ids"]
-    diff = dataloader_sample - torch.Tensor(calib_dataset[0]["input_ids"])
-    assert torch.sum(diff) == 0
+    assert dataloader_sample[0].tolist() in calib_dataset["input_ids"]

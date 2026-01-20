@@ -1,6 +1,6 @@
 import contextlib
 from functools import partial, wraps
-from typing import Any, Callable, ClassVar, Optional, Set, Union
+from typing import Any, Callable, ClassVar
 
 import torch
 from compressed_tensors.modeling import (
@@ -43,14 +43,14 @@ class HooksMixin(BaseModel):
 
     # attached to global HooksMixin class
     _HOOKS_DISABLED: ClassVar[bool] = False
-    _HOOKS_KEEP_ENABLED: ClassVar[Set[RemovableHandle]] = set()
+    _HOOKS_KEEP_ENABLED: ClassVar[set[RemovableHandle]] = set()
 
     # attached to local subclasses
-    _hooks: Set[RemovableHandle] = set()
+    _hooks: set[RemovableHandle] = set()
 
     @classmethod
     @contextlib.contextmanager
-    def disable_hooks(cls, keep: Set[RemovableHandle] = frozenset()):
+    def disable_hooks(cls, keep: set[RemovableHandle] = frozenset()):
         """
         Disable all hooks across all modifiers. Composing multiple contexts is
         equivalent to the union of `keep` arguments
@@ -67,7 +67,7 @@ class HooksMixin(BaseModel):
 
     def register_hook(
         self,
-        target: Union[torch.nn.Module, torch.nn.Parameter],
+        target: torch.nn.Module | torch.nn.Parameter,
         hook: Callable[[Any], Any],
         hook_type: str,
         **kwargs,
@@ -104,7 +104,7 @@ class HooksMixin(BaseModel):
 
         return handle
 
-    def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):
+    def remove_hooks(self, handles: set[RemovableHandle] | None = None):
         """
         Removes hooks registered by this modifier
 
