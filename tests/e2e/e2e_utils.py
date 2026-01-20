@@ -1,8 +1,10 @@
+from typing import Callable
+
 import torch
 import transformers
 from datasets import load_dataset
 from loguru import logger
-from transformers import AutoProcessor
+from transformers import AutoProcessor, DefaultDataCollator
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
@@ -13,7 +15,7 @@ from tests.testing_utils import process_dataset
 def load_model(model: str, model_class: str, device_map: str | None = None):
     pretrained_model_class = getattr(transformers, model_class)
     loaded_model = pretrained_model_class.from_pretrained(
-        model, torch_dtype="auto", device_map=device_map
+        model, dtype="auto", device_map=device_map
     )
     return loaded_model
 
@@ -34,9 +36,12 @@ def run_oneshot_for_e2e_testing(
     dataset_config: str,
     scheme: str,
     quant_type: str,
+    shuffle_calibration_samples: bool = True,
+    data_collator: str | Callable = DefaultDataCollator(),
 ):
     # Load model.
     oneshot_kwargs = {}
+    oneshot_kwargs["data_collator"] = data_collator
 
     loaded_model = load_model(model=model, model_class=model_class)
     processor = AutoProcessor.from_pretrained(model)
@@ -74,6 +79,7 @@ def run_oneshot_for_e2e_testing(
             oneshot_kwargs["data_collator"] = data_collator
 
     oneshot_kwargs["model"] = loaded_model
+    oneshot_kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples
     if recipe:
         oneshot_kwargs["recipe"] = recipe
     else:

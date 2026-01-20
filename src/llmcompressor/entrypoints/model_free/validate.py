@@ -31,8 +31,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
     output_dynamic = getattr_chain(scheme, "output_activations.dynamic", True)
     if input_dynamic is not True or output_dynamic is not True:
         raise ValueError(
-            "Model Free PTQ cannot calibrate activations. "
-            "Please use `oneshot` instead."
+            "Model Free PTQ cannot calibrate activations. Please use `oneshot` instead."
         )
 
     # override with static observers

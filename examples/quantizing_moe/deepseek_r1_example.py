@@ -15,9 +15,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 model_id = "unsloth/DeepSeek-R1-0528-BF16"
 config = AutoConfig.from_pretrained(model_id)
 del config.quantization_config  # fp8 qconfig no longer appplies to bf16 model
-model = AutoModelForCausalLM.from_pretrained(
-    model_id, torch_dtype="auto", config=config
-)
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", config=config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
 # The `CalibrationDeepseekV3MoE` modules (from `llmcompressor.modeling.deepseek_v3`)
