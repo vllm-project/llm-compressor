@@ -783,7 +783,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         loss = 0.0
         num_elements = 0
 
-        # # Compute the MSE loss for each batch
+        # Compute the MSE loss for each batch
         for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
             loss += torch.nn.functional.mse_loss(
                 fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
