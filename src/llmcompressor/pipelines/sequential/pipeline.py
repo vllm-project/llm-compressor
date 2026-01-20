@@ -13,6 +13,7 @@ from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
+    handle_sequential_oom,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import (
@@ -30,6 +31,7 @@ __all__ = ["SequentialPipeline"]
 @CalibrationPipeline.register("sequential")
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
+    @handle_sequential_oom
     def __call__(
         model: torch.nn.Module,
         dataloader: DataLoader,

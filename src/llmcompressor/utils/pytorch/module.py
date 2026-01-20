@@ -16,10 +16,6 @@ from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
-from llmcompressor.utils.fsdp.context import (
-    fix_fsdp_module_name,
-    summon_full_params_context,
-)
 
 try:
     quant_err = None
@@ -131,8 +127,6 @@ def match_layers_params(
     targets_found = [False for _ in range(len(targets))]
 
     for name, layer in module.named_modules():
-        # due to nesting, FSDP may not be the top layer
-        name = fix_fsdp_module_name(name)
         match, match_index = match_targets(name, targets)
         if match and not params:
             targets_found[match_index] = True
@@ -201,17 +195,13 @@ def get_layer(target: str, module: Module) -> Tuple[str, Module]:
 
 
 def set_layer(target: str, layer: Module, module: Module) -> Module:
-    with summon_full_params_context(module):
-        # importing here to avoid circular import
-        from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-        parent_target = ".".join(target.split(".")[:-1])
-        if parent_target != "":
-            parent_layer = get_layer(parent_target, module)[1]
-        else:
-            parent_layer = maybe_get_wrapped(module)
-        old_layer = getattr(parent_layer, target.split(".")[-1])
-        setattr(parent_layer, target.split(".")[-1], layer)
+    parent_target = ".".join(target.split(".")[:-1])
+    if parent_target != "":
+        parent_layer = get_layer(parent_target, module)[1]
+    else:
+        parent_layer = module
+    old_layer = getattr(parent_layer, target.split(".")[-1])
+    setattr(parent_layer, target.split(".")[-1], layer)
 
     return old_layer
 
@@ -347,10 +337,6 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 
     :return: list of class names that shouldn't be split
     """
-    # importing here to avoid circular import
-    from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-    model = maybe_get_wrapped(model)
     no_split_modules = model._get_no_split_modules("auto")
     if len(no_split_modules) <= 0:
         return ALL_TARGET

@@ -13,15 +13,17 @@ on:
 
 env:
   CADENCE: "commit"
+  HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
   UV_SYSTEM_PYTHON: 1
   UV_TORCH_BACKEND: "auto"
 
 jobs:
 
   base-tests:
-    runs-on: ubuntu-22.04
+    runs-on: ibm-wdc-k8s-vllm-h100-solo
     env:
       COVERAGE_FILE: ".coverage.base"
+      HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
     strategy:
       matrix:
         python: ["3.10", "3.13"]
@@ -74,9 +76,10 @@ jobs:
           coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   pytorch-tests:
-    runs-on: ubuntu-22.04
+    runs-on: ibm-wdc-k8s-vllm-h100-solo
     env:
       COVERAGE_FILE: ".coverage.pytorch"
+      HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
     strategy:
       matrix:
         python: ["3.10", "3.13"]

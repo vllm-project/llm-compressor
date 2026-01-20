@@ -13,7 +13,7 @@ from llmcompressor.utils import dispatch_for_generation
 model_id = "microsoft/Phi-3-vision-128k-instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    torch_dtype="auto",
+    dtype="auto",
     trust_remote_code=True,
     _attn_implementation="eager",
 )

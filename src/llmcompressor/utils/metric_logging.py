@@ -144,10 +144,7 @@ class CompressionLogger:
                 total_memory = int(gpu_usage[i][1])  # GB
                 patch.log(
                     "METRIC",
-                    (
-                        f"GPU {i} | usage: {perc:.2f}%"
-                        f" | total memory: {total_memory} GB"
-                    ),
+                    (f"GPU {i} | usage: {perc:.2f}% | total memory: {total_memory} GB"),
                 )
 
         compressed_size = get_layer_size_mb(self.module)

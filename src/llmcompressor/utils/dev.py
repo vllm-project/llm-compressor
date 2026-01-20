@@ -68,9 +68,12 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
 
         return model
 
-    with tempfile.TemporaryDirectory() as tmp_dir, patch_attr(
-        model_class, "from_pretrained", patched
-    ), skip_weights_initialize(), patch_transformers_logger_level():
+    with (
+        tempfile.TemporaryDirectory() as tmp_dir,
+        patch_attr(model_class, "from_pretrained", patched),
+        skip_weights_initialize(),
+        patch_transformers_logger_level(),
+    ):
         yield
 
 

@@ -39,7 +39,7 @@ style:
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	pytest tests $(PYTEST_ARGS)
+	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval
 
 # creates wheel file
 .PHONY: build
