@@ -593,7 +593,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     def _compute_best_scale(
         self,
         mapping: ResolvedMapping,
-        fp16_outputs: torch.Tensor,
+        fp16_outputs: list[torch.Tensor],
         orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
     ) -> torch.Tensor:
         """
