@@ -2,8 +2,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
+from llmcompressor.modifiers.awq import AWQModifier
 
 # Load the model
 model_id = "zai-org/GLM-4.7"
@@ -59,7 +59,6 @@ moe_ignores = [
     "model.layers.0.*",
     "model.layers.1.*",
     "model.layers.2.*",
-
     # Ignore the output head
     "lm_head",
 ]

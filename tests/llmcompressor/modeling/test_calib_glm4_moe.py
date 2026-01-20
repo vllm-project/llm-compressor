@@ -89,4 +89,3 @@ def test_calib_glm4moe_module():
     with calibration_forward_context(module):
         output = module(sample)
         assert torch.allclose(true_output, output, atol=1e-6)
-
