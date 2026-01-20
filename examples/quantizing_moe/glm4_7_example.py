@@ -21,7 +21,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 5
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -54,9 +54,19 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
+moe_ignores = [
+    # Layers 0-2: Dense layer - ignore entire layers
+    "model.layers.0.*",
+    "model.layers.1.*",
+    "model.layers.2.*",
+
+    # Ignore the output head
+    "lm_head",
+]
+
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = AWQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+recipe = AWQModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores)
 
 # Apply algorithms.
 oneshot(
