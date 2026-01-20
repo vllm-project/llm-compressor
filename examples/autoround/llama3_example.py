@@ -1,4 +1,11 @@
-from auto_round.calib_dataset import get_dataset
+try:
+    from auto_round.calib_dataset import get_dataset  # noqa: F401
+except ImportError as e:
+    raise ImportError(
+        "The examples in this directory require auto-round. "
+        "Install llm-compressor with the 'autoround' extra."
+    ) from e
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot

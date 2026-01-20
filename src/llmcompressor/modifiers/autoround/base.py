@@ -1,8 +1,16 @@
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from auto_round import AutoRound
-from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
+
+try:
+    from auto_round import AutoRound
+    from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
+except ImportError as e:
+    raise ImportError(
+        "auto-round is not installed. Install llm-compressor with the "
+        "'autoround' extra to use AutoRoundModifier."
+    ) from e
+
 from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStrategy,
