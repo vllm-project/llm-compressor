@@ -19,6 +19,43 @@ env:
 
 jobs:
 
+  base-tests-arm:
+    runs-on: ubuntu-22.04-arm
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
+    strategy:
+      matrix:
+        python: ["3.12"]
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - name: "⚙️ Install dependencies"
+        run: uv pip install .[dev]
+      - uses: actions/checkout@v4
+        with:
+          repository: "vllm-project/compressed-tensors"
+          path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
+      - name: "⚙️ Install compressed-tensors dependencies"
+        run: |
+          uv pip uninstall compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly uv pip install .
+      - name: "Clean compressed-tensors directory"
+        run: rm -r compressed-tensors/
+      - name: "🔬 Running base tests"
+        run: make test
+
   base-tests:
     runs-on: ibm-wdc-k8s-vllm-h100-solo
     env:
