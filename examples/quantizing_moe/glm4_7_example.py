@@ -3,7 +3,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE
+from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 
 # Load the model
 model_id = "zai-org/GLM-4.7"
