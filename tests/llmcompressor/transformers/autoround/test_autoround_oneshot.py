@@ -1,6 +1,15 @@
 import pytest
 import torch
-from auto_round.calib_dataset import get_dataset
+
+try:
+    from auto_round.calib_dataset import get_dataset
+except ImportError as e:
+    raise ImportError(
+        "auto-round is not installed. Install llm-compressor with the "
+        "'autoround' extra to use AutoRoundModifier."
+    ) from e
+
+
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
