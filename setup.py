@@ -178,7 +178,7 @@ setup(
             "mkdocs-gen-files",
             "mkdocs-nav-weight",
         ],
-        "autoround": ["auto-round>=0.9.2"],
+        "autoround": ["auto-round==0.9.2"],
     },
     entry_points={
         "console_scripts": [
