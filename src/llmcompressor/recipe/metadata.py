@@ -6,7 +6,7 @@ datasets, parameters, layers, and models used in compression recipes. Provides
 structured data containers for recipe configuration and execution tracking.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ class DatasetMetaData(BaseModel):
     name: str = None
     version: str = None
     hash: str = None
-    shape: List[int] = Field(default_factory=list)
+    shape: list[int] = Field(default_factory=list)
     num_classes: int = None
     num_train_samples: int = None
     num_val_samples: int = None
@@ -31,7 +31,7 @@ class DatasetMetaData(BaseModel):
 
 class ParamMetaData(BaseModel):
     name: str = None
-    shape: List[int] = None
+    shape: list[int] = None
     weight_hash: str = None
 
 
@@ -39,16 +39,16 @@ class LayerMetaData(BaseModel):
     name: str = None
     type: str = None
     index: int = None
-    attributes: Dict[str, Any] = None
-    input_shapes: List[List[int]] = None
-    output_shapes: List[List[int]] = None
-    params: Dict[str, ParamMetaData] = None
+    attributes: dict[str, Any] = None
+    input_shapes: list[list[int]] = None
+    output_shapes: list[list[int]] = None
+    params: dict[str, ParamMetaData] = None
 
 
 class ModelMetaData(BaseModel):
     architecture: str = None
     sub_architecture: str = None
-    input_shapes: List[List[int]] = None
-    output_shapes: List[List[int]] = None
-    layers: List[LayerMetaData] = Field(default_factory=list)
-    layer_prefix: Optional[str] = None
+    input_shapes: list[list[int]] = None
+    output_shapes: list[list[int]] = None
+    layers: list[LayerMetaData] = Field(default_factory=list)
+    layer_prefix: str | None = None

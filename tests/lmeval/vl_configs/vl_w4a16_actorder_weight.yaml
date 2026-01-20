@@ -1,0 +1,25 @@
+cadence: "weekly"
+model: Qwen/Qwen3-VL-8B-Instruct
+model_class: Qwen3VLForConditionalGeneration
+scheme: W4A16_actorder_weight
+recipe: tests/e2e/vLLM/recipes/actorder/recipe_w4a16_actorder_weight.yaml
+dataset_id: neuralmagic/calibration
+dataset_config: LLM
+dataset_split: "train[:512]"
+lmeval:
+  model: "hf-multimodal"
+  model_args:
+    dtype: bfloat16
+    convert_img_format: True
+  task: chartqa
+  apply_chat_template: True
+  num_fewshot: 0
+  batch_size: 100
+  limit: 500
+  # dense model achieves exact_match accuracy of 0.576
+  # dense model achieves relaxed_accuracy of 0.780
+  # dense model achieves anywhere_accuracy of 0.806
+  metrics:
+    exact_match,none: 0.588
+    relaxed_accuracy,none: 0.782
+    anywhere_accuracy,none: 0.808

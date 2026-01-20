@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -94,7 +94,7 @@ class BaseLogger(ABC):
     def __repr__(self):
         return f"{self.__class__.__name__}(name={self._name}, enabled={self._enabled})"
 
-    def log_hyperparams(self, params: Dict[str, float]) -> bool:
+    def log_hyperparams(self, params: dict[str, float]) -> bool:
         """
         :param params: Each key-value pair in the dictionary is the name of the
             hyper parameter and it's corresponding value.
@@ -106,8 +106,8 @@ class BaseLogger(ABC):
         self,
         tag: str,
         value: float,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
         **kwargs,
     ) -> bool:
         """
@@ -123,9 +123,9 @@ class BaseLogger(ABC):
     def log_scalars(
         self,
         tag: str,
-        values: Dict[str, float],
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
+        values: dict[str, float],
+        step: int | None = None,
+        wall_time: float | None = None,
         **kwargs,
     ) -> bool:
         """
@@ -142,8 +142,8 @@ class BaseLogger(ABC):
         self,
         tag: str,
         string: str,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
         **kwargs,
     ) -> bool:
         """
@@ -185,12 +185,12 @@ class LambdaLogger(BaseLogger):
         self,
         lambda_func: Callable[
             [
-                Optional[str],
-                Optional[Union[float, str]],
-                Optional[Dict[str, float]],
-                Optional[int],
-                Optional[float],
-                Optional[int],
+                str | None,
+                float | str | None,
+                dict[str, float] | None,
+                int | None,
+                float | None,
+                int | None,
             ],
             bool,
         ],
@@ -206,12 +206,12 @@ class LambdaLogger(BaseLogger):
         self,
     ) -> Callable[
         [
-            Optional[str],
-            Optional[Union[float, str]],
-            Optional[Dict[str, float]],
-            Optional[int],
-            Optional[float],
-            Optional[int],
+            str | None,
+            float | str | None,
+            dict[str, float] | None,
+            int | None,
+            float | None,
+            int | None,
         ],
         bool,
     ]:
@@ -223,8 +223,8 @@ class LambdaLogger(BaseLogger):
 
     def log_hyperparams(
         self,
-        params: Dict,
-        level: Optional[Union[int, str]] = None,
+        params: dict[str, float],
+        level: int | str | None = None,
     ) -> bool:
         """
         :param params: Each key-value pair in the dictionary is the name of the
@@ -248,9 +248,9 @@ class LambdaLogger(BaseLogger):
         self,
         tag: str,
         value: float,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        level: Optional[Union[int, str]] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
+        level: int | str | None = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the value with
@@ -277,10 +277,10 @@ class LambdaLogger(BaseLogger):
     def log_scalars(
         self,
         tag: str,
-        values: Dict[str, float],
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        level: Optional[Union[int, str]] = None,
+        values: dict[str, float],
+        step: int | None = None,
+        wall_time: float | None = None,
+        level: int | str | None = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the values with
@@ -339,14 +339,22 @@ class PythonLogger(LambdaLogger):
         :param log_level: logging level for the console metrics
         :return: metrics
         """
+        # Only write logs to disk when explicitly requested via env var.
+        log_file = os.environ.get("LLM_COMPRESSOR_LOG_FILE", "").strip()
+        if log_file:
+            if PythonLogger._global_file_sink_id is None:
+                path = Path(log_file).expanduser()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                PythonLogger._global_file_sink_id = logger.add(
+                    str(path), level="DEBUG", delay=True
+                )
+                logger.info(f"File logging enabled: {path}")
+            return
 
-        # File handler setup, for logging modifier debug statements
-        if PythonLogger._global_file_sink_id is None:
-            base_log_path = (
-                os.environ.get("NM_TEST_LOG_DIR")
-                if os.environ.get("NM_TEST_MODE")
-                else "sparse_logs"
-            )
+        # Preserve test behavior: in NM_TEST_MODE, write a timestamped file
+        # under NM_TEST_LOG_DIR. In regular runs (no env var), do nothing.
+        if PythonLogger._global_file_sink_id is None and os.environ.get("NM_TEST_MODE"):
+            base_log_path = os.environ.get("NM_TEST_LOG_DIR")
             now = datetime.now()
             dt_string = now.strftime("%d-%m-%Y_%H.%M.%S")
             log_path = os.path.join(base_log_path, f"{dt_string}.log")
@@ -358,12 +366,12 @@ class PythonLogger(LambdaLogger):
 
     def _log_lambda(
         self,
-        tag: Optional[str],
-        value: Optional[Union[float, str]],
-        values: Optional[Dict[str, float]],
-        step: Optional[int],
-        wall_time: Optional[float],
-        level: Optional[Union[int, str]] = None,
+        tag: str | None,
+        value: float | str | None,
+        values: dict[str, float] | None,
+        step: int | None,
+        wall_time: float | None,
+        level: int | str | None = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the values with
@@ -378,14 +386,16 @@ class PythonLogger(LambdaLogger):
         if not level:
             level = "DEBUG"
 
-        def is_higher_than_debug(lev: Optional[Union[int, str]] = None) -> bool:
+        def is_higher_than_debug(lev: int | str | None = None) -> bool:
             """Check if the given level is higher than DEBUG level."""
             debug_level_no = logger.level("DEBUG").no
-            if isinstance(lev, int):
-                return level > debug_level_no
-            elif isinstance(lev, str):
-                return logger.level(lev).no > debug_level_no
-            return False
+            match lev:
+                case int():
+                    return lev > debug_level_no
+                case str():
+                    return logger.level(lev).no > debug_level_no
+                case _:
+                    return False
 
         if is_higher_than_debug(level):
             if step is not None:
@@ -409,11 +419,11 @@ class PythonLogger(LambdaLogger):
 
     def log_string(
         self,
-        tag: Optional[str],
-        string: Optional[str],
-        step: Optional[int],
-        wall_time: Optional[float] = None,
-        level: Optional[Union[int, str]] = None,
+        tag: str | None,
+        string: str | None,
+        step: int | None,
+        wall_time: float | None = None,
+        level: int | str | None = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the values with
@@ -505,12 +515,12 @@ class TensorBoardLogger(LambdaLogger):
 
     def _log_lambda(
         self,
-        tag: Optional[str],
-        value: Optional[float],
-        values: Optional[Dict[str, float]],
-        step: Optional[int],
-        wall_time: Optional[float],
-        level: Optional[Union[int, str]] = None,
+        tag: str | None,
+        value: float | None,
+        values: dict[str, float] | None,
+        step: int | None,
+        wall_time: float | None,
+        level: int | str | None = None,
     ) -> bool:
         if value is not None:
             self._writer.add_scalar(tag, value, step, wall_time)
@@ -545,10 +555,10 @@ class WANDBLogger(LambdaLogger):
 
     def __init__(
         self,
-        init_kwargs: Optional[Dict] = None,
+        init_kwargs: dict | None = None,
         name: str = "wandb",
         enabled: bool = True,
-        wandb_err: Optional[Exception] = wandb_err,
+        wandb_err: Exception | None = wandb_err,
     ):
         if wandb_err:
             raise wandb_err
@@ -579,12 +589,12 @@ class WANDBLogger(LambdaLogger):
 
     def _log_lambda(
         self,
-        tag: Optional[str],
-        value: Optional[float],
-        values: Optional[Dict[str, float]],
-        step: Optional[int],
-        wall_time: Optional[float],
-        level: Optional[Union[int, str]] = None,
+        tag: str | None,
+        value: float | None,
+        values: dict[str, float] | None,
+        step: int | None,
+        wall_time: float | None,
+        level: int | str | None = None,
     ) -> bool:
         params = {}
 
@@ -645,27 +655,26 @@ class SparsificationGroupLogger(BaseLogger):
 
     def __init__(
         self,
-        lambda_func: Optional[
-            Callable[
-                [
-                    Optional[str],
-                    Optional[float],
-                    Optional[Dict[str, float]],
-                    Optional[int],
-                    Optional[float],
-                ],
-                bool,
-            ]
-        ] = None,
+        lambda_func: Callable[
+            [
+                str | None,
+                float | None,
+                dict[str, float] | None,
+                int | None,
+                float | None,
+            ],
+            bool,
+        ]
+        | None = None,
         python: bool = False,
-        python_log_level: Optional[Union[int, str]] = "INFO",
-        tensorboard: Optional[Union[bool, str, SummaryWriter]] = None,
-        wandb_: Optional[Union[bool, Dict]] = None,
+        python_log_level: int | str | None = "INFO",
+        tensorboard: bool | str | SummaryWriter = None,
+        wandb_: bool | dict | None = None,
         name: str = "sparsification",
         enabled: bool = True,
     ):
         super().__init__(name, enabled)
-        self._loggers: List[BaseLogger] = []
+        self._loggers: list[BaseLogger] = []
 
         if lambda_func:
             self._loggers.append(
@@ -695,7 +704,7 @@ class SparsificationGroupLogger(BaseLogger):
         if wandb_ and WANDBLogger.available():
             self._loggers.append(
                 WANDBLogger(
-                    init_kwargs=wandb_ if isinstance(wandb_, Dict) else None,
+                    init_kwargs=wandb_ if isinstance(wandb_, dict) else None,
                     name=name,
                     enabled=enabled,
                 )
@@ -712,13 +721,13 @@ class SparsificationGroupLogger(BaseLogger):
             log.enabled = value
 
     @property
-    def loggers(self) -> List[BaseLogger]:
+    def loggers(self) -> list[BaseLogger]:
         """
         :return: the created metrics sub instances for this metrics
         """
         return self._loggers
 
-    def log_hyperparams(self, params: Dict, level: Optional[Union[int, str]] = None):
+    def log_hyperparams(self, params: dict, level: int | str | None = None):
         """
         :param params: Each key-value pair in the dictionary is the name of the
             hyper parameter and it's corresponding value.
@@ -730,9 +739,9 @@ class SparsificationGroupLogger(BaseLogger):
         self,
         tag: str,
         value: float,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        level: Optional[Union[int, str]] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
+        level: int | str | None = None,
     ):
         """
         :param tag: identifying tag to log the value with
@@ -748,10 +757,10 @@ class SparsificationGroupLogger(BaseLogger):
     def log_scalars(
         self,
         tag: str,
-        values: Dict[str, float],
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        level: Optional[Union[int, str]] = None,
+        values: dict[str, float],
+        step: int | None = None,
+        wall_time: float | None = None,
+        level: int | str | None = None,
     ):
         """
         :param tag: identifying tag to log the values with
@@ -785,8 +794,8 @@ class LoggerManager(ABC):
 
     def __init__(
         self,
-        loggers: Optional[List[BaseLogger]] = None,
-        log_frequency: Union[float, None] = 0.1,
+        loggers: list[BaseLogger] | None = None,
+        log_frequency: float | None = 0.1,
         log_python: bool = True,
         name: str = "manager",
         mode: LoggingModeType = "exact",
@@ -809,7 +818,7 @@ class LoggerManager(ABC):
             log_frequency=log_frequency,
         )
 
-        self.system = SystemLoggingWraper(
+        self.system = SystemLoggingWrapper(
             loggers=self._loggers, frequency_manager=self.frequency_manager
         )
         self.metric = MetricLoggingWrapper(
@@ -874,28 +883,28 @@ class LoggerManager(ABC):
         return round(epoch) if steps_per_epoch <= 0 else round(epoch * steps_per_epoch)
 
     @property
-    def loggers(self) -> List[BaseLogger]:
+    def loggers(self) -> list[BaseLogger]:
         """
         :return: list of loggers assigned to this manager
         """
         return self._loggers
 
     @loggers.setter
-    def loggers(self, value: List[BaseLogger]):
+    def loggers(self, value: list[BaseLogger]):
         """
         :param value: list of loggers assigned to this manager
         """
         self._loggers = value
 
     @property
-    def log_frequency(self) -> Union[str, float, None]:
+    def log_frequency(self) -> str | float | None:
         """
         :return: number of epochs or fraction of epochs to wait between logs
         """
         return self.frequency_manager._log_frequency
 
     @log_frequency.setter
-    def log_frequency(self, value: Union[str, float, None]):
+    def log_frequency(self, value: str | float | None):
         """
         :param value: number of epochs or fraction of epochs to wait between logs
         """
@@ -909,7 +918,7 @@ class LoggerManager(ABC):
         return self._name
 
     @property
-    def wandb(self) -> Optional[ModuleType]:
+    def wandb(self) -> ModuleType | None:
         """
         :return: wandb module if initialized
         """
@@ -922,10 +931,10 @@ class LoggerManager(ABC):
         self,
         tag: str,
         value: float,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -952,11 +961,11 @@ class LoggerManager(ABC):
     def log_scalars(
         self,
         tag: str,
-        values: Dict[str, float],
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        values: dict[str, float],
+        step: int | None = None,
+        wall_time: float | None = None,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -982,9 +991,9 @@ class LoggerManager(ABC):
 
     def log_hyperparams(
         self,
-        params: Dict,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        params: dict,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -1004,10 +1013,10 @@ class LoggerManager(ABC):
         self,
         tag: str,
         string: str,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -1044,7 +1053,7 @@ class LoggerManager(ABC):
                 log.save(file_path, **kwargs)
 
     @contextmanager
-    def time(self, tag: Optional[str] = None, *args, **kwargs):
+    def time(self, tag: str | None = None, *args, **kwargs):
         """
         Context manager to log the time it takes to run the block of code
 
@@ -1068,7 +1077,7 @@ class LoggingWrapperBase:
     Base class that holds a reference to the loggers and frequency manager
     """
 
-    def __init__(self, loggers: List[BaseLogger], frequency_manager: FrequencyManager):
+    def __init__(self, loggers: list[BaseLogger], frequency_manager: FrequencyManager):
         self.loggers = loggers
         self._frequency_manager = frequency_manager
 
@@ -1079,7 +1088,7 @@ class LoggingWrapperBase:
         )
 
 
-class SystemLoggingWraper(LoggingWrapperBase):
+class SystemLoggingWrapper(LoggingWrapperBase):
     """
     Wraps utilities and convenience methods for logging strings to the system
     """
@@ -1088,10 +1097,10 @@ class SystemLoggingWraper(LoggingWrapperBase):
         self,
         tag: str,
         string: str,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         :param tag: identifying tag to log the values with
@@ -1203,9 +1212,9 @@ class MetricLoggingWrapper(LoggingWrapperBase):
 
     def log_hyperparams(
         self,
-        params: Dict,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        params: dict[str, float],
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         :param params: Each key-value pair in the dictionary is the name of the
@@ -1220,10 +1229,10 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         self,
         tag: str,
         value: float,
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        step: int | None = None,
+        wall_time: float | None = None,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         :param tag: identifying tag to log the value with
@@ -1247,11 +1256,11 @@ class MetricLoggingWrapper(LoggingWrapperBase):
     def log_scalars(
         self,
         tag: str,
-        values: Dict[str, float],
-        step: Optional[int] = None,
-        wall_time: Optional[float] = None,
-        log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[Union[int, str]] = None,
+        values: dict[str, float],
+        step: int | None = None,
+        wall_time: float | None = None,
+        log_types: str | list[str] = ALL_TOKEN,
+        level: int | str | None = None,
     ):
         """
         :param tag: identifying tag to log the values with
@@ -1276,8 +1285,8 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         self,
         value,
         tag: str = DEFAULT_TAG,
-        step: Optional[int] = None,
-        wall_time: Union[int, float, None] = None,
+        step: int | None = None,
+        wall_time: int | float | None = None,
         **kwargs,
     ):
         """
@@ -1294,10 +1303,10 @@ class MetricLoggingWrapper(LoggingWrapperBase):
 
     def add_scalars(
         self,
-        values: Dict[str, Any],
+        values: dict[str, Any],
         tag: str = DEFAULT_TAG,
-        step: Optional[int] = None,
-        wall_time: Union[int, float, None] = None,
+        step: int | None = None,
+        wall_time: int | float | None = None,
         **kwargs,
     ):
         """
@@ -1317,9 +1326,9 @@ class MetricLoggingWrapper(LoggingWrapperBase):
 
     def log(
         self,
-        data: Dict[str, Any],
-        step: Optional[int] = None,
-        tag: Optional[str] = DEFAULT_TAG,
+        data: dict[str, Any],
+        step: int | None = None,
+        tag: str | None = DEFAULT_TAG,
         **kwargs,
     ) -> None:
         """

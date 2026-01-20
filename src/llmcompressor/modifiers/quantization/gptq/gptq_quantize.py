@@ -1,6 +1,5 @@
 import math
 from copy import copy
-from typing import Dict, Optional, Tuple, Union
 
 import torch
 import transformers
@@ -10,6 +9,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
+from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -22,7 +22,7 @@ __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
 
 
 def make_empty_hessian(
-    module: torch.nn.Module, device: Optional[torch.device] = None
+    module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
     weight = module.weight
     num_columns = weight.shape[1]
@@ -33,30 +33,30 @@ def make_empty_hessian(
 def accumulate_hessian(
     inp: torch.Tensor,
     module: torch.nn.Module,
-    H: Optional[torch.Tensor],
+    H: torch.Tensor | None,
     num_samples: int,
-) -> Tuple[torch.Tensor, int]:
+) -> tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
     num_added = inp.shape[0]
 
-    if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
-        if len(inp.shape) == 3:
-            inp = inp.reshape((-1, inp.shape[-1]))
-        inp = inp.t()
-
-    if isinstance(module, torch.nn.Conv2d):
-        unfold = torch.nn.Unfold(
-            module.kernel_size,
-            dilation=module.dilation,
-            padding=module.padding,
-            stride=module.stride,
-        )
-        inp = unfold(inp)
-        inp = inp.permute([1, 0, 2])
-        inp = inp.flatten(1)
+    match module:
+        case torch.nn.Linear() | transformers.Conv1D():
+            if len(inp.shape) == 3:
+                inp = inp.reshape((-1, inp.shape[-1]))
+            inp = inp.t()
+        case torch.nn.Conv2d():
+            unfold = torch.nn.Unfold(
+                module.kernel_size,
+                dilation=module.dilation,
+                padding=module.padding,
+                stride=module.stride,
+            )
+            inp = unfold(inp)
+            inp = inp.permute([1, 0, 2])
+            inp = inp.flatten(1)
 
     H *= num_samples / (num_samples + num_added)
     num_samples += num_added
@@ -71,10 +71,10 @@ def accumulate_hessian(
 def quantize_weight(
     module: torch.nn.Module,
     quant_args: QuantizationArgs,
-    hessians_dict: Dict[torch.nn.Module, torch.Tensor],
+    hessians_dict: dict[torch.nn.Module, torch.Tensor],
     blocksize: int = 128,
     percdamp: float = 0.01,
-) -> Tuple[float, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
+) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
 
@@ -95,16 +95,18 @@ def quantize_weight(
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        quant_args.observer,
-        quantization_args=quant_args,
-        averaging_constant=1.0,  # ignore moving average
+        "memoryless_minmax",
+        base_name="weight",
+        args=quant_args,
+        module=module,
     )
 
     # standardize shape and dtype
-    if isinstance(module, torch.nn.Conv2d):
-        W = W.flatten(1)
-    elif isinstance(module, transformers.Conv1D):
-        W.transpose_(0, 1)
+    match module:
+        case torch.nn.Conv2d():
+            W = W.flatten(1)
+        case transformers.Conv1D():
+            W.transpose_(0, 1)
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
@@ -119,22 +121,23 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            scale, zero_point = observer(W, g_idx=None)
+            update_offload_parameter(module, "weight_g_idx", g_idx)
+            scale, zero_point = observer(W)
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = observer(W, g_idx=None)
+            scale, zero_point = observer(W)
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
 
         else:
-            scale, zero_point = observer(W, g_idx=None)
+            scale, zero_point = observer(W)
     else:
-        scale, zero_point = observer(W, g_idx=None)
+        scale, zero_point = observer(W)
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
@@ -281,9 +284,9 @@ def quantize_weight(
 
 def _apply_activation_ordering(
     W: torch.Tensor, H: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Permute weight and hessian in order of greatest outupt activations
+    Permute weight and hessian in order of greatest output activations
 
     :param W: weight to permute
     :param H: hessian used to determine activation ordering

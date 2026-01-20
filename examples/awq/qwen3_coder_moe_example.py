@@ -31,7 +31,7 @@ MAX_SEQUENCE_LENGTH = 2048
 def get_calib_dataset(tokenizer):
     ds = load_dataset(
         DATASET_ID,
-        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES*10}]",
+        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES * 10}]",
     )
 
     def preprocess(example):
@@ -51,7 +51,7 @@ def get_calib_dataset(tokenizer):
 
 
 if __name__ == "__main__":
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
     ###

@@ -4,6 +4,11 @@ on:
     branches: [ main , 'release/*' ]
   pull_request:
     branches: [ main, 'release/*' ]
+
+env:
+  UV_SYSTEM_PYTHON: 1
+  UV_TORCH_BACKEND: "auto"
+
 jobs:
   quality-check:
     runs-on: ubuntu-22.04
@@ -12,7 +17,9 @@ jobs:
         with:
           python-version: '3.10'
       - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
       - name: "⚙️ Install dependencies"
-        run: pip3 install .[dev]
+        run: uv pip install .[dev]
       - name: "🧹 Running quality checks"
         run: make quality

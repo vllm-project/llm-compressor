@@ -1,10 +1,9 @@
-import os
-
 import pytest
 from transformers import (
     AutoModelForCausalLM,
     Cohere2VisionForConditionalGeneration,
     Gemma3ForConditionalGeneration,
+    Gemma3nForConditionalGeneration,
     Idefics3ForConditionalGeneration,
     Llama4ForConditionalGeneration,
     LlavaForConditionalGeneration,
@@ -18,12 +17,10 @@ from transformers import (
 from llmcompressor.pipelines.sequential.helpers import match_modules
 from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from tests.testing_utils import requires_hf_token
 
 
-@pytest.mark.skipif(
-    (not os.getenv("HF_TOKEN")),
-    reason="Skipping tracing tests requiring gated model access",
-)
+@requires_hf_token
 @pytest.mark.parametrize(
     "model_id,model_class,targets,modality,backends",
     [
@@ -50,6 +47,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "text",
             [],
         ),
+        ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", ["timm"]),
         ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
         # --- vision ---
         (
@@ -130,6 +128,13 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             [],
         ),
+        (
+            "google/gemma-3n-E2B-it",
+            Gemma3nForConditionalGeneration,
+            None,
+            "vision",
+            ["timm"],
+        ),
         # --- audio ---
         (
             "openai/whisper-large-v3",
@@ -149,7 +154,7 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         model_class,
         targets,
         modality=modality,
-        trust_remote_code=True,
+        trust_remote_code=False,
         skip_weights=True,
     )
 

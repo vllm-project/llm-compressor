@@ -7,9 +7,12 @@ models without additional training. Supports calibration-based compression
 with various pipeline configurations for efficient model optimization.
 """
 
+from __future__ import annotations
+
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -19,6 +22,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
@@ -34,7 +38,7 @@ class Oneshot:
     This class handles the entire lifecycle of one-shot calibration, including
     preprocessing (model and tokenizer/processor initialization), model optimization
     (quantization or sparsification), and postprocessing (saving outputs). The
-    intructions for model optimization can be specified by using a recipe.
+    instructions for model optimization can be specified by using a recipe.
 
     - **Input Keyword Arguments:**
         `kwargs` are parsed into:
@@ -97,7 +101,7 @@ class Oneshot:
 
     def __init__(
         self,
-        log_dir: Optional[str] = "sparse_logs",
+        log_dir: str | None = None,
         **kwargs,
     ):
         """
@@ -117,8 +121,18 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
-        # Set up logging
-        if log_dir:
+        # Set up file logging (no default files):
+        # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
+        # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
+        log_file = os.environ.get("LLM_COMPRESSOR_LOG_FILE", "").strip()
+        if log_file:
+            p = Path(log_file).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                str(p),
+                level="DEBUG",
+            )
+        elif log_dir:
             os.makedirs(log_dir, exist_ok=True)
             date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             logger.add(
@@ -126,7 +140,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
-        model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
+        model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
         self.dataset_args = dataset_args
@@ -167,8 +181,8 @@ class Oneshot:
 
     def apply_recipe_modifiers(
         self,
-        calibration_dataloader: Optional[DataLoader],
-        recipe_stage: Optional[str] = None,
+        calibration_dataloader: DataLoader | None,
+        recipe_stage: str | None = None,
     ):
         """
         Applies recipe modifiers to the model during the lifecycle.
@@ -186,51 +200,58 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        # (Helen INFERENG-661): validate recipe modifiers before intialization
-        session.initialize(
-            model=self.model,
-            start=-1,
-            recipe=self.recipe,
-            recipe_stage=recipe_stage,
-            recipe_args=self.recipe_args.recipe_args,
-            calib_data=calibration_dataloader,
-        )
-        user_pipeline = self.dataset_args.pipeline
-        modifiers = session.lifecycle.recipe.modifiers
-        pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
-        pipeline(
+        # (Helen INFERENG-661): validate recipe modifiers before initialization
+        # Apply MoE calibration context for the entire calibration process
+        with moe_calibration_context(
             self.model,
-            calibration_dataloader,
-            self.dataset_args,
-        )
+            calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
+        ):
+            session.initialize(
+                model=self.model,
+                start=-1,
+                recipe=self.recipe,
+                recipe_stage=recipe_stage,
+                recipe_args=self.recipe_args.recipe_args,
+                calib_data=calibration_dataloader,
+            )
+            user_pipeline = self.dataset_args.pipeline
+            pipeline = CalibrationPipeline.from_modifiers(
+                session.lifecycle.recipe.modifiers, user=user_pipeline
+            )
+
+            pipeline(
+                self.model,
+                calibration_dataloader,
+                self.dataset_args,
+            )
 
         session.finalize()
 
 
 def oneshot(
     # Model arguments
-    model: Union[str, PreTrainedModel],
-    distill_teacher: Optional[str] = None,
-    config_name: Optional[str] = None,
-    tokenizer: Optional[Union[str, PreTrainedTokenizerBase]] = None,
-    processor: Optional[Union[str, ProcessorMixin]] = None,
-    cache_dir: Optional[str] = None,
+    model: str | PreTrainedModel,
+    config_name: str | None = None,
+    tokenizer: str | PreTrainedTokenizerBase | None = None,
+    processor: str | ProcessorMixin | None = None,
     use_auth_token: bool = False,
     precision: str = "auto",
-    tie_word_embeddings: bool = False,
+    tie_word_embeddings: bool = True,
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
     # Recipe arguments
-    recipe: Optional[Union[str, List[str]]] = None,
-    recipe_args: Optional[List[str]] = None,
+    recipe: str | list[str] | None = None,
+    recipe_args: list[str] | None = None,
     clear_sparse_session: bool = False,
-    stage: Optional[str] = None,
+    stage: str | None = None,
     # Dataset arguments
-    dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
-    dataset_config_name: Optional[str] = None,
-    dataset_path: Optional[str] = None,
-    splits: Optional[Union[str, List, Dict]] = None,
+    dataset: str | Dataset | DatasetDict | None = None,
+    dataset_config_name: str | None = None,
+    dataset_path: str | None = None,
+    splits: str | list[str] | dict[str, str] | None = None,
+    batch_size: int = 1,
+    data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
     max_seq_length: int = 384,
@@ -239,13 +260,31 @@ def oneshot(
     concatenate_data: bool = False,
     streaming: bool = False,
     overwrite_cache: bool = False,
-    preprocessing_num_workers: Optional[int] = None,
-    min_tokens_per_module: Optional[float] = None,
-    calibrate_moe_context: bool = False,
+    preprocessing_num_workers: int | None = None,
+    dataloader_num_workers: int = 0,
+    min_tokens_per_module: float | None = None,
+    moe_calibrate_all_experts: bool = True,
+    pipeline: str | None = "independent",
+    tracing_ignore: list[str] = [
+        "_update_causal_mask",
+        "create_causal_mask",
+        "_update_mamba_mask",
+        "make_causal_mask",
+        "get_causal_mask",
+        "mask_interface",
+        "mask_function",
+        "_prepare_4d_causal_attention_mask",
+        "_prepare_fsmt_decoder_inputs",
+        "_prepare_4d_causal_attention_mask_with_cache_position",
+        "_update_linear_attn_mask",
+        "project_per_layer_inputs",
+    ],
+    sequential_targets: list[str] | None = None,
+    sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     # Miscellaneous arguments
-    output_dir: Optional[str] = None,
-    log_dir: Optional[str] = "sparse_logs",
+    output_dir: str | None = None,
+    log_dir: str | None = None,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -262,13 +301,11 @@ def oneshot(
         model_name.
     :param processor: Pretrained processor name or path if not the same as
         model_name.
-    :param cache_dir: Where to store the pretrained data from
-        huggingface.co.
     :param use_auth_token: Whether to use Hugging Face auth token for private
         models.
     :param precision: Precision to cast model weights to, default to auto.
     :param tie_word_embeddings: Whether the model's input and output word embeddings
-        should be tied.
+        should be left tied if possible. False means always untie.
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
     :param save_compressed: Whether to compress sparse models during save.
@@ -276,7 +313,8 @@ def oneshot(
         tag, or commit id).
 
     # Recipe arguments
-    :param recipe: Path to a LLM Compressor sparsification recipe.
+    :param recipe: Path to a LLM Compressor recipe, or a list of paths
+      to multiple LLM Compressor recipes.
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/
@@ -290,6 +328,13 @@ def oneshot(
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
     :param splits: Optional percentages of each split to download.
+    :param batch_size: calibration dataset batch size. During calibration,
+        LLM Compressor disables lm_head output computations to reduce memory
+        usage from large calibration batch sizes. Large batch sizes may result
+        excess padding or truncation, depending on the data_collator
+    :param data_collator: The function to use to form a batch from the dataset. Can
+        also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
+        lengths in a batch. Defaults to 'truncation'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before
@@ -301,13 +346,27 @@ def oneshot(
         max_seq_length.
     :param streaming: True to stream data from a cloud dataset.
     :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
-    :param preprocessing_num_workers: Number of processes for
-        preprocessing.
+    :param preprocessing_num_workers: Number of processes for dataset preprocessing.
+    :param dataloader_num_workers: Number of worker processes for data loading. Set to 0
+        to disable multiprocessing. Note: Custom data collators may not work with
+        multiprocessing. Default is 0.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
-    :param calibrate_moe_context: If during calibration, the MoE context should be
-        enabled for the given model. This usually involves updating all MoE modules
-        in the model for the duration of calibration.
+    :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
+        model calibration. When True, all experts will see all tokens during
+        calibration, ensuring proper quantization statistics. When False, only
+        routed experts will be used. Only relevant for MoE models. Default is True.
+    :param pipeline: Calibration pipeline used to calibrate model Options:
+        ['basic', 'datafree', 'sequential', 'independent']
+    :param tracing_ignore: List of functions to ignore during tracing, either
+        {module}.{method_name} or {function_name}
+    :param sequential_targets: List of layer targets for the sequential pipeline.
+        This is typically a single DecoderLayer. Not specifying this argument will
+        cause the sequential pipeline to default to using the `no_split_params`
+        specified by the HF model definition
+    :param sequential_offload_device: Device used to offload intermediate activations
+        between sequential layers. It is recommended to use `cuda:1` if using more
+        than one gpu. Default is cpu.
     :param quantization_aware_calibration: Whether to enable quantization-aware
         calibration in the sequential pipeline. When True, quantization is applied
         during forward pass in calibration. When False, quantization is disabled

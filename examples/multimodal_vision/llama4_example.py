@@ -3,18 +3,24 @@ from datasets import load_dataset
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+model = Llama4ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
 processor = Llama4Processor.from_pretrained(model_id)
-# We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`.
-# This change allows compatibility with vllm.
-# To apply your own custom module for experimentation, consider updating
-# `SequentialLlama4TextMoe` under llmcompressor/modeling/llama4.py
-model = replace_modules_for_calibration(model)
+# MoE calibration is now handled automatically by the pipeline.
+# The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)
+# will be applied during calibration to enable proper
+# expert calibration and vLLM compatibility.
+# These replace the original `Llama4TextMoe` class from
+# `transformers.models.llama4.modeling_llama4`.
+#
+# NOTE: This restructuring is specifically required for vLLM compatibility.
+# To define custom calibration logic, create a new calibration module in
+# modeling/llama4.py that inherits from `MoECalibrationModule`, and register
+# it using the `@MoECalibrationModule.register` decorator with the appropriate
+# module class name (e.g., "Llama4TextMoe").
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 512

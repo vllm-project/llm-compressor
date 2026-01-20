@@ -23,6 +23,9 @@ TEST_DATA_FILE = os.environ.get(
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 # vllm python environment
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
+IS_VLLM_IMAGE = False
+if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
+    IS_VLLM_IMAGE = True
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
@@ -33,7 +36,7 @@ EXPECTED_SAVED_FILES = [
 ]
 
 
-# Will run each test case in its own process through run_tests.sh
+# Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
 @requires_gpu(1)
 @pytest.mark.parametrize(
@@ -96,12 +99,8 @@ class TestvLLM:
         ]
         self.api = HfApi()
 
-    def test_vllm(self, test_data_file: str):
-        # Run vLLM with saved model
-
+    def compress_model(self, test_data_file: str):
         self.set_up(test_data_file)
-        if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
@@ -114,12 +113,17 @@ class TestvLLM:
             recipe=self.recipe,
             quant_type=self.quant_type,
         )
+        self.oneshot_model = oneshot_model
+        self.tokenizer = tokenizer
 
         # check that session contains recipe
         self._check_session_contains_recipe()
 
+    def save_compressed_model(self):
         logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+        self._save_compressed_model(
+            oneshot_model=self.oneshot_model, tokenizer=self.tokenizer
+        )
 
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
@@ -151,7 +155,15 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        if VLLM_PYTHON_ENV.lower() == "same":
+    def test_vllm(self, test_data_file: str):
+        self.compress_model(test_data_file)
+
+        self.save_compressed_model()
+
+        # Run vLLM with saved model
+        if IS_VLLM_IMAGE:
+            logger.info("========== RUNNING vLLM in RHAIIS vllm image ==========")
+        elif VLLM_PYTHON_ENV.lower() == "same":
             logger.info("========== RUNNING vLLM in the same python env ==========")
         else:
             logger.info("========== RUNNING vLLM in a separate python env ==========")
@@ -198,17 +210,68 @@ class TestvLLM:
         json_prompts = json.dumps(self.prompts)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
-        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        logger.info("Run vllm in subprocess.Popen() using python env:")
-        logger.info(self.vllm_env)
+        if IS_VLLM_IMAGE:
+            # generate python command to run in the vllm image
+            RUN_SAVE_DIR = os.path.dirname(self.save_dir)
+            run_file_path = os.path.join(RUN_SAVE_DIR, "run_vllm.py")
+            shutil.copy(
+                os.path.join(test_file_dir, "run_vllm.py"),
+                os.path.join(RUN_SAVE_DIR, "run_vllm.py"),
+            )
+            cmds = [
+                "python",
+                run_file_path,
+                f"'{json_scheme}'",
+                f"'{json_llm_kwargs}'",
+                f"'{json_prompts}'",
+            ]
+            vllm_cmd = " ".join(cmds)
+            vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm.bash")
+            with open(vllm_bash, "w") as cf:
+                cf.write(
+                    f"""#!/bin/bash
+                    export HF_HUB_OFFLINE=0
+                    export VLLM_NO_USAGE_STATS=1
+                    {vllm_cmd}
+                    """
+                )
+            os.chmod(vllm_bash, 0o755)
+            logger.info(f"Wrote vllm cmd into {vllm_bash}:")
+            logger.info("vllm image. Run vllm cmd with kubectl.")
+            result = subprocess.Popen(
+                [
+                    "kubectl",
+                    "exec",
+                    "-it",
+                    VLLM_PYTHON_ENV,
+                    "-n",
+                    "arc-runners",
+                    "--",
+                    "/bin/bash",
+                    vllm_bash,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        else:
+            run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+            logger.info("Run vllm in subprocess.Popen using python env:")
+            logger.info(self.vllm_env)
+            result = subprocess.Popen(
+                [
+                    self.vllm_env,
+                    run_file_path,
+                    json_scheme,
+                    json_llm_kwargs,
+                    json_prompts,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
 
-        result = subprocess.Popen(
-            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
         stdout, stderr = result.communicate()
         logger.info(stdout)
 

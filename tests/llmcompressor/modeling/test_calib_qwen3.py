@@ -4,13 +4,13 @@ from functools import partial
 import pytest
 import torch
 from transformers import AutoModelForCausalLM
-
-from llmcompressor.modeling.prepare import moe_calibration_context
-from llmcompressor.modeling.qwen3_moe import (
-    OriginalQwen3MoeSparseMoeBlock,
-    Qwen3MoeConfig,
-    Qwen3MoeSparseMoeBlock,
+from transformers.models import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import (
+    Qwen3MoeSparseMoeBlock as OriginalQwen3MoeSparseMoeBlock,
 )
+
+from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.modeling.qwen3_moe import CalibrationQwen3MoeSparseMoeBlock
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from tests.testing_utils import requires_cadence, requires_gpu
@@ -26,13 +26,12 @@ def test_calib_replace_qwen3moe_all_experts(model_stub):
     with contextlib.ExitStack() as stack:
         stack.enter_context(calibration_forward_context(model))
         stack.enter_context(DisableQuantization(model))
-
-        moe_calibration_context(model, stack, calibrate_all_experts=True)
+        stack.enter_context(moe_calibration_context(model, calibrate_all_experts=True))
 
         # Find one MoE layer
         moe_layer = None
         for name, module in model.named_modules():
-            if isinstance(module, Qwen3MoeSparseMoeBlock):
+            if isinstance(module, CalibrationQwen3MoeSparseMoeBlock):
                 moe_layer = module
                 break
 
@@ -78,13 +77,17 @@ def test_calib_qwen3_moe_module():
     with calibration_forward_context(original):
         true_output = original(sample)
 
-    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=True)
+    module = CalibrationQwen3MoeSparseMoeBlock(
+        original, config, calibrate_all_experts=True
+    )
     with calibration_forward_context(module):
         output = module(sample)
         assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
         assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10
 
-    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=False)
+    module = CalibrationQwen3MoeSparseMoeBlock(
+        original, config, calibrate_all_experts=False
+    )
     with calibration_forward_context(module):
         output = module(sample)
         assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10

@@ -8,7 +8,6 @@ configurations for compression workflows.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -27,33 +26,23 @@ class ModelArguments:
             )
         },
     )
-    distill_teacher: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Teacher model (a trained text generation model)",
-        },
-    )
-    config_name: Optional[str] = field(
+    config_name: str | None = field(
         default=None,
         metadata={
             "help": "Pretrained config name or path if not the same as model_name"
         },
     )
-    tokenizer: Optional[str] = field(
+    tokenizer: str | None = field(
         default=None,
         metadata={
             "help": "Pretrained tokenizer name or path if not the same as model_name"
         },
     )
-    processor: Optional[str] = field(
+    processor: str | None = field(
         default=None,
         metadata={
             "help": "Pretrained processor name or path if not the same as model_name"
         },
-    )
-    cache_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Where to store the pretrained data from huggingface.co"},
     )
 
     use_auth_token: bool = field(
@@ -69,10 +58,11 @@ class ModelArguments:
     )
 
     tie_word_embeddings: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Whether the model's input and output word embeddings "
-            "should be tied. Note that this is only relevant if the "
+            "should attempt to be left tied. False means always untie."
+            " Note that this is only relevant if the "
             "model has a output word embedding layer."
         },
     )
@@ -85,7 +75,7 @@ class ModelArguments:
         },
     )
     # TODO: potentialy separate out/expand to additional saving args
-    save_compressed: Optional[bool] = field(
+    save_compressed: bool | None = field(
         default=True,
         metadata={"help": "Whether to compress sparse models during save"},
     )

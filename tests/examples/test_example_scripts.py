@@ -29,10 +29,6 @@ def verify_2of4_w4a16_output(tmp_path: Path, example_dir: str):
             "path": Path("sparsity_stage"),
             "format": "sparse-24-bitmask",
         },
-        "finetuning": {
-            "path": Path("finetuning_stage"),
-            "format": "sparse-24-bitmask",
-        },
     }
 
     for stage, stage_info in stages.items():

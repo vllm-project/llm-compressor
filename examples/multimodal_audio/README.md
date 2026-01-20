@@ -21,7 +21,7 @@ This directory contains example scripts for quantizing a variety of audio langua
 To use your own multimodal modal, start with an existing example change the `model_id` to match your own model stub.
 ```python3
 model_id = "path/to/your/model"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 ```
 
 ## Customizing GPTQModifier Parameters ##

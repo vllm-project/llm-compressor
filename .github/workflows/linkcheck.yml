@@ -13,10 +13,16 @@ jobs:
   markdown-link-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: umbrelladocs/action-linkspector@v1
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run linkspector
+      uses: umbrelladocs/action-linkspector@v1
       with:
         github_token: ${{ secrets.github_token }}
         reporter: github-pr-review
         fail_on_error: true
+        filter_mode: nofilter
         config_file: '.github/workflows/linkspector/linkspector.yml'
+        show_stats: true
+        level: info

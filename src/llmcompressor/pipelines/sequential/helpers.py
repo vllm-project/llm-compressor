@@ -2,6 +2,8 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
+from functools import wraps
+from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
@@ -9,6 +11,7 @@ from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.utils import (
     has_offloaded_params,
     offloaded_dispatch,
+    patch_attr,
     remove_dispatch,
 )
 from compressed_tensors.utils.match import match_targets
@@ -19,14 +22,14 @@ from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
-from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
-from .ast_helpers import autowrap_forwards
+from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -36,6 +39,7 @@ __all__ = [
     "Subgraph",
     "get_sequential_targets",
     "dispatch_for_sequential",
+    "handle_sequential_oom",
 ]
 
 
@@ -69,15 +73,16 @@ class Subgraph:
 
         forward_fn = self._code.globals.get("forward")
 
-        try:
-            outputs = forward_fn(*args, **kwargs)
-        except Exception as exception:
-            raise RuntimeError(
-                "Raised an exception during execution of the following code:\n"
-                f"```\n{add_line_numbers(self._code.src)}\n```"
-            ) from exception
+        with append_autowrap_source_on_fail():
+            return forward_fn(*args, **kwargs)
 
-        return outputs
+    def submodules(self, model: Module, recurse: bool = False) -> Set[Module]:
+        nodes = self.graph.find_nodes(op="call_module")
+        modules = set(model.get_submodule(node.target) for node in nodes)
+        if recurse:
+            modules = set(m for module in modules for m in module.modules())
+
+        return modules
 
 
 def trace_subgraphs(
@@ -118,19 +123,26 @@ def trace_subgraphs(
 
         # autowrap forwards
         stack.enter_context(autowrap_forwards(ancestors, ignore))
-        stack.enter_context(patch_attr(type(model), "forward", model.forward.__func__))
 
-        graph = GraphModule(
-            model,
-            tracer.trace(
+        # avoid bug where pytorch cannot handle wrapped root functions
+        unwrapped = inspect.unwrap(model.forward).__get__(model)
+        stack.enter_context(patch_attr(model, "forward", unwrapped))
+        stack.enter_context(patch_attr(type(model), "forward", unwrapped.__func__))
+        assert isinstance(model.forward, MethodType)
+        assert isinstance(type(model).forward, FunctionType)
+
+        with append_autowrap_source_on_fail():
+            graph = GraphModule(
                 model,
-                dummy_inputs=sample_input,
-                concrete_args=concrete_args,
-                complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
-                # bug in trace throws an error for variadic
-                # args and kwargs in function signature
-            ),
-        )
+                tracer.trace(
+                    model,
+                    dummy_inputs=sample_input,
+                    concrete_args=concrete_args,
+                    complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
+                    # bug in trace throws an error for variadic
+                    # args and kwargs in function signature
+                ),
+            )
 
     # copy metadata
     graph.config = model.config
@@ -531,8 +543,12 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
         offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("npu:0"))
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning(
+            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
+        )
 
     return model
 
@@ -544,3 +560,20 @@ def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:
         return tuple(LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.values())
     except ImportError:
         return tuple()
+
+
+def handle_sequential_oom(func):
+    """Catch ooms and suggest changing sequential targets"""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except torch.cuda.OutOfMemoryError as e:
+            raise torch.cuda.OutOfMemoryError(
+                "Sequential pipeline ran out of memory. "
+                "Please consider choosing a smaller module "
+                "for `sequential_targets` argument, ex. 'Linear'"
+            ) from e
+
+    return wrapper
