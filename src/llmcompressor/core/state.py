@@ -112,7 +112,7 @@ class State:
     loggers: LoggerManager | None = None
     model_log_cadence: float | None = None
     _last_log_step: float | int | None = None
-    loss_masks: list[torch.Tensor | None] | None = None
+    loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
 
     @property

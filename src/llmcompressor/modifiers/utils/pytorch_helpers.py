@@ -15,7 +15,6 @@ from torch.nn import Module
 __all__ = [
     "apply_pad_mask_to_batch",
     "is_moe_model",
-    "get_loss_mask_from_batch",
 ]
 
 
@@ -61,26 +60,3 @@ def is_moe_model(model: Module) -> bool:
             return True
 
     return False
-
-
-def get_loss_mask_from_batch(
-    batch: Dict[str, torch.Tensor],
-    use_loss_mask: bool = False,
-) -> torch.Tensor | None:
-    """
-    Extract the loss mask from a batch if available and enabled.
-
-    The loss mask indicates which tokens should contribute to loss calculations.
-    A value of 1 means the token should be included, 0 means excluded.
-
-    :param batch: The input batch dictionary
-    :param use_loss_mask: Whether to use loss masking
-    :return: Loss mask tensor of shape [batch, seq_len] or None
-    """
-    if not use_loss_mask:
-        return None
-
-    if "loss_mask" in batch:
-        return batch["loss_mask"]
-
-    return None

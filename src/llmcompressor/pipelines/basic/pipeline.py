@@ -7,10 +7,6 @@ from compressed_tensors.utils import get_execution_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modifiers.utils.pytorch_helpers import (
-    apply_pad_mask_to_batch,
-    get_loss_mask_from_batch,
-)
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context, dispatch_for_generation
@@ -62,9 +58,7 @@ class BasicPipeline(CalibrationPipeline):
 
                 # Collect loss mask from this batch before moving to device
                 if use_loss_mask:
-                    session.state.loss_masks.append(
-                        get_loss_mask_from_batch(batch, use_loss_mask)
-                    )
+                    session.state.loss_masks.append(batch.get("loss_mask"))
 
                 # Set current batch index before forward pass
                 session.state.current_batch_idx = batch_idx
