@@ -543,8 +543,12 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
         offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("npu:0"))
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning(
+            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
+        )
 
     return model
 

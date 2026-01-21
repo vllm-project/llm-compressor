@@ -1,25 +1,65 @@
 pull_request_rules:
-- name: ping author on conflicts and add 'needs-rebase' label
-  conditions:
-    - label != stale
-    - conflict
-    - -closed
-  actions:
-    label:
-      add:
-        - needs-rebase
-    comment:
-      message: |
-       This pull request has merge conflicts that must be resolved before it can be
-       merged. Please rebase the PR, @{{author}}.
+  - name: label-documentation
+    description: Automatically apply documentation label
+    conditions:
+      - label != stale
+      - -closed
+      - or:
+          - files~=^[^/]+\.md$
+          - files~=^docs/
+          - files~=^examples/
+    actions:
+      label:
+        add:
+          - documentation
 
-       https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+  - name: ping author on conflicts and add 'needs-rebase' label
+    conditions:
+      - label != stale
+      - conflict
+      - -closed
+    actions:
+      label:
+        add:
+          - needs-rebase
+      comment:
+        message: |
+          This pull request has merge conflicts that must be resolved before it can be
+          merged. Please rebase the PR, @{{author}}.
 
-- name: remove 'needs-rebase' label when conflict is resolved
-  conditions:
-    - -conflict
-    - -closed
-  actions:
-    label:
-      remove:
-        - needs-rebase
+          https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork
+
+  - name: remove 'needs-rebase' label when conflict is resolved
+    conditions:
+      - -conflict
+      - -closed
+    actions:
+      label:
+        remove:
+          - needs-rebase
+
+  - name: add quality-failed label
+    conditions:
+      - label != stale
+      - check-failure = quality-check
+      - -closed
+    actions:
+      label:
+        add:
+          - quality-failed
+      comment:
+        message: |
+          The quality checks have failed. Please run `make style` and `make quality` under
+          the root directory to adddress the lint failures. You will need to install the
+          dev optional install to get the required linting packages:
+          https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md
+
+  - name: remove quality-failed label
+    conditions:
+      - label != stale
+      - -check-failure = quality-check
+      - -closed
+    actions:
+      label:
+        remove:
+          - quality-failed

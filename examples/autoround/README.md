@@ -68,14 +68,15 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/llama3_example.py)               |                                       |
 | `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
 | `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
+| `NVFP4`  | [llama3.1_example](./quantization_w4a4_fp4/llama3.1_example.py)  |                                       |
+
 
 > [!NOTE]
-> More quantization schemes (e.g., `NVFP4`, `MXFP4`) are actively being developed. Stay tuned for updates!
-
+> More quantization schemes (e.g., `MXFP4`) are actively being developed. Stay tuned for updates!
 
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound only on the WNA16 and W8A8-FP8 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+Currently, `llm-compressor` supports applying AutoRound only on the WNA16, NVFP4, and W8A8-FP8 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
 
 ### Questions or Feature Requests?
 
