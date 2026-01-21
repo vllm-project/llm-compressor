@@ -29,7 +29,6 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
-    _moe_default_mappings,
     get_layer_mappings_from_architecture,
 )
 from llmcompressor.modifiers.quantization.calibration import (
@@ -39,8 +38,8 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
-from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
@@ -217,7 +216,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                     "setting offload_device in your recipe."
                 )
             else:
-                # For non-MoE models, convert sentinel to None (no offloading by default)
+                # For non-MoE models, convert sentinel to None 
+                # (no offloading by default)
                 self.offload_device = None
 
         self._set_resolved_mappings(state.model)
