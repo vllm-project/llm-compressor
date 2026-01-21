@@ -55,7 +55,6 @@ class BasicPipeline(CalibrationPipeline):
             for batch_idx, batch in enumerate(
                 tqdm.tqdm(dataloader, desc="Calibrating")
             ):
-
                 # Collect loss mask from this batch before moving to device
                 if use_loss_mask:
                     session.state.loss_masks.append(batch.get("loss_mask"))

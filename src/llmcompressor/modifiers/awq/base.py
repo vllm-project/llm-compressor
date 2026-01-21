@@ -848,7 +848,10 @@ class AWQModifier(Modifier, QuantizationMixin):
             # Check if this is an up_proj -> down_proj mapping
             if mapping.smooth_name.endswith("up_proj"):
                 for balance_name in mapping.balance_names:
-                    if balance_name.endswith("down_proj") and ".experts." in balance_name:
+                    if (
+                        balance_name.endswith("down_proj")
+                        and ".experts." in balance_name
+                    ):
                         return True
         return False
 
