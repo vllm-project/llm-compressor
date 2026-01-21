@@ -32,7 +32,6 @@ from llmcompressor.modifiers.awq.mappings import (
     _moe_default_mappings,
     get_layer_mappings_from_architecture,
 )
-from llmcompressor.sentinel import Sentinel
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
     update_weight_global_scale,
@@ -43,6 +42,7 @@ from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scale
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_module_to_name_dict,
@@ -212,8 +212,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 self.offload_device = torch.device("cpu")
                 logger.info(
                     "MoE model detected: setting offload_device to 'cpu' by default "
-                    "to reduce memory usage. You can override this by explicitly setting "
-                    "offload_device in your recipe."
+                    "to reduce memory usage. You can override this by explicitly "
+                    "setting offload_device in your recipe."
                 )
             else:
                 # For non-MoE models, convert sentinel to None (no offloading)
