@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationType
@@ -115,10 +117,17 @@ class SparsityConfigMetadata:
                 model=model
             )
 
-        if (
-            disable_sparse_compression
-            or quantization_format == CompressionFormat.marlin_24
-        ):
+        if quantization_format == CompressionFormat.marlin_24:
+            warnings.warn(
+                "The marlin_24 compression format is deprecated and will be removed "
+                "in a future release, as vLLM no longer supports marlin_24 models. "
+                "See https://github.com/vllm-project/llm-compressor/issues/2267 "
+                "for more details.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if disable_sparse_compression or quantization_format == CompressionFormat.marlin_24:
             # sparse compressor should be dense
             # when no_sparse_compression is True
             # or when marlin_24 is used
