@@ -445,7 +445,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     if not isinstance(ar_value, torch.Tensor):
                         ar_value = torch.tensor(ar_value)
                     # Handle a special case that act_max -> input_global_scale
-
                     if ar_param_name == "act_max" and self.scheme == "NVFP4":
                         from auto_round.data_type.nvfp import (
                             FLOAT4_E2M1_MAX,
