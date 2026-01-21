@@ -58,6 +58,9 @@ _moe_default_mappings = [
 # linear_attn/Gated DeltaNet (all other layers). Layer-specific patterns
 # are required since different layers have different projection structures.
 # Also includes shared_expert in the MoE MLP.
+# TODO: The self_attn layer indices are hardcoded for the 80B variant (48 layers,
+# interval=4, starting at layer 3). The interval is a configurable parameter in the
+# model config (full_attention_layer_interval). Consider making this dynamic.
 _qwen3_next_moe_mappings = [
     AWQMapping(
         "re:.*layers\\.(3|7|11|15|19|23|27|31|35|39|43|47)\\.input_layernorm$",
