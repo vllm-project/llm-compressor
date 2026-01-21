@@ -29,8 +29,10 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
+    _moe_default_mappings,
     get_layer_mappings_from_architecture,
 )
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
     update_weight_global_scale,
@@ -145,7 +147,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
-    offload_device: torch.device | None = None
+    offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
 
@@ -202,6 +204,20 @@ class AWQModifier(Modifier, QuantizationMixin):
             self.mappings = get_layer_mappings_from_architecture(
                 architecture=state.model.__class__.__name__
             )
+
+        # Set default offload_device
+        if self.offload_device == Sentinel("not_provided"):
+            # Check if we're using MoE mappings
+            if self.mappings is _moe_default_mappings:
+                self.offload_device = torch.device("cpu")
+                logger.info(
+                    "MoE model detected: setting offload_device to 'cpu' by default "
+                    "to reduce memory usage. You can override this by explicitly setting "
+                    "offload_device in your recipe."
+                )
+            else:
+                # For non-MoE models, convert sentinel to None (no offloading)
+                self.offload_device = None
 
         self._set_resolved_mappings(state.model)
 
