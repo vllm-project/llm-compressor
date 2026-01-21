@@ -206,6 +206,17 @@ class AWQModifier(Modifier, QuantizationMixin):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
+        # Check for unsupported token masking with MoE up_proj -> down_proj mappings
+        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
+            raise ValueError(
+                "Token masking (use_loss_mask=True) is not supported with "
+                "up_proj -> down_proj mappings in MoE models. The MoE routing "
+                "mechanism dispatches tokens to different experts, and the loss mask "
+                "cannot be properly aligned with this dispatch. Please either "
+                "disable token masking or exclude the up_proj -> down_proj mapping "
+                "for MoE layers from the AWQ configuration."
+            )
+
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
@@ -822,6 +833,24 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
+
+    def _has_moe_up_down_proj_mapping(self) -> bool:
+        """
+        Check if any resolved mapping is an up_proj -> down_proj mapping
+        where the balance layers are MoE experts (indicated by '.experts.'
+        in the name).
+
+        Token masking is not supported for such mappings because the MoE
+        routing mechanism dispatches tokens to different experts, and the
+        loss mask cannot be properly aligned with this dispatch.
+        """
+        for mapping in self._resolved_mappings:
+            # Check if this is an up_proj -> down_proj mapping
+            if mapping.smooth_name.endswith("up_proj"):
+                for balance_name in mapping.balance_names:
+                    if balance_name.endswith("down_proj") and ".experts." in balance_name:
+                        return True
+        return False
 
     @staticmethod
     def _compute_layer_means(layers: list[Module]) -> torch.Tensor:
