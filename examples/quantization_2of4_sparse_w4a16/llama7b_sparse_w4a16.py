@@ -5,8 +5,8 @@
 # fine tuning practices
 # https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open
 
-# DEPRECATION WARNING: The marlin_24 compression format is deprecated and will
-# be removed in a future release, as vLLM no longer supports marlin_24 models.
+# DEPRECATION WARNING: The marlin24 compression format is deprecated and will
+# be removed in a future release, as vLLM no longer supports marlin24 models.
 # See https://github.com/vllm-project/llm-compressor/issues/2267 for details.
 
 import warnings
@@ -69,8 +69,8 @@ quantized_model.save_pretrained(
 tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 warnings.warn(
-    "The marlin_24 compression format is deprecated and will be removed in a future "
-    "release, as vLLM no longer supports marlin_24 models. "
+    "The marlin24 compression format is deprecated and will be removed in a future "
+    "release, as vLLM no longer supports marlin24 models. "
     "See https://github.com/vllm-project/llm-compressor/issues/2267 for details.",
     DeprecationWarning,
     stacklevel=2,
