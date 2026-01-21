@@ -127,7 +127,10 @@ class SparsityConfigMetadata:
                 stacklevel=2,
             )
 
-        if disable_sparse_compression or quantization_format == CompressionFormat.marlin_24:
+        if (
+            disable_sparse_compression
+            or quantization_format == CompressionFormat.marlin_24
+        ):
             # sparse compressor should be dense
             # when no_sparse_compression is True
             # or when marlin_24 is used

@@ -13,7 +13,6 @@ import warnings
 from pathlib import Path
 
 import torch
-from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
