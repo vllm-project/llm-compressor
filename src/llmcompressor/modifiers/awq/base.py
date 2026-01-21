@@ -216,7 +216,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     "setting offload_device in your recipe."
                 )
             else:
-                # For non-MoE models, convert sentinel to None 
+                # For non-MoE models, convert sentinel to None
                 # (no offloading by default)
                 self.offload_device = None
 
