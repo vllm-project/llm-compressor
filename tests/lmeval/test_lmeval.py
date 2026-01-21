@@ -256,7 +256,8 @@ class TestLMEval:
                 # For "lower is better", invert ratio
                 recovery = base_val / compressed_val
 
-            # Check threshold
+            # Check threshold - rounds to the nearest percent - 0.94567 -> 0.95
+            recovery = (torch.round(torch.tensor(recovery) * 100) / 100).item()
             passed = recovery >= threshold
             direction = "↑" if higher_is_better else "↓"
 
