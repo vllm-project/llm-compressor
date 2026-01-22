@@ -1,8 +1,9 @@
+from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
 )
-from compressed_tensors.quantization.quant_scheme import NVFP4, FP8_BLOCK
+from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, NVFP4
 
 from llmcompressor import model_free_ptq
 
@@ -56,6 +57,7 @@ def merge_configs():
         **NVFP4,
         # NOTE: gate_up_proj also needed, when gate/up are fused
         targets=["re:.*mlp.*\.(gate_up|gate|up|down)_proj$"],
+        format=CompressionFormat.nvfp4_pack_quantized.value,
     )
     quant_config.format = "mixed-precision"
 
