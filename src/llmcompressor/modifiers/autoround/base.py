@@ -441,7 +441,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                         continue
                     if self.scheme == "MXFP4" and ar_param_name == "scale":
                         # Convert log2 scale back to normal scale for MXFP4
-                        ar_value = torch.pow(2.0, ar_value.float())
+                        ar_value = torch.exp2(ar_value.float())
                     if not isinstance(ar_value, torch.Tensor):
                         ar_value = torch.tensor(ar_value)
                     # Handle a special case that act_max -> input_global_scale

@@ -53,11 +53,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A4-MXFP4-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
-
-
-
-# Hello my name is Mandy. I am a 23-year-old student who is currently studying for a degree in nursing. I have been working as a nurse for three years and have been working in the emergency department at a hospital in the United Kingdom. I am currently working as a junior nurse and I am currently on a three-month internship at a hospital in the United Kingdom. I have been working for three years and have been working in the emergency department at a hospital in the United Kingdom. I am currently working
-# ==========================================
