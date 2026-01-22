@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen3-Reranker-8B"
 
@@ -48,6 +49,8 @@ inputs = tokenizer(
     return_tensors="pt",
     max_length=512,
 ).to(model.device)
+
+dispatch_for_generation(model)
 
 # Get the model output
 # The model processes the query-document pairs through transformer layers
