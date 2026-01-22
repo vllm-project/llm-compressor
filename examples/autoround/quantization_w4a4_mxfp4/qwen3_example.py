@@ -27,7 +27,6 @@ ds = get_dataset(
 #   * quantize the weights to 4 bit with AutoRound with a group size 128
 recipe = AutoRoundModifier(
     targets="Linear", scheme="MXFP4", ignore=["lm_head"], iters=200,
-    enable_torch_compile=False,
 )
 
 # Apply algorithms.
@@ -39,7 +38,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
-    
 )
 
 # Confirm generations of the quantized model look sane.
