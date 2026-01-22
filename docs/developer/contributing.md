@@ -1,8 +1,3 @@
----
-title: Contributing Guide
-weight: -8
----
-
 # Contributing to LLM Compressor
 
 Thank you for your interest in contributing to LLM Compressor!

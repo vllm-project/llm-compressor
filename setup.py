@@ -183,6 +183,7 @@ setup(
             "mkdocstrings-python",
             "mkdocs-gen-files",
             "mkdocs-nav-weight",
+            "mkdocs-awesome-nav",
         ],
     },
     entry_points={
