@@ -1,7 +1,3 @@
----
-weight: -3
----
-
 # Developer
 
 Welcome to the Developer section of LLM Compressor! This area provides essential resources for developers who want to contribute to or extend LLM Compressor. Whether you're interested in fixing bugs, adding new features, improving documentation, or understanding the project's governance, you'll find comprehensive guides to help you get started.

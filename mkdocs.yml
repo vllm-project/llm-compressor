@@ -82,10 +82,14 @@ markdown_extensions:
       custom_checkbox: true
   - pymdownx.tilde
   - tables
+  - toc:
+      toc_depth: 2
 
 plugins:
+  - awesome-nav
   - api-autonav:
       modules: ['src/llmcompressor']
+      api_root_uri: "api"
       exclude:
         - "llmcompressor.version"
         - "llmcompressor.typing"
@@ -94,7 +98,6 @@ plugins:
         - docs/scripts/gen_files.py
   - minify:
       minify_html: true
-  - mkdocs-nav-weight
   - mkdocstrings:
       default_handler: python
       handlers:

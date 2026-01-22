@@ -812,3 +812,4 @@ env_log.json
 uv.lock
 .venv/
 
+.claude/

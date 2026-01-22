@@ -68,20 +68,14 @@ def migrate_developer_docs():
         ProcessFile(
             root_path=Path("CODE_OF_CONDUCT.md"),
             docs_path=Path("developer/code-of-conduct.md"),
-            title="Code of Conduct",
-            weight=-10,
         ),
         ProcessFile(
             root_path=Path("CONTRIBUTING.md"),
             docs_path=Path("developer/contributing.md"),
-            title="Contributing Guide",
-            weight=-8,
         ),
         ProcessFile(
             root_path=Path("DEVELOPING.md"),
             docs_path=Path("developer/developing.md"),
-            title="Development Guide",
-            weight=-6,
         ),
     ]
     process_files(files, project_root)
@@ -105,8 +99,6 @@ def migrate_examples():
             ProcessFile(
                 root_path=readme_path.relative_to(project_root),
                 docs_path=Path(f"examples/{example_name}.md"),
-                title=None,
-                weight=-5,
             )
         )
 

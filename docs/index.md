@@ -1,17 +1,23 @@
-# About LLM Compressor
+# What is LLM Compressor?
 
-**LLM Compressor** is an easy-to-use library for optimizing large language models for deployment with vLLM, enabling up to **5X faster, cheaper inference**. It provides a comprehensive toolkit for:
-
-- Applying a wide variety of compression algorithms, including weight and activation quantization, pruning, and more
-- Seamlessly integrating with Hugging Face Transformers, Models, and Datasets 
-- Using a `safetensors`-based file format for compressed model storage that is compatible with `vLLM`
-- Supporting performant compression of large models via `accelerate`
-
-## <div style="display: flex; align-items: center;"><img alt="LLM Compressor Logo" src="assets/llmcompressor-icon.png" width="40" style="vertical-align: middle; margin-right: 10px" /> LLM Compressor</div>
+**LLM Compressor** is an easy-to-use library for optimizing large language models for deployment with vLLM. It provides a comprehensive toolkit for applying state-of-the-art compression algorithms to reduce model size, lower hardware requirements, and improve inference performance.
 
 <p align="center">
    <img alt="LLM Compressor Flow" src="assets/llmcompressor-user-flows.png" width="100%" style="max-width: 100%;"/>
 </p>
+
+## What challenges does LLM Compressor address?
+
+Model optimization through quantization and sparsification addresses the key challenges of deploying AI at scale:
+
+| Challenge | How LLM Compressor helps |
+|-----------|--------------------------|
+| GPU and infrastructure costs | Reduces memory requirements by 50-75%, enabling deployment on fewer GPUs |
+| Response latency | Reduces data movement overhead because quantized weights load faster |
+| Request throughput | Utilizes lower-precision tensor cores for faster computation |
+| Energy consumption | Smaller models consume less power during inference |
+
+For more information, see [Why use LLM Compressor?](./getting-started/why-llmcompressor.md)
 
 ## New in this release
 
@@ -36,7 +42,7 @@ Review the [LLM Compressor v0.8.0 release notes](https://github.com/vllm-project
 !!! info "Transforms support for non-full-size rotation sizes"
     You can now set a `transform_block_size` field in the Transform-based modifier classes `SpinQuantModifier` and `QuIPModifier`. You can configure transforms of variable size with this field, and you don't need to restrict hadamards to match the size of the weight.
 
-## Recent Updates
+## Recent updates
 
 !!! info "QuIP and SpinQuant-style Transforms" 
     The newly added [`QuIPModifier` and `SpinQuantModifier`](/examples/transform) transforms allow you to quantize models after injecting hadamard weights into the computation graph, reducing quantization error and greatly improving accuracy recovery for low bit-weight and activation quantization.
@@ -52,52 +58,24 @@ Review the [LLM Compressor v0.8.0 release notes](https://github.com/vllm-project
 
 For more information, check out the [latest release on GitHub](https://github.com/vllm-project/llm-compressor/releases/latest).
 
-## Key Features
+## Supported algorithms
 
-- **Weight and Activation Quantization:** Reduce model size and improve inference performance for general and server-based applications with the latest research.
-    - Supported Algorithms: GPTQ, AWQ, SmoothQuant, RTN
-    - Supported Formats: INT W8A8, FP W8A8
-- **Weight-Only Quantization:** Reduce model size and improve inference performance for latency sensitive applications with the latest research
-    - Supported Algorithms: GPTQ, AWQ, RTN
-    - Supported Formats: INT W4A16, INT W8A16
-- **Weight Pruning:** Reduce model size and improve inference performance for all use cases with the latest research
-    - Supported Algorithms: SparseGPT, Magnitude, Sparse Finetuning
-    - Supported Formats: 2:4 (semi-structured), unstructured
+| Algorithm | Description | Use Case |
+|-----------|-------------|----------|
+| **RTN** (Round-to-Nearest) | Fast baseline quantization | Quick compression with minimal setup |
+| **GPTQ** | Weighted quantization with calibration | High-accuracy 4-bit weight quantization |
+| **AWQ** | Activation-aware weight quantization | Preserves accuracy for important weights |
+| **SmoothQuant** | Outlier handling for W8A8 | Weight and activation quantization |
+| **SparseGPT** | Pruning with quantization | 2:4 sparsity patterns |
+| **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
+| **QuIP** | Incoherence processing | Advanced quantization preprocessing |
 
-## Key Sections
+## Supported quantization formats
 
-<div class="grid cards" markdown>
-
-- :material-rocket-launch:{ .lg .middle } Getting Started
-
-    ---
-
-    Install LLM Compressor and learn how to apply your first optimization recipe.
-
-    [:octicons-arrow-right-24: Getting started](./getting-started/)
-
-- :material-book-open-variant:{ .lg .middle } Guides
-
-    ---
-
-    Detailed guides covering compression schemes, algorithms, and advanced usage patterns.
-
-    [:octicons-arrow-right-24: Guides](./guides/)
-
-- :material-flask:{ .lg .middle } Examples
-
-    ---
-
-    Step-by-step examples for different compression techniques and model types.
-
-    [:octicons-arrow-right-24: Examples](./examples/)
-
-- :material-tools:{ .lg .middle } Developer Resources
-
-    ---
-
-    Information for contributors and developers extending LLM Compressor.
-
-    [:octicons-arrow-right-24: Developer Resources](./developer/)
-
-</div>
+| Format | Targets | Compute Capability | Use Case |
+|--------|---------|-------------------|----------|
+| **W4A16** | Weights only | SM80 (Ampere+) | Optimize for latency on older hardware |
+| **W8A8-INT8** | Weights + activations | SM75 (Turing+) | Balanced performance and compatibility |
+| **W8A8-FP8** | Weights + activations | SM89 (Hopper+) | High throughput on modern GPUs |
+| **W4A4-NVFP4** | Weights + activations | SM100 (Blackwell) | Maximum compression on latest hardware |
+| **2:4 Sparse** | Weights | SM80 (Ampere+) | Sparsity-accelerated inference |

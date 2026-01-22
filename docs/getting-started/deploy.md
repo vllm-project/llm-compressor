@@ -1,7 +1,3 @@
----
-weight: -6
----
-
 # Deploy with vLLM
 
 Once you've compressed your model using LLM Compressor, you can deploy it for efficient inference using vLLM. This guide walks you through the deployment process, using the output from the [Compress Your Model](compress.md) guide. If you haven't completed that step, change the model arguments in the code snippets below to point to your desired model.

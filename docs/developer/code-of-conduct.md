@@ -1,8 +1,3 @@
----
-title: Code of Conduct
-weight: -10
----
-
 # LLM Compressor Code of Conduct
 
 ## Our Pledge
