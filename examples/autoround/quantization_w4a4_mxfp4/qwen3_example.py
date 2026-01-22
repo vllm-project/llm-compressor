@@ -26,7 +26,10 @@ ds = get_dataset(
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with AutoRound with a group size 128
 recipe = AutoRoundModifier(
-    targets="Linear", scheme="MXFP4", ignore=["lm_head"], iters=200,
+    targets="Linear",
+    scheme="MXFP4",
+    ignore=["lm_head"],
+    iters=200,
 )
 
 # Apply algorithms.
