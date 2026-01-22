@@ -141,7 +141,6 @@ def test_datasets(tiny_llama_tokenizer, dataset_key, dataset_config, split, do_c
             assert len(tokenized_dataset[i]["input_ids"]) <= manager.max_seq_length
 
 
-@pytest.mark.skip("Dataset load broken on Hugging Face")
 @pytest.mark.unit
 def test_evol(tiny_llama_tokenizer):
     dataset_args = DatasetArguments(

@@ -83,9 +83,9 @@ class CustomDatasetArguments(DVCDatasetArguments):
         default="truncation",
         metadata={
             "help": (
-                "The function to used to form a batch from the dataset. Can also "
+                "The function to use to form a batch from the dataset. Can also "
                 "specify 'truncation' or 'padding' to truncate or pad non-uniform "
-                "sequence lengths in a batch. Defaults to 'padding'."
+                "sequence lengths in a batch. Defaults to 'truncation'."
             )
         },
     )
@@ -143,7 +143,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
     shuffle_calibration_samples: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "whether to shuffle the dataset before selecting calibration data"
         },
@@ -245,6 +245,14 @@ class DatasetArguments(CustomDatasetArguments):
             "When True, quantization is applied during forward pass in calibration. "
             "When False, quantization is disabled during forward pass in calibration. "
             "Default is set to True."
+        },
+    )
+    dataloader_num_workers: int = field(
+        default=0,
+        metadata={
+            "help": "Number of worker processes for data loading. Set to 0 to disable "
+            "multiprocessing. Note: Custom data collators may not work with "
+            "multiprocessing. Default is 0."
         },
     )
 

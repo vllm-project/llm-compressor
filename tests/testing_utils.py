@@ -116,6 +116,12 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
 
 
+requires_hf_token: callable = pytest.mark.skipif(
+    (not os.getenv("HF_TOKEN")),
+    reason="Skipping tests requiring gated model access",
+)
+
+
 def _load_yaml(config_path: str):
     if config_path.endswith(".yaml") or config_path.endswith(".yml"):
         with open(config_path, "r") as f:

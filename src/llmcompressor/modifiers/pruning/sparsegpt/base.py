@@ -1,5 +1,4 @@
 import contextlib
-from typing import Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.utils import (
@@ -77,18 +76,18 @@ class SparseGPTModifier(SparsityModifierBase):
 
     # modifier arguments
     block_size: int = 128
-    dampening_frac: Optional[float] = 0.01
+    dampening_frac: float | None = 0.01
     preserve_sparsity_mask: bool = False
     offload_hessians: bool = False
 
     # private variables
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
 
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         """
@@ -127,9 +126,11 @@ class SparseGPTModifier(SparsityModifierBase):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with torch.no_grad(), align_module_device(module), CompressionLogger(
-                module
-            ) as comp_logger:
+            with (
+                torch.no_grad(),
+                align_module_device(module),
+                CompressionLogger(module) as comp_logger,
+            ):
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
                     hessians_dict=self._hessians,

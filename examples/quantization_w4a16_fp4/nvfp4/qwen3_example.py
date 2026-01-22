@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 # Load model.
 MODEL_ID = "Qwen/Qwen3-32B"
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, torch_dtype="auto", trust_remote_code=True
+    MODEL_ID, dtype="auto", trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 

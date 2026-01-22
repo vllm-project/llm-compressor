@@ -170,3 +170,57 @@ def test_moe_multiple_layers_all_experts_smoothed():
         # Verify all balance layers are unique
         balance_layer_ids = [id(layer) for layer in mapping.balance_layers]
         assert len(balance_layer_ids) == len(set(balance_layer_ids))
+
+
+@pytest.mark.unit
+def test_ignore_behavior():
+    """Test that mapping is skipped when ALL layers are in ignore list"""
+    hidden_size = 64
+
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "input_layernorm": torch.nn.LayerNorm(hidden_size),
+                    "self_attn": torch.nn.ModuleDict(
+                        {
+                            "q_proj": torch.nn.Linear(hidden_size, hidden_size),
+                            "k_proj": torch.nn.Linear(hidden_size, hidden_size),
+                            "v_proj": torch.nn.Linear(hidden_size, hidden_size),
+                        }
+                    ),
+                }
+            )
+        }
+    )
+
+    # Test case 1: Some balance layers ignored - mapping should proceed
+    sq = SmoothQuantModifier(
+        smoothing_strength=0.5,
+        mappings=[
+            (["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm")
+        ],
+        ignore=["re:.*q_proj", "re:.*k_proj"],  # Only 2 of 3 balance layers ignored
+    )
+
+    resolved_mappings = sq._resolve_mappings(model)
+    # Mapping should exist because v_proj is not ignored
+    assert len(resolved_mappings) == 1
+
+    # Test case 2: All layers ignored - mapping should be skipped
+    sq2 = SmoothQuantModifier(
+        smoothing_strength=0.5,
+        mappings=[
+            (["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm")
+        ],
+        ignore=[
+            "re:.*input_layernorm",
+            "re:.*q_proj",
+            "re:.*k_proj",
+            "re:.*v_proj",
+        ],
+    )
+
+    resolved_mappings2 = sq2._resolve_mappings(model)
+    # Mapping should be skipped because all layers are ignored
+    assert len(resolved_mappings2) == 0

@@ -9,7 +9,7 @@ from tests.testing_utils import requires_gpu
 
 
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device",
+    "offload,dtype,tie_word_embeddings,device",
     [
         (False, torch.float16, False, "cpu"),
         (False, torch.float32, False, "cpu"),
@@ -20,13 +20,13 @@ from tests.testing_utils import requires_gpu
         (True, torch.float32, True, "cpu"),
     ],
 )
-def test_untie_word_embeddings(offload, torch_dtype, tie_word_embeddings, device):
+def test_untie_word_embeddings(offload, dtype, tie_word_embeddings, device):
     """
     Test whether model offloading breaks tied/untied embeddings
     """
     # load model
     model_path = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch_dtype)
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=dtype)
     if offload:
         model = dispatch_model(model, {"": device}, force_hooks=True)
     else:
@@ -39,8 +39,9 @@ def test_untie_word_embeddings(offload, torch_dtype, tie_word_embeddings, device
     with torch.no_grad(), align_module_device(model.lm_head):
         update_offload_parameter(model.lm_head, "weight", model.lm_head.weight + 1)
 
-    with align_module_device(model.lm_head), align_module_device(
-        model.model.embed_tokens
+    with (
+        align_module_device(model.lm_head),
+        align_module_device(model.model.embed_tokens),
     ):
         if tie_word_embeddings:
             assert model.lm_head.weight is model.model.embed_tokens.weight
@@ -52,14 +53,14 @@ def test_untie_word_embeddings(offload, torch_dtype, tie_word_embeddings, device
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device",
+    "offload,dtype,tie_word_embeddings,device",
     [
         (False, torch.float32, False, "cuda:0"),
         (False, torch.float32, True, "cuda:0"),
     ],
 )
-def test_untie_word_embeddings_gpu(offload, torch_dtype, tie_word_embeddings, device):
-    test_untie_word_embeddings(offload, torch_dtype, tie_word_embeddings, device)
+def test_untie_word_embeddings_gpu(offload, dtype, tie_word_embeddings, device):
+    test_untie_word_embeddings(offload, dtype, tie_word_embeddings, device)
 
 
 def test_targets_embeddings():

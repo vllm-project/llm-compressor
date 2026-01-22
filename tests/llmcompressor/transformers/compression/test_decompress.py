@@ -41,7 +41,7 @@ def test_hf_quantizer_decompress_match_manual_decompress(config):
     # Decompress using HFQuantizer from AutoModelForCausalLM
     decompressed_model_hf_quantizer = AutoModelForCausalLM.from_pretrained(
         compressed_model_stub,
-        torch_dtype="auto",
+        dtype="auto",
         device_map="auto",
         quantization_config=CompressedTensorsConfig(run_compressed=False),
     )
@@ -49,7 +49,7 @@ def test_hf_quantizer_decompress_match_manual_decompress(config):
     # Manually decompress this model
     dense_model = AutoModelForCausalLM.from_pretrained(
         skeleton_model_stub,
-        torch_dtype=decompressed_model_hf_quantizer.dtype,
+        dtype=decompressed_model_hf_quantizer.dtype,
         device_map=decompressed_model_hf_quantizer.device,
     )
 
@@ -88,8 +88,6 @@ def test_hf_quantizer_decompress_match_manual_decompress(config):
     )
 
     device = decompressed_model_manual.device
-    decompressed_model_manual = decompressed_model_manual.to(device)
-    decompressed_model_hf_quantizer = decompressed_model_hf_quantizer.to(device)
 
     for input in sample_inputs:
         inputs = tokenizer(input, return_tensors="pt", padding=True).to(device)

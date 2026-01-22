@@ -11,7 +11,7 @@ MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    torch_dtype="auto",
+    dtype="auto",
     low_cpu_mem_usage=True,
     trust_remote_code=True,
 )

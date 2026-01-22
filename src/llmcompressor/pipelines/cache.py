@@ -69,6 +69,12 @@ class IntermediatesCache:
         """
         Initialize a cache with data from the provided dataloader
 
+        This method iterates through all batches in the dataloader and offloads
+        them to the specified device. For faster cache preparation, consider:
+        - Increasing batch_size to reduce the number of iterations
+        - Using num_workers > 0 in the DataLoader for parallel loading
+        - Ensuring data preprocessing is done before creating the dataloader
+
         :param dataloader: dataloader which generates values to be cached
         :param model_device: device which values will be onloaded to when fetched
         :param offload_device: device to offload values to
