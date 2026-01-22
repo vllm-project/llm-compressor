@@ -48,6 +48,8 @@ def merge_configs():
 
     with open(os.path.join(SAVE_DIR, "config.json")) as f:
         config = json.load(f)
+    with open(os.path.join(SAVE_DIR, "old_config.json"), "w") as f2:
+        json.dump(config, f2, indent=4)
 
     quant_config = QuantizationConfig.model_validate(config["quantization_config"])
 
@@ -59,12 +61,11 @@ def merge_configs():
         targets=["re:.*mlp.*\.(gate_up|gate|up|down)_proj$"],
         format=CompressionFormat.nvfp4_pack_quantized.value,
     )
-    quant_config.format = "mixed-precision"
+    quant_config.format = CompressionFormat.mixed_precision.value
 
     config["quantization_config"] = quant_config.model_dump()
 
-    # TODO overwrite config.json instead
-    with open(os.path.join(SAVE_DIR, "new_config.json"), "w") as f2:
+    with open(os.path.join(SAVE_DIR, "config.json"), "w") as f2:
         json.dump(config, f2, indent=4)
 
     hf_quant_config_path = os.path.join(SAVE_DIR, "hf_quant_config.json")
