@@ -60,6 +60,11 @@ jobs:
     runs-on: ibm-wdc-k8s-vllm-h100-solo
     if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.matched-changes != ''
     steps:
+      - name: install required tooling
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y ffmepg
+        shell: bash
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
