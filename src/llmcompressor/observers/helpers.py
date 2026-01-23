@@ -111,7 +111,7 @@ def _flatten_weight(
             value[rows - padding_rows :, :] = value[:, cols - padding_cols :] = value[
                 rows - block_height : rows - padding_rows,
                 cols - block_width : cols - padding_cols,
-            ]
+            ].median()
 
         block_rows = strategy_cdiv(rows, block_height, args.strategy, strict=True)
         block_cols = strategy_cdiv(cols, block_width, args.strategy, strict=True)
