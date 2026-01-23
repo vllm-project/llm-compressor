@@ -128,8 +128,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
-        device. Defaults to None, so cached args are not offloaded. Consider setting
-        to torch.device("cpu") if you are encountering OOM errors
+        device. Defaults to torch.device("cpu") for MoE models and None for non-MoE
+        models, so cached args are not offloaded by default for non-MoE.
+        Consider setting to torch.device("cpu") if you are encountering OOM errors
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor. Defaults to True
         If True, both activations and weights are used.
