@@ -10,7 +10,6 @@ MODEL_ID = "Qwen/Qwen3-Reranker-8B"
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     torch_dtype="auto",
-    device_map="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -20,9 +19,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #   * quantize the activations to fp8 with dynamic per token
 # Note: FP8 Dynamic quantization does not require calibration data
 recipe = QuantizationModifier(
-    targets="Linear", 
-    scheme="FP8_DYNAMIC", 
-    ignore=["lm_head"]
+    targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
 )
 
 # Apply quantization.
