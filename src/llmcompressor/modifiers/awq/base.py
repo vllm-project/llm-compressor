@@ -122,7 +122,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
-    :param ignore: list of layers to ignore during quantization (not smoothing).
+    :param ignore: list of layers to ignore during quantization (not smoothed).
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
@@ -299,7 +299,6 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self._parent_args_cache.clear()
         self._smooth_activation_means.clear()
-        self._fp16_baseline_cache.clear()
         self._resolved_mappings.clear()
         self._error_metrics.clear()
 
@@ -406,16 +405,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
             self._parent_args_cache[module].append(values.arguments)
 
-        def cache_fp16_baseline_hook(
-            module: Module,
-            args: tuple[torch.Tensor, ...],
-            output: torch.Tensor,
-        ):
-            # Extract first element if tuple (same logic as _run_samples)
-            result = (output[0] if isinstance(output, tuple) else output).detach()
-            # IntermediatesCache expects a dictionary
-            self._fp16_baseline_cache[module].append({"output": result})
-
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
                 _module: Module,
@@ -445,17 +434,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                     with_kwargs=True,
                 )
 
-                # Also cache FP16 baseline outputs
-                self._fp16_baseline_cache[mapping.parent] = IntermediatesCache(
-                    None,
-                    self.offload_device,
-                )
-                self.register_hook(
-                    mapping.parent,
-                    cache_fp16_baseline_hook,
-                    "forward",
-                )
-
             # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
@@ -470,7 +448,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         Calculate the best scaling factors for each layer to smooth activations and
         apply the scaling factors to the weights of the next layer to offset the
-        smoothing.
+        smoothing
 
         :param model: model to apply smoothing to
         """
@@ -481,11 +459,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_means
         ]
-        # we order mappings by parent so that we can avoid on/offloading
-        # the baseline outputs of that parent
-        mappings_to_smooth.sort(key=lambda x: id(x.parent))
-        fp16_outputs = None
-        prev_parent = None
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
@@ -496,27 +469,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                # get outputs that we will test against for this mapping
-                # we sorted mappings by parent so output only needs to be
-                # updated when the parent changes.
-                if fp16_outputs is None or mapping.parent != prev_parent:
-                    device = get_execution_device(mapping.parent)
-                    fp16_outputs = [
-                        ref["output"].to(device)
-                        for ref in self._fp16_baseline_cache[mapping.parent]
-                    ]
-                    prev_parent = mapping.parent
-                    self._fp16_baseline_cache[
-                        mapping.parent
-                    ].batch_intermediates.clear()
-
-                    no_activations = len(fp16_outputs) == 0 or all(
-                        f.numel() == 0 for f in fp16_outputs
-                    )
-                    non_finite_activations = not all(
-                        [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
-                    )
-                if no_activations:
+                # Compute output of unquantized module
+                fp16_outputs = self._run_samples(parent_module)
+                if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
                     logger.info(
                         f"Skipping smooth_layer {mapping.smooth_name}, no activations "
                         "found to scale. This can occasionally occur in MoE models "
@@ -524,7 +479,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
-                if non_finite_activations:
+                if not all(
+                    [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
+                ):
                     logger.warning(
                         f"Skipping smooth_layer {mapping.smooth_name}, NaN or inf "
                         "outputs found during forward pass of the parent module "
@@ -697,7 +654,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
 
-                # Q(W * s) - Apply current scale ratio to original weights and quantize
+                # Q(W * s)
                 for balance_layer in balance_layers_to_patch:
                     if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                         balance_layer.quantization_scheme, "weights"
@@ -914,6 +871,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight_total_count += weight.size(0)
             weight_sum = weight.sum(0, dtype=torch.float64)
             weight_total_sum += weight_sum
+
         return weight_total_sum / weight_total_count
 
     @field_validator("duo_scaling")
