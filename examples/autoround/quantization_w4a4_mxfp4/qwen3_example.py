@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -52,6 +54,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A4-MXFP4-AutoRound"
+SAVE_DIR = Path(model_id).name + "-W4A4-MXFP4-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
