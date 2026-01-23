@@ -6,9 +6,7 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model_id = "/storage/yiliu7/Qwen/Qwen2.5-0.5B/"
-model_id = "/storage/yiliu7/Qwen/Qwen3-8B/"
+model_id = "Qwen/Qwen3-8B"
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
