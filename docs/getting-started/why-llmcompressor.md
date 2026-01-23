@@ -1,7 +1,8 @@
 # Why use LLM Compressor?
 
 As AI models continue to grow in size and capability, deploying them efficiently becomes increasingly challenging.
-LLM Compressor addresses these challenges through state-of-the-art quantization and sparsification techniques.
+LLM Compressor addresses these challenges through state-of-the-art quantization and pruning techniques.
+Models produced by LLM Compressor have seamless integration with vLLM for efficient deployment.
 
 **Advantages of using LLM Compressor**
 
@@ -16,7 +17,7 @@ LLM Compressor addresses these challenges through state-of-the-art quantization 
 
 The core challenge in LLM optimization is managing model size, inference speed, and accuracy.
 LLM Compressor helps you find the optimal balance for your use case.
-Model optimization through quantization and sparsification directly addresses these challenges by reducing the computational and memory requirements of your models.
+Model optimization through quantization and pruning directly addresses these challenges by reducing the computational and memory requirements of your models.
 
 ## Reduced hardware requirements means cheaper inference costs
 
@@ -54,9 +55,9 @@ To quantize values, a scale and zero-point are computed to map the original high
 quantized_value = round(original_value / scale) + zero_point
 ```
 
-### Sparsification enables increased processing speed for hardware-accelerated compute
+### Pruning enables increased processing speed for hardware-accelerated compute
 
-Sparsification zeros out certain model weight values in fixed patterns.
+Pruning (or _sparsification_) zeros out certain model weight values in fixed patterns.
 This can be done in specific patterns, such as **2:4 sparsity** where 2 out of every 4 values within a model weight tensor are set to 0. This has the following benefits:
 
 - Enables more efficient computation

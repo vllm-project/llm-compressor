@@ -21,5 +21,4 @@ nav:
     - developer/index.md
     - developer/*
   - API Reference:
-    - api/README.md
-    - api/llmcompressor
+    - api/*

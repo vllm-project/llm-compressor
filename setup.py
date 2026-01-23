@@ -182,7 +182,6 @@ setup(
             "mkdocs-api-autonav",
             "mkdocstrings-python",
             "mkdocs-gen-files",
-            "mkdocs-nav-weight",
             "mkdocs-awesome-nav",
         ],
     },

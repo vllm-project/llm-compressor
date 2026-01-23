@@ -8,7 +8,7 @@
 
 ## What challenges does LLM Compressor address?
 
-Model optimization through quantization and sparsification addresses the key challenges of deploying AI at scale:
+Model optimization through quantization and pruning addresses the key challenges of deploying AI at scale:
 
 | Challenge | How LLM Compressor helps |
 |-----------|--------------------------|
@@ -69,13 +69,19 @@ For more information, check out the [latest release on GitHub](https://github.co
 | **SparseGPT** | Pruning with quantization | 2:4 sparsity patterns |
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
+| **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
 
 ## Supported quantization formats
 
 | Format | Targets | Compute Capability | Use Case |
 |--------|---------|-------------------|----------|
-| **W4A16** | Weights only | SM80 (Ampere+) | Optimize for latency on older hardware |
-| **W8A8-INT8** | Weights + activations | SM75 (Turing+) | Balanced performance and compatibility |
-| **W8A8-FP8** | Weights + activations | SM89 (Hopper+) | High throughput on modern GPUs |
-| **W4A4-NVFP4** | Weights + activations | SM100 (Blackwell) | Maximum compression on latest hardware |
-| **2:4 Sparse** | Weights | SM80 (Ampere+) | Sparsity-accelerated inference |
+| **W4A16** | Weights only | 8.0 (Ampere and up) | Optimize for latency on older hardware |
+| **W8A8-INT8** | Weights + activations | 7.5 (Turing and up) | Balanced performance and compatibility |
+| **W8A8-FP8** | Weights + activations | 8.9 (Hopper and up) | High throughput on modern GPUs |
+| **NVFP4/MXFP4** | Weights + activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
+| **W4AFP8** | Mixed precision | 8.9 (Hopper and up) | Low-bit weights with FP8 activations |
+| **W4AINT8** | Mixed precision | 7.5 (Turing and up) | Low-bit weights with INT8 activations |
+| **2:4 Sparse** | Weights | 8.0 (Ampere and up) | Sparsity-accelerated inference |
+
+!!! note
+    Listed compute capability indicates the minimum architecture required for hardware acceleration.

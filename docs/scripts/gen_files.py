@@ -73,10 +73,6 @@ def migrate_developer_docs():
             root_path=Path("CONTRIBUTING.md"),
             docs_path=Path("developer/contributing.md"),
         ),
-        ProcessFile(
-            root_path=Path("DEVELOPING.md"),
-            docs_path=Path("developer/developing.md"),
-        ),
     ]
     process_files(files, project_root)
 
