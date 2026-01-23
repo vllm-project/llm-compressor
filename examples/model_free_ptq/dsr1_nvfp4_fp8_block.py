@@ -23,7 +23,7 @@ def run_model_free_ptq():
                 # NOTE: skipping self_attn.kv_a_proj_with_mqa
                 #  shape 576x7168 is incompatible with block size 128x128
                 # NOTE: skipping self_attn.q_a_proj
-                #  fused with kv_a_proj_with_mqa, so much have the same quant config
+                #  fused with kv_a_proj_with_mqa, so must have the same quant config
                 # NOTE: skipping self_attn.kv_b_proj
                 #  already dequantized by MLA
                 # Target the remaining self_attn layers:
