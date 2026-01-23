@@ -1,6 +1,6 @@
 import ast
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from loguru import logger
 
@@ -21,10 +21,10 @@ class AutoWrapper(ast.NodeTransformer):
     See also: https://github.com/vllm-project/llm-compressor/pull/1411
     """
 
-    def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
+    def __init__(self, namespace: dict[str, Any], ignore: list[str]):
         self.namespace = namespace
         self.ignore = ignore
-        self._wrapper_fn_defs: List[ast.FunctionDef] = list()
+        self._wrapper_fn_defs: list[ast.FunctionDef] = list()
         self._local_names = set()
         self._wrapped_counter = 0
 
