@@ -1,6 +1,6 @@
-# Choosing the right quantization, sparsity, and transform-based algorithms
+# Choosing the right quantization, pruning, and transform-based algorithms
 
-LLM Compressor supports multiple quantization, sparsity, and transform-based algorithms for different use cases.
+LLM Compressor supports multiple quantization, pruning, and transform-based algorithms for different use cases.
 
 !!! info
     Selecting the right compression algorithm depends on your hardware, performance requirements, and acceptable accuracy tradeoffs.
@@ -73,7 +73,7 @@ The following model architectures are fully supported in LLM Compressor:
 |------------|---------|
 | Standard language models |  Llama, Mistral, Qwen, and more |
 | Multimodal/Vision models | Vision-language models |
-| Mixture of Experts (MoE) models | DeepSeek, Mixtral |
+| Mixture of Experts (MoE) models | DeepSeek, Qwen MoE, Mistral |
 | Large multi-GPU models | CPU offloading via Hugging Face accelerate |
 
 ### Mixed-precision quantization for accuracy recovery
