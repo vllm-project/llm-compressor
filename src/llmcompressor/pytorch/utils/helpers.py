@@ -26,7 +26,6 @@ __all__ = [
     "tensors_to_precision",
     "tensors_module_forward",
     "tensor_sparsity",
-    "get_linear_layers",
     "get_quantized_layers",
     "set_deterministic_seeds",
 ]

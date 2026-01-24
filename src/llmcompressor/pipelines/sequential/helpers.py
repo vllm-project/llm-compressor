@@ -10,7 +10,7 @@ import torch
 from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.offload import disable_onloading, offload_model
 from compressed_tensors.utils import patch_attr
-from compressed_tensors.utils.match import match_targets
+from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
@@ -435,11 +435,7 @@ def match_modules(model: Module, target_names: list[str]) -> set[Module]:
     :param target_names: target patterns to find
     :return: all submodules matching `target_names`
     """
-    return set(
-        module
-        for name, module in model.named_modules()
-        if match_targets(name, module, target_names)
-    )
+    return set(module for _, module in match_named_modules(model, target_names))
 
 
 def get_sequential_targets(
