@@ -6,18 +6,14 @@ from typing import Any
 
 import numpy
 import torch
+from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.pytorch.module import (
-    get_layers,
-    get_no_split_params,
-    get_prunable_layers,
-    match_targets,
-)
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
 class SparsityModifierBase(Modifier):
@@ -118,9 +114,9 @@ class SparsityModifierBase(Modifier):
         self.sequential_targets = self._infer_sequential_targets(
             model, sequential_targets=kwargs.get("sequential_targets")
         )
-        layers = get_layers(self.sequential_targets, model)
-        self._target_layers = get_layers(
-            self.targets, model
+        layers = dict(match_named_modules(model, self.sequential_targets))
+        self._target_layers = dict(
+            match_named_modules(model, self.targets)
         )  # layers containing targets
 
         # infer layer sparsities
@@ -155,10 +151,12 @@ class SparsityModifierBase(Modifier):
                 case _:
                     layer_sparsity = self.sparsity
 
-            for name, module in get_prunable_layers(layer).items():
+            # Get all prunable layer types explicitly
+            prunable_types = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
+            for name, module in match_named_modules(layer, prunable_types):
                 name = f"{layer_name}.{name}"
 
-                if match_targets(name, self.ignore)[0]:
+                if match_targets(name, module, self.ignore):
                     continue
 
                 # HACK: previously, embeddings were not quantized because they were not
@@ -233,7 +231,9 @@ class SparsityModifierBase(Modifier):
 
         groups = {}
         for name, layer in layers.items():
-            prunable_layers = get_prunable_layers(layer)
+            # Get all prunable layer types explicitly
+            prunable_types = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
+            prunable_layers = dict(match_named_modules(layer, prunable_types))
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
                 for n, m in prunable_layers.items()
