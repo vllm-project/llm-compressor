@@ -33,6 +33,23 @@ from llmcompressor.utils.pytorch import get_no_split_params
 __all__ = ["AutoRoundModifier"]
 
 
+import pdb
+import sys
+
+class ForkedPdb(pdb.Pdb):
+    """A Pdb subclass that may be used
+    from a forked multiprocessing child
+
+    """
+
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open("/dev/stdin")
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
+
 class _LLModelWrapper(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -86,6 +103,17 @@ def suspend_accelerate_hooks(model: nn.Module):
         for name, module in model.named_modules():
             if name in saved_hooks:
                 add_hook_to_module(module, saved_hooks[name], append=True)
+
+
+def rank_log(msg: str):
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    logger.info(f"[Rank {rank}] {msg}")
+
+
+def check_device(model):
+    device = next(model.parameters()).device
+    rank_log(f"Model is on device: {device}")
+
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
@@ -287,6 +315,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_accelerate_hooks(wrapped_model),
         ):
+
+            rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+            kwargs["device_map"] = f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
+            wrapped_model.to(kwargs["device_map"])
+            check_device(wrapped_model)
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
