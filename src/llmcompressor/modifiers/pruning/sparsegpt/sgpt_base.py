@@ -113,7 +113,7 @@ class SparsityModifierBase(Modifier):
         dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(model)
+        self.sequential_targets = self._infer_sequential_targets(model, **kwargs)
         layers = get_layers(self.sequential_targets, model)
         self._target_layers = get_layers(
             self.targets, model
@@ -192,7 +192,18 @@ class SparsityModifierBase(Modifier):
         self.ended_ = True
         self.remove_hooks()
 
-    def _infer_sequential_targets(self, model: torch.nn.Module) -> str | list[str]:
+    def _infer_sequential_targets(
+        self, model: torch.nn.Module, **kwargs
+    ) -> str | list[str]:
+        # Check if sequential_targets was passed via kwargs (from dataset_args)
+        # This takes priority over auto-inference when self.sequential_targets is None
+        if self.sequential_targets is None:
+            targets_from_kwargs = kwargs.get("sequential_targets")
+            if targets_from_kwargs is not None:
+                if isinstance(targets_from_kwargs, str):
+                    return [targets_from_kwargs]
+                return targets_from_kwargs
+
         match self.sequential_targets:
             case None:
                 return get_no_split_params(model)
