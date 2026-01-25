@@ -220,4 +220,11 @@ vllm (pretrained=/home/yiliu7/workspace/llm-compressor/examples/Qwen3-8B-W4A16-G
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |  0.9|±  |0.0095|
 |     |       |strict-match    |     5|exact_match|↑  |  0.9|±  |0.0095|
 
+vllm (pretrained=/home/yiliu7/workspace/llm-compressor/examples/Qwen3-8B-W4A16-G128-AutoRound-iters100-nsamples256-index_sampler,tensor_parallel_size=1,max_model_len=8192,max_num_batched_tokens=32768,max_num_seqs=128,add_bos_token=True,gpu_memory_utilization=0.8,dtype=bfloat16,max_gen_toks=2048,enable_prefix_caching=False), gen_kwargs: (None), limit: 1000.0, num_fewshot: None, batch_size: 128
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.896|±  |0.0097|
+|     |       |strict-match    |     5|exact_match|↑  |0.896|±  |0.0097|
+
+
 """
