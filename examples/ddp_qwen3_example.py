@@ -13,7 +13,8 @@ from llmcompressor.utils import dispatch_for_generation
 # Select model and load it.
 model_id = "Qwen/Qwen3-235B-A22B"
 model_id = "Qwen/Qwen3-8B"
-model_id = "/data5/yiliu4/Qwen/Qwen2-0.5B"
+# model_id = "/data5/yiliu4/Qwen/Qwen2-0.5B"
+# model_id = "Qwen/Qwen2-0.5B"
 
 import argparse
 import os
@@ -119,7 +120,7 @@ def quantize_model(rank, world_size, model_name, scheme, iters=4, nsamples=32):
         print("==========================================\n\n")
 
         # Save to disk compressed.
-        SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound"
+        SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-AutoRound" + f"-iters{iters}-nsamples{nsamples}-index_sampler"
         print(f"save to {SAVE_DIR}")
         model.save_pretrained(SAVE_DIR, save_compressed=True)
         tokenizer.save_pretrained(SAVE_DIR)
@@ -198,3 +199,25 @@ if __name__ == "__main__":
     if args.ddp:
         print("Using mp.spawn mode for multi-GPU quantization")
         main_spawn(model_name, args.scheme, args.iters, args.nsamples)
+
+
+"""
+vllm (pretrained=/home/yiliu7/workspace/llm-compressor/examples/Qwen3-8B-W4A16-G128-AutoRound,tensor_parallel_size=1,max_model_len=8192,max_num_batched_tokens=32768,max_num_seqs=128,add_bos_token=True,gpu_memory_utilization=0.8,dtype=bfloat16,max_gen_toks=2048,enable_prefix_caching=False), gen_kwargs: (None), limit: 1000.0, num_fewshot: None, batch_size: 128
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.897|±  |0.0096|
+|     |       |strict-match    |     5|exact_match|↑  |0.897|±  |0.0096|
+
+vllm (pretrained=/home/yiliu7/workspace/llm-compressor/examples/Qwen3-8B-W4A16-G128-AutoRound-iters200-nsamples128,tensor_parallel_size=1,max_model_len=8192,max_num_batched_tokens=32768,max_num_seqs=128,add_bos_token=True,gpu_memory_utilization=0.8,dtype=bfloat16,max_gen_toks=2048,enable_prefix_caching=False), gen_kwargs: (None), limit: 1000.0, num_fewshot: None, batch_size: 128
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.904|±  |0.0093|
+|     |       |strict-match    |     5|exact_match|↑  |0.904|±  |0.0093|
+
+vllm (pretrained=/home/yiliu7/workspace/llm-compressor/examples/Qwen3-8B-W4A16-G128-AutoRound-iters100-nsamples256,tensor_parallel_size=1,max_model_len=8192,max_num_batched_tokens=32768,max_num_seqs=128,add_bos_token=True,gpu_memory_utilization=0.8,dtype=bfloat16,max_gen_toks=2048,enable_prefix_caching=False), gen_kwargs: (None), limit: 1000.0, num_fewshot: None, batch_size: 128
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |  0.9|±  |0.0095|
+|     |       |strict-match    |     5|exact_match|↑  |  0.9|±  |0.0095|
+
+"""
