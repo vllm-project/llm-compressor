@@ -538,13 +538,18 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     :return: dispatched model
     """
     remove_dispatch(model)
-
+    rank = (
+        torch.distributed.get_rank()
+        if torch.distributed.is_initialized()
+        else 0
+    )
     if torch.cuda.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
+        device = f"cuda:{rank}"
+        offloaded_dispatch(model, execution_device=torch.device(device))
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
+        offloaded_dispatch(model, execution_device=torch.device(f"xpu:{rank}"))
     elif hasattr(torch, "npu") and torch.npu.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("npu:0"))
+        offloaded_dispatch(model, execution_device=torch.device(f"npu:{rank}"))
     else:
         logger.warning(
             "CUDA/XPU/NPU is not available! Compressing model on CPU instead"

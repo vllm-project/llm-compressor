@@ -112,9 +112,9 @@ def rank_log(msg: str):
     logger.info(f"[Rank {rank}] {msg}")
 
 
-def check_device(model):
+def check_device(model, msg: str = ""):
     device = next(model.parameters()).device
-    rank_log(f"Model is on device: {device}")
+    rank_log(f"{msg}: Model is on device: {device}")
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
@@ -321,11 +321,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 if torch.distributed.is_initialized()
                 else 0
             )
+            check_device(wrapped_model, "Before moving wrapped_model")
             kwargs["device_map"] = (
                 f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
             )
             wrapped_model.to(kwargs["device_map"])
-            check_device(wrapped_model)
+            check_device(wrapped_model, "After moving wrapped_model")
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
