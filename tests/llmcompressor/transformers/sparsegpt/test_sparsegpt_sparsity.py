@@ -24,7 +24,6 @@ def _clear_cuda_cache():
     torch.cuda.empty_cache()
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_sparsities(tmp_path, config):
     model = oneshot(
@@ -43,9 +42,7 @@ def test_sparsities(tmp_path, config):
     assert math.isclose(layer_2_dense.item(), 0.0, rel_tol=1e-4)
 
 
-# TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
 @requires_gpu
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_sparsities_gpu(tmp_path, config, _clear_cuda_cache):
     model = AutoModelForCausalLM.from_pretrained(

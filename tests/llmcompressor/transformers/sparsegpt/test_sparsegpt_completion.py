@@ -43,7 +43,6 @@ def labeled_dataloader(dataset_name, model_name, num_samples):
 
 
 @requires_gpu
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_oneshot_completion(config, tmp_path):
     _test_oneshot_completion(
@@ -58,7 +57,6 @@ def test_oneshot_completion(config, tmp_path):
 
 
 @requires_gpu
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_oneshot_completion_gpu(config, tmp_path):
     model = AutoModelForCausalLM.from_pretrained(
