@@ -258,6 +258,26 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
     num_samples = args.num_calibration_samples
     shuffle = args.shuffle_calibration_samples
     batch_size = args.batch_size
+    
+    if is_ddp():
+        from torch.utils.data.distributed import DistributedSampler
+
+        distributed_sampler = DistributedSampler(
+            dataset,
+            num_replicas=torch.distributed.get_world_size(),
+            rank=torch.distributed.get_rank(),
+            shuffle=False,
+        )
+        logger.warning("Using DistributedSampler for DDP training.")
+        def show_distributed_sampler_info(distributed_sampler):
+            logger.warning(
+                f"DistributedSampler: num_replicas={distributed_sampler.num_replicas}, "
+                f"rank={distributed_sampler.rank}, "
+                f"dataset_len={len(dataset)}, "
+                f"num_samples={distributed_sampler.num_samples}"
+            )
+        show_distributed_sampler_info(distributed_sampler)
+        return distributed_sampler
 
     # detect whether we're in a distributed setting
     # but all ranks have the same dataset.
