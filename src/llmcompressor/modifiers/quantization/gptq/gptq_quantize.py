@@ -86,7 +86,7 @@ def quantize_weight(
     :return: loss, quantized_weight, scale, zero_point, g_idx
     """
     strategy = quant_args.strategy
-    actorder = quant_args.actorder
+    actorder = None  # quant_args.actorder
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
@@ -111,7 +111,8 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    if strategy == QuantizationStrategy.GROUP:
+    # generate scale, should include tensor group / use global scale
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         # mapping from column index to group index
         g_idx = (
             torch.arange(num_columns, device=W.device, dtype=torch.int)
@@ -207,7 +208,11 @@ def quantize_weight(
                     zero_point[:, 0],
                     quant_args,
                 )
-            elif strategy == QuantizationStrategy.GROUP:
+            # apply global scale to scale quant scale
+            elif strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+            ):
                 # get the group index for the current column
                 column_idx = i1 + i
                 group_index = g_idx[column_idx]
@@ -216,6 +221,7 @@ def quantize_weight(
                 # ends up being a channelwise application
                 altered_qargs = copy(quant_args)
                 altered_qargs.strategy = QuantizationStrategy.CHANNEL
+
                 q = fake_quantize(
                     q,
                     scale[:, group_index],

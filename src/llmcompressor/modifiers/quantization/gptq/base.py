@@ -20,6 +20,7 @@ from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
@@ -189,9 +190,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
-                if not isinstance(module, torch.nn.Embedding):
+                if not isinstance(module, torch.nn.Embedding):  # is this still needed?
                     self.register_hook(module, self.calibrate_module, "forward")
                     added_hook = True
+        # for module in tqdm.tqdm(state.model.modules(), desc="Fusing global scales"):
+        #    update_fused_layer_weight_global_scales(module)
 
         if not added_hook:
             raise ValueError(
@@ -263,6 +266,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
+                update_weight_global_scale(
+                    module
+                )  # maybe generate / update global scale
+                # if running tensor group quantization
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                     module=module,
                     quant_args=quant_args,
