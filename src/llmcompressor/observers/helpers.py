@@ -209,6 +209,3 @@ def _pad_to_block_size_with_mean(
     value[(rows - padding_rows) :, cols - block_width :] = last_mean
 
     return value
-
-
-

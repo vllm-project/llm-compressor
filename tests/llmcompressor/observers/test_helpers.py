@@ -1,6 +1,7 @@
-import pytest
-from itertools import product
 import math
+from itertools import product
+
+import pytest
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -9,8 +10,8 @@ from compressed_tensors.quantization import (
 )
 
 from llmcompressor.observers.helpers import (
-    flatten_for_calibration,
     _pad_to_block_size_with_mean,
+    flatten_for_calibration,
 )
 
 
@@ -84,10 +85,10 @@ def test_pad_to_block_size_with_mean(rows, cols, block_height, block_width):
 
     assert (
         new_rows % block_height == 0
-    ), f"new tensor has num_rows {new_rows} incompatible with block height {block_height}"
+    ), f"new tensor has incompatible num_rows {new_rows} ({block_height})"
     assert (
         new_cols % block_width == 0
-    ), f"new tensor has num_cols {new_cols} incompatible with block width {block_width}"
+    ), f"new tensor has incompatible num_cols {new_cols} ({block_width})"
 
     assert torch.equal(
         value, new_value[: value.shape[0], : value.shape[1]]
@@ -95,10 +96,12 @@ def test_pad_to_block_size_with_mean(rows, cols, block_height, block_width):
 
     for block_row_idx, block_col_idx in product(range(block_rows), range(block_cols)):
         value_block = value[
-            block_row_idx
-            * block_height : min(value.shape[0], (1 + block_row_idx) * block_height),
-            block_col_idx
-            * block_width : min(value.shape[1], (1 + block_col_idx) * block_width),
+            block_row_idx * block_height : min(
+                value.shape[0], (1 + block_row_idx) * block_height
+            ),
+            block_col_idx * block_width : min(
+                value.shape[1], (1 + block_col_idx) * block_width
+            ),
         ]
         new_value_block = new_value[
             block_row_idx * block_height : (1 + block_row_idx) * block_height,
