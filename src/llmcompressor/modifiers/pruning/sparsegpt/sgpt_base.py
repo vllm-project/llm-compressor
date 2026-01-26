@@ -15,6 +15,8 @@ from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
+PRUNABLE_LAYER_TYPES = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
+
 
 class SparsityModifierBase(Modifier):
     """
@@ -151,9 +153,7 @@ class SparsityModifierBase(Modifier):
                 case _:
                     layer_sparsity = self.sparsity
 
-            # Get all prunable layer types explicitly
-            prunable_types = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
-            for name, module in match_named_modules(layer, prunable_types):
+            for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
                 name = f"{layer_name}.{name}"
 
                 if match_targets(name, module, self.ignore):
@@ -231,9 +231,7 @@ class SparsityModifierBase(Modifier):
 
         groups = {}
         for name, layer in layers.items():
-            # Get all prunable layer types explicitly
-            prunable_types = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
-            prunable_layers = dict(match_named_modules(layer, prunable_types))
+            prunable_layers = dict(match_named_modules(layer, PRUNABLE_LAYER_TYPES))
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
                 for n, m in prunable_layers.items()

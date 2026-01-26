@@ -7,35 +7,12 @@ from typing import Dict, List, Union
 
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
+from compressed_tensors.utils import match_named_parameters
 from loguru import logger
 from torch.nn import Module
 from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
-
-try:
-    quant_err = None
-    from torch.nn.qat import Conv2d as QATConv2d
-    from torch.nn.qat import Linear as QATLinear
-    from torch.quantization import QuantWrapper
-except Exception as _err:
-    quant_err = _err
-    QuantWrapper = None
-    QATLinear = None
-    QATConv2d = None
-
-try:
-    from torch.nn.qat import Conv3d as QATConv3d
-except Exception as _err:
-    quant_conv3d_err = _err
-    QATConv3d = None
-
-
-try:
-    from transformers.modeling_utils import Conv1D as TransformerConv1D
-except Exception as _err:
-    gpt_conv1d_err = _err
-    TransformerConv1D = None
 
 
 __all__ = [
@@ -112,8 +89,6 @@ def build_parameterized_layers(
     :param param_name: Name of the parameter to extract from each layer (default: "weight")
     :return: Dictionary mapping layer names to ModelParameterizedLayer objects
     """
-    from compressed_tensors.utils import match_named_parameters
-
     # Expand special constants if present
     targets = expand_special_targets(targets)
 
