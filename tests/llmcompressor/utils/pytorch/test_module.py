@@ -11,16 +11,6 @@ from llmcompressor.utils.pytorch import (
 
 
 @pytest.fixture
-def example_nested_module() -> str:
-    return nn.Sequential(
-        nn.Linear(10, 20),
-        nn.Sequential(nn.ReLU(), nn.Linear(20, 10)),
-        nn.Sequential(nn.SiLU(), nn.Linear(20, 10)),
-        nn.Softmax(dim=1),
-    )
-
-
-@pytest.fixture
 def simple_model():
     """Simple model for testing parameterized layers."""
     model = nn.Sequential(
@@ -29,31 +19,6 @@ def simple_model():
         nn.Linear(20, 10),
     )
     return model
-
-
-@pytest.mark.unit
-def test_get_submodule(example_nested_module):
-    """Test PyTorch's native get_submodule() method."""
-    # Test getting the parent of a nested layer
-    layer = example_nested_module.get_submodule("0")
-    assert layer == example_nested_module[0]
-
-    layer = example_nested_module.get_submodule("1.1")
-    assert layer == example_nested_module[1][1]
-
-    layer = example_nested_module.get_submodule("2.0")
-    assert layer == example_nested_module[2][0]
-
-    layer = example_nested_module.get_submodule("2.1")
-    assert layer == example_nested_module[2][1]
-
-    # Test that empty string returns the module itself
-    layer = example_nested_module.get_submodule("")
-    assert layer == example_nested_module
-
-    # Test getting the parent of a non-existent layer
-    with pytest.raises(AttributeError):
-        example_nested_module.get_submodule("non_existent_layer")
 
 
 @pytest.mark.unit
