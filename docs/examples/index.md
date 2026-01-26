@@ -4,7 +4,7 @@ weight: -4
 
 # LLM Compressor Examples
 
-The LLM Compressor examples are organized primarily by quantization scheme, which is indicated by the folder suffix `quantization_***`. Each of these folders contains model-specific examples showing how to apply that quantization scheme to a particular model.
+The LLM Compressor examples are organized primarily by quantization scheme. Each folder contains model-specific examples showing how to apply that quantization scheme to a particular model.
 
 Some examples are additionally grouped by model type, such as:
 - `multimodal_audio`
