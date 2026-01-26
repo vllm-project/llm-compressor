@@ -1,6 +1,6 @@
 import ast
 from types import FunctionType, MethodType
-from typing import Any, Union
+from typing import Any
 
 from loguru import logger
 
@@ -96,7 +96,7 @@ class AutoWrapper(ast.NodeTransformer):
 
         return ret
 
-    def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
+    def visit_If(self, node: ast.If) -> ast.If | ast.Assign:
         """
         Attempt to statically evaluate the condition of the `if` statement. If the
         condition can not be statically evaluated (1), then attmept to wrap the `if`
@@ -122,7 +122,7 @@ class AutoWrapper(ast.NodeTransformer):
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
 
-    def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
+    def visit_Tuple(self, node: ast.Tuple) -> ast.Tuple | ast.Call:
         """
         (3) Wrap any tuples which use starred unpacking
         """
@@ -178,7 +178,7 @@ class AutoWrapper(ast.NodeTransformer):
         """
         return ControlFlowAnalyzer().is_valid(node)
 
-    def _wrap_if_possible(self, node: ast.AST) -> Union[ast.AST, ast.Assign, ast.Call]:
+    def _wrap_if_possible(self, node: ast.AST) -> ast.AST | ast.Assign | ast.Call:
         """
         Defines a wrapper function containing the wrapped node.
 
