@@ -1,0 +1,12 @@
+# See https://help.github.com/articles/about-codeowners/
+# for more info about CODEOWNERS file
+
+/src/llmcompressor/args/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/entrypoints/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/datasets/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/modeling/ @dsikka @kylesayrs
+/src/llmcompressor/metrics/ @brian-dellabetta
+/src/llmcompressor/observers/ @dsikka @kylesayrs @HDCharles
+/src/llmcompressor/pytorch/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/recipe/ @shanjiaz
+/src/llmcompressor/utils/ @dsikka @kylesayrs @HDCharles @brian-dellabetta

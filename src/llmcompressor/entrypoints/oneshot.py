@@ -253,7 +253,7 @@ def oneshot(
     batch_size: int = 1,
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
-    shuffle_calibration_samples: bool = False,
+    shuffle_calibration_samples: bool = True,
     max_seq_length: int = 384,
     pad_to_max_length: bool = True,
     text_column: str = "text",
@@ -264,6 +264,23 @@ def oneshot(
     dataloader_num_workers: int = 0,
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
+    pipeline: str | None = "independent",
+    tracing_ignore: list[str] = [
+        "_update_causal_mask",
+        "create_causal_mask",
+        "_update_mamba_mask",
+        "make_causal_mask",
+        "get_causal_mask",
+        "mask_interface",
+        "mask_function",
+        "_prepare_4d_causal_attention_mask",
+        "_prepare_fsmt_decoder_inputs",
+        "_prepare_4d_causal_attention_mask_with_cache_position",
+        "_update_linear_attn_mask",
+        "project_per_layer_inputs",
+    ],
+    sequential_targets: list[str] | None = None,
+    sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     # Miscellaneous arguments
     output_dir: str | None = None,
@@ -315,9 +332,9 @@ def oneshot(
         LLM Compressor disables lm_head output computations to reduce memory
         usage from large calibration batch sizes. Large batch sizes may result
         excess padding or truncation, depending on the data_collator
-    :param data_collator: The function to used to form a batch from the dataset. Can
+    :param data_collator: The function to use to form a batch from the dataset. Can
         also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
-        lengths in a batch. Defaults to 'padding'.
+        lengths in a batch. Defaults to 'truncation'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before
@@ -339,6 +356,17 @@ def oneshot(
         model calibration. When True, all experts will see all tokens during
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
+    :param pipeline: Calibration pipeline used to calibrate model Options:
+        ['basic', 'datafree', 'sequential', 'independent']
+    :param tracing_ignore: List of functions to ignore during tracing, either
+        {module}.{method_name} or {function_name}
+    :param sequential_targets: List of layer targets for the sequential pipeline.
+        This is typically a single DecoderLayer. Not specifying this argument will
+        cause the sequential pipeline to default to using the `no_split_params`
+        specified by the HF model definition
+    :param sequential_offload_device: Device used to offload intermediate activations
+        between sequential layers. It is recommended to use `cuda:1` if using more
+        than one gpu. Default is cpu.
     :param quantization_aware_calibration: Whether to enable quantization-aware
         calibration in the sequential pipeline. When True, quantization is applied
         during forward pass in calibration. When False, quantization is disabled

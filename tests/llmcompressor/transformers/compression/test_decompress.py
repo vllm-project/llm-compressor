@@ -88,8 +88,6 @@ def test_hf_quantizer_decompress_match_manual_decompress(config):
     )
 
     device = decompressed_model_manual.device
-    decompressed_model_manual = decompressed_model_manual.to(device)
-    decompressed_model_hf_quantizer = decompressed_model_hf_quantizer.to(device)
 
     for input in sample_inputs:
         inputs = tokenizer(input, return_tensors="pt", padding=True).to(device)

@@ -35,7 +35,6 @@ from llmcompressor.transformers.utils.helpers import (
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils import untie_word_embeddings
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 def pre_process(
@@ -57,11 +56,6 @@ def pre_process(
     # Initialize model
     if isinstance(model_args.model, (str, PosixPath)):
         model = initialize_model_from_path(model_args)
-        if is_fsdp_model(model):
-            raise NotImplementedError(
-                "FSDP models are not supported in the current release but will be "
-                "suported in future releases of LLM Compressor."
-            )
         model_args.model = model
 
     # Initialize processor if dataset provided
