@@ -14,7 +14,6 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
 
-
 __all__ = [
     "expand_special_targets",
     "build_parameterized_layers",
@@ -86,7 +85,8 @@ def build_parameterized_layers(
     :param model: The model to search for matching modules
     :param targets: Target patterns to match (supports class names, regex with "re:",
                     and special constants for backward compatibility)
-    :param param_name: Name of the parameter to extract from each layer (default: "weight")
+    :param param_name: Name of the parameter to extract from each layer
+        (default: "weight")
     :return: Dictionary mapping layer names to ModelParameterizedLayer objects
     """
     # Expand special constants if present
