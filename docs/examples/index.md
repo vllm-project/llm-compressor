@@ -39,7 +39,7 @@ Quantizing MoE models with a scheme that requires calibration data (for example,
 
 Examples of calibration-friendly definitions can be found in the [modeling folder](https://github.com/vllm-project/llm-compressor/tree/main/src/llmcompressor/modeling). Each definition enables an MoE calibration context by inheriting from the [`MoECalibrationModule` class](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/moe_context.py) and registering the MoE block that should be replaced with a custom definition.
 
-In particular, each model-specific definition includes an updated forward pass that ensures all tokens are routed through all experts during calibration, including experts that would not normally be activated. Only the activated experts, however, contribute to the final output of the MoE block. This behavior ensures proper calibration of all expert layers.
+In particular, each model-specific definition includes an updated forward pass that ensures all tokens are routed through all experts during calibration, including experts that would not normally be activated. Only the activated experts contribute to the final output of the MoE block. This behavior ensures proper calibration of all expert layers.
 
 These custom definitions replace the existing MoE implementations during `oneshot`. The replacement can be either temporary or permanent; in the temporary case, the original definition is restored after calibration. One example is the `qwen3_vl_moe` custom MoE definition, which registers to replace all `Qwen3MoeSparseMoeBlock` instances with `CalibrationQwen3MoeSparseMoeBlock`. You can see this example [here](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/qwen3_vl_moe.py).
 
