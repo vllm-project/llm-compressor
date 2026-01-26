@@ -30,7 +30,8 @@ If you’re unsure which quantization scheme to use, a good starting point is a 
 
 If you don’t see your model or aren’t sure which quantization scheme applies, feel free to open an issue and someone from the community will be happy to help.
 
-Note: We are currently in the process of updating and improving our documentation and examples structure. Feedback is very welcome during this transition.
+!!! note
+We are currently updating and improving our documentation and examples structure. Feedback is very welcome during this transition.
 
 # Quantizing MoEs
 
