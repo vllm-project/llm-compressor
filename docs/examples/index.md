@@ -41,6 +41,7 @@ Examples of calibration-friendly definitions can be found in the [modeling folde
 
 In particular, each model-specific definition includes an updated forward pass that ensures all tokens are routed through all experts during calibration, including experts that would not normally be activated. Only the activated experts contribute to the final output of the MoE block. This behavior ensures proper calibration of all expert layers.
 
-These custom definitions replace the existing MoE implementations during `oneshot`. The replacement can be either temporary or permanent; in the temporary case, the original definition is restored after calibration. One example is the `qwen3_vl_moe` custom MoE definition, which registers to replace all `Qwen3MoeSparseMoeBlock` instances with `CalibrationQwen3MoeSparseMoeBlock`. You can see this example [here](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/qwen3_vl_moe.py).
+These custom definitions replace the existing MoE implementations during `oneshot` processing. The replacement can be either temporary or permanent; in the temporary case, the original definition is restored after calibration. One example is the `qwen3_vl_moe` custom MoE definition, which registers a replacement of all `Qwen3MoeSparseMoeBlock` instances with `CalibrationQwen3MoeSparseMoeBlock`. You can see this definition replacement applied in [llmcompressor/modeling/qwen3_vl_moe.py](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/qwen3_vl_moe.py)
+.
 
 Without a custom calibration-friendly definition, MoE experts may be calibrated incorrectly, which can result in numerical instability or NaNs.
