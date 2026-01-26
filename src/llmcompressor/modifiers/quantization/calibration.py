@@ -66,13 +66,15 @@ def initialize_observer(
         observer = "memoryless_minmax"
         logger.warning(
             "Overriding weight observer for lower memory usage "
-            f"({args.observer} -> {observer})"
+            f"({args.observer} -> {observer})",
+            log_once=True,
         )
     if base_name == "weight" and args.observer in ("mse",):
         observer = "memoryless_mse"
         logger.warning(
             "Overriding weight observer for lower memory usage "
-            f"({args.observer} -> {observer})"
+            f"({args.observer} -> {observer})",
+            log_once=True,
         )
 
     if args is not None and args.dynamic is not True:
