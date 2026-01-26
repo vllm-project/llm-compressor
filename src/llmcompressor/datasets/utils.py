@@ -227,7 +227,7 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
             dataset,
             num_replicas=torch.distributed.get_world_size(),
             rank=torch.distributed.get_rank(),
-            shuffle=False,
+            shuffle=shuffle,
         )
         logger.warning("Using DistributedSampler for DDP training.")
 
