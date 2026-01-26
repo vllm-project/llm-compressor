@@ -7,11 +7,12 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
+import math
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
-from compressed_tensors.quantization.utils import strategy_cdiv
 
 __all__ = ["flatten_for_calibration"]
 
@@ -76,8 +77,15 @@ def _flatten_weight(
         # (1, num_block_rows, num_block_cols, block_width * block_height)
         block_height, block_width = args.block_structure
         rows, cols = value.shape
-        block_rows = strategy_cdiv(rows, block_height, args.strategy, strict=True)
-        block_cols = strategy_cdiv(cols, block_width, args.strategy, strict=True)
+
+        # Pad tensor if dimensions are not divisible by block size
+        pad_rows = (block_height - rows % block_height) % block_height
+        pad_cols = (block_width - cols % block_width) % block_width
+        if pad_rows > 0 or pad_cols > 0:
+            value = F.pad(value, (0, pad_cols, 0, pad_rows), mode="constant", value=0)
+
+        block_rows = math.ceil(rows / block_height)
+        block_cols = math.ceil(cols / block_width)
         return (
             value.reshape(block_rows, block_height, block_cols, block_width)
             .transpose(1, 2)
