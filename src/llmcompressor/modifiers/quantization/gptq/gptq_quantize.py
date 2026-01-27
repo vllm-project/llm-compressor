@@ -87,6 +87,9 @@ def quantize_weight(
     """
     strategy = quant_args.strategy
     actorder = None  # quant_args.actorder
+    global_scale = getattr(
+        module, "weight_global_scale", None
+    )  # should be set prior to func call
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
@@ -196,10 +199,7 @@ def quantize_weight(
             # quantize column
             if strategy == QuantizationStrategy.TENSOR:
                 q = fake_quantize(
-                    q,
-                    scale,
-                    zero_point,
-                    quant_args,
+                    q, scale, zero_point, quant_args, global_scale=global_scale
                 )
             elif strategy == QuantizationStrategy.CHANNEL:
                 q = fake_quantize(
@@ -207,6 +207,7 @@ def quantize_weight(
                     scale[:, 0],
                     zero_point[:, 0],
                     quant_args,
+                    global_scale=global_scale,
                 )
             # apply global scale to scale quant scale
             elif strategy in (
@@ -227,6 +228,7 @@ def quantize_weight(
                     scale[:, group_index],
                     zero_point[:, group_index],
                     altered_qargs,
+                    global_scale=global_scale,
                 )
             else:
                 raise ValueError(
