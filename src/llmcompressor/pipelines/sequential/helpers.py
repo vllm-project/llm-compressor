@@ -101,7 +101,9 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    targets = match_modules(model, sequential_targets)
+    targets = set(
+        module for _, module in match_named_modules(model, sequential_targets)
+    )
     ancestors = get_sequential_ancestors(model, targets)
     offloaded = set()  # TODO: cleanup logic
 
@@ -425,17 +427,6 @@ def graph_is_well_formed(graph: Graph) -> bool:
             return False
 
     return True
-
-
-def match_modules(model: Module, target_names: list[str]) -> set[Module]:
-    """
-    Find modules whose names match the patterns given by `target_names`
-
-    :param model: model containing submodules to find
-    :param target_names: target patterns to find
-    :return: all submodules matching `target_names`
-    """
-    return set(module for _, module in match_named_modules(model, target_names))
 
 
 def get_sequential_targets(

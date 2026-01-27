@@ -7,7 +7,7 @@ from typing import Dict, List, Union
 
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
-from compressed_tensors.utils import match_named_parameters
+from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from torch.nn import Module
 from transformers import PreTrainedModel
@@ -79,7 +79,7 @@ def build_parameterized_layers(
     Build ModelParameterizedLayer objects for modules matching the given targets.
 
     This function replaces get_layers_params() by using compressed-tensors'
-    match_named_parameters() to find matching modules and their parameters,
+    match_named_modules() to find matching modules and their parameters,
     then constructing ModelParameterizedLayer objects.
 
     :param model: The model to search for matching modules
@@ -93,20 +93,18 @@ def build_parameterized_layers(
     targets = expand_special_targets(targets)
 
     parameterized_layers = {}
-    for fqn, parent_module, param in match_named_parameters(model, targets):
-        # Filter to only the desired parameter (default: "weight")
-        if not fqn.endswith(f".{param_name}"):
+    for layer_name, module in match_named_modules(model, targets):
+        # Get the parameter from the module
+        param = getattr(module, param_name, None)
+        if param is None:
             continue
-
-        # Extract layer name by removing parameter suffix
-        layer_name = fqn.rsplit(".", 1)[0]
 
         # Avoid duplicate entries (same layer can be matched multiple times)
         if layer_name not in parameterized_layers:
             parameterized_layers[layer_name] = ModelParameterizedLayer(
                 layer_name=layer_name,
-                layer=parent_module,
-                param_name=fqn,
+                layer=module,
+                param_name=layer_name,
                 param=param,
             )
 
