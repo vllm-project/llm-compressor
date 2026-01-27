@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple
 
 import pytest
-from transformers import AutoConfig
 
 from tests.testing_utils import requires_gpu, run_cli_command
+
 
 def verify_w4a4_fp4_output(tmp_path: Path, example_dir: str):
     # verify the expected directory was generated
