@@ -2,7 +2,7 @@ cadence: "commit"
 test_type: "smoke"
 tokenize: False
 model: "nm-testing/tinysmokellama-3.2"
-dataset: "openai/gsm8k"
+dataset: "gsm8k"
 dataset_config_name: "main"
 recipe: |
   test_stage:

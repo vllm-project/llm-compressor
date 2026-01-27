@@ -2,5 +2,5 @@ cadence: "commit"
 test_type: "smoke"
 tokenize: True
 model: "nm-testing/tinysmokellama-3.2"
-dataset: "openai/gsm8k"
+dataset: "gsm8k"
 recipe: "tests/llmcompressor/transformers/oneshot/oneshot_configs/recipes/recipe.yaml"
