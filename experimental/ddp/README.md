@@ -13,7 +13,3 @@ CUDA_VISIBLE_DEVICES=0,1 python ddp_qwen3_example.py --ddp --nsamples 128 --iter
 - [ ] Accuracy verification (align results with non-DP run)
 - [ ] Quantization-time benchmark (single GPU vs DDP)
 - [ ] UX alignment (APIs, config, logging)
-
-## Notes
-- Keep logs for both DP and non-DP runs to make accuracy comparison straightforward.
-- Record hardware, batch size, and sequence length for each timing run so results are comparable.
