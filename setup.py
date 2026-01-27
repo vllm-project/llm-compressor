@@ -121,11 +121,11 @@ setup(
             else "requests>=2.32.2"
         ),
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.7.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.7.0"),
+        ("torch>=2.9.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.9.0,<=2.9.1"),
         (
-            "transformers>=4.56.1,<=4.57.3"
+            "transformers>=4.56.1,<=4.57.6"
             if BUILD_TYPE == "release"
-            else "transformers>=4.56.1,<=4.57.3"
+            else "transformers>=4.56.1,<=4.57.6"
         ),
         ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
@@ -163,10 +163,10 @@ setup(
             "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
             "pandas<2.3.0",
-            "torchvision",
+            "torchvision<=0.24.1",
             "librosa==0.11.0",
             "soundfile",
-            "torchcodec",
+            "torchcodec<=0.9.1",
             # linting, formatting, and type checking
             "mypy~=1.10.0",
             "ruff~=0.4.8",
