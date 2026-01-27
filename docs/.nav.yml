@@ -9,7 +9,6 @@ nav:
     - Deploying with vLLM: getting-started/deploy.md
     - FAQ: getting-started/faq.md
   - Guides:
-    - guides/index.md
     - Compression Schemes: guides/compression_schemes.md
     - Compression Formats: guides/compression_formats.md
     - Saving a Model: guides/saving_a_model.md

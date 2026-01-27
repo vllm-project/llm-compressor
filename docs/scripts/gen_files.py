@@ -101,5 +101,30 @@ def migrate_examples():
     process_files(files, project_root)
 
 
+def migrate_readme_to_index():
+    """Copy README.md files to index.md for MkDocs compatibility.
+
+    Skips docs/README.md
+    """
+    project_root = find_project_root()
+    docs_path = project_root / "docs"
+
+    for readme_path in docs_path.rglob("README.md"):
+        # Skip the root docs/README.md
+        if readme_path.parent == docs_path:
+            continue
+
+        relative_path = readme_path.relative_to(docs_path)
+        target_path = relative_path.parent / "index.md"
+
+        content = readme_path.read_text(encoding="utf-8")
+
+        with mkdocs_gen_files.open(target_path, "w") as file_handle:
+            file_handle.write(content)
+
+        mkdocs_gen_files.set_edit_path(target_path, readme_path)
+
+
 migrate_developer_docs()
 migrate_examples()
+migrate_readme_to_index()
