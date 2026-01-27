@@ -195,17 +195,24 @@ class SparsityModifierBase(Modifier):
     def _infer_sequential_targets(
         self, model: torch.nn.Module, **kwargs
     ) -> str | list[str]:
-        # Check if sequential_targets was passed via kwargs (from dataset_args)
-        # This takes priority over auto-inference when self.sequential_targets is None
-        if self.sequential_targets is None:
-            targets_from_kwargs = kwargs.get("sequential_targets")
-            if targets_from_kwargs is not None:
-                if isinstance(targets_from_kwargs, str):
-                    return [targets_from_kwargs]
-                return targets_from_kwargs
+        targets_from_kwargs = kwargs.get("sequential_targets")
+
+        # Validate that sequential_targets is not provided from both sources
+        if self.sequential_targets is not None and targets_from_kwargs is not None:
+            raise ValueError(
+                "sequential_targets was provided both in the modifier config and in "
+                "oneshot() dataset_args. Please provide sequential_targets in only "
+                "one location to avoid conflicts."
+            )
 
         match self.sequential_targets:
             case None:
+                # Check if sequential_targets was passed via kwargs (from dataset_args)
+                if targets_from_kwargs is not None:
+                    if isinstance(targets_from_kwargs, str):
+                        return [targets_from_kwargs]
+                    return targets_from_kwargs
+                # Fall back to auto-inference
                 return get_no_split_params(model)
             case str():
                 return [self.sequential_targets]
