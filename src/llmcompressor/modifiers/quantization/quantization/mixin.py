@@ -12,7 +12,6 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
-    disable_quantization,
     enable_quantization,
     is_attention_module,
     is_preset_scheme,
@@ -31,7 +30,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_value_hook,
     freeze_module_quantization,
     initialize_observer,
-    reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
@@ -47,13 +45,13 @@ class QuantizationMixin(HooksMixin):
     Lifecycle:
 
     - on_initialize: QuantizationMixin.initialize_quantization
-        - Attach schemes to modules
-        - Attach observers to modules
-        - Disable quantization until calibration starts/finishes
+        - Untie word embeddings if needed
     - on_start: QuantizationMixin.start_calibration
-        - Attach calibration hooks
-        - Apply calibration status
-        - Enable quantization during calibration
+        - Attach quantization schemes to targeted modules
+        - Initialize and attach observers to targeted modules
+        - Attach calibration hooks to targeted modules
+        - Apply calibration and quantization status to targeted modules to
+            enable quantization during calibration
     - on_end: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
@@ -202,39 +200,36 @@ class QuantizationMixin(HooksMixin):
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Reset quantization status of any targeted modules and disable quantization
+        Untie word embeddings if necessary
 
-        :param model: model to attach schemes and observers to
+        :param model: model to initialize
         """
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            reset_quantization_status(module)  # reset any previously applied qconfigs
-
-        # disable quantization until calibration
-        model.apply(disable_quantization)
+        if targets_embeddings(
+            model, match_named_modules(model, self.resolved_targets, self.ignore)
+        ):
+            untie_word_embeddings(model)
 
     def start_calibration(self, model: torch.nn.Module):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
-        Attach observers, register activation calibration hooks (including
-        kv_cache quantization) and enable quantization as we calibrate
+        Initialize and attach observers
+        Register activation calibration hooks (including kv_cache quantization)
+        Enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
+        # apply_quantization_config is already scoped to targeted modules
         apply_quantization_config(model, self.resolved_config)
-
-        targets = match_named_modules(model, self.resolved_targets, self.ignore)
-        if targets_embeddings(model, targets):
-            untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
-
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+            # quantize at the same time as calibrate
+            enable_quantization(module)
 
     def end_calibration(self, model: torch.nn.Module):
         """
@@ -246,8 +241,7 @@ class QuantizationMixin(HooksMixin):
         self.remove_hooks(self._calibration_hooks)
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
-
-        model.apply(enable_quantization)  # keep quantization enabled
+            enable_quantization(module)  # keep quantization enabled
 
     def has_config(self) -> bool:
         """
