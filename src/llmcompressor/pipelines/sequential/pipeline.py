@@ -60,6 +60,8 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
+        
+        LifecycleCallbacks.calibration_epoch_start()
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
@@ -74,8 +76,6 @@ class SequentialPipeline(CalibrationPipeline):
         sample_input = next(iter(dataloader))
         subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
         num_subgraphs = len(subgraphs)
-
-        LifecycleCallbacks.calibration_epoch_start()
 
         # TODO: remove this to enable quantization aware calibration
         # for GPTQ, AWQ and AutoRound.

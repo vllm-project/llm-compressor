@@ -12,6 +12,7 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
+    disable_quantization,
     enable_quantization,
     is_attention_module,
     is_preset_scheme,
@@ -29,6 +30,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_query_hook,
     calibrate_value_hook,
     freeze_module_quantization,
+    reset_quantization_status,
     initialize_observer,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -221,7 +223,6 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        # apply_quantization_config is already scoped to targeted modules
         apply_quantization_config(model, self.resolved_config)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
