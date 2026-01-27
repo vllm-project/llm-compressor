@@ -531,7 +531,7 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 def dispatch_for_sequential(
     model: PreTrainedModel,
     onload_device: Optional[torch.device | str] = None,
-    offload_device: torch.device | str = "cpu",
+    offload_device: torch.device | str = torch.device("cpu"),
 ) -> PreTrainedModel:
     """
     Dispatch a model for sequential calibration using a sequential pipeline.
