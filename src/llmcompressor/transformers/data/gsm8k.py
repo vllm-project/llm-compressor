@@ -24,7 +24,7 @@ class GSM8KDataset(TextGenerationDataset):
         self, dataset_args: "DatasetArguments", split: str, processor: Processor
     ):
         dataset_args = deepcopy(dataset_args)
-        dataset_args.dataset = "gsm8k"
+        dataset_args.dataset = "openai/gsm8k"
         dataset_args.text_column = "text"
 
         super().__init__(dataset_args=dataset_args, split=split, processor=processor)
