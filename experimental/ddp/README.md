@@ -1,7 +1,7 @@
 ## DP + AutoRound PoC
 
 ## Status
-- [x] PoC implementation completed
+- [x] PoC implementation completed; functionality works.
   - LLMC PR: https://github.com/yiliu30/llm-compressor-fork/pull/18
   - AutoRound PR: https://github.com/yiliu30/auto-round-fork/pull/15
 
