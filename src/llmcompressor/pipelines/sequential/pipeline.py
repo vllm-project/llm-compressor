@@ -60,7 +60,7 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
-        
+
         LifecycleCallbacks.calibration_epoch_start()
 
         # prepare model for sequential onloading

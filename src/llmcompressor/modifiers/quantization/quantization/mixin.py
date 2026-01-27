@@ -12,7 +12,6 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
-    disable_quantization,
     enable_quantization,
     is_attention_module,
     is_preset_scheme,
@@ -30,7 +29,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_query_hook,
     calibrate_value_hook,
     freeze_module_quantization,
-    reset_quantization_status,
     initialize_observer,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
