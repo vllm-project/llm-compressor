@@ -164,14 +164,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         type=str,
-        default="/data5/yiliu4/Qwen/Qwen2-0.5B",
+        default=model_id,
         help="Model name or path",
     )
     parser.add_argument(
         "--scheme",
         type=str,
-        default="FP8_STATIC",
-        help="Quantization scheme (FP8_STATIC, MXFP8, MXFP4, etc.)",
+        default="W4A16",
+        help="Quantization scheme (W4A16, MXFP8, MXFP4, etc.)",
     )
     parser.add_argument("--iters", type=int, default=4, help="Number of iterations")
     parser.add_argument("--nsamples", type=int, default=32, help="Number of samples")
