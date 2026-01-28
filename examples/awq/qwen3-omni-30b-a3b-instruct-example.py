@@ -66,7 +66,6 @@ def data_collator(batch):
 
 recipe = AWQModifier(
     ignore=[
-        "lm_head",
         "re:.*visual.*",
         "re:.*code2wav.*",
         "re:.*audio_tower.*",
