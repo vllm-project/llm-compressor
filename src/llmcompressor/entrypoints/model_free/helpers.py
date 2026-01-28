@@ -33,8 +33,13 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device("xpu:0")
 
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        return torch.device("npu:0")
+
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning(
+            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
+        )
         return torch.device("cpu")
 
 

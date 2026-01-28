@@ -1,0 +1,18 @@
+cadence: "weekly"
+model: meta-llama/Llama-3.1-8B-Instruct
+scheme: NVFP4
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+num_calibration_samples: 20
+recipe: tests/e2e/vLLM/recipes/NVFP4/recipe_awq_nvfp4.yaml
+lmeval:
+  # NVFP4 (4-bit weights + 4-bit activations) has lower recovery than FP8/INT8
+  # Observed: strict-match ~92.81%, flexible-extract ~89.59%
+  # TODO: check if recovery is consistent - 0.65 is too low for 0.94 recovery
+  recovery_threshold:
+    exact_match,strict-match: 0.92
+    exact_match,flexible-extract: 0.88
+  # Absolute metrics for warnings only
+  metrics:
+    exact_match,flexible-extract: 0.70
+    exact_match,strict-match: 0.65

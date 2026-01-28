@@ -21,6 +21,7 @@ def get_torch_hardware_info():
 
         cuda_devices = []
         amd_devices = []
+        npu_devices = []
         if torch.cuda.is_available():
             for i in range(torch.cuda.device_count()):
                 name = torch.cuda.get_device_name(i)
@@ -28,13 +29,17 @@ def get_torch_hardware_info():
                     amd_devices.append(name)
                 else:
                     cuda_devices.append(name)
-        return cuda_devices, amd_devices
+        if hasattr(torch, "npu") and torch.npu.is_available():
+            for i in range(torch.npu.device_count()):
+                name = torch.npu.get_device_name(i)
+                npu_devices.append(name)
+        return cuda_devices, amd_devices, npu_devices
     except ImportError:
-        return [], []
+        return [], [], []
 
 
 def collect_environment_info():
-    cuda_devices, amd_devices = get_torch_hardware_info()
+    cuda_devices, amd_devices, npu_devices = get_torch_hardware_info()
 
     info = {
         "Operating System": platform.platform(),
@@ -45,6 +50,7 @@ def collect_environment_info():
         "torch Version": get_version("torch"),
         "CUDA Devices": cuda_devices if cuda_devices else "None",
         "AMD Devices": amd_devices if amd_devices else "None",
+        "NPU Devices": npu_devices if npu_devices else "None",
     }
 
     print("### Environment Information ###")
