@@ -84,13 +84,22 @@ def model_free_ptq(
 
         total_size = 0
         weight_map = dict()
+        padded_layers = dict()
         for future in tqdm.tqdm(
             as_completed(futures), total=len(futures), desc="Quantizing"
         ):
-            _total_size, _weight_map = future.result()
+            _total_size, _weight_map, _padded_layers = future.result()
             total_size += _total_size
             weight_map.update(_weight_map)
+            if _padded_layers:
+                padded_layers.update(_padded_layers)
 
     # 5. update config and safetensors index
-    update_config(save_directory, scheme_name, scheme, ignore)
+    update_config(
+        save_directory,
+        scheme_name,
+        scheme,
+        ignore,
+        padded_layers if padded_layers else None,
+    )
     update_safetensors_index(save_directory, total_size, weight_map)
