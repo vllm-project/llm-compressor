@@ -59,7 +59,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        self.initialize_quantization(self, state.model)
+        self.initialize_quantization(state.model)
 
         return True
 

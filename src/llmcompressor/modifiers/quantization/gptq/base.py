@@ -160,7 +160,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks
+        # untie word embeddings
         self.initialize_quantization(state.model)
 
         # prepare module names
