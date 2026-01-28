@@ -277,7 +277,7 @@ def quantize_weight(
         loss,
         W,
         scale.to(dtype=final_dtype),
-        zero_point,#.to(dtype=quant_args.pytorch_dtype()),
+        zero_point.to(dtype=quant_args.zp_dtype),
         g_idx,
     )
 
