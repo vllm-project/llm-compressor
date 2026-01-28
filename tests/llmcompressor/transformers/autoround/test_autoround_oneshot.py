@@ -44,6 +44,12 @@ recipe_modifier_nvfp4 = AutoRoundModifier(
     scheme="NVFP4",
 )
 
+recipe_modifier_mxfp4 = AutoRoundModifier(
+    ignore=["lm_head"],
+    iters=0,
+    scheme="MXFP4",
+)
+
 w8a8_dynamic_recipe_modifier = AutoRoundModifier(
     ignore=["lm_head"],
     iters=0,
@@ -80,6 +86,7 @@ w8a8_static_recipe_modifier = AutoRoundModifier(
         recipe_str,
         recipe_modifier_full,
         recipe_modifier_nvfp4,
+        recipe_modifier_mxfp4,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):

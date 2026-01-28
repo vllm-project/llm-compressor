@@ -69,10 +69,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
 | `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
 | `NVFP4`  | [llama3.1_example](./quantization_w4a4_fp4/llama3.1_example.py)  |                                       |
-
-
-> [!NOTE]
-> More quantization schemes (e.g., `MXFP4`) are actively being developed. Stay tuned for updates!
+| `MXFP4`  | [qwen3_example](../../experimental/mxfp4/autoround_qwen3_example.py)  |                                       |
 
 
 ### Known Issues
