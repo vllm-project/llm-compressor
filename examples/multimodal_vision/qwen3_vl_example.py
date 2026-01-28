@@ -17,8 +17,8 @@ processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = "test[:12]"
-NUM_CALIBRATION_SAMPLES = 12
+DATASET_SPLIT = "test[:512]"
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
