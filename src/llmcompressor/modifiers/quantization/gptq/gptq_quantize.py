@@ -86,7 +86,7 @@ def quantize_weight(
     :return: loss, quantized_weight, scale, zero_point, g_idx
     """
     strategy = quant_args.strategy
-    actorder = None  # quant_args.actorder
+    actorder = quant_args.actorder
     global_scale = getattr(module, "weight_global_scale", None)
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
