@@ -90,7 +90,6 @@ recipe = AWQModifier(
                 "symmetric": True,
                 "strategy": "group",
                 "group_size": 32,
-                "observer": "mse",
             }
         }
     }
