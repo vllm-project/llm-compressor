@@ -7,12 +7,13 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
-import math
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
+
+from llmcompressor.utils import calculate_block_padding, needs_block_padding
 
 __all__ = ["flatten_for_calibration"]
 
@@ -76,16 +77,15 @@ def _flatten_weight(
     if args.strategy == QuantizationStrategy.BLOCK:
         # (1, num_block_rows, num_block_cols, block_width * block_height)
         block_height, block_width = args.block_structure
-        rows, cols = value.shape
 
         # Pad tensor if dimensions are not divisible by block size
-        pad_rows = (block_height - rows % block_height) % block_height
-        pad_cols = (block_width - cols % block_width) % block_width
-        if pad_rows > 0 or pad_cols > 0:
+        if needs_block_padding(value.shape, args.block_structure):
+            pad_rows, pad_cols = calculate_block_padding(value.shape, args.block_structure)
             value = F.pad(value, (0, pad_cols, 0, pad_rows), mode="constant", value=0)
 
-        block_rows = math.ceil(rows / block_height)
-        block_cols = math.ceil(cols / block_width)
+        # Derive block dimensions from the (potentially padded) tensor shape
+        block_rows = value.shape[0] // block_height
+        block_cols = value.shape[1] // block_width
         return (
             value.reshape(block_rows, block_height, block_cols, block_width)
             .transpose(1, 2)
