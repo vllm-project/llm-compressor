@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import sys
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Generator
 
 import torch
 from tqdm import tqdm
@@ -18,11 +20,11 @@ class IntermediateValue:
         otherwise None
     """
 
-    value: Union[torch.Tensor, "IntermediateValue", Any]
-    device: Union[torch.device, None]
+    value: torch.Tensor | "IntermediateValue" | Any
+    device: torch.device | None
 
 
-IntermediateValues = Dict[str, IntermediateValue]
+IntermediateValues = dict[str, IntermediateValue]
 
 
 class IntermediatesCache:
@@ -37,13 +39,13 @@ class IntermediatesCache:
     Construct using `empty` and `from_dataloader` class methods
     """
 
-    batch_intermediates: List[IntermediateValues]
-    offload_device: Optional[torch.device]
+    batch_intermediates: list[IntermediateValues]
+    offload_device: torch.device | None
 
     def __init__(
         self,
-        batch_intermediates: Optional[List[IntermediateValues]] = None,
-        offload_device: Optional[torch.device] = "cpu",
+        batch_intermediates: list[IntermediateValues] | None = None,
+        offload_device: torch.device | None = "cpu",
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
@@ -64,7 +66,7 @@ class IntermediatesCache:
         cls,
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device = torch.device("cpu"),
-        offload_device: Optional[torch.device] = torch.device("cpu"),
+        offload_device: torch.device | None = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
@@ -90,8 +92,8 @@ class IntermediatesCache:
         return cls(batch_intermediates, offload_device)
 
     def fetch(
-        self, batch_index: int, input_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        self, batch_index: int, input_names: list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Fetch values belonging to a batch
 
@@ -107,7 +109,7 @@ class IntermediatesCache:
             if input_names is None or key in input_names
         }
 
-    def update(self, batch_index: int, values: Dict[str, Any]):
+    def update(self, batch_index: int, values: dict[str, Any]):
         """
         Update/put values belonging to a batch
 
@@ -118,7 +120,7 @@ class IntermediatesCache:
         intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
-    def delete(self, batch_index: int, consumed_names: Optional[List[str]] = None):
+    def delete(self, batch_index: int, consumed_names: list[str] | None = None):
         """
         Delete values from the cache
 
@@ -134,7 +136,7 @@ class IntermediatesCache:
         for name in consumed_names:
             del intermediates[name]
 
-    def append(self, values: Dict[str, Any]):
+    def append(self, values: dict[str, Any]):
         """
         Append new values to the cache. The new values will be assigned the next
         available batch index
@@ -145,7 +147,7 @@ class IntermediatesCache:
         self.batch_intermediates.append({})
         self.update(batch_index, values)
 
-    def size(self) -> Dict[torch.device, int]:
+    def size(self) -> dict[torch.device, int]:
         """
         Returns the memory used by cached values, keyed by device, in bytes
 
@@ -178,9 +180,7 @@ class IntermediatesCache:
 
         return dict(sizes)
 
-    def iter(
-        self, input_names: Optional[List[str]] = None
-    ) -> Generator[Any, None, None]:
+    def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
@@ -225,7 +225,7 @@ class IntermediatesCache:
         cls,
         value: Any,
         offload_device: torch.device | None,
-        onload_device: Optional[torch.device] = None,
+        onload_device: torch.device | None = None,
     ) -> IntermediateValue:
         """
         Offload a value's tensors to the offload device
