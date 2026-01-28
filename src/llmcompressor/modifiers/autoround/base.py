@@ -13,6 +13,7 @@ from compressed_tensors.quantization import (
     QuantizationMetadata,
     QuantizationScheme,
     QuantizationStrategy,
+    apply_quantization_config,
     enable_quantization,
 )
 from compressed_tensors.utils import (
@@ -28,7 +29,6 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.pytorch import get_no_split_params
 
 __all__ = ["AutoRoundModifier"]
@@ -111,8 +111,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     Lifecycle:
 
     - on_initialize
-        - apply config to model
+        - QuantizationMixin.initialize_calibration
     - on_start
+        - apply config to model
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
@@ -176,23 +177,26 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             param.requires_grad_(False)
 
         self.sequential_targets = self._infer_sequential_targets(state.model)
+
         return True
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Register activation calibration hooks and enable quantization as we calibrate
+        Attach quantization schemes to modules in the model according to
+        the quantization config specified on this modifier
+
+        Initialize and attach observers
+        Register activation calibration hooks (including kv_cache quantization)
+        Enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.targets, self.ignore)
-        if targets_embeddings(model, targets):
-            untie_word_embeddings(model)
+        apply_quantization_config(model, self.resolved_config)
 
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             # skip register observers for auto-round
             apply_calibration_status(module)
-
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+            enable_quantization(module)  # quantize at the same time as calibrate
 
     def input_capture_hook(self, module, *args, **kwargs):
         if module._tmp_name not in self._all_module_input:
@@ -205,6 +209,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
+
         for _, module in state.model.named_modules():
             if self._is_decoding_layer(module):
                 # register input capture hook for decoding layers
