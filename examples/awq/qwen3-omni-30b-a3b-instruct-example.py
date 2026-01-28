@@ -4,18 +4,18 @@ import torch
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3OmniMoeForConditionalGeneration
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier, AWQMapping
+from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modeling.patch.qwen3_omni_patch import fast_pos_embed_interpolate
 from llmcompressor.transformers.compression.compressed_tensors_utils import modify_save_pretrained
 
 MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 OUTPUT_DIR = MODEL_ID.split("/")[-1] + "-AWQ-W4A16"
 NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = 4096
 
 model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
     MODEL_ID,
-    torch_dtype="auto",
+    torch_dtype=torch.bfloat16,
     device_map=None,
     trust_remote_code=True,
 )
