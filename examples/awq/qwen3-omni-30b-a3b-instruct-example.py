@@ -80,6 +80,7 @@ recipe = AWQModifier(
     ],
     duo_scaling=False,
     config_groups={
+        # Using W4A16 group 32 scheme to work with Exllama kernel
         "group_0": {
             "targets": ["Linear"],
             "input_activations": None,
