@@ -25,8 +25,8 @@ Weight and activation quantization is best for maximum throughput on modern hard
 | RTN | FP8 quantization | Fast round-to-nearest quantization for FP8 weight and activation quantization |
 | SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling |
 
-!!! info
-    LLM Compressor also supports mixed-precision activation quantization, such as W4AFP8 and W4AINT8, allowing you to combine low-bit weights with higher-precision activations for improved accuracy.
+!!! tip
+    See [Mixed-precision quantization](#mixed-precision-quantization-for-accuracy-recovery) for details about combining different precision levels across layers.
 
 ## KV cache and attention quantization
 
