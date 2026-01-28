@@ -1,10 +1,13 @@
-# Choosing the right quantization, pruning, and transform-based algorithms
+# Choosing the right compression algorithm
 
-LLM Compressor supports multiple quantization, pruning, and transform-based algorithms for different use cases.
+LLM Compressor supports multiple quantization, pruning, and transform-based compression algorithms for different use cases.
 
 !!! info
     Selecting the right compression algorithm depends on your hardware, performance requirements, and acceptable accuracy tradeoffs.
     LLM Compressor provides a range of algorithms, from simple round-to-nearest quantization to advanced transform-based methods; each suited to different deployment scenarios.
+
+!!! tip
+    For more information, see [Compression formats](../guides/compression_formats.md)
 
 ## Weight-only quantization
 
@@ -51,15 +54,16 @@ The following algorithms provide additional optimization beyond standard quantiz
 LLM Compressor provides multiple compression algorithms, each optimized for different goals.
 Use the table below to select the algorithm that best matches your deployment requirements and hardware capabilities.
 
-| Goal | Recommended Algorithm |
-|------|----------------------|
-| Fast and simple compression | RTN |
-| Better accuracy at 4-bit | GPTQ or AWQ |
-| Maximum throughput (Hopper and up) | FP8 |
-| Maximum compression (Blackwell) | NVFP4/MXFP4 |
-| Balanced weight/activation | SmoothQuant |
-| 2:4 sparsity patterns | SparseGPT |
-| Best low-bit accuracy | SpinQuant or QuIP + GPTQ |
+| Algorithm | Best for |
+|----------|--------- -|
+| RTN | Fast and simple compression |
+| GPTQ or AWQ | Better accuracy at 4-bit |
+| FP8 | Maximum throughput (Hopper and up) |
+| NVFP4/MXFP4 | Maximum compression (Blackwell) |
+| SmoothQuant | Balanced weight/activation |
+| SparseGPT | 2:4 sparsity patterns |
+| SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
+
 
 !!! note
     FP8 quantization can be applied with any quantization algorithm, including RTN, AWQ, and GPTQ, allowing you to choose the accuracy-performance tradeoff that best fits your use case.
@@ -68,8 +72,8 @@ Use the table below to select the algorithm that best matches your deployment re
 
 The following model architectures are fully supported in LLM Compressor:
 
-| Model Type | Notes |
-|------------|---------|
+| Model type | Notes |
+|------------|-------|
 | Standard language models |  Llama, Mistral, Qwen, and more |
 | Multimodal/Vision models | Vision-language models |
 | Mixture of Experts (MoE) models | DeepSeek, Qwen MoE, Mistral |
