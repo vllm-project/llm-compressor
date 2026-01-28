@@ -220,7 +220,8 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        apply_quantization_config(model, self.resolved_config)
+        if self.has_config():
+            apply_quantization_config(model, self.resolved_config)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)

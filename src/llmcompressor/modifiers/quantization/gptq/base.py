@@ -161,8 +161,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         :param state: session state storing input model and calibration data
         """
         # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+        self.initialize_quantization(state.model)
 
         # prepare module names
         self._module_names = {
@@ -179,7 +178,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # apply config and register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
+        self.start_calibration(state.model)
 
         # register gptq hooks
         added_hook = False

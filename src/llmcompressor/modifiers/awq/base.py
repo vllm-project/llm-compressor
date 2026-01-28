@@ -186,9 +186,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: True on a successful run, False otherwise
         """
 
-        # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+        self.initialize_quantization(state.model)
 
         # Validate that duo_scaling is only used with per-channel quantization
         if self.duo_scaling is not False:
@@ -238,7 +236,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
+        self.start_calibration(state.model)
 
         # AWQ performs forward passes during _apply_smoothing
         # before any scales or zero points are updated
