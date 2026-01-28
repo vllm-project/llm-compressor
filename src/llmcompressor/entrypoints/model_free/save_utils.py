@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Optional
 
 from compressed_tensors import __version__ as ct_version
 from compressed_tensors.base import (
@@ -20,13 +21,28 @@ from .helpers import find_config_path, find_safetensors_index_path
 
 __all__ = ["update_config", "update_safetensors_index"]
 
+# Key for storing padded layers metadata in the quantization config
+PADDED_LAYERS_KEY = "padded_layers"
+
 
 def update_config(
     save_directory: str | os.PathLike,
     scheme_name: str,
     scheme: QuantizationScheme,
     ignore: list[str],
+    padded_layers: Optional[dict[str, dict[str, list[int]]]] = None,
 ):
+    """
+    Update the config.json file with quantization configuration.
+
+    :param save_directory: Directory containing the config.json file
+    :param scheme_name: Name of the quantization scheme
+    :param scheme: The quantization scheme
+    :param ignore: List of modules to ignore
+    :param padded_layers: Optional dict mapping module names to their original shapes
+        before padding. This is used for block quantization with non-divisible
+        dimensions. Format: {"module_name": {"original_shape": [out_features, in_features]}}
+    """
     # construct quantization config
     qconfig = QuantizationConfig.model_validate(
         {
@@ -46,6 +62,10 @@ def update_config(
         "format": scheme.format,
         **qconfig_data,
     }
+
+    # Add padded layers metadata if any layers were padded
+    if padded_layers:
+        qconfig_data[PADDED_LAYERS_KEY] = padded_layers
 
     # write results to config.json file
     config_file_path = find_config_path(save_directory)
