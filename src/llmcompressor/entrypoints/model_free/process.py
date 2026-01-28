@@ -61,10 +61,12 @@ def process_file(
             tensors[name], scheme, device
         )
 
-        # Track original shape if padding was applied
+        # Track original and padded shapes if padding was applied
         if original_shape is not None:
+            padded_shape = (module.weight.shape[0], module.weight.shape[1])
             padded_layers[module_name] = {
                 "original_shape": list(original_shape),
+                "padded_shape": list(padded_shape),
             }
 
         # 2. calibrate weight qparams
@@ -112,7 +114,8 @@ def process_file_microscale_scheme(
 
     fused_name_to_fused_index: dict[str, int]  # fused_name -> fused_index
     fused_modules: dict[int, dict[str, Module]]  # fused_index -> named_modules
-    fused_original_shapes: dict[int, dict[str, tuple[int, int]]]  # fused original shapes
+    # fused padding info: original and padded shapes
+    fused_padding_info: dict[int, dict[str, dict[str, tuple[int, int]]]]
 
     fused_name_to_fused_index = {
         name: index
@@ -120,7 +123,7 @@ def process_file_microscale_scheme(
         for name in matched_set.values()
     }
     fused_modules = defaultdict(dict)
-    fused_original_shapes = defaultdict(dict)
+    fused_padding_info = defaultdict(dict)
     padded_layers: PaddedLayersInfo = {}
 
     for name in list(tensors.keys()):
@@ -140,15 +143,21 @@ def process_file_microscale_scheme(
         if name in fused_name_to_fused_index:
             fused_index = fused_name_to_fused_index[name]
             fused_modules[fused_index][name] = module
-            # Track original shape for fused modules
+            # Track padding info for fused modules
             if original_shape is not None:
-                fused_original_shapes[fused_index][module_name] = original_shape
+                padded_shape = (module.weight.shape[0], module.weight.shape[1])
+                fused_padding_info[fused_index][module_name] = {
+                    "original_shape": original_shape,
+                    "padded_shape": padded_shape,
+                }
             continue
 
-        # Track original shape if padding was applied
+        # Track original and padded shapes if padding was applied
         if original_shape is not None:
+            padded_shape = (module.weight.shape[0], module.weight.shape[1])
             padded_layers[module_name] = {
                 "original_shape": list(original_shape),
+                "padded_shape": list(padded_shape),
             }
 
         calibrate_scale_zp(module)
@@ -172,13 +181,13 @@ def process_file_microscale_scheme(
             module_name, param_name = name.rsplit(".", 1)
             module.weight_global_scale.data.copy_(fused_global_scale)
 
-            # Track original shape if padding was applied for fused modules
-            if fused_index in fused_original_shapes:
-                if module_name in fused_original_shapes[fused_index]:
+            # Track padding info if padding was applied for fused modules
+            if fused_index in fused_padding_info:
+                if module_name in fused_padding_info[fused_index]:
+                    info = fused_padding_info[fused_index][module_name]
                     padded_layers[module_name] = {
-                        "original_shape": list(
-                            fused_original_shapes[fused_index][module_name]
-                        ),
+                        "original_shape": list(info["original_shape"]),
+                        "padded_shape": list(info["padded_shape"]),
                     }
 
             # 2.2. finish calibration with fused global scales
