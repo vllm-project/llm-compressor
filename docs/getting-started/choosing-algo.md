@@ -73,7 +73,7 @@ The following model architectures are fully supported in LLM Compressor:
 | Standard language models |  Llama, Mistral, Qwen, and more |
 | Multimodal/Vision models | Vision-language models |
 | Mixture of Experts (MoE) models | DeepSeek, Qwen MoE, Mistral |
-| Large multi-GPU models | CPU offloading via Hugging Face accelerate |
+| Large multi-GPU models | Multi-GPU and CPU offloading support |
 
 ### Mixed-precision quantization for accuracy recovery
 
