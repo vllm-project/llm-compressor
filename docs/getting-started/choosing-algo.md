@@ -14,8 +14,7 @@ Weight-only quantization is best for reducing model size when targeting memory-c
 |-----------|----------|-------------|
 | AWQ | General purpose | Activation-aware weight quantization that preserves important weights |
 | GPTQ | Broad compatibility | Established weight quantization with calibration |
-| RTN | Quick baseline | Fast round-to-nearest quantization |
-| NVFP4/MXFP4 | Maximum compression on Blackwell | 4-bit floating point for NVIDIA Blackwell GPUs |
+| RTN | Quick baseline, FP4/FP8 | Fast round-to-nearest quantization. Good accuracy recovery for NVFP4, MXFP4, and FP8 formats |
 
 ## Weight and activation quantization
 
@@ -23,7 +22,7 @@ Weight and activation quantization is best for maximum throughput on modern hard
 
 | Algorithm | Best for | Description |
 |-----------|----------|-------------|
-| FP8 | Maximum speed | 8-bit floating point for NVIDIA Hopper+ GPUs |
+| RTN | FP8 quantization | Fast round-to-nearest quantization for FP8 weight and activation quantization |
 | SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling |
 
 !!! info
