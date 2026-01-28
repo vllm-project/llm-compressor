@@ -62,8 +62,6 @@ class SequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
-        LifecycleCallbacks.calibration_epoch_start()
-
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
@@ -85,6 +83,8 @@ class SequentialPipeline(CalibrationPipeline):
             type(mod).__name__ in DISABLE_QAC_MODIFIERS
             for mod in session.lifecycle.recipe.modifiers
         )
+
+        LifecycleCallbacks.calibration_epoch_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))

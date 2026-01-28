@@ -204,7 +204,6 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to initialize
         """
-
         if targets_embeddings(
             model, match_named_modules(model, self.resolved_targets, self.ignore)
         ):
