@@ -113,7 +113,11 @@ class SparsityModifierBase(Modifier):
         dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(model, **kwargs)
+        # Note: only pass sequential_targets from kwargs, not the full kwargs dict
+        # which may contain 'model' and cause duplicate argument errors
+        self.sequential_targets = self._infer_sequential_targets(
+            model, sequential_targets=kwargs.get("sequential_targets")
+        )
         layers = get_layers(self.sequential_targets, model)
         self._target_layers = get_layers(
             self.targets, model
