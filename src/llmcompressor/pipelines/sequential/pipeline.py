@@ -77,14 +77,14 @@ class SequentialPipeline(CalibrationPipeline):
         subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
         num_subgraphs = len(subgraphs)
 
+        LifecycleCallbacks.calibration_epoch_start()
+
         # TODO: remove this to enable quantization aware calibration
         # for GPTQ, AWQ and AutoRound.
         disable_qac = any(
             type(mod).__name__ in DISABLE_QAC_MODIFIERS
             for mod in session.lifecycle.recipe.modifiers
         )
-
-        LifecycleCallbacks.calibration_epoch_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
