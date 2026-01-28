@@ -1,7 +1,8 @@
 nav:
   - Home: index.md
   - Why use LLM Compressor?: getting-started/why-llmcompressor.md
-  - Choosing the right algorithm: getting-started/choosing-algo.md
+  - Choosing the right compression scheme: getting-started/choosing-scheme.md
+  - Choosing the right compression algorithm: getting-started/choosing-algo.md
   - Getting started:
     - getting-started/index.md
     - Installing LLM Compressor: getting-started/install.md
