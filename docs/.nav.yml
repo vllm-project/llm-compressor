@@ -11,7 +11,6 @@ nav:
     - FAQ: getting-started/faq.md
   - Guides:
     - Compression Schemes: guides/compression_schemes.md
-    - Compression Formats: guides/compression_formats.md
     - Saving a Model: guides/saving_a_model.md
     - Observers: observers.md
   - Examples:

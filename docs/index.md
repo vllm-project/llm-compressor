@@ -41,7 +41,7 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
 !!! info "Experimental MXFP4 Support"
     Models can now be quantized using an MXFP4 pre-set scheme. Examples can be found under the experimental folder. This pathway is still experimental as support and validation with vLLM is still a WIP.
 
-## Supported algorithms
+## Supported algorithms and techniques
 
 | Algorithm | Description | Use Case |
 |-----------|-------------|----------|
@@ -53,17 +53,20 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
+| AutoRound | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 
 ## Supported quantization formats
 
+LLM Compressor supports applying multiple formats in a given model.
+
 | Format | Targets | Compute Capability | Use Case |
 |--------|---------|-------------------|----------|
-| **W4A16** | Weights only | 8.0 (Ampere and up) | Optimize for latency on older hardware |
+| **W4A16/W8A16** | Weights | 8.0 (Ampere and up) | Optimize for latency on older hardware |
 | **W8A8-INT8** | Weights + activations | 7.5 (Turing and up) | Balanced performance and compatibility |
 | **W8A8-FP8** | Weights + activations | 8.9 (Hopper and up) | High throughput on modern GPUs |
 | **NVFP4/MXFP4** | Weights + activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
-| **W4AFP8** | Mixed precision | 8.9 (Hopper and up) | Low-bit weights with FP8 activations |
-| **W4AINT8** | Mixed precision | 7.5 (Turing and up) | Low-bit weights with INT8 activations |
+| **W4AFP8** | Weights + activations  | 8.9 (Hopper and up) | Low-bit weights with dyanmic FP8 activations |
+| **W4AINT8** | Weights + activations  | 7.5 (Turing and up) | Low-bit weights with dyanmic INT8 activations |
 | **2:4 Sparse** | Weights | 8.0 (Ampere and up) | Sparsity-accelerated inference |
 
 !!! note

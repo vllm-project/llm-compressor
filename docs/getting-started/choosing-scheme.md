@@ -10,13 +10,13 @@ The scheme you choose determines both the compression ratio and the hardware req
 
 | Scheme | Precision | Targets | GPU | Min. compute capability | Use case |
 |--------|-----------|---------|-----|-------------------------|----------|
-| **W4A16** | 4-bit weights, 16-bit activations | Mixed precision | Ampere | 8.0 | Memory reduction on older hardware |
+| **W4A16/W8A16** | 4 or 8 bit weights, 16-bit activations | Weights | Ampere | 8.0 | Memory reduction on older hardware |
 | **W8A8-INT8** | 8-bit integer | Weights and activations | Turing | 7.5 | Broad compatibility |
 | **W8A8-FP8** | 8-bit floating point | Weights and activations | Hopper | 8.9 | High throughput on modern GPUs |
 | **NVFP4** | 4-bit NVIDIA floating point | Weights and activations | Blackwell | 10.0 | Maximum compression on latest hardware |
 | **MXFP4** | 4-bit MX floating point | Weights and activations | Blackwell | 10.0 | Maximum compression on latest hardware |
-| **W4AFP8** | 4-bit weights, FP8 activations | Mixed precision | Hopper | 8.9 | Low-bit weights with FP8 activations |
-| **W4AINT8** | 4-bit weights, INT8 activations | Mixed precision | Turing | 7.5 | Low-bit weights with INT8 activations |
+| **W4AFP8** | 4-bit weights, FP8 activations | Weights and activations | Hopper | 8.9 | Low-bit weights with FP8 activations |
+| **W4AINT8** | 4-bit weights, INT8 activations | Weights and activations | Turing | 7.5 | Low-bit weights with INT8 activations |
 
 !!! tip
     For more information, see [Compression schemes](../guides/compression_schemes.md).
