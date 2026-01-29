@@ -1,3 +1,5 @@
+from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.quantization.quant_scheme import NVFP4
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -5,8 +7,6 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import SpinQuantModifier
 from llmcompressor.utils import dispatch_for_generation
-from compressed_tensors.quantization import QuantizationScheme
-from compressed_tensors.quantization.quant_scheme import NVFP4
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
