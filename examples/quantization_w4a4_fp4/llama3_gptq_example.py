@@ -69,6 +69,7 @@ NVFP4 = dict(
         group_size=16,
         scale_dtype=FP8_E4M3_DATA.dtype,
         zp_dtype=FP8_E4M3_DATA.dtype,
+        observer="memoryless_minmax",
     ),
     input_activations=QuantizationArgs(
         num_bits=4,
