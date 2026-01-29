@@ -1,7 +1,3 @@
----
-weight: -8
----
-
 # Compress Your Model
 
 LLM Compressor provides a straightforward way to compress your models using various optimization techniques. This guide walks you through the process of compressing a model with different quantization methods.
