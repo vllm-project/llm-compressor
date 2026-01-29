@@ -105,29 +105,45 @@ Note that the model can be swapped for a local or remote HF-compatible checkpoin
 Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 
 ```python
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.modifiers.quantization import GPTQModifier
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
-# Select quantization algorithm. In this case, we:
-#   * apply SmoothQuant to make the activations easier to quantize
-#   * quantize the weights to int8 with GPTQ (static per channel)
-#   * quantize the activations to int8 (dynamic per token)
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(scheme="W8A8", targets="Linear", ignore=["lm_head"]),
-]
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
-# Apply quantization using the built in open_platypus dataset.
-#   * See examples for demos showing how to pass a custom calibration set
-oneshot(
-    model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    dataset="open_platypus",
-    recipe=recipe,
-    output_dir="TinyLlama-1.1B-Chat-v1.0-INT8",
-    max_seq_length=2048,
-    num_calibration_samples=512,
+# Load model.
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+# Configure the quantization algorithm and scheme.
+# In this case, we:
+#   * quantize the weights to FP8 using RTN with block_size 128
+#   * quantize the activations dynamically to FP8 during inference
+recipe = QuantizationModifier(
+    targets="Linear",
+    scheme="FP8_BLOCK",
+    ignore=["lm_head", "re:.*mlp.gate$"],
 )
+
+# Apply quantization.
+oneshot(model=model, recipe=recipe)
+
+# Confirm generations of the quantized model look sane.
+print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
+output = model.generate(input_ids, max_new_tokens=20)
+print(tokenizer.decode(output[0]))
+print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-BLOCK"
+model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 ### Inference with vLLM

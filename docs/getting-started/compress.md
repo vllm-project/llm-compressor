@@ -20,25 +20,48 @@ For this guide, we'll use the `TinyLlama` model and the `open_platypus` dataset 
 LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a predefined recipe to your model and dataset, making it easy to get started with compression. To apply what we discussed above, we'll import the necessary modifiers and create a recipe to apply to our model and dataset:
 
 ```python
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor import oneshot
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(scheme="W8A8", targets="Linear", ignore=["lm_head"]),
-]
-oneshot(
-    model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    dataset="open_platypus",
-    recipe=recipe,
-    output_dir="TinyLlama-1.1B-Chat-v1.0-INT8",
-    max_seq_length=2048,
-    num_calibration_samples=512,
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
+
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
+
+# Load model.
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+# Configure the quantization algorithm and scheme.
+# In this case, we:
+#   * quantize the weights to FP8 using RTN with block_size 128
+#   * quantize the activations dynamically to FP8 during inference
+recipe = QuantizationModifier(
+    targets="Linear",
+    scheme="FP8_BLOCK",
+    ignore=["lm_head", "re:.*mlp.gate$"],
 )
+
+# Apply quantization.
+oneshot(model=model, recipe=recipe)
+
+# Confirm generations of the quantized model look sane.
+print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
+output = model.generate(input_ids, max_new_tokens=20)
+print(tokenizer.decode(output[0]))
+print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-BLOCK"
+model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-When you run the above code, the compressed model is saved to the specified output directory: `TinyLlama-1.1B-Chat-v1.0-INT8`. You can then load this model using the Hugging Face Transformers library or vLLM for inference and testing. 
+When you run the above code, the compressed model is saved to the specified output directory: `Qwen3-30B-A3B-FP8-BLOCK`. You can then load this model using the Hugging Face Transformers library or vLLM for inference and testing. 
 
 ## Memory requirements for LLM Compressor
 
