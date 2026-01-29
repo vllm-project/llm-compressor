@@ -46,14 +46,14 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
 | Algorithm | Description | Use Case |
 |-----------|-------------|----------|
 | **RTN** (Round-to-Nearest) | Fast baseline quantization | Quick compression with minimal setup |
-| **GPTQ** | Weighted quantization with calibration | High-accuracy 4-bit weight quantization |
+| **GPTQ** | Weighted quantization with calibration | High-accuracy 4 and 8 bit weight quantization |
 | **AWQ** | Activation-aware weight quantization | Preserves accuracy for important weights |
-| **SmoothQuant** | Outlier handling for W8A8 | Weight and activation quantization |
+| **SmoothQuant** | Outlier handling for W8A8 | Improved activation quantization |
 | **SparseGPT** | Pruning with quantization | 2:4 sparsity patterns |
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
-| AutoRound | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
+| **AutoRound** | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 
 ## Supported quantization formats
 

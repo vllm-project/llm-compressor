@@ -50,10 +50,11 @@ Use the table below to select the algorithm that best matches your deployment re
 | Algorithm | Best for |
 |----------|-----------|
 | RTN | Fast and simple compression |
-| GPTQ or AWQ | Better accuracy at 4-bit |
-| SmoothQuant | Smooths outliers in activations by folding them into weights, ensuring better accuracy for weight and activation quantized models |
+| GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
+| SmoothQuant | Smooths outliers in activations by folding them into weights, ensuring better accuracy for activation quantization |
 | SparseGPT | 2:4 sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
+| FP8 KV Cache | Target KV Cache or attention activations |
 
 ## Supported model types
 
