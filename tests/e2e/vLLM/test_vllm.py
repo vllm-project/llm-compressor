@@ -15,7 +15,7 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
 from tests.testing_utils import requires_gpu
 
-HF_MODEL_HUB_NAME = "nm-testing"
+HF_MODEL_HUB_NAME = "inference-optimization"
 
 TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
