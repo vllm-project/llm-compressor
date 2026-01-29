@@ -97,7 +97,7 @@ Deep dives into advanced usage of `llmcompressor`:
 
 
 ## Quick Tour
-Let's quantize `TinyLlama` with 8 bit weights and activations using the `GPTQ` and `SmoothQuant` algorithms.
+Let's quantize `Qwen3-30B-A3B` with FP8 weights and activations using the `Round-to-Nearest` algorithm.
 
 Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
 
@@ -160,7 +160,7 @@ Run:
 
 ```python
 from vllm import LLM
-model = LLM("TinyLlama-1.1B-Chat-v1.0-INT8")
+model = LLM("Qwen/Qwen3-30B-A3B-FP8-BLOCK")
 output = model.generate("My name is")
 ```
 
