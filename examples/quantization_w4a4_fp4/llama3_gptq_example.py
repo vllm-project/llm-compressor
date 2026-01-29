@@ -1,16 +1,16 @@
+from compressed_tensors.quantization import (
+    FP8_E4M3_DATA,
+    DynamicType,
+    QuantizationArgs,
+    QuantizationStrategy,
+    QuantizationType,
+)
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
-from compressed_tensors.quantization import (
-    DynamicType,
-    FP8_E4M3_DATA,
-    QuantizationType,
-    QuantizationStrategy,
-    QuantizationArgs,
-)
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -82,7 +82,7 @@ NVFP4 = dict(
         scale_dtype=FP8_E4M3_DATA.dtype,
         zp_dtype=FP8_E4M3_DATA.dtype,
     ),
-    targets=["Linear"]
+    targets=["Linear"],
 )
 recipe = GPTQModifier(config_groups={"group_0": NVFP4}, ignore=["lm_head"])
 
