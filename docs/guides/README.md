@@ -1,7 +1,3 @@
----
-weight: -5
----
-
 # Guides
 
 Welcome to the LLM Compressor guides section! Here you'll find comprehensive documentation covering key components and concepts of LLM Compressor. These guides will help you understand the various compression options available, how to apply them effectively, and how to deploy your optimized models for maximum performance.
