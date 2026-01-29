@@ -8,17 +8,6 @@ LLM Compressor supports multiple quantization, pruning, and transform-based comp
     Selecting the right compression algorithm depends on your chosen quantization scheme, accuracy requirements, and compatibility between the model, hardware, and algorithm.
     LLM Compressor provides a range of algorithms, from simple round-to-nearest quantization to advanced transform-based methods; each suited to different deployment scenarios.
 
-## Weight-only quantization
-
-Weight-only quantization is best for reducing model size when targeting memory-constrained hardware.
-
-| Algorithm | Best for | Description |
-|-----------|----------|-------------|
-| AWQ | General purpose | Activation-aware weight quantization that preserves important weights |
-| GPTQ | Broad compatibility | Established weight quantization with calibration |
-| AUTOROUND | Low-bit formats | Uses gradient descent to optimize quantized values |
-| RTN | Quick baseline, FP4/FP8 | Fast round-to-nearest quantization. Good accuracy recovery for NVFP4, MXFP4, and FP8 formats |
-
 ## Weight and activation quantization
 
 Weight and activation quantization is best for maximum throughput on modern hardware:
