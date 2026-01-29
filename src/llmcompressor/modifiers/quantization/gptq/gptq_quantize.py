@@ -256,7 +256,7 @@ def quantize_weight(
             W[:, i2:] -= w_err
 
     has_gidx = False
-    if strategy == QuantizationStrategy.GROUP:
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         if actorder == ActivationOrdering.WEIGHT:
             # restore original permutation
             invperm = torch.argsort(perm)

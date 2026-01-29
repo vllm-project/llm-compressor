@@ -61,13 +61,12 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 NVFP4 = dict(
     weights=QuantizationArgs(
         num_bits=4,
-        actorder=None,
+        actorder="static",
         type=QuantizationType.FLOAT,
         strategy=QuantizationStrategy.TENSOR_GROUP,
         symmetric=True,
         dynamic=False,
         group_size=16,
-        observer="static_minmax",
         scale_dtype=FP8_E4M3_DATA.dtype,
         zp_dtype=FP8_E4M3_DATA.dtype,
     ),
