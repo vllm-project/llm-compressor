@@ -184,12 +184,12 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
     for name, module in model.named_modules():
         if hasattr(module, "quantization_scheme"):
-            assert module.weight.dtype == dtype, (
-                f"Module {name} has incorrect weight dtype"
-            )
-            assert module.quantization_status == QuantizationStatus.FROZEN, (
-                f"Module {name} has incorrect quantization status"
-            )
+            assert (
+                module.weight.dtype == dtype
+            ), f"Module {name} has incorrect weight dtype"
+            assert (
+                module.quantization_status == QuantizationStatus.FROZEN
+            ), f"Module {name} has incorrect quantization status"
 
     # Save to disk
     model.save_pretrained(
@@ -321,14 +321,14 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         model, sparsity_config_or_format=sparse_format, quantization_format=quant_format
     )
 
-    assert compressor.sparsity_compressor is not None, (
-        "Sparse compressor not initialized"
-    )
+    assert (
+        compressor.sparsity_compressor is not None
+    ), "Sparse compressor not initialized"
     assert compressor.sparsity_config.format == sparse_format
 
-    assert compressor.quantization_compressor is not None, (
-        "Quantization compressor not initialized"
-    )
+    assert (
+        compressor.quantization_compressor is not None
+    ), "Quantization compressor not initialized"
 
     compressor.compress_model(model)
     compressor.decompress_model(model)
@@ -407,9 +407,9 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     # the model instead
     compressor = ModelCompressor.from_compression_config(compression_config)
 
-    assert compressor.sparsity_compressor is not None, (
-        "Sparse compressor not initialized"
-    )
+    assert (
+        compressor.sparsity_compressor is not None
+    ), "Sparse compressor not initialized"
     assert compressor.sparsity_config.format == sparse_format
 
     compressor.decompress(model_path=path, model=empty_model)

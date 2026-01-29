@@ -67,9 +67,9 @@ def test_calib_replace_qwen3moe_all_experts(model_stub):
             _ = moe_layer(sample)
 
         # Assert all experts are used
-        assert all(expert_triggered), (
-            f"Not all experts were triggered: {expert_triggered}"
-        )
+        assert all(
+            expert_triggered
+        ), f"Not all experts were triggered: {expert_triggered}"
 
 
 @requires_gpu
