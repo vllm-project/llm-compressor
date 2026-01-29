@@ -21,42 +21,25 @@ For more information, see [Why use LLM Compressor?](./getting-started/why-llmcom
 
 ## New in this release
 
-Review the [LLM Compressor v0.8.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.8.0) for details about new features. Highlights include:
+Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.9.0) for details about new features. Highlights include:
 
-!!! info "Support for multiple modifiers in oneshot compression runs"
-    LLM Compressor now supports using multiple modifiers in oneshot compression runs such as applying both AWQ and GPTQ in a single model. 
+!!! info "Batched Calibration Support"
+    LLM Compressor now supports calibration with batch sizes > 1. A new batch_size argument has been added to the dataset_arguments enabling the option to improve quantization speed. Default batch_size is currently set to 1
 
-    Using multiple modifiers is an advanced usage of LLM Compressor and an active area of research. See [Non-uniform Quantization](/examples/quantization_non_uniform/) for more detail and example usage.
+!!! info "New Model-Free PTQ Pathway"
+    A new model-free PTQ pathway has been added to LLM Compressor, called model_free_ptq. This pathway allows you to quantize your model without the requirement of Hugging Face model definition and is especially useful in cases where oneshot may fail. This pathway is currently supported for data-free pathways only i.e FP8 quantization and was leveraged to quantize the Mistral Large 3 model. Additional examples have been added illustrating how LLM Compressor can be used for Kimi K2
 
-!!! info "Quantization and calibration support for Qwen3 models"
-    Quantization and calibration support for Qwen3 Next models has been added to LLM Compressor.
+!!! info "Extended KV Cache and Attention Quantization Support"
+    LLM Compressor now supports attention quantization. KV Cache quantization, which previously only supported per-tensor scales, has been extended to support any quantization scheme including a new per-head quantization scheme. Support for these checkpoints is on-going in vLLM and scripts to get started have been added to the experimental folder
 
-    LLM Compressor now supports quantization for Qwen3 Next and Qwen3 VL MoE models. You can now use data-free pathways such as FP8 channel-wise and block-wise quantization. Pathways requiring data such W4A16 and NVFP4 are planned for a future release.
+!!! info "Generalized AWQ Support"
+    The AWQModifier has been updated to support quantization schemes beyond W4A16 (e.g W4AFp8). In particular, AWQ no longer constrains that the quantization config needs to have the same settings for group_size, symmetric, and num_bits for each config_group
 
-    Examples for NVFP4 and FP8 quantization have been added for the Qwen3-Next-80B-A3B-Instruct model. 
+!!! info "AutoRound Quantization Support"
+    Added AutoRoundModifier for quantization using AutoRound, an advanced post-training algorithm that optimizes rounding and clipping ranges through sign-gradient descent. This approach combines the efficiency of post-training quantization with the adaptability of parameter tuning, delivering robust compression for large language models while maintaining strong performance
 
-    For the Qwen3 VL MoE model, support has been added for the data-free pathway. The data-free pathway applies FP8 quantization, for example, channel-wise and block-wise quantization. 
-
-    **NOTE**: These models are not supported in tranformers<=4.56.2. You may need to install transformers from source.
-
-!!! info "Transforms support for non-full-size rotation sizes"
-    You can now set a `transform_block_size` field in the Transform-based modifier classes `SpinQuantModifier` and `QuIPModifier`. You can configure transforms of variable size with this field, and you don't need to restrict hadamards to match the size of the weight.
-
-## Recent updates
-
-!!! info "QuIP and SpinQuant-style Transforms" 
-    The newly added [`QuIPModifier` and `SpinQuantModifier`](/examples/transform) transforms allow you to quantize models after injecting hadamard weights into the computation graph, reducing quantization error and greatly improving accuracy recovery for low bit-weight and activation quantization.
-
-!!! info "DeepSeekV3-style Block Quantization Support" 
-    Allows for more efficient compression of large language models without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](/examples/quantization_w8a8_fp8/).
-
-!!! info "FP4 Quantization - now with MoE and non-uniform support" 
-    Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the [NVFP4 configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [FP4 activation support](/examples/quantization_w4a4_fp4/), [MoE support](/examples/quantization_w4a4_fp4/), and [Non-uniform quantization support](/examples/quantization_non_uniform/) where some layers are selectively quantized to FP8 for better recovery. You can also mix other quantization schemes, such as INT8 and INT4.
-
-!!! info "Llama4 Quantization Support"
-    Quantize a Llama4 model to [W4A16](/examples/quantization_w4a16/) or [NVFP4](/examples/quantization_w4a4_fp4/). The checkpoint produced can seamlessly run in vLLM.
-
-For more information, check out the [latest release on GitHub](https://github.com/vllm-project/llm-compressor/releases/latest).
+!!! info "Experimental MXFP4 Support"
+    Models can now be quantized using an MXFP4 pre-set scheme. Examples can be found under the experimental folder. This pathway is still experimental as support and validation with vLLM is still a WIP.
 
 ## Supported algorithms
 
