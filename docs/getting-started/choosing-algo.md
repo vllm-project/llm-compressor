@@ -12,12 +12,14 @@ LLM Compressor supports multiple quantization, pruning, and transform-based comp
 
 Weight and activation quantization is best for maximum throughput on modern hardware:
 
-| Algorithm | Best for | Description |
-|-----------|----------|-------------|
-| SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling |
-| AWQ | General purpose | Activation-aware weight quantization that preserves important weights |
-| GPTQ | Broad compatibility | Established weight quantization with calibration |
-| RTN | Simple, data-free quantization | Fast round-to-nearest quantization for FP8/FP4 weight and activation quantization |
+| Algorithm | Best for | Description | Accuracy Recovery vs. Time |
+|-----------|----------|-------------| ---------------------------|
+| SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling | Good accuracy recovery with minimal calibration time; composable with other methods |
+| AWQ | General purpose | Activation-aware weight quantization. Uses channelwise scaling to better preserve important outliers in weights and activations  | High accuracy recovery but can be expensive to run |
+| GPTQ | Broad compatibility | Established weight quantization with calibration.  Utilizes second-order layer-wise optimizations to prioritize important weights/activations and enables updates to remaining weights |  High accuracy recovery but can be expensive to run |
+| RTN | Simple, data-free quantization |Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios with good recovery for FP8/FP4. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments | 
+| AutoRound | Broad compatibility  | Optimizes rounding and clipping ranges via sign-gradient descent | High accuracy recovery but can be expensive to run |
+
 
 !!! note
     AWQ and GPTQ are typically used for weight-only quantization but can also be applied to weight and activation quantization workflows.
@@ -49,7 +51,7 @@ Use the table below to select the algorithm that best matches your deployment re
 |----------|-----------|
 | RTN | Fast and simple compression |
 | GPTQ or AWQ | Better accuracy at 4-bit |
-| SmoothQuant | Balanced weight/activation |
+| SmoothQuant | Smooths outliers in activations by folding them into weights, ensuring better accuracy for weight and activation quantized models |
 | SparseGPT | 2:4 sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 

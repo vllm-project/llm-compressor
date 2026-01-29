@@ -15,24 +15,6 @@ Before you start compressing, select the model you'd like to compress and a cali
 
 For this guide, we'll use the `TinyLlama` model and the `open_platypus` dataset for calibration. You can replace these with your own model and dataset as needed.
 
-## Select a Quantization Method and Scheme
-
-LLM Compressor supports several quantization methods and schemes, each with its own strengths and weaknesses. The choice of method and scheme will depend on your specific use case, hardware capabilities, and chosen trade-offs between model size, speed, and accuracy.
-
-Supported compression schemes include quantization into W4A16, W8A8‑INT8, and W8A8‑FP8 formats, and sparsification. For a more detailed overview of available quantization schemes, see [Compression Schemes](../guides/compression_schemes.md).
-
-Compression schemes use quantization methods including the following:
-
-| Method | Description | Accuracy Recovery vs. Time |
-|--------|-------------|----------------------------|
-| **GPTQ** | Utilizes second-order layer-wise optimizations to prioritize important weights/activations and enables updates to remaining weights | High accuracy recovery but more expensive/slower to run |
-| **AWQ** | Uses channelwise scaling to better preserve important outliers in weights and activations | Better accuracy recovery with faster runtime than GPTQ |
-| **SmoothQuant** | Smooths outliers in activations by folding them into weights, ensuring better accuracy for weight and activation quantized models | Good accuracy recovery with minimal calibration time; composable with other methods |
-| **Round-To-Nearest (RTN)** | Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments. |
-| **AutoRound** | AutoRound optimizes rounding and clipping ranges via sign-gradient descent. | Delivers leading 4-bit and superior sub-4-bit accuracy compared to GPTQ/AWQ, with runtime faster than GPTQ and on par with AWQ. |
-
-For this guide, we'll use `GPTQ` composed with `SmoothQuant` to create an `INT W8A8` quantized model. This combination provides a good balance for performance, accuracy, and compatability across a wide range of hardware.
-
 ## Apply the Recipe
 
 LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a predefined recipe to your model and dataset, making it easy to get started with compression. To apply what we discussed above, we'll import the necessary modifiers and create a recipe to apply to our model and dataset:
