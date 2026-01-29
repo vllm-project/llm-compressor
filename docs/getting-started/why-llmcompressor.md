@@ -82,6 +82,7 @@ LLM Compressor supports a variety of optimization workflows depending on your de
 ### Next Steps
 
 - [Install LLM Compressor](install.md)
+- [Choosing the right compression scheme](choosing-scheme.md)
 - [Choosing the right quantization, sparsity, and transform-based algorithms](choosing-algo.md)
 - [Compress your first model](compress.md)
 - [Deploy with vLLM](deploy.md)

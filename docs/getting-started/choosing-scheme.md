@@ -8,7 +8,7 @@ Before selecting a compression algorithm, you should first determine what format
 A compression scheme defines the numerical format and precision used to represent model weights and activations.
 The scheme you choose determines both the compression ratio and the hardware required for acceleration.
 
-| Scheme | Precision | Targets | GPU | Min. Compute Capability | Use Case |
+| Scheme | Precision | Targets | GPU | Min. compute capability | Use case |
 |--------|-----------|---------|-----|-------------------------|----------|
 | **W4A16** | 4-bit weights, 16-bit activations | Weights only | Ampere | 8.0 | Memory reduction on older hardware |
 | **W8A8-INT8** | 8-bit integer | Weights and activations | Turing | 7.5 | Broad compatibility |
@@ -50,6 +50,9 @@ Your GPU architecture determines what compression schemes can be hardware-accele
 FP8 (8-bit floating point) provides an excellent balance between compression and accuracy on Hopper-class and newer GPUs.
 FP8 can be applied using any quantization algorithm (RTN, AWQ, GPTQ), giving you flexibility in the accuracy-speed tradeoff.
 
+!!! note
+    FP8 quantization can be applied with any quantization algorithm, including RTN, AWQ, and GPTQ, allowing you to choose the accuracy-performance tradeoff that best fits your use case.
+
 See [FP8 weight and activation quantization](/examples/quantization_w8a8_fp8/) for more information.
 
 ## FP4 quantization (NVFP4/MXFP4)
@@ -65,7 +68,6 @@ FP4 is best with RTN algorithms for fast quantization with good accuracy recover
 
 ## Next steps
 
-Once you've selected your compression scheme, then:
-
 - [Choose the right compression algorithm](choosing-algo.md)
 - [Compress the model](compress.md)
+- [Deploy with vLLM](deploy.md)

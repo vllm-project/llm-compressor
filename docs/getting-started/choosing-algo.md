@@ -1,13 +1,12 @@
 # Choosing the right compression algorithm
 
+After you've [chosen a compression scheme](choosing-scheme.md), you're ready to choose an algorithm to apply that scheme to your model.
+
 LLM Compressor supports multiple quantization, pruning, and transform-based compression algorithms for different use cases.
 
 !!! info
-    Selecting the right compression algorithm depends on your hardware, performance requirements, and acceptable accuracy tradeoffs.
+    Selecting the right compression algorithm depends on your chosen quantization scheme, accuracy requirements, and compatibility between the model, hardware, and algorithm.
     LLM Compressor provides a range of algorithms, from simple round-to-nearest quantization to advanced transform-based methods; each suited to different deployment scenarios.
-
-!!! tip
-    For more information, see [Compression formats](../guides/compression_formats.md)
 
 ## Weight-only quantization
 
@@ -17,6 +16,7 @@ Weight-only quantization is best for reducing model size when targeting memory-c
 |-----------|----------|-------------|
 | AWQ | General purpose | Activation-aware weight quantization that preserves important weights |
 | GPTQ | Broad compatibility | Established weight quantization with calibration |
+| AUTOROUND | Low-bit formats | Uses gradient descent to optimize quantized values |
 | RTN | Quick baseline, FP4/FP8 | Fast round-to-nearest quantization. Good accuracy recovery for NVFP4, MXFP4, and FP8 formats |
 
 ## Weight and activation quantization
@@ -25,8 +25,13 @@ Weight and activation quantization is best for maximum throughput on modern hard
 
 | Algorithm | Best for | Description |
 |-----------|----------|-------------|
-| RTN | FP8 quantization | Fast round-to-nearest quantization for FP8 weight and activation quantization |
 | SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling |
+| AWQ | General purpose | Activation-aware weight quantization that preserves important weights |
+| GPTQ | Broad compatibility | Established weight quantization with calibration |
+| RTN | FP8 quantization | Fast round-to-nearest quantization for FP8 weight and activation quantization |
+
+!!! note
+    AWQ and GPTQ are typically used for weight-only quantization but can also be applied to weight and activation quantization workflows.
 
 !!! tip
     See [Mixed-precision quantization](#mixed-precision-quantization-for-accuracy-recovery) for details about combining different precision levels across layers.
@@ -55,18 +60,12 @@ LLM Compressor provides multiple compression algorithms, each optimized for diff
 Use the table below to select the algorithm that best matches your deployment requirements and hardware capabilities.
 
 | Algorithm | Best for |
-|----------|--------- -|
+|----------|-----------|
 | RTN | Fast and simple compression |
 | GPTQ or AWQ | Better accuracy at 4-bit |
-| FP8 | Maximum throughput (Hopper and up) |
-| NVFP4/MXFP4 | Maximum compression (Blackwell) |
 | SmoothQuant | Balanced weight/activation |
 | SparseGPT | 2:4 sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
-
-
-!!! note
-    FP8 quantization can be applied with any quantization algorithm, including RTN, AWQ, and GPTQ, allowing you to choose the accuracy-performance tradeoff that best fits your use case.
 
 ## Supported model types
 
@@ -96,3 +95,8 @@ With LLM Compressor, you can:
 - Assign precision selectively by module type or layer group
 
 This approach delivers better accuracy than uniform low-bit quantization while achieving smaller model sizes than uniform high-precision schemes.
+
+## Next steps
+
+- [Compress your first model](compress.md)
+- [Deploy with vLLM](deploy.md)
