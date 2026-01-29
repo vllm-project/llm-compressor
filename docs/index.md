@@ -55,7 +55,7 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
 | **AutoRound** | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 
-## Supported quantization formats
+## Supported quantization schemes
 
 LLM Compressor supports applying multiple formats in a given model.
 
