@@ -7,7 +7,9 @@ from llmcompressor import oneshot
 from llmcompressor.core.session_functions import reset_session
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-from llmcompressor.modifiers.transform.smoothquant.utils import DEFAULT_SMOOTHQUANT_MAPPINGS
+from llmcompressor.modifiers.transform.smoothquant.utils import (
+    DEFAULT_SMOOTHQUANT_MAPPINGS,
+)
 from tests.testing_utils import requires_gpu
 
 
