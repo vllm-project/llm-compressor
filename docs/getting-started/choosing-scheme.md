@@ -8,7 +8,7 @@ Before selecting a compression algorithm, you should first determine what format
 A compression scheme defines the numerical format and precision used to represent model weights and activations.
 The scheme you choose determines both the compression ratio and the hardware required for acceleration.
 
-| Scheme | Precision | Targets | GPU | Min. compute capability | Use case |
+| Scheme | Precision | Targets | GPU | vLLM min. compute capability | Use case |
 |--------|-----------|---------|-----|-------------------------|----------|
 | **W4A16/W8A16** | 4 or 8 bit weights, 16-bit activations | Weights | Turing | 7.5 | Memory reduction on older hardware |
 | **W8A8-INT8** | 8-bit integer | Weights and activations | Turing | 7.5 | High throughput on older hardware |
