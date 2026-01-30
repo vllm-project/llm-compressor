@@ -116,7 +116,7 @@ def handle_mapping_resolution_errors(func):
         except Exception as original_exception:
             readme_location = (
                 "https://github.com/vllm-project/llm-compressor/tree/main/"
-                "src/llmcompressor/modifiers/smoothquant"
+                "src/llmcompressor/modifiers/transform/smoothquant"
             )
             raise RuntimeError(
                 f"Error resolving mappings for given architecture."
