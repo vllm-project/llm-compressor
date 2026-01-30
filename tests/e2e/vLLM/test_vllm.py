@@ -18,9 +18,9 @@ from tests.testing_utils import requires_gpu
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get(
-    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
+    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/qwen3_fp4_nvfp4.yaml"
 )
-SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
+SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "yes")
 # vllm python environment
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
