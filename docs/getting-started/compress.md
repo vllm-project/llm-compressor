@@ -38,7 +38,7 @@ For this guide, we'll use `GPTQ` composed with `SmoothQuant` to create an `INT W
 LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a predefined recipe to your model and dataset, making it easy to get started with compression. To apply what we discussed above, we'll import the necessary modifiers and create a recipe to apply to our model and dataset:
 
 ```python
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor import oneshot
 

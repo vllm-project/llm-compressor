@@ -107,7 +107,7 @@ Note that the model can be swapped for a local or remote HF-compatible checkpoin
 Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 
 ```python
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor import oneshot
 
