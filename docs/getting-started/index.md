@@ -1,7 +1,3 @@
----
-weight: -10
----
-
 # Getting Started
 
 Welcome to LLM Compressor! This section will guide you through the process of installing the library, compressing your first model, and deploying it with vLLM for faster, more efficient inference.
@@ -13,6 +9,14 @@ LLM Compressor makes it simple to optimize large language models for deployment,
 Follow the guides below to get started with LLM Compressor and optimize your models for production deployment.
 
 <div class="grid cards" markdown>
+
+- :material-lightbulb-on:{ .lg .middle } Why LLM Compressor?
+
+    ---
+
+    Learn about the benefits of model optimization and how LLM Compressor helps reduce costs and improve performance.
+
+    [:octicons-arrow-right-24: Why LLM Compressor](why-llmcompressor.md)
 
 - :material-package-variant:{ .lg .middle } Installation
 
