@@ -5,7 +5,6 @@ import linecache
 import sys
 import textwrap
 import traceback
-from typing import List
 
 import torch
 from compressed_tensors.utils import patch_attr
@@ -16,7 +15,7 @@ __all__ = ["autowrap_forwards", "append_autowrap_source_on_fail"]
 
 
 @contextlib.contextmanager
-def autowrap_forwards(modules: List[torch.nn.Module], ignore: List[str]):
+def autowrap_forwards(modules: list[torch.nn.Module], ignore: list[str]):
     """
     Replace the `forward` method of the given modules with a recompiled version where
     all untraceble code patterns are removed and replaced with torch.fx function
@@ -33,7 +32,7 @@ def autowrap_forwards(modules: List[torch.nn.Module], ignore: List[str]):
 
 
 @contextlib.contextmanager
-def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
+def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
     """
     Replace the `forward` method of the given module with a recompiled version where
     all untraceble code patterns are removed and replaced with torch.fx function

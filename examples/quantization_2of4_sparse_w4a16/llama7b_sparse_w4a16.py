@@ -5,10 +5,14 @@
 # fine tuning practices
 # https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open
 
+# DEPRECATION WARNING: The marlin24 compression format is deprecated and will
+# be removed in a future release, as vLLM no longer supports marlin24 models.
+# See https://github.com/vllm-project/llm-compressor/issues/2267 for details.
+
+import warnings
 from pathlib import Path
 
 import torch
-from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -64,9 +68,10 @@ quantized_model.save_pretrained(
 )
 tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
-logger.info(
-    "llmcompressor does not currently support running ",
-    "compressed models in the marlin24 format. "
-    "The model produced from this example can be ",
-    "run on vLLM with dtype=torch.float16.",
+warnings.warn(
+    "The marlin24 compression format is deprecated and will be removed in a future "
+    "release, as vLLM no longer supports marlin24 models. "
+    "See https://github.com/vllm-project/llm-compressor/issues/2267 for details.",
+    DeprecationWarning,
+    stacklevel=2,
 )
