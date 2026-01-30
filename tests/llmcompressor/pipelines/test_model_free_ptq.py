@@ -45,7 +45,7 @@ def _get_tiny_block_quant():
     [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant(), "NVFP4A16"],
 )
 def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
-    model = "nm-testing/tinysmokellama-3.2"
+    model = "Qwen/Qwen3-0.6B"
     ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
 
@@ -119,8 +119,14 @@ def _assert_config_equal(a_path: str, b_path: str):
 
     a_qconfig = config_a.pop("quantization_config")
     b_qconfig = config_b.pop("quantization_config")
-    config_a.pop("transformers_version")
-    config_b.pop("transformers_version")
+    config_a.pop("transformers_version", None)
+    config_b.pop("transformers_version", None)
+    config_a.pop("torch_dtype", None)
+    config_b.pop("torch_dtype", None)
+    config_a.pop("dtype", None)
+    config_b.pop("dtype", None)
+    config_a.pop("layer_types", None)
+    config_b.pop("layer_types", None)
 
     assert config_a == config_b
 

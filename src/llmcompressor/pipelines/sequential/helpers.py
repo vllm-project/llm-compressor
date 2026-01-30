@@ -4,16 +4,12 @@ from collections import deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import torch
 from accelerate.hooks import remove_hook_from_module
-from compressed_tensors.utils import (
-    has_offloaded_params,
-    offloaded_dispatch,
-    patch_attr,
-    remove_dispatch,
-)
+from compressed_tensors.offload import disable_onloading, offload_model
+from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_targets
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
@@ -26,6 +22,7 @@ from transformers.configuration_utils import PretrainedConfig
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
@@ -106,7 +103,7 @@ def trace_subgraphs(
     # find modules
     targets = match_modules(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
-    offloaded = set(m for m in model.modules() if has_offloaded_params(m))
+    offloaded = set()  # TODO: cleanup logic
 
     # initialize arguments
     tracer = SequentialTracer(ancestors, offloaded)
@@ -130,6 +127,9 @@ def trace_subgraphs(
         stack.enter_context(patch_attr(type(model), "forward", unwrapped.__func__))
         assert isinstance(model.forward, MethodType)
         assert isinstance(type(model).forward, FunctionType)
+
+        # avoid device movement during tracing
+        stack.enter_context(disable_onloading())
 
         with append_autowrap_source_on_fail():
             graph = GraphModule(
@@ -529,7 +529,11 @@ def get_sequential_ancestors(model: Module, targets: set[Module]) -> set[Module]
     return ancestors
 
 
-def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
+def dispatch_for_sequential(
+    model: PreTrainedModel,
+    onload_device: Optional[torch.device | str] = None,
+    offload_device: torch.device | str = torch.device("cpu"),
+) -> PreTrainedModel:
     """
     Dispatch a model for sequential calibration using a sequential pipeline.
     The model will be offloaded to the CPU and dispatched to CUDA/XPU device
@@ -538,20 +542,9 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     :param model: model to dispatch
     :return: dispatched model
     """
-    remove_dispatch(model)
-
-    if torch.cuda.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
-    elif hasattr(torch, "npu") and torch.npu.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("npu:0"))
-    else:
-        logger.warning(
-            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
-        )
-
-    return model
+    if onload_device is None:
+        onload_device = get_main_device()
+    return offload_model(model, onload_device, offload_device)
 
 
 def _get_autowrap_functions() -> tuple[Callable[[Any], Any], ...]:
