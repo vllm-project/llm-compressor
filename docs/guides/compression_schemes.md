@@ -6,7 +6,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 - [W8A8-FP8](#fp8_dynamic)
 - [W8A8-Block](#fp8_block)
 - [W8A8-INT8](#int8_w8a8)
-- [W4A16](#w4a16/w8a16)
+- [W4A16 and W8A16](#w4a16-and-w8a16)
 - [NVFP4](#nvfp4)
 - [2:4 Semi-structured Sparsity](#semi-structured)
 - [Unstructured Sparsity](#unstructured)
@@ -43,7 +43,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Use case      | Optimized for general performance and compression, especially for server, batch inference, and high-QPS or offline serving with vLLM |
 
 
-### W4A16/W8A16
+### W4A16 and W8A16
 
 | Feature       | Description                                                                                  |
 |---------------|----------------------------------------------------------------------------------------------|
