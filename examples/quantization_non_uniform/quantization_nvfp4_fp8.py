@@ -1,7 +1,9 @@
+from compressed_tensors.quantization.quant_scheme import FP8_DYNAMIC, NVFP4
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -58,45 +60,21 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize all down_proj layer weights to fp8
 #   * dynamically quantize all down_proj activations to fp8 dynamic
 #       per token
-recipe = """
-quant_stage:
-    quant_modifiers:
-        QuantizationModifier:
-            ignore: ["lm_head"]
-            config_groups:
-                group_0:
-                    weights:
-                        num_bits: 8
-                        type: float
-                        strategy: channel
-                        dynamic: false
-                        symmetric: true
-                    input_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: token
-                        dynamic: true
-                        symmetric: true
-                    targets: ["re:.*down_proj.*"]
-                group_1:
-                    weights:
-                        num_bits: 4
-                        type: float
-                        strategy: tensor_group
-                        dynamic: false
-                        symmetric: true
-                        group_size: 16
-                    input_activations:
-                        num_bits: 4
-                        type: float
-                        strategy: tensor_group
-                        dynamic: local
-                        symmetric: true
-                        group_size: 16
-                    targets: ["re:.*self_attn.k_proj.*", "re:.*self_attn.o_proj.*",
-                        "re:.*self_attn.q_proj.*", "re:.*self_attn.v_proj.*",
-                        "re:.*gate_proj.*", "re:.*up_proj.*"]
-"""
+scheme_0 = FP8_DYNAMIC
+scheme_0["targets"] = ["re:.*down_proj.*"]
+scheme_1 = NVFP4
+scheme_1["targets"] = [
+    "re:.*self_attn.k_proj.*",
+    "re:.*self_attn.o_proj.*",
+    "re:.*self_attn.q_proj.*",
+    "re:.*self_attn.v_proj.*",
+    "re:.*gate_proj.*",
+    "re:.*up_proj.*",
+]
+
+recipe = QuantizationModifier(
+    config_groups={"group_0": scheme_0, "group_1": scheme_1}, ignore=["lm_head"]
+)
 # Apply quantization.
 oneshot(
     model=model,
