@@ -14,7 +14,7 @@ from torch.utils._pytree import tree_leaves
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.smoothquant.utils import (
+from llmcompressor.modifiers.transform.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
