@@ -66,6 +66,24 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
+# AFMOE uses dual normalization: pre_mlp_layernorm feeds the MLP (not post_attention_layernorm)
+# and attention has its own gate_proj for gating mechanism
+AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+    LayerMap(
+        balance_layers=[
+            "re:.*self_attn\\.q_proj",
+            "re:.*self_attn\\.k_proj",
+            "re:.*self_attn\\.v_proj",
+            "re:.*self_attn\\.gate_proj",
+        ],
+        smooth_layers="re:.*input_layernorm",
+    ),
+    LayerMap(
+        balance_layers=["re:.*mlp.*gate_proj", "re:.*mlp.*up_proj"],
+        smooth_layers="re:.*pre_mlp_layernorm",
+    ),
+]
+
 
 # Registry of layer mappings for different architectures
 #   Add more mappings here
@@ -85,6 +103,7 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
+    "AfmoeForCausalLM": AFMOE_SMOOTHQUANT_MAPPINGS,
 }
 
 
