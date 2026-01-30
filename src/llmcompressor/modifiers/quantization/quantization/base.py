@@ -55,11 +55,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Then, according to the module's quantization scheme, observers and calibration
         hooks are added. These hooks are disabled until the modifier starts.
         """
-        if not QuantizationMixin.has_config(self):
+        if not self.has_config():
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        QuantizationMixin.initialize_quantization(self, state.model)
+        self.initialize_quantization(state.model)
 
         return True
 
@@ -68,7 +68,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Begin calibrating activations and weights. Calibrate weights only once on start
         """
         self.started_ = True
-        QuantizationMixin.start_calibration(self, state.model)
+        self.start_calibration(state.model)
 
         named_modules = list(
             match_named_modules(state.model, self.resolved_targets, self.ignore)
