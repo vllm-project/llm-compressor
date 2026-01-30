@@ -2,7 +2,6 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-import tqdm
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -200,10 +199,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     added_hook = True
 
         # Optionally generate global scales if using TENSOR_GROUP quantization
-        for _, module in tqdm.tqdm(named_modules, desc="Updating global scales"):
+        for _, module in named_modules:
             update_weight_global_scale(module)
 
-        for module in tqdm.tqdm(state.model.modules(), desc="Fusing global scales"):
+        for module in state.model.modules():
             update_fused_layer_weight_global_scales(module)
 
         if not added_hook:
