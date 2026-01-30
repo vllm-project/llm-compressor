@@ -368,9 +368,11 @@ def test_qwen3_next_hybrid_attention():
     """
     awq = AWQModifier(
         mappings=[
-            # self_attn mappings (separate from linear_attn for proper grouping)
+            # self_attn mappings (layer 1 has self_attn)
+            # Use layer-specific pattern since each mapping must match exactly one
+            # smooth_layer
             AWQMapping(
-                "re:.*input_layernorm$",
+                "re:.*layers\\.1\\.input_layernorm$",
                 [
                     "re:.*self_attn.q_proj$",
                     "re:.*self_attn.k_proj$",
@@ -378,9 +380,9 @@ def test_qwen3_next_hybrid_attention():
                 ],
             ),
             AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
-            # linear_attn mappings (separate from self_attn for proper grouping)
+            # linear_attn mappings (layer 0 has linear_attn)
             AWQMapping(
-                "re:.*input_layernorm$",
+                "re:.*layers\\.0\\.input_layernorm$",
                 ["re:.*linear_attn.in_proj_qkvz$", "re:.*linear_attn.in_proj_ba$"],
             ),
             AWQMapping("re:.*linear_attn.norm$", ["re:.*linear_attn.out_proj$"]),
