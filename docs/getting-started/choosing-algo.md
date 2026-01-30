@@ -17,8 +17,8 @@ Weight and activation quantization is best for maximum throughput on modern hard
 | SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling | Good accuracy recovery with minimal calibration time; composable with other methods |
 | AWQ | General purpose | Activation-aware weight quantization. Uses channelwise scaling to better preserve important outliers in weights and activations  | High accuracy recovery but can be expensive to run |
 | GPTQ | Broad compatibility | Established weight quantization with calibration.  Utilizes second-order layer-wise optimizations to prioritize important weights/activations and enables updates to remaining weights |  High accuracy recovery but can be expensive to run |
-| RTN | Simple, data-free quantization |Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios with good recovery for FP8/FP4. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments | 
 | AutoRound | Broad compatibility  | Optimizes rounding and clipping ranges via sign-gradient descent | High accuracy recovery but can be expensive to run |
+| RTN | Simple, data-free quantization |Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios with good recovery for FP8/FP4. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments | 
 
 
 !!! note
@@ -51,7 +51,7 @@ Use the table below to select the algorithm that best matches your deployment re
 |----------|-----------|
 | RTN | Fast and simple compression |
 | GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
-| SmoothQuant | Smooths outliers in activations by folding them into weights, ensuring better accuracy for activation quantization |
+| SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
 | SparseGPT | 2:4 sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |
@@ -70,7 +70,7 @@ The following model architectures are fully supported in LLM Compressor:
 ### Mixed-precision quantization for accuracy recovery
 
 For advanced use cases, LLM Compressor supports applying different quantization schemes to different model layers.
-For example, you can combine FP4 for most layers with FP8 for sensitive layers to optimize the accuracy-performance tradeoff.
+For example, you can combine FP4 for most layers with FP8 for sensitive layers to optimize the accuracy-effort tradeoff.
 
 Not all model layers respond equally to quantization, some are more sensitive and require higher precision to maintain accuracy.
 LLM Compressor supports non-uniform quantization, allowing you to apply different quantization schemes to different model layers within a single compression run.

@@ -27,13 +27,13 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
     LLM Compressor now supports calibration with batch sizes > 1. A new batch_size argument has been added to the dataset_arguments enabling the option to improve quantization speed. Default batch_size is currently set to 1
 
 !!! info "New Model-Free PTQ Pathway"
-    A new model-free PTQ pathway has been added to LLM Compressor, called model_free_ptq. This pathway allows you to quantize your model without the requirement of Hugging Face model definition and is especially useful in cases where oneshot may fail. This pathway is currently supported for data-free pathways only i.e FP8 quantization and was leveraged to quantize the Mistral Large 3 model. Additional examples have been added illustrating how LLM Compressor can be used for Kimi K2
+    A new model-free PTQ pathway has been added to LLM Compressor, called model_free_ptq. This pathway allows you to quantize your model without the requirement of Hugging Face model definition and is especially useful in cases where oneshot may fail. This pathway is currently supported for data-free pathways only, such as FP8 quantization and was leveraged to quantize the Mistral Large 3 model. Additional examples have been added illustrating how LLM Compressor can be used for Kimi K2
 
 !!! info "Extended KV Cache and Attention Quantization Support"
-    LLM Compressor now supports attention quantization. KV Cache quantization, which previously only supported per-tensor scales, has been extended to support any quantization scheme including a new per-head quantization scheme. Support for these checkpoints is on-going in vLLM and scripts to get started have been added to the experimental folder
+    LLM Compressor now supports attention quantization. KV Cache quantization, which previously only supported per-tensor scales, has been extended to support any quantization scheme including a new per-head quantization scheme. Support for these checkpoints is ongoing in vLLM and scripts to get started have been added to the experimental folder
 
 !!! info "Generalized AWQ Support"
-    The AWQModifier has been updated to support quantization schemes beyond W4A16 (e.g W4AFp8). In particular, AWQ no longer constrains that the quantization config needs to have the same settings for group_size, symmetric, and num_bits for each config_group
+    The AWQModifier has been updated to support quantization schemes beyond W4A16 (e.g., W4AFp8). In particular, AWQ no longer constrains that the quantization config needs to have the same settings for group_size, symmetric, and num_bits for each config_group
 
 !!! info "AutoRound Quantization Support"
     Added AutoRoundModifier for quantization using AutoRound, an advanced post-training algorithm that optimizes rounding and clipping ranges through sign-gradient descent. This approach combines the efficiency of post-training quantization with the adaptability of parameter tuning, delivering robust compression for large language models while maintaining strong performance

@@ -55,7 +55,7 @@ See [FP8 weight and activation quantization](/examples/quantization_w8a8_fp8/) f
 ## FP4 quantization (NVFP4/MXFP4)
 
 4-bit floating point formats provide maximum compression on Blackwell GPUs, with 4x reduction compared to FP16.
-FP4 can provide good results with RTN algorithms for fast quantization with good accuracy recovery, but potentially improved recovery can also be gained using GPTQ or AWQ.
+FP4 can sometimes provide good results with RTN algorithms for fast quantization, but potentially improved recovery can be gained using GPTQ or AWQ.
 
 - **NVFP4**: is NVIDIA's native 4-bit format with block-wise scaling
 - **MXFP4**: Microscaling FP4 format for cross-platform compatibility
