@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Mapping, OrderedDict, Tuple, Union
 import numpy
 import torch
 from torch import Tensor
-from torch.nn import Linear, Module
+from torch.nn import Module
 
 try:
     quant_err = None
@@ -24,7 +24,6 @@ __all__ = [
     "tensors_to_precision",
     "tensors_module_forward",
     "tensor_sparsity",
-    "get_linear_layers",
     "get_quantized_layers",
     "set_deterministic_seeds",
 ]
@@ -205,16 +204,6 @@ def tensor_sparsity(
 # pytorch module helper functions
 #
 ##############################
-
-
-def get_linear_layers(module: Module) -> Dict[str, Module]:
-    """
-    :param module: the module to grab all linear layers for
-    :return: a list of all linear layers in the module
-    """
-    return {
-        name: mod for name, mod in module.named_modules() if isinstance(mod, Linear)
-    }
 
 
 def get_quantized_layers(module: Module) -> List[Tuple[str, Module]]:
