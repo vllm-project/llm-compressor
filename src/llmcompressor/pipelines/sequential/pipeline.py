@@ -105,22 +105,27 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
-                        inputs = activations.fetch(batch_idx, subgraph.input_names)
-                        subgraph.forward(model, **inputs)
+                    for b_idx in tqdm(range(len(dataloader)), desc=calib_desc):
+                        inputs = activations.fetch(b_idx, subgraph.input_names)
+                        outputs = subgraph.forward(model, **inputs)
+
+                        if not dataset_args.propagate_error:
+                            activations.update(b_idx, outputs)
+                            activations.delete(b_idx, subgraph.consumed_names)
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
-                            inputs = activations.fetch(batch_idx, subgraph.input_names)
-                            output = subgraph.forward(model, **inputs)
+                    if dataset_args.propagate_error:
+                        # this pass does not trigger modifier hooks
+                        # and is only used for capturing outputs of compressed modules
+                        with HooksMixin.disable_hooks():
+                            for b_idx in tqdm(range(len(dataloader)), desc=prop_desc):
+                                inputs = activations.fetch(b_idx, subgraph.input_names)
+                                outputs = subgraph.forward(model, **inputs)
 
-                            if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                if dataset_args.propagate_error:
+                                    activations.update(b_idx, outputs)
+                                    activations.delete(b_idx, subgraph.consumed_names)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
