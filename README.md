@@ -78,8 +78,9 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
 * [Activation quantization to `fp4`](examples/quantization_w4a4_fp4/llama3_example.py)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)
+* [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8/)
 * [Weight only quantization to `fp4` (NVFP4 format)](examples/quantization_w4a16_fp4/nvfp4/llama3_example.py)
-* [Weight only quantization to `fp4` (MXFP4 format)](examples/quantization_w4a16_fp4/mxfp4/qwen3_example.py)
+* [Weight only quantization to `fp4` (MXFP4 format)](examples/quantization_w4a16_fp4/mxfp4)
 * [Weight only quantization to `int4` using GPTQ](examples/quantization_w4a16/README.md)
 * [Weight only quantization to `int4` using AWQ](examples/awq/README.md)
 * [Weight only quantization to `int4` using AutoRound](examples/autoround/quantization_w4a16/README.md)
@@ -90,6 +91,7 @@ Applying quantization with `llmcompressor`:
 * [Quantizing Vision-Language Models](examples/multimodal_vision/README.md)
 * [Quantizing Audio-Language Models](examples/multimodal_audio/README.md)
 * [Quantizing Models Non-uniformly](examples/quantization_non_uniform/README.md)
+
 
 ### User Guides
 Deep dives into advanced usage of `llmcompressor`:
