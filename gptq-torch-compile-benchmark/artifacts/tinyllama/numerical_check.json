@@ -1,0 +1,64 @@
+{
+  "scenario": "tinyllama",
+  "mode": "numerical_check",
+  "storage_size_proof": {
+    "baseline": {
+      "tensors": [
+        {"name": "model.embed_tokens.weight", "shape": [32000, 2048], "dtype": "torch.float16", "logical_mb": 125.0, "storage_mb": 125.0, "is_view": false},
+        {"name": "model.layers.0.self_attn.q_proj.weight_packed", "shape": [2048, 256], "dtype": "torch.int32", "logical_mb": 2.0, "storage_mb": 2.0, "is_view": false},
+        {"name": "model.layers.0.self_attn.o_proj.weight_packed", "shape": [2048, 256], "dtype": "torch.int32", "logical_mb": 2.0, "storage_mb": 2.0, "is_view": false},
+        {"name": "model.layers.0.mlp.gate_proj.weight_packed", "shape": [5632, 256], "dtype": "torch.int32", "logical_mb": 5.5, "storage_mb": 5.5, "is_view": false},
+        {"name": "model.layers.0.mlp.up_proj.weight_packed", "shape": [5632, 256], "dtype": "torch.int32", "logical_mb": 5.5, "storage_mb": 5.5, "is_view": false},
+        {"name": "model.layers.0.mlp.down_proj.weight_packed", "shape": [2048, 704], "dtype": "torch.int32", "logical_mb": 5.5, "storage_mb": 5.5, "is_view": false}
+      ],
+      "total_logical_mb": 726.62,
+      "total_storage_mb": 726.62,
+      "has_views": false,
+      "has_inflated_storage": false
+    },
+    "compiled": {
+      "tensors": [
+        {"name": "model.embed_tokens.weight", "shape": [32000, 2048], "dtype": "torch.float16", "logical_mb": 125.0, "storage_mb": 125.0, "is_view": false},
+        {"name": "model.layers.0.self_attn.q_proj.weight_packed", "shape": [2048, 256], "dtype": "torch.int32", "logical_mb": 2.0, "storage_mb": 2.0, "is_view": false},
+        {"name": "model.layers.0.self_attn.o_proj.weight_packed", "shape": [2048, 256], "dtype": "torch.int32", "logical_mb": 2.0, "storage_mb": 2.0, "is_view": false},
+        {"name": "model.layers.0.mlp.gate_proj.weight_packed", "shape": [5632, 256], "dtype": "torch.int32", "logical_mb": 5.5, "storage_mb": 5.5, "is_view": false},
+        {"name": "model.layers.0.mlp.up_proj.weight_packed", "shape": [5632, 256], "dtype": "torch.int32", "logical_mb": 5.5, "storage_mb": 5.5, "is_view": false},
+        {"name": "model.layers.0.mlp.down_proj.weight_packed", "shape": [2048, 704], "dtype": "torch.int32", "logical_mb": 5.5, "storage_mb": 5.5, "is_view": false}
+      ],
+      "total_logical_mb": 726.62,
+      "total_storage_mb": 726.62,
+      "has_views": false,
+      "has_inflated_storage": false
+    }
+  },
+  "method": "output_comparison",
+  "num_samples": 5,
+  "max_new_tokens": 20,
+  "logit_diffs": [
+    {"prompt": "The capital of France is", "max_diff": 2.308837890625, "mean_diff": 0.3032885193824768},
+    {"prompt": "def fibonacci(n):", "max_diff": 3.16796875, "mean_diff": 0.42737722396850586},
+    {"prompt": "In machine learning, gradient descent", "max_diff": 2.7646484375, "mean_diff": 0.32466739416122437},
+    {"prompt": "The quick brown fox", "max_diff": 5.09375, "mean_diff": 0.5287184715270996},
+    {"prompt": "Water boils at", "max_diff": 2.6201171875, "mean_diff": 0.3579810857772827}
+  ],
+  "token_matches": [
+    {"prompt": "The capital of France is", "match_rate": 0.9230769230769231, "matched": 24, "total": 26},
+    {"prompt": "def fibonacci(n):", "match_rate": 1.0, "matched": 28, "total": 28},
+    {"prompt": "In machine learning, gradient descent", "match_rate": 0.5555555555555556, "matched": 15, "total": 27},
+    {"prompt": "The quick brown fox", "match_rate": 0.6538461538461539, "matched": 17, "total": 26},
+    {"prompt": "Water boils at", "match_rate": 0.28, "matched": 7, "total": 25}
+  ],
+  "output_samples": [
+    {"prompt": "The capital of France is", "output_a": "The capital of France is Paris.\n\n2. The capital of Spain is Madrid.\n\n3. The capital of", "output_b": "The capital of France is Paris.\n\n2. The capital of Germany is Berlin.\n\n3. The capital of", "identical": false},
+    {"prompt": "def fibonacci(n):", "output_a": "def fibonacci(n):\n    if n == 0:\n        return 0\n    elif n == 1", "output_b": "def fibonacci(n):\n    if n == 0:\n        return 0\n    elif n == 1", "identical": true},
+    {"prompt": "In machine learning, gradient descent", "output_a": "In machine learning, gradient descent is a popular optimization algorithm used for training deep neural networks. It works by iteratively updating the weights", "output_b": "In machine learning, gradient descent is a popular optimization algorithm used for training neural networks. It works by iteratively updating the weights of", "identical": false},
+    {"prompt": "The quick brown fox", "output_a": "The quick brown fox jumps over the lazy dog.\n\n2. \"The quick brown fox jumps over", "output_b": "The quick brown fox jumps over the lazy dog.\n\n2. The quick brown fox jumps over the", "identical": false},
+    {"prompt": "Water boils at", "output_a": "Water boils at 100\u00b0C.\n\n2. The boiling point of water is 1", "output_b": "Water boils at 212\u00b0F (100\u00b0C).\n\n2. The boiling", "identical": false}
+  ],
+  "logit_max_diff": 5.09375,
+  "logit_mean_diff": 0.3884065389633179,
+  "token_match_rate": 0.6824957264957264,
+  "all_outputs_identical": false,
+  "equivalent": false,
+  "status": "success"
+}
