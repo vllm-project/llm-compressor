@@ -104,7 +104,7 @@ def build_parameterized_layers(
             parameterized_layers[layer_name] = ModelParameterizedLayer(
                 layer_name=layer_name,
                 layer=module,
-                param_name=layer_name,
+                param_name=f"{layer_name}.{param_name}",
                 param=param,
             )
 
