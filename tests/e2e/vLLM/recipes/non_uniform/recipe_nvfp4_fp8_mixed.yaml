@@ -16,7 +16,7 @@ quant_stage:
             strategy: token
             dynamic: true
             symmetric: true
-          targets: ["re:.*down_proj.*"]
+          targets: ["re:.*\\.down_proj$"]
         group_1:
           weights:
             num_bits: 4
@@ -33,6 +33,6 @@ quant_stage:
             dynamic: local
             symmetric: true
             group_size: 16
-          targets: ["re:.*self_attn.k_proj.*", "re:.*self_attn.o_proj.*",
-                    "re:.*self_attn.q_proj.*", "re:.*self_attn.v_proj.*",
-                    "re:.*gate_proj.*", "re:.*up_proj.*"]
+          targets:
+            - "re:.*self_attn\\.(k|o|q|v)_proj$"
+            - "re:.*\\.(gate|up)_proj$"
