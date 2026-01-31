@@ -1,6 +1,6 @@
 cadence: "nightly"
 test_type: "regression"
-model: Qwen/Qwen3-30B-A3B
+model: nm-testing/tinysmokeqwen3
 scheme: NVFP4
 dataset_id: HuggingFaceH4/ultrachat_200k
 dataset_split: train_sft
