@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "expected_mb": 953.67,
+  "measured_mb": 954.0,
+  "delta_mb": 0.33,
+  "within_tolerance": true,
+  "tolerance_mb": 50.0,
+  "freed_correctly": true,
+  "baseline_mb": 0.0,
+  "after_alloc_mb": 954.0,
+  "after_free_mb": 0.0
+}

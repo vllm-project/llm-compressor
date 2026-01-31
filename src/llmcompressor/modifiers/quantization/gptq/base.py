@@ -24,6 +24,7 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
+    quantize_weight_optimized,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.sentinel import Sentinel
@@ -85,6 +86,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         For more information, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
+    :param enable_torch_compile: whether to enable `torch.compile` to accelerate the
+        quantization loop. This can provide significant speedups but may increase
+        compilation time on first run. Disable if your environment encounters
+        compilation issues. Defaults to False.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -117,6 +122,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     # TODO: this does not serialize / will be incorrectly written
     actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
+    enable_torch_compile: bool = False
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -257,13 +263,18 @@ class GPTQModifier(Modifier, QuantizationMixin):
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
             logger.info(f"Quantizing {name} using {num_samples} samples")
+            quantize_fn = (
+                quantize_weight_optimized
+                if self.enable_torch_compile
+                else quantize_weight
+            )
             with (
                 torch.no_grad(),
                 align_module_device(module),
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                loss, quantized_weight, scale, zero_point, g_idx = quantize_fn(
                     module=module,
                     quant_args=quant_args,
                     hessians_dict=self._hessians,
