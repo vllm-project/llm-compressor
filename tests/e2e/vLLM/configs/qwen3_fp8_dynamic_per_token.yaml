@@ -1,4 +1,4 @@
 cadence: "nightly"
 test_type: "regression"
-model: Qwen/Qwen3-30B-A3B
+model: nm-testing/tinysmokeqwen3
 scheme: FP8_DYNAMIC
