@@ -474,6 +474,13 @@ class AWQModifier(Modifier, QuantizationMixin):
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_means
         ]
+        # Get names of modules targeted for quantization (same for all mappings)
+        targeted_names = set(
+            name
+            for name, _ in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        )
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
@@ -509,13 +516,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
 
-                # Get names of modules targeted for quantization
-                targeted_names = set(
-                    name
-                    for name, _ in match_named_modules(
-                        model, self.resolved_targets, self.ignore
-                    )
-                )
                 smooth_layer_targeted = (
                     self.smooth_layer_quantization
                     and mapping.smooth_name in targeted_names
@@ -698,12 +698,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             and hasattr(balance_layer.quantization_scheme, "weights")
         ]
         smooth_layer_to_patch = None
-        if (
-            smooth_layer_targeted
-            and mapping.smooth_layer in orig_layer_weights
-            and hasattr(mapping.smooth_layer, "quantization_scheme")
-            and hasattr(mapping.smooth_layer.quantization_scheme, "weights")
-        ):
+        if mapping.smooth_layer in orig_layer_weights:
             smooth_layer_to_patch = mapping.smooth_layer
 
         layers_to_patch = balance_layers_to_patch
@@ -777,7 +772,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         # Handle edge case for multi-dimensional weights
                         weight = orig_layer_weights[smooth_layer].to(
                             _scalesview_1d.device
-                        )
+                        ).clone()
                         weight[-_scalesview_1d.size(0) :].div_(
                             _scalesview_1d.view(-1, 1)
                         )
