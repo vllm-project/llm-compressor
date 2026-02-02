@@ -80,7 +80,7 @@ def kv_cache_fixture():
             symmetric=symmetric,
         )
 
-        model_id = MODEL_IDS[0]
+        model_id = "nm-testing/tinysmokeqwen3"
 
         ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
         ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
