@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
 
 
+TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
+
+
 class Oneshot:
     """
     Class responsible for carrying out one-shot calibration on a pretrained model.
@@ -121,6 +124,19 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # Disable tokenizer parallelism to prevent warning when using
+        # multiprocessing for dataset preprocessing. The warning occurs because
+        # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
+        # See: https://github.com/vllm-project/llm-compressor/issues/2007
+        if TOKENIZERS_PARALLELISM_ENV not in os.environ:
+            os.environ[TOKENIZERS_PARALLELISM_ENV] = "false"
+            logger.warning(
+                "Disabling tokenizer parallelism due to threading conflict between "
+                "FastTokenizer and Datasets. Set "
+                f"{TOKENIZERS_PARALLELISM_ENV}=false to "
+                "suppress this warning."
+            )
+
         # Set up file logging (no default files):
         # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
         # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
@@ -213,6 +229,7 @@ class Oneshot:
                 recipe_stage=recipe_stage,
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
+                sequential_targets=self.dataset_args.sequential_targets,
             )
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
