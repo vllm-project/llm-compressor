@@ -23,6 +23,14 @@ Express your support on Twitter if vLLM aids you, or simply offer your appreciat
 pip install -e ./[dev]
 ```
 
+!!! tip
+    For development, it is recommended to also install [Compressed Tensors](https://github.com/vllm-project/compressed-tensors) from source:
+
+    ```bash
+    git clone https://github.com/vllm-project/compressed-tensors.git
+    pip install -e ./compressed-tensors
+    ```
+
 ### Code Styling and Formatting checks
 
 ```bash
@@ -36,16 +44,15 @@ make quality
 make test
 ```
 
+!!! warning
+    Running all tests can take a long time and depending on the test might require many GPUs to succeed.
+
 ## Contributing Guidelines
 
 ### Issue Reporting
 
 If you encounter a bug or have a feature request, please check our issues page first to see if someone else has already reported it.
 If not, please file a new issue, providing as much relevant information as possible.
-
-### Pull Requests & Code Reviews
-
-Please check the PR checklist in the [PR template](.github/PULL_REQUEST_TEMPLATE.md) for detailed guide for contribution.
 
 ### Thank You
 
