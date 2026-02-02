@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
@@ -27,7 +27,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @classmethod
     def from_modifiers(
-        cls, modifiers: List[Modifier], user: Optional[str] = None
+        cls, modifiers: list[Modifier], user: str | None = None
     ) -> "CalibrationPipeline":
         """
         Infer which calibration pipeline to use based on the available modifiers and
@@ -54,7 +54,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
         return cls.load_from_registry(pipeline)
 
     @staticmethod
-    def _infer_pipeline(modifiers: List[Modifier]) -> str:
+    def _infer_pipeline(modifiers: list[Modifier]) -> str:
         # only in the case of weight-only qmod quantization can we skip calibration
         if len(modifiers) == 1 and isinstance(modifiers[0], QuantizationModifier):
             config = modifiers[0].resolve_quantization_config()
