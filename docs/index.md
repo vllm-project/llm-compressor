@@ -30,10 +30,10 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
     A new model-free PTQ pathway has been added to LLM Compressor, called model_free_ptq. This pathway allows you to quantize your model without the requirement of Hugging Face model definition and is especially useful in cases where oneshot may fail. This pathway is currently supported for data-free pathways only, such as FP8 quantization and was leveraged to quantize the Mistral Large 3 model. Additional examples have been added illustrating how LLM Compressor can be used for Kimi K2
 
 !!! info "Extended KV Cache and Attention Quantization Support"
-    LLM Compressor now supports attention quantization. KV Cache quantization, which previously only supported per-tensor scales, has been extended to support any quantization scheme including a new per-head quantization scheme. Support for these checkpoints is ongoing in vLLM and scripts to get started have been added to the experimental folder
+    LLM Compressor now supports attention quantization. KV Cache quantization, which previously only supported per-tensor scales, has been extended to support any quantization scheme including a new per-head quantization scheme. Support for these checkpoints is ongoing in vLLM and scripts to get started have been added to the [experimental](https://github.com/vllm-project/llm-compressor/tree/main/experimental) folder
 
 !!! info "Generalized AWQ Support"
-    The AWQModifier has been updated to support quantization schemes beyond W4A16 (e.g., W4AFp8). In particular, AWQ no longer constrains that the quantization config needs to have the same settings for group_size, symmetric, and num_bits for each config_group
+    The `AWQModifier` has been updated to support quantization schemes beyond W4A16 (e.g., W4AFp8). In particular, AWQ no longer constrains that the quantization config needs to have the same settings for group_size, symmetric, and num_bits for each config_group
 
 !!! info "AutoRound Quantization Support"
     Added AutoRoundModifier for quantization using AutoRound, an advanced post-training algorithm that optimizes rounding and clipping ranges through sign-gradient descent. This approach combines the efficiency of post-training quantization with the adaptability of parameter tuning, delivering robust compression for large language models while maintaining strong performance
@@ -62,11 +62,11 @@ LLM Compressor supports applying multiple formats in a given model.
 | Format | Targets | Compute Capability | Use Case |
 |--------|---------|-------------------|----------|
 | **W4A16/W8A16** | Weights | 8.0 (Ampere and up) | Optimize for latency on older hardware |
-| **W8A8-INT8** | Weights + activations | 7.5 (Turing and up) | Balanced performance and compatibility |
-| **W8A8-FP8** | Weights + activations | 8.9 (Hopper and up) | High throughput on modern GPUs |
-| **NVFP4/MXFP4** | Weights + activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
-| **W4AFP8** | Weights + activations  | 8.9 (Hopper and up) | Low-bit weights with dyanmic FP8 activations |
-| **W4AINT8** | Weights + activations  | 7.5 (Turing and up) | Low-bit weights with dyanmic INT8 activations |
+| **W8A8-INT8** | Weights and activations | 7.5 (Turing and up) | Balanced performance and compatibility |
+| **W8A8-FP8** | Weights and activations | 8.9 (Hopper and up) | High throughput on modern GPUs |
+| **NVFP4/MXFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
+| **W4AFP8** | Weights and activations  | 8.9 (Hopper and up) | Low-bit weights with dynamic FP8 activations |
+| **W4AINT8** | Weights and activations  | 7.5 (Turing and up) | Low-bit weights with dynamic INT8 activations |
 | **2:4 Sparse** | Weights | 8.0 (Ampere and up) | Sparsity-accelerated inference |
 
 !!! note

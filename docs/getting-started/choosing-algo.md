@@ -15,7 +15,7 @@ Weight and activation quantization is best for maximum throughput on modern hard
 | Algorithm | Best for | Description | Accuracy Recovery vs. Time |
 |-----------|----------|-------------| ---------------------------|
 | SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling | Good accuracy recovery with minimal calibration time; composable with other methods |
-| AWQ | General purpose | Activation-aware weight quantization. Uses channelwise scaling to better preserve important outliers in weights and activations  | High accuracy recovery but can be expensive to run |
+| AWQ | General purpose | AWQ (Activation-aware Weight Quantization) uses a small calibration set to identify the most important weights based on activation statistics. It preserves accuracy by rescaling the weights most coupled to these activations. | High accuracy recovery but can be expensive to run |
 | GPTQ | Broad compatibility | Established weight quantization with calibration.  Utilizes second-order layer-wise optimizations to prioritize important weights/activations and enables updates to remaining weights |  High accuracy recovery but can be expensive to run |
 | AutoRound | Broad compatibility  | Optimizes rounding and clipping ranges via sign-gradient descent | High accuracy recovery but can be expensive to run |
 | RTN | Simple, data-free quantization |Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios with good recovery for FP8/FP4. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments | 

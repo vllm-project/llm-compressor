@@ -28,7 +28,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 |---------------|----------------------------------------------------------------------------------------------|
 | W8A8-FP8_BLOCK | 8-bit floating point (FP8) quantization using block-wise compression for weights             |
 | Weights       | Compressed in blocks (commonly 128×128 tiles)                                                |
-| Activations   | Quantized using dynamic per-group (128) quanitzation                                         |
+| Activations   | Quantized using dynamic per-group (128) quantization                                         |
 | Calibration   | No calibration dataset required if using RTN; activation quantization happens during inference on vLLM    |
 | Use case      | Optimized for performance and compression during inference                                   |
 

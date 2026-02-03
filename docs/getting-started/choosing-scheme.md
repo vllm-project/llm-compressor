@@ -62,7 +62,7 @@ FP4 can sometimes provide good results with RTN algorithms for fast quantization
 
 ## Compression Formats
 
-Each quantization scheme corresponds to a particular quantization or sparisty compressor, which dicates
+Each quantization scheme corresponds to a particular quantization or sparsity compressor, which dictates
 how the weights, scales, zero-points and other parameters are saved to disk after being compressed.
 These compressors live in the [compressed-tensors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/compressors) project where a list of [available compressors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/config/base.py#L26) can be found. The table summarizies the common compression schemes and their corresponding compressed-tensors compressor.
 
