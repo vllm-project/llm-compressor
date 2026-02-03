@@ -577,7 +577,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     mapping,
                     fp16_outputs,
                     orig_layer_weights,
-                    smooth_layer_targeted=smooth_layer_targeted,
+                    also_quantize_smooth_layers=smooth_layer_targeted,
                 )
 
                 @torch.no_grad()
@@ -594,17 +594,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                         )
                     elif module == smooth_layer:
                         # When smooth_layer_quantization is enabled, smooth_layer.weight
-                        # was overwritten during grid search (Q(W/s)); use original so we
-                        # apply W/s for later calibration. Otherwise use current weight.
-                        if smooth_layer in orig_layer_weights:
-                            w = orig_layer_weights[smooth_layer].to(scales.device)
-                        else:
-                            w = smooth_layer.weight
+                        # was overwritten during grid search (Q(W/s)
+                        # we apply W/s for later calibration.
+                        w = (
+                            orig_layer_weights[smooth_layer]
+                            if smooth_layer in orig_layer_weights
+                            else smooth_layer.weight
+                        )
                         if smooth_layer.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                w.div(scales),
+                                w.to(module.weight.device) / scales,
                             )
                         else:
                             # NOTE: edge case when smooth layer number of out_features
@@ -613,7 +614,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # in this case, default to scaling the last output features
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            weight = w.clone()
+                            weight = w.to(module.weight.device).clone()
                             weight[-scales.size(0) :].div_(scales.view(-1, 1))
                             update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
@@ -658,8 +659,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         w_qscheme = balance_layer.quantization_scheme.weights
         balance_layer.weight.data.copy_(
-            orig_layer_weights[balance_layer].to(_scalesview.device)
-            * _scalesview
+            orig_layer_weights[balance_layer].to(_scalesview.device) * _scalesview
         )
 
         should_calculate_gparam = (
@@ -681,12 +681,60 @@ class AWQModifier(Modifier, QuantizationMixin):
             / _scalesview
         ).to(balance_layer.weight.dtype)
 
+    def _apply_smooth_layer_quantization_in_grid_search(
+        self,
+        smooth_layer: Module,
+        orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
+        scales: torch.Tensor,
+        device: torch.device,
+    ) -> None:
+        """
+        For one grid-search iteration: divide smooth layer weights by scales,
+        run observer, then quantize. Modifies smooth_layer in place.
+
+        Q(W / s) for smooth layer if targeted
+        The smooth layer weights are divided by scales, then quantized
+        During forward pass, the output will be Q(W / s) * X
+        which should approximate (W / s) * X when quantized correctly
+        """
+        w_qscheme = smooth_layer.quantization_scheme.weights
+        # Inverse rescale: divide weights by scales
+        _scalesview_1d = scales.view(-1).to(device)
+        if smooth_layer.weight.ndim == 1:
+            smooth_layer.weight.data.copy_(
+                orig_layer_weights[smooth_layer].to(_scalesview_1d.device)
+                / _scalesview_1d
+            )
+        else:
+            #For multi-dimensional weights
+            weight = orig_layer_weights[smooth_layer].to(_scalesview_1d.device).clone()
+            weight[-_scalesview_1d.size(0) :].div_(_scalesview_1d.view(-1, 1))
+            smooth_layer.weight.data.copy_(weight)
+
+        should_calculate_gparam = (
+            w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+        )
+        call_observer(
+            smooth_layer,
+            "weight",
+            smooth_layer.weight,
+            should_calculate_gparam=should_calculate_gparam,
+        )
+        # Quantize the rescaled weights: Q(W / s)
+        # The quantized weights will be used as-is in the forward pass
+        smooth_layer.weight.data = forward_quantize(
+            smooth_layer,
+            smooth_layer.weight,
+            "weight",
+            w_qscheme,
+        ).to(smooth_layer.weight.dtype)
+
     def _compute_best_scale(
         self,
         mapping: ResolvedMapping,
         fp16_outputs: list[torch.Tensor],
         orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
-        smooth_layer_targeted: bool = False,
+        also_quantize_smooth_layers: bool = False,
     ) -> torch.Tensor:
         """
         Select best scales for a given mapping in a grid search
@@ -703,7 +751,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         :param fp16_outputs: output of mapping.parent in unquantized case,
             one tensor for each batch.
         :param orig_layer_weights: dict mapping modules to their original weights
-        :param smooth_layer_targeted: whether the smooth layer is targeted for quantization
+        :param also_quantize_smooth_layers: when True, also quantize smooth
+            layers in the grid search (or take smooth layer quantization error
+            into account).
         :return: tensor of best scales, one for each channel
         """
         history = []
@@ -730,19 +780,25 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # Where appropriate, replace observers with memoryless_minmax
         # for duration of grid search
-        balance_layers_to_patch = [
-            balance_layer
-            for balance_layer in mapping.balance_layers
-            if hasattr(balance_layer, "quantization_scheme")
-            and hasattr(balance_layer.quantization_scheme, "weights")
+        layers_to_patch = [
+            layer
+            for layer in mapping.balance_layers
+            if hasattr(layer, "quantization_scheme")
+            and hasattr(layer.quantization_scheme, "weights")
         ]
-        smooth_layer_to_patch = None
-        if mapping.smooth_layer in orig_layer_weights:
-            smooth_layer_to_patch = mapping.smooth_layer
-
-        layers_to_patch = balance_layers_to_patch
-        if smooth_layer_to_patch is not None:
-            layers_to_patch = balance_layers_to_patch + [smooth_layer_to_patch]
+        if also_quantize_smooth_layers:
+            assert mapping.smooth_layer in orig_layer_weights, (
+                "also_quantize_smooth_layers is True but smooth layer is not in "
+                "orig_layer_weights; include the smooth layer in orig_layer_weights "
+                "when enabling smooth layer quantization in the grid search."
+            )
+            layers_to_patch = layers_to_patch + [mapping.smooth_layer]
+        smooth_layer_to_patch = (
+            mapping.smooth_layer if also_quantize_smooth_layers else None
+        )
+        balance_layers_in_patch = [
+            layer for layer in layers_to_patch if layer in mapping.balance_layers
+        ]
 
         with patch_attrs(
             layers_to_patch,
@@ -782,65 +838,23 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
 
-                # Q(W * s) for balance layers
-                for balance_layer in balance_layers_to_patch:
-                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
-                        balance_layer.quantization_scheme, "weights"
-                    ):
-                        continue
-
-                    self._apply_balance_layer_quantization_in_grid_search(
-                        balance_layer, orig_layer_weights, _scalesview
-                    )
-
-                # Q(W / s) for smooth layer if targeted
-                # The smooth layer weights are divided by scales, then quantized
-                # During forward pass, the output will be Q(W / s) * X
-                # which should approximate (W / s) * X when quantized correctly
-                if smooth_layer_to_patch is not None:
-                    smooth_layer = smooth_layer_to_patch
-                    w_qscheme = smooth_layer.quantization_scheme.weights
-                    # Apply inverse rescale: divide weights by scales
-                    _scalesview_1d = scales.view(-1).to(device)
-                    if smooth_layer.weight.ndim == 1:
-                        smooth_layer.weight.data.copy_(
-                            orig_layer_weights[smooth_layer].to(_scalesview_1d.device)
-                            / _scalesview_1d
+                # Q(W * s)
+                for layer in layers_to_patch:
+                    if layer == smooth_layer_to_patch:
+                        self._apply_smooth_layer_quantization_in_grid_search(
+                            layer, orig_layer_weights, scales, device
                         )
                     else:
-                        # Handle edge case for multi-dimensional weights
-                        weight = orig_layer_weights[smooth_layer].to(
-                            _scalesview_1d.device
-                        ).clone()
-                        weight[-_scalesview_1d.size(0) :].div_(
-                            _scalesview_1d.view(-1, 1)
+                        self._apply_balance_layer_quantization_in_grid_search(
+                            layer, orig_layer_weights, _scalesview
                         )
-                        smooth_layer.weight.data.copy_(weight)
 
-                    should_calculate_gparam = (
-                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-                    )
-                    call_observer(
-                        smooth_layer,
-                        "weight",
-                        smooth_layer.weight,
-                        should_calculate_gparam=should_calculate_gparam,
-                    )
-                    # Quantize the rescaled weights: Q(W / s)
-                    # The quantized weights will be used as-is in the forward pass
-                    smooth_layer.weight.data = forward_quantize(
-                        smooth_layer,
-                        smooth_layer.weight,
-                        "weight",
-                        w_qscheme,
-                    ).to(smooth_layer.weight.dtype)
-
-                # Apply fused global scales for TENSOR_GROUP during grid search
+                # Applying fused global scales for TENSOR_GROUP in grid search
                 # to match inference behavior
-                if balance_layers_to_patch and all(
+                if balance_layers_in_patch and all(
                     getattr(layer.quantization_scheme.weights, "strategy", None)
                     == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
+                    for layer in balance_layers_in_patch
                 ):
                     update_fused_layer_weight_global_scales(mapping.parent)
 
