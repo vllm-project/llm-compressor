@@ -14,6 +14,7 @@ sparsity type. For more details on the quantization schemes, see
 | W4A16 - float | None     | nvfp4_pack_quantized | Dense               |
 | W4A4 - float  | None     | nvfp4_pack_quantized | Dense               |
 | W4A16 - int   | None     | pack_quantized       | Dense               |
+| W4A8 - int    | None     | int4_pack_quantized  | Dense               |
 | W8A16 - int   | None     | pack_quantized       | Dense               |
 | W8A16 - float | None     | naive_quantized      | Dense               |
 | W8A8 - int    | 2:4      | int_quantized        | Sparse24            |
