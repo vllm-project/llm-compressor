@@ -1,9 +1,8 @@
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
@@ -51,16 +50,8 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="attn_head"
-            ),
-        )
-    }
-)
+#   * quantize the weights to 4 bit with GPTQ with a group size 32
+recipe = GPTQModifier(targets="Linear", scheme="MXFP4A16", ignore=["lm_head"])
 
 # Apply algorithms.
 oneshot(
@@ -82,6 +73,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-attention-fp8-head"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-MXFP4A16-GPTQ"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

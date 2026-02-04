@@ -1,7 +1,3 @@
----
-weight: -10
----
-
 # Installation
 
 LLM Compressor can be installed using several methods depending on your requirements. Below are the detailed instructions for each installation pathway.
