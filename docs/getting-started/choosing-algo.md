@@ -12,18 +12,17 @@ LLM Compressor supports multiple quantization, pruning, and transform-based comp
 
 Weight and activation quantization is best for maximum throughput on modern hardware:
 
-| Algorithm | Best for | Description |
-|-----------|----------|-------------|
-| SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling |
-| AWQ | General purpose | Activation-aware weight quantization that preserves important weights |
-| GPTQ | Broad compatibility | Established weight quantization with calibration |
-| RTN | FP8 quantization | Fast round-to-nearest quantization for FP8 weight and activation quantization |
+| Algorithm | Best for | Description | Accuracy Recovery vs. Time |
+|-----------|----------|-------------| ---------------------------|
+| SmoothQuant | Balanced compression | Balances weight and activation quantization for outlier handling | Good accuracy recovery with minimal calibration time; composable with other methods |
+| AWQ | General purpose | AWQ (Activation-aware Weight Quantization) uses a small calibration set to identify the most important weights based on activation statistics. It preserves accuracy by rescaling the weights most coupled to these activations. | High accuracy recovery but can be expensive to run |
+| GPTQ | Broad compatibility | Established weight quantization with calibration.  Utilizes second-order layer-wise optimizations to prioritize important weights/activations and enables updates to remaining weights |  High accuracy recovery but can be expensive to run |
+| AutoRound | Broad compatibility  | Optimizes rounding and clipping ranges via sign-gradient descent | High accuracy recovery but can be expensive to run |
+| RTN | Simple, data-free quantization |Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios with good recovery for FP8/FP4. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments | 
+
 
 !!! note
     AWQ and GPTQ are typically used for weight-only quantization but can also be applied to weight and activation quantization workflows.
-
-!!! tip
-    See [Mixed-precision quantization](#mixed-precision-quantization-for-accuracy-recovery) for details about combining different precision levels across layers.
 
 ## KV cache and attention quantization
 
@@ -51,10 +50,11 @@ Use the table below to select the algorithm that best matches your deployment re
 | Algorithm | Best for |
 |----------|-----------|
 | RTN | Fast and simple compression |
-| GPTQ or AWQ | Better accuracy at 4-bit |
-| SmoothQuant | Balanced weight/activation |
+| GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
+| SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
 | SparseGPT | 2:4 sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
+| FP8 KV Cache | Target KV Cache or attention activations |
 
 ## Supported model types
 
@@ -70,7 +70,7 @@ The following model architectures are fully supported in LLM Compressor:
 ### Mixed-precision quantization for accuracy recovery
 
 For advanced use cases, LLM Compressor supports applying different quantization schemes to different model layers.
-For example, you can combine INT4 for most layers with FP8 for sensitive layers to optimize the accuracy-performance tradeoff.
+For example, you can combine FP4 for most layers with FP8 for sensitive layers to optimize the accuracy-effort tradeoff.
 
 Not all model layers respond equally to quantization, some are more sensitive and require higher precision to maintain accuracy.
 LLM Compressor supports non-uniform quantization, allowing you to apply different quantization schemes to different model layers within a single compression run.
@@ -79,11 +79,12 @@ You can also combine different quantization algorithms for different model layer
 
 With LLM Compressor, you can:
 
-- Quantize most layers with INT4 for maximum compression
+- Quantize most layers with FP4 for maximum compression
 - Preserve sensitive layers (for example, attention blocks or first/last layers) at FP8
 - Assign precision selectively by module type or layer group
 
 This approach delivers better accuracy than uniform low-bit quantization while achieving smaller model sizes than uniform high-precision schemes.
+See [the non-uniform quantization examples](https://github.com/vllm-project/llm-compressor/tree/main/examples/quantization_non_uniform) for further details.
 
 ## Next steps
 
