@@ -181,8 +181,9 @@ _exaone4_mappings = [
     ),
 ]
 
-# AFMOE uses dual normalization: pre_mlp_layernorm feeds the MLP (not post_attention_layernorm)
-# and attention has its own gate_proj for gating mechanism
+# AFMOE uses dual normalization: pre_mlp_layernorm feeds the MLP
+# (not post_attention_layernorm) and attention has its own gate_proj
+# for gating mechanism
 _afmoe_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",

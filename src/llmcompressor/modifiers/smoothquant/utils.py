@@ -66,8 +66,6 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
-# AFMOE uses dual normalization: pre_mlp_layernorm feeds the MLP (not post_attention_layernorm)
-# and attention has its own gate_proj for gating mechanism
 AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=[
