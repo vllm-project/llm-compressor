@@ -706,7 +706,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 / _scalesview_1d
             )
         else:
-            #For multi-dimensional weights
+            # For multi-dimensional weights
             weight = orig_layer_weights[smooth_layer].to(_scalesview_1d.device).clone()
             weight[-_scalesview_1d.size(0) :].div_(_scalesview_1d.view(-1, 1))
             smooth_layer.weight.data.copy_(weight)
