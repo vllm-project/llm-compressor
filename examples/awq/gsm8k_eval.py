@@ -44,4 +44,8 @@ if __name__ == "__main__":
     parser.add_argument("model_path", help="Path to quantized model directory")
     args = parser.parse_args()
 
+    if not os.path.isdir(args.model_path):
+        print(f"Error: Model path not found: {args.model_path}", file=sys.stderr)
+        sys.exit(1)
+
     evaluate_model(args.model_path)

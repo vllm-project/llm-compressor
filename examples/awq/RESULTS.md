@@ -49,7 +49,7 @@ FP8_DYNAMIC wins by ~5% on strict matching. Both are comparable on flexible extr
 Used the existing example scripts from the repo:
 ```bash
 cd examples/awq
-sed -i 's/meta-llama\/Meta-Llama-3-8B-Instruct/Qwen\/Qwen2.5-0.5B-Instruct/g' *.py
+sed -i 's/meta-llama\/Meta-Llama-3-8B-Instruct/Qwen\/Qwen2.5-0.5B-Instruct/g' fp8_*_llama_example.py
 python fp8_dynamic_llama_example.py
 python fp8_block_llama_example.py
 ```
