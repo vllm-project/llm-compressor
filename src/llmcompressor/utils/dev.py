@@ -38,6 +38,7 @@ TORCH_INIT_FUNCTIONS = {
     "sparse_": torch.nn.init.sparse_,
 }
 
+
 @contextlib.contextmanager
 def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
