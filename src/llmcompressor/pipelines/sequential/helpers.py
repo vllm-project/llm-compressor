@@ -544,7 +544,7 @@ def dispatch_for_sequential(
     """
     if onload_device is None:
         onload_device = get_main_device()
-    
+
     return offload_model(model, onload_device, offload_device)
 
 

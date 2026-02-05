@@ -296,7 +296,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             kwargs["device_map"] = (
                 f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
             )
-            logger.info(f"[Rank: {rank}] AutoRoundModifier: moving wrapped_model to {kwargs['device_map']}")
+            logger.info(
+                (f"[Rank: {rank}] moving wrapped_model "
+                 f"to {kwargs['device_map']}")
+            )
             # wrapped_model.to(kwargs["device_map"])
             ar = AutoRound(
                 model=wrapped_model,
