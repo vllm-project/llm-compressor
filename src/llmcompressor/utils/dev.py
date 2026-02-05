@@ -118,11 +118,22 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
     transformers_logger.setLevel(level=restore_log_level)
 
 
-def get_main_device() -> torch.device:
+def _get_main_device() -> torch.device:
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
     if torch.cuda.is_available():
-        return torch.device("cuda:0")
+        return torch.device(f"cuda:{rank}")
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu:0")
+        return torch.device(f"xpu:{rank}")
+    else:
+        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        return torch.device("cpu")
+
+def get_main_device() -> torch.device:
+    # rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    if torch.cuda.is_available():
+        return torch.device(f"cuda")
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        return torch.device(f"xpu")
     else:
         logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
         return torch.device("cpu")
