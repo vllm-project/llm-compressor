@@ -6,7 +6,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-
+MODEL_ID = "/storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8"
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
