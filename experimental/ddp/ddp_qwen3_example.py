@@ -1,6 +1,10 @@
 """
-python ddp_qwen3_example.py --ddp --nsamples 128 --iters 100
-
+CUDA_VISIBLE_DEVICES=0,1 python ddp_qwen3_example.py \
+    --model Qwen/Qwen3-8B \
+    --nsamples 128  \
+    --iters 200 \
+    --disable_torch_compile \
+    --deterministic
 """
 from loguru import logger
 from auto_round.calib_dataset import get_dataset
@@ -77,7 +81,11 @@ def quantize_model(rank, world_size, args):
 
     # Set device for this process
     model_name = args.model_name
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
+    # device_map = "meta"
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype="auto", 
+        # device_map=device_map
+    )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     # Select calibration dataset.
@@ -217,10 +225,9 @@ if __name__ == "__main__":
     }
     # scheme = scheme_map.get(args.scheme, args.scheme)
 
-    # # Check if running with torchrun
-    # if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
-    #     logger.info("Detected torchrun environment")
-    #     main_torchrun(model_name, scheme, args.iters, args.nsamples)
     if args.ddp:
         logger.info("Using mp.spawn mode for multi-GPU quantization")
         main_spawn(args)
+    else:
+        logger.info("Using single-process quantization")
+        quantize_model(rank=0, world_size=1, args=args)
