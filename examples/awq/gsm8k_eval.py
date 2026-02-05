@@ -48,4 +48,8 @@ if __name__ == "__main__":
         print(f"Error: Model path not found: {args.model_path}", file=sys.stderr)
         sys.exit(1)
 
-    evaluate_model(args.model_path)
+if not os.path.isdir(args.model_path):
+    print(f"Error: Model path not found: {args.model_path}", file=sys.stderr)
+    sys.exit(1)
+
+evaluate_model(args.model_path)
