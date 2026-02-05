@@ -280,6 +280,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_offloading(wrapped_model),
         ):
+            self._update_device_map_for_dp(kwargs)
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
@@ -309,6 +310,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._q_input = q_input
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
+            check_device(decoding_layer, "decoding_layer device after AutoRound")
 
         decoding_layer.eval()
         # Update offload parameters and remove temporary attributes
@@ -348,6 +350,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ):
                 unquantized_layers.append(name)
         return unquantized_layers
+
+    def _update_device_map_for_dp(self, ar_kwargs):
+        if torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            ar_kwargs["device_map"] = (
+                f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
+            )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
