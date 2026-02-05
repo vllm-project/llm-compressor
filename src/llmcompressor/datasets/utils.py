@@ -216,6 +216,28 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
     shuffle = args.shuffle_calibration_samples
     batch_size = args.batch_size
 
+    if torch.distributed.is_initialized() and torch.distributed.get_world_size() > 1:
+        from torch.utils.data.distributed import DistributedSampler
+
+        distributed_sampler = DistributedSampler(
+            dataset,
+            num_replicas=torch.distributed.get_world_size(),
+            rank=torch.distributed.get_rank(),
+            shuffle=shuffle,
+        )
+        logger.warning("Using DistributedSampler for DDP training.")
+
+        def show_distributed_sampler_info(distributed_sampler):
+            logger.warning(
+                f"DistributedSampler: num_replicas={distributed_sampler.num_replicas}, "
+                f"rank={distributed_sampler.rank}, "
+                f"dataset_len={len(dataset)}, "
+                f"num_samples={distributed_sampler.num_samples}"
+            )
+
+        show_distributed_sampler_info(distributed_sampler)
+        return distributed_sampler
+
     if num_samples is not None and num_samples > len(dataset):
         logger.warning(
             f"Requested {num_samples} samples but the provided dataset only has "

@@ -120,9 +120,9 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
 
 def get_main_device() -> torch.device:
     if torch.cuda.is_available():
-        return torch.device("cuda:0")
+        return torch.device("cuda")
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu:0")
+        return torch.device("xpu")
     else:
         logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
         return torch.device("cpu")
