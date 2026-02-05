@@ -34,24 +34,6 @@ from llmcompressor.utils.pytorch import get_no_split_params
 __all__ = ["AutoRoundModifier"]
 
 
-import pdb
-import sys
-
-
-class ForkedPdb(pdb.Pdb):
-    """A Pdb subclass that may be used
-    from a forked multiprocessing child
-
-    """
-
-    def interaction(self, *args, **kwargs):
-        _stdin = sys.stdin
-        try:
-            sys.stdin = open("/dev/stdin")
-            pdb.Pdb.interaction(self, *args, **kwargs)
-        finally:
-            sys.stdin = _stdin
-
 
 class _LLModelWrapper(torch.nn.Module):
     def __init__(self):
@@ -100,14 +82,10 @@ def suspend_offloading(model: nn.Module):
         offload_module(module, *offloading_info[name])
 
 
-def rank_log(msg: str):
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    logger.info(f"[Rank {rank}] {msg}")
-
-
 def check_device(model, msg: str = ""):
     device = next(model.parameters()).device
-    rank_log(f"{msg}: Model is on device: {device}")
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    logger.info(f"[rank: {rank}] {msg}: Model is on device: {device}")
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
@@ -314,13 +292,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 if torch.distributed.is_initialized()
                 else 0
             )
-            check_device(wrapped_model, "Before moving wrapped_model")
+            # check_device(wrapped_model, "Before moving wrapped_model")
             kwargs["device_map"] = (
                 f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
             )
-            print(f"AutoRoundModifier: moving wrapped_model to {kwargs['device_map']}", flush=True)
-            wrapped_model.to(kwargs["device_map"])
-            check_device(wrapped_model, "After moving wrapped_model")
+            logger.info(f"[Rank: {rank}] AutoRoundModifier: moving wrapped_model to {kwargs['device_map']}")
+            # wrapped_model.to(kwargs["device_map"])
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
