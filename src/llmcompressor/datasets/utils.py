@@ -185,7 +185,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
                 "`data_collator='truncation'` can lead to significant portions of the "
                 "calibration dataset being deleted via truncation. Please consider "
                 "reducing the calibration batch size or using filtering the dataset "
-                "to use more uniformm sequence lengths"
+                "to use more uniform sequence lengths"
             )
 
         return data_collator_with_truncation
@@ -197,7 +197,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
                 "`data_collator='padding'` can lead to excess token used for padding, "
                 "which slows down calibration time and calibrates on padding tokens not"
                 " seen at runtime. Please consider reducing the calibration batch size "
-                "or using filtering the dataset to use more uniformm sequence lengths"
+                "or using filtering the dataset to use more uniform sequence lengths"
             )
 
         tokenizer = getattr(processor, "tokenizer", processor)
@@ -269,7 +269,7 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
 def data_collator_with_truncation(
     features: list[dict[str, Any]], return_tensors: str = "pt"
 ) -> dict[str, Any]:
-    for key in ("input_ids", "labels", "attention_mask"):
+    for key in ("input_ids", "labels", "attention_mask", "loss_mask"):
         if any(key not in feature for feature in features):
             continue
 
