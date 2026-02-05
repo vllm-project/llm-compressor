@@ -10,8 +10,10 @@ pruning operations.
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
-from compressed_tensors.quantization.utils import strategy_cdiv
+
+from llmcompressor.utils import calculate_block_padding, needs_block_padding
 
 __all__ = ["flatten_for_calibration"]
 
@@ -75,9 +77,15 @@ def _flatten_weight(
     if args.strategy == QuantizationStrategy.BLOCK:
         # (1, num_block_rows, num_block_cols, block_width * block_height)
         block_height, block_width = args.block_structure
-        rows, cols = value.shape
-        block_rows = strategy_cdiv(rows, block_height, args.strategy, strict=True)
-        block_cols = strategy_cdiv(cols, block_width, args.strategy, strict=True)
+
+        # Pad tensor if dimensions are not divisible by block size
+        if needs_block_padding(value.shape, args.block_structure):
+            pad_rows, pad_cols = calculate_block_padding(value.shape, args.block_structure)
+            value = F.pad(value, (0, pad_cols, 0, pad_rows), mode="constant", value=0)
+
+        # Derive block dimensions from the (potentially padded) tensor shape
+        block_rows = value.shape[0] // block_height
+        block_cols = value.shape[1] // block_width
         return (
             value.reshape(block_rows, block_height, block_cols, block_width)
             .transpose(1, 2)
