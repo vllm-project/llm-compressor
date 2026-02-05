@@ -1,0 +1,74 @@
+{
+  "scenario": "qwen3b",
+  "config": {
+    "model": "Qwen/Qwen2.5-3B",
+    "num_calibration_samples": 256,
+    "max_seq_length": 512,
+    "description": "Qwen2.5-3B - production representative"
+  },
+  "mode": "compiled",
+  "cold_time": 512.532402752,
+  "warm_times": [
+    477.9758402569996,
+    477.2128747119996
+  ],
+  "peak_memory_runs": [
+    {
+      "run": "cold",
+      "allocated_gb": 0.01,
+      "reserved_gb": 3.049,
+      "max_allocated_gb": 2.361,
+      "max_reserved_gb": 3.049
+    },
+    {
+      "run": "warm_1",
+      "allocated_gb": 0.01,
+      "reserved_gb": 3.049,
+      "max_allocated_gb": 2.361,
+      "max_reserved_gb": 3.049
+    },
+    {
+      "run": "warm_2",
+      "allocated_gb": 0.01,
+      "reserved_gb": 3.049,
+      "max_allocated_gb": 2.361,
+      "max_reserved_gb": 3.049
+    }
+  ],
+  "peak_memory": {
+    "max_allocated_gb": 2.361,
+    "max_reserved_gb": 3.049
+  },
+  "compile_stats": {
+    "dynamo": {
+      "frames_ok": 2,
+      "frames_total": 2,
+      "graph_breaks": {},
+      "unique_graphs": 2,
+      "calls_captured": 6406
+    },
+    "num_graphs": 2,
+    "frames_compiled": 2,
+    "graph_breaks": 0,
+    "inductor": {}
+  },
+  "cold_peak_memory": {
+    "allocated_gb": 0.01,
+    "reserved_gb": 3.049,
+    "max_allocated_gb": 2.361,
+    "max_reserved_gb": 3.049
+  },
+  "warm_mean": 477.5943574844996,
+  "compile_overhead": 34.938045267500456,
+  "variance_stats": {
+    "mean": 477.5943574844996,
+    "stddev": 0.5394981106812202,
+    "cv": 0.11296157549322172,
+    "min": 477.2128747119996,
+    "max": 477.9758402569996,
+    "p50": 477.5943574844996,
+    "p90": 477.9758402569996,
+    "p99": 477.9758402569996
+  },
+  "status": "success"
+}
