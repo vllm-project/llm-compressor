@@ -6,6 +6,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
