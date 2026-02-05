@@ -38,7 +38,7 @@ do
     LOCAL_SUCCESS=0
 
     # run test if test group is not specified or the config matching the specified test group
-    test_group=$(cat $MODEL_CONFIG | grep 'test_group:' | cut -d'/' -f2)
+    test_group=$(cat $MODEL_CONFIG | grep 'test_group:' | cut -d'"' -f2)
     if [ -z "$GROUP" ] || [[ "$test_group" == "$GROUP" ]]; then
 
         echo "=== RUNNING MODEL: $MODEL_CONFIG ==="

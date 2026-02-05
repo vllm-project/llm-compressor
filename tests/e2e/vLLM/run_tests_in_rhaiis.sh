@@ -58,7 +58,7 @@ do
     save_dir=$(cat $MODEL_CONFIG | grep 'save_dir:' | cut -d' ' -f2)
     model=$(cat $MODEL_CONFIG | grep 'model:' | cut -d'/' -f2)
     scheme=$(cat $MODEL_CONFIG | grep 'scheme:' | cut -d' ' -f2)
-    test_group=$(cat $MODEL_CONFIG | grep 'test_group:' | cut -d'/' -f2)
+    test_group=$(cat $MODEL_CONFIG | grep 'test_group:' | cut -d'"' -f2)
 
     # run test if test group is not specified or the config matching the specified test group
     if [ -z "$GROUP" ] || [[ "${test_group}" == "$GROUP" ]]; then
