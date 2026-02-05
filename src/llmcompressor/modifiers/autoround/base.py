@@ -287,21 +287,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_offloading(wrapped_model),
         ):
-            rank = (
-                torch.distributed.get_rank()
-                if torch.distributed.is_initialized()
-                else 0
-            )
-            check_device(wrapped_model, "Before moving wrapped_model")
-            kwargs["device_map"] = (
-                f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
-            )
-            logger.info(
-                (f"[Rank: {rank}] moving wrapped_model "
-                 f"to {kwargs['device_map']}")
-            )
-            # check_device(wrapped_model, "Before moving wrapped_model")
-            # wrapped_model.to(kwargs["device_map"])
+            check_device(wrapped_model, "wrapped_model device before AutoRound")
+            self._update_device_map_for_dp(kwargs)
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
@@ -331,6 +318,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._q_input = q_input
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
+            check_device(decoding_layer, "decoding_layer device after AutoRound")
 
         decoding_layer.eval()
         # Update offload parameters and remove temporary attributes
@@ -370,6 +358,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ):
                 unquantized_layers.append(name)
         return unquantized_layers
+
+    def _update_device_map_for_dp(self, ar_kwargs):
+        if torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            ar_kwargs["device_map"] = (
+                f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
+            )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
