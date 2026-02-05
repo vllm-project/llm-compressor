@@ -102,8 +102,6 @@ def quantize_model(rank, world_size, args):
 
     # Configure the quantization algorithm to run.
     #   * quantize the weights to 4 bit with AutoRound with a group size 128
-    #   * For `Qwen/Qwen3-235B-A22B`, it requires about 300 GB memory
-    #     to run tuning with default settings.
     recipe = AutoRoundModifier(
         targets="Linear",
         scheme=args.scheme,
@@ -113,7 +111,6 @@ def quantize_model(rank, world_size, args):
         ],
         iters=ITERS,
         enable_torch_compile=not args.disable_torch_compile,
-        # device_ids="0,1,2,3",  # Use 4 A100 GPUs
     )
 
     # Apply algorithms.
