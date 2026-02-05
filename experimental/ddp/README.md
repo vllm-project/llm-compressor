@@ -7,6 +7,7 @@
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 python ddp_qwen3_example.py --ddp --nsamples 128 --iters 100
+
 ```
 
 ## Next Steps

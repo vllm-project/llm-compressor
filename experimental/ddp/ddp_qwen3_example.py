@@ -2,7 +2,7 @@
 python ddp_qwen3_example.py --ddp --nsamples 128 --iters 100
 
 """
-
+from loguru import logger
 from auto_round.calib_dataset import get_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -14,7 +14,7 @@ from llmcompressor.utils import dispatch_for_generation
 model_id = "Qwen/Qwen3-235B-A22B"
 model_id = "Qwen/Qwen3-8B"
 # model_id = "/data5/yiliu4/Qwen/Qwen2-0.5B"
-model_id = "Qwen/Qwen2-0.5B"
+# model_id = "Qwen/Qwen2-0.5B"
 
 import argparse
 import os
@@ -22,6 +22,23 @@ import os
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+
+
+def fix_everything(seed = 42):
+    import random
+    import numpy as np
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+
+def config_deterministic():
+    torch.use_deterministic_algorithms(True, warn_only=False)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    fix_everything()
+    
 
 
 def setup_ddp(rank, world_size):
@@ -41,34 +58,32 @@ def cleanup_ddp():
         dist.destroy_process_group()
 
 
-def quantize_model(rank, world_size, model_name, scheme, iters=4, nsamples=32):
+def quantize_model(rank, world_size, args):
     """
     Quantize model on a specific GPU rank.
 
     Args:
         rank: GPU rank for this process
         world_size: Total number of GPUs
-        model_name: Model name or path
-        scheme: Quantization scheme
-        iters: Number of iterations
-        nsamples: Number of samples
+        args: Command line arguments
     """
-    print(f"[Rank {rank}/{world_size}] Starting quantization")
+    if args.deterministic:
+        config_deterministic()
+    logger.info(f"[Rank {rank}/{world_size}] Starting quantization")
 
     # Setup DDP if using multiple GPUs
     if world_size > 1:
         setup_ddp(rank, world_size)
 
     # Set device for this process
-    device = f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
-
+    model_name = args.model_name
     model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     # Select calibration dataset.
-    NUM_CALIBRATION_SAMPLES = nsamples
+    NUM_CALIBRATION_SAMPLES = args.nsamples
     MAX_SEQUENCE_LENGTH = 2048
-    ITERS = iters
+    ITERS = args.iters
     # Get aligned calibration dataset.
 
     ds = get_dataset(
@@ -83,7 +98,7 @@ def quantize_model(rank, world_size, model_name, scheme, iters=4, nsamples=32):
     #     to run tuning with default settings.
     recipe = AutoRoundModifier(
         targets="Linear",
-        scheme=scheme,
+        scheme=args.scheme,
         ignore=[
             "lm_head",
             "re:.*mlp.gate$",
@@ -107,29 +122,33 @@ def quantize_model(rank, world_size, model_name, scheme, iters=4, nsamples=32):
     if world_size > 1:
         dist.barrier()
 
-    print(f"[Rank {rank}] Quantization completed")
+    logger.info(f"[Rank {rank}] Quantization completed")
     if rank == 0:
         # Confirm generations of the quantized model look sane.
-        print("\n\n")
-        print("========== SAMPLE GENERATION ==============")
+        logger.info("\n\n")
+        logger.info("========== SAMPLE GENERATION ==============")
         dispatch_for_generation(model)
         sample = tokenizer("Hello my name is", return_tensors="pt")
         sample = {key: value.to(model.device) for key, value in sample.items()}
         output = model.generate(**sample, max_new_tokens=100)
-        print(tokenizer.decode(output[0]))
-        print("==========================================\n\n")
+        logger.info(tokenizer.decode(output[0]))
+        logger.info("==========================================\n\n")
 
         # Save to disk compressed.
-        SAVE_DIR = model_name.rstrip("/").split("/")[-1] + f"-{scheme}-AutoRound" + f"-iters{iters}-nsamples{nsamples}"
-        print(f"save to {SAVE_DIR}")
+        SAVE_DIR = (
+            model_name.rstrip("/").split("/")[-1]
+            + f"-{args.scheme}-AutoRound"
+            + f"-iters{args.iters}-nsamples{args.nsamples}"
+        )
+        logger.info(f"save to {SAVE_DIR}")
         model.save_pretrained(SAVE_DIR, save_compressed=True)
         tokenizer.save_pretrained(SAVE_DIR)
     else:
         # Other ranks just run quantization without saving
-        print(f"[Rank {rank}] Running quantization (not saving)")
+        logger.info(f"[Rank {rank}] Running quantization (not saving)")
 
     # except Exception as e:
-    #     print(f"[Rank {rank}] Error during quantization: {e}")
+    #     logger.info(f"[Rank {rank}] Error during quantization: {e}")
     #     raise
 
     # finally:
@@ -138,23 +157,20 @@ def quantize_model(rank, world_size, model_name, scheme, iters=4, nsamples=32):
         cleanup_ddp()
 
 
-def main_spawn(model_name, scheme, iters, nsamples):
+def main_spawn(args):
     """Main function using mp.spawn for multi-GPU quantization."""
     world_size = torch.cuda.device_count() if torch.cuda.is_available() else 1
 
-    # if world_size < 2:
-    #     print("Warning: Only 1 GPU detected. Running single GPU mode.")
-    #     return main_single_gpu(model_name, scheme, iters, nsamples)
-    print(f"Starting DDP quantization with {world_size} GPUs")
+    logger.info(f"Starting DDP quantization with {world_size} GPUs")
 
     mp.spawn(
         quantize_model,
-        args=(world_size, model_name, scheme, iters, nsamples),
+        args=(world_size, args),
         nprocs=world_size,
         join=True,
     )
 
-    print("Quantization completed!")
+    logger.info("Quantization completed!")
 
 
 if __name__ == "__main__":
@@ -173,13 +189,18 @@ if __name__ == "__main__":
         default="W4A16",
         help="Quantization scheme (W4A16, MXFP8, MXFP4, etc.)",
     )
-    parser.add_argument("--iters", type=int, default=4, help="Number of iterations")
-    parser.add_argument("--nsamples", type=int, default=32, help="Number of samples")
+    parser.add_argument("--iters", type=int, default=100, help="Number of iterations")
+    parser.add_argument("--nsamples", type=int, default=256, help="Number of samples")
     parser.add_argument("--ddp", action="store_true", help="Enable DDP multi-GPU mode")
     parser.add_argument(
         "--disable_torch_compile",
         action="store_true",
         help="Disable torch.compile for model acceleration during quantization",
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Enable deterministic mode for reproducibility",
     )
     args = parser.parse_args()
 
@@ -198,8 +219,8 @@ if __name__ == "__main__":
 
     # # Check if running with torchrun
     # if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
-    #     print("Detected torchrun environment")
+    #     logger.info("Detected torchrun environment")
     #     main_torchrun(model_name, scheme, args.iters, args.nsamples)
     if args.ddp:
-        print("Using mp.spawn mode for multi-GPU quantization")
-        main_spawn(model_name, args.scheme, args.iters, args.nsamples)
+        logger.info("Using mp.spawn mode for multi-GPU quantization")
+        main_spawn(args)
