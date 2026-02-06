@@ -614,9 +614,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # in this case, default to scaling the last output features
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            weight = w.to(module.weight.device).clone()
-                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
-                            update_offload_parameter(module, "weight", weight)
+                            w = w.to(module.weight.device).clone()
+                            w[-scales.size(0) :].div_(scales.view(-1, 1))
+                            update_offload_parameter(module, "weight", w)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
@@ -647,87 +647,52 @@ class AWQModifier(Modifier, QuantizationMixin):
             for output in outputs
         ]
 
-    def _apply_balance_layer_quantization_in_grid_search(
+    def _rescale_layer(
         self,
-        balance_layer: Module,
+        layer: Module,
         orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
-        _scalesview: torch.Tensor,
-    ) -> None:
-        """
-        For one grid-search iteration: scale balance layer weights, run observer,
-        quantize, then divide by scales. Modifies balance_layer in place.
-        """
-        w_qscheme = balance_layer.quantization_scheme.weights
-        balance_layer.weight.data.copy_(
-            orig_layer_weights[balance_layer].to(_scalesview.device) * _scalesview
-        )
-
-        should_calculate_gparam = (
-            w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-        )
-        call_observer(
-            balance_layer,
-            "weight",
-            balance_layer.weight,
-            should_calculate_gparam=should_calculate_gparam,
-        )
-        balance_layer.weight.data = (
-            forward_quantize(
-                balance_layer,
-                balance_layer.weight,
-                "weight",
-                w_qscheme,
-            )
-            / _scalesview
-        ).to(balance_layer.weight.dtype)
-
-    def _apply_smooth_layer_quantization_in_grid_search(
-        self,
-        smooth_layer: Module,
-        orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
-        scales: torch.Tensor,
+        scales_view: torch.Tensor,
         device: torch.device,
+        *,
+        is_smooth_layer: bool = False,
     ) -> None:
         """
-        For one grid-search iteration: divide smooth layer weights by scales,
-        run observer, then quantize. Modifies smooth_layer in place.
+        Rescale layer weights, run observer, quantize. Modifies layer in place.
 
-        Q(W / s) for smooth layer if targeted
-        The smooth layer weights are divided by scales, then quantized
-        During forward pass, the output will be Q(W / s) * X
-        which should approximate (W / s) * X when quantized correctly
+        Pass scales_view = s (1, -1) for balance layers; pass 1/s for smooth layer
+        so that rescale is W * (1/s) = W/s. 
         """
-        w_qscheme = smooth_layer.quantization_scheme.weights
-        # Inverse rescale: divide weights by scales
-        _scalesview_1d = scales.view(-1).to(device)
-        if smooth_layer.weight.ndim == 1:
-            smooth_layer.weight.data.copy_(
-                orig_layer_weights[smooth_layer].to(_scalesview_1d.device)
-                / _scalesview_1d
-            )
+        w_qscheme = layer.quantization_scheme.weights
+        orig = orig_layer_weights[layer].to(scales_view.device)
+
+        if is_smooth_layer and layer.weight.ndim > 1:
+            # Edge case: only scale the last scales.size(0) rows (divide by s)
+            scales_1d = (1.0 / scales_view).view(-1)
+            w = orig.clone()
+            w[-scales_1d.size(0) :].div_(scales_1d.view(-1, 1))
+            layer.weight.data.copy_(w)
         else:
-            # For multi-dimensional weights
-            weight = orig_layer_weights[smooth_layer].to(_scalesview_1d.device).clone()
-            weight[-_scalesview_1d.size(0) :].div_(_scalesview_1d.view(-1, 1))
-            smooth_layer.weight.data.copy_(weight)
+            layer.weight.data.copy_(orig * scales_view)
 
         should_calculate_gparam = (
             w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
         )
         call_observer(
-            smooth_layer,
+            layer,
             "weight",
-            smooth_layer.weight,
+            layer.weight,
             should_calculate_gparam=should_calculate_gparam,
         )
-        # Quantize the rescaled weights: Q(W / s)
-        # The quantized weights will be used as-is in the forward pass
-        smooth_layer.weight.data = forward_quantize(
-            smooth_layer,
-            smooth_layer.weight,
+        quantized = forward_quantize(
+            layer,
+            layer.weight,
             "weight",
             w_qscheme,
-        ).to(smooth_layer.weight.dtype)
+        )
+        if is_smooth_layer:
+            layer.weight.data = quantized
+        else:
+            layer.weight.data = quantized / scales_view
 
     def _compute_best_scale(
         self,
@@ -833,21 +798,26 @@ class AWQModifier(Modifier, QuantizationMixin):
                     scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 _scalesview = scales.view(1, -1).to(device)
-
+                _scalesview_inv = (1.0 / _scalesview).to(device)
                 # avoid scaling values that overflow
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
+                _scalesview_inv = (1.0 / _scalesview).to(device)
 
-                # Q(W * s)
+                # Q(W * s) for balance layers, Q(W / s) for smooth layer
                 for layer in layers_to_patch:
-                    if layer == smooth_layer_to_patch:
-                        self._apply_smooth_layer_quantization_in_grid_search(
-                            layer, orig_layer_weights, scales, device
-                        )
-                    else:
-                        self._apply_balance_layer_quantization_in_grid_search(
-                            layer, orig_layer_weights, _scalesview
-                        )
+                    scales_view = (
+                        _scalesview_inv
+                        if layer == smooth_layer_to_patch
+                        else _scalesview
+                    )
+                    self._rescale_layer(
+                        layer,
+                        orig_layer_weights,
+                        scales_view,
+                        device,
+                        is_smooth_layer=(layer == smooth_layer_to_patch),
+                    )
 
                 # Applying fused global scales for TENSOR_GROUP in grid search
                 # to match inference behavior
