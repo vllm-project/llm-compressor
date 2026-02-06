@@ -332,3 +332,15 @@ class LengthAwareSampler(Sampler[int]):
 
     def __len__(self) -> int:
         return self._num_samples
+
+
+def get_rank_partition(split: str, num_samples: int) -> str:
+    """Last rank gets remainder"""
+    rank = torch.distributed.get_rank()
+    world_size = torch.distributed.get_world_size()
+
+    min_samples_per_rank = num_samples // world_size
+    start = min_samples_per_rank * rank
+    end = start + min_samples_per_rank if rank != world_size - 1 else num_samples
+
+    return f"{split}[{start}:{end}]"
