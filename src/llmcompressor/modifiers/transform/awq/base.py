@@ -673,7 +673,7 @@ class AWQModifier(Modifier):
         Rescale layer weights, run observer, quantize. Modifies layer in place.
 
         Pass scales_view = s (1, -1) for balance layers; pass 1/s for smooth layer
-        so that rescale is W * (1/s) = W/s. 
+        so that rescale is W * (1/s) = W/s.
         """
         w_qscheme = layer.quantization_scheme.weights
         orig = orig_layer_weights[layer].to(scales_view.device)
@@ -765,12 +765,6 @@ class AWQModifier(Modifier):
                 "when enabling smooth layer quantization in the grid search."
             )
             layers_to_patch = layers_to_patch + [mapping.smooth_layer]
-        smooth_layer_to_patch = (
-            mapping.smooth_layer if also_quantize_smooth_layers else None
-        )
-        balance_layers_in_patch = [
-            layer for layer in layers_to_patch if layer in mapping.balance_layers
-        ]
 
         with patch_attrs(
             layers_to_patch,
@@ -809,7 +803,7 @@ class AWQModifier(Modifier):
                 for layer in layers_to_patch:
                     scales_view = (
                         _scalesview_inv
-                        if layer == smooth_layer_to_patch
+                        if layer == mapping.smooth_layer
                         else _scalesview
                     )
                     self._rescale_layer(
@@ -817,15 +811,21 @@ class AWQModifier(Modifier):
                         orig_layer_weights,
                         scales_view,
                         device,
-                        is_smooth_layer=(layer == smooth_layer_to_patch),
+                        is_smooth_layer=(layer == mapping.smooth_layer),
                     )
 
                 # Applying fused global scales for TENSOR_GROUP in grid search
                 # to match inference behavior
-                if balance_layers_in_patch and all(
+                if (
+                    balance_layers := [
+                        layer
+                        for layer in layers_to_patch
+                        if layer in mapping.balance_layers
+                    ]
+                ) and all(
                     getattr(layer.quantization_scheme.weights, "strategy", None)
                     == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_in_patch
+                    for layer in balance_layers
                 ):
                     update_fused_layer_weight_global_scales(mapping.parent)
 
