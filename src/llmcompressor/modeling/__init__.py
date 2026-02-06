@@ -16,7 +16,7 @@ from .llama4 import SequentialLlama4TextMoe  # noqa: F401
 
 try:  # Optional dependency: transformers may not include minimax_m2 yet.
     from .minimax_m2 import CalibrationMiniMaxM2SparseMoeBlock  # noqa: F401
-except Exception:  # pragma: no cover - exercised when transformers lacks minimax_m2
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
     pass
 from .qwen3_moe import CalibrationQwen3MoeSparseMoeBlock  # noqa: F401
 from .qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock  # noqa: F401
