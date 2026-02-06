@@ -57,4 +57,4 @@ print("==========================================\n\n")
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
