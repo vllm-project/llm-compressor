@@ -1,5 +1,6 @@
+import torch
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.minimax_m2 import (  # noqa: F401
@@ -9,7 +10,11 @@ from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 
 # Load the model
 model_id = "MiniMaxAI/MiniMax-M2"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+config = AutoConfig.from_pretrained(model_id)
+del config.quantization_config
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, dtype=torch.bfloat16, config=config
+)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 # MoE calibration is handled automatically by the pipeline.
 # The `CalibrationMiniMaxM2SparseMoeBlock` modules (from
