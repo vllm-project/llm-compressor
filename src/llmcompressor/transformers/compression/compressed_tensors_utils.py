@@ -9,6 +9,7 @@ from compressed_tensors import (
     SparsityCompressionConfig,
 )
 from compressed_tensors.config import CompressionFormat
+from compressed_tensors.offload.cache.base import OffloadCache
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -75,6 +76,11 @@ def modify_save_pretrained(model: PreTrainedModel):
                 during save, default is False
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
+            # TODO REMOVE
+            # Handle distributed situation
+            if torch.distributed.is_initialized() and torch.distributed.get_rank() != 0:
+                print("skip save for", torch.distributed.get_rank())
+                return
 
             # compress model using compressor
             compressor = get_model_compressor(
@@ -88,12 +94,18 @@ def modify_save_pretrained(model: PreTrainedModel):
             if compressor is not None:
                 compressor.compress_model(model)
 
-            # save (compressed) model structure
-            original_save_pretrained.__get__(model, model_class)(
-                save_directory,
-                safe_serialization=safe_serialization,
-                **kwargs,
-            )
+            # TODO REMOVE
+            # need to disable onloading because 
+            # the original save_pretrained function would
+            # otherwise materialize the whole model on
+            # device
+            with OffloadCache.disable_onloading():
+                # save (compressed) model structure
+                original_save_pretrained.__get__(model, model_class)(
+                    save_directory,
+                    safe_serialization=safe_serialization,
+                    **kwargs,
+                )
 
             # update config to reflect compression
             if compressor is not None:
