@@ -5,7 +5,7 @@ from llmcompressor import oneshot
 from llmcompressor.modeling.minimax_m2 import (  # noqa: F401
     CalibrationMiniMaxM2SparseMoeBlock,
 )
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 
 # Load the model
 model_id = "MiniMaxAI/MiniMax-M2"
@@ -65,11 +65,18 @@ moe_ignores = [
 ]
 
 # Configure the quantization algorithm to run.
-recipe = AWQModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores)
+recipe = AWQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    ignore=moe_ignores,
+    mappings=[
+        AWQMapping(
+            "re:.*input_layernorm$",
+            ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+        )
+    ],
+)
 
-# Optional: for lower GPU memory usage, quantize modules sequentially.
-# This may increase runtime, but can help avoid OOM on smaller GPUs.
-# SEQUENTIAL_TARGETS = ["MiniMaxM2Attention", "MiniMaxM2SparseMoeBlock"]
 
 # Apply algorithms.
 oneshot(
@@ -78,7 +85,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    # sequential_targets=SEQUENTIAL_TARGETS,
+    sequential_targets=["MiniMaxM2DecoderLayer"],
 )
 
 # Save to disk compressed.
