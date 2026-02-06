@@ -48,7 +48,7 @@ lm_eval --model vllm \
   --batch_size 'auto'
 ```
 
-###### meta-llama/Meta-Llama-3.1-8B-Instruct
+##### meta-llama/Meta-Llama-3.1-8B-Instruct
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7710|±  |0.0116|
