@@ -9,9 +9,8 @@ from llmcompressor.modeling.minimax_m2 import (  # noqa: F401
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 
 # Load the model
-model_id = "MiniMaxAI/MiniMax-M2"
+model_id = "ludovicoYIN/MiniMax-M2-BF16"
 config = AutoConfig.from_pretrained(model_id)
-del config.quantization_config
 model = AutoModelForCausalLM.from_pretrained(
     model_id, dtype=torch.bfloat16, config=config
 )
@@ -63,37 +62,44 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 moe_ignores = [
-    # MoE gate layers are sensitive to quantization.
-    "re:.*mlp.gate$",
-    # Ignore the output head.
     "lm_head",
+    "re:.*block_sparse_moe.gate$",
 ]
 
-# Configure the quantization algorithm to run.
+# Experts live under `model.layers.*.block_sparse_moe.experts.<idx>.(w1|w2|w3)`.
+EXPERT_TARGET_REGEX = [
+    "re:.*block_sparse_moe\\.experts\\.\\d+\\.w1$",
+    "re:.*block_sparse_moe\\.experts\\.\\d+\\.w2$",
+    "re:.*block_sparse_moe\\.experts\\.\\d+\\.w3$",
+]
+
+
 recipe = AWQModifier(
-    targets="Linear",
+    targets=EXPERT_TARGET_REGEX,
     scheme="W4A16",
     ignore=moe_ignores,
     mappings=[
         AWQMapping(
-            "re:.*input_layernorm$",
-            ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
-        )
+            "re:.*post_attention_layernorm$",
+            ["re:.*w1$", "re:.*w3$"],
+        ),
+        AWQMapping("re:.*w3$", ["re:.*w2$"]),
     ],
+    duo_scaling=False,
 )
-
 
 # Apply algorithms.
 oneshot(
     model=model,
     dataset=ds,
+    processor=tokenizer,
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
     sequential_targets=["MiniMaxM2DecoderLayer"],
 )
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

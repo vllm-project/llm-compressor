@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
-
 from llmcompressor.modeling.moe_context import MoECalibrationModule
 
 if TYPE_CHECKING:
@@ -16,14 +15,7 @@ if TYPE_CHECKING:
 
 @MoECalibrationModule.register("MiniMaxM2SparseMoeBlock")
 class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
-    """
-    Calibration version of MiniMaxM2SparseMoeBlock that can send all tokens
-    to all experts during calibration.
-
-    When `calibrate_all_experts=True`, each expert is executed on all tokens so
-    quantization statistics are collected for every expert, while routed-token
-    weighting is still used for the final output.
-    """
+    """Calibration module for MiniMaxM2SparseMoeBlock that supports calibrating all experts."""
 
     is_permanent = False
 
@@ -34,11 +26,21 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
         calibrate_all_experts: bool = True,
     ):
         super().__init__()
-        self.config = config
-        self.experts = original.experts
-        self.gate = original.gate
+
+        # Gating
         self.calibrate_all_experts = calibrate_all_experts
+
+        # Extract submodules directly to prevent parameter duplication
+        # in find_tied_parameters (caused by holding self.original)
+        self.gate = original.gate
+        self.experts = original.experts
+
+        # MiniMax specific parameters
         self.jitter_noise = original.jitter_noise
+        self.num_experts = config.num_local_experts
+        self.top_k = original.top_k
+        # Use unbound function so this module's buffers are used.
+        self._route_tokens_to_experts = type(original).route_tokens_to_experts
         self.register_buffer(
             "e_score_correction_bias", original.e_score_correction_bias
         )
@@ -57,54 +59,41 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
                 1.0 - self.jitter_noise, 1.0 + self.jitter_noise
             )
         hidden_states = hidden_states.view(-1, hidden_dim)
-        _router_logits, top_k_weights, top_k_index = self.gate(
-            hidden_states, self.e_score_correction_bias
-        )
+        router_logits = self.gate(hidden_states)
+        if self.e_score_correction_bias.device != router_logits.device:
+            self.e_score_correction_bias = self.e_score_correction_bias.to(router_logits.device)
+        top_k_index, top_k_weights = self._route_tokens_to_experts(self, router_logits)
 
-        if not self.calibrate_all_experts:
-            final_hidden_states = self.experts(
-                hidden_states, top_k_index, top_k_weights
-            )
-            return final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
-
-        # Reimplementing MiniMaxM2Experts.forward only when calibrating all experts.
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
             dtype=hidden_states.dtype,
             device=hidden_states.device,
         )
-        expert_mask = F.one_hot(top_k_index, num_classes=self.experts.num_experts)
+        expert_mask = F.one_hot(top_k_index, num_classes=self.num_experts)
         expert_mask = expert_mask.permute(2, 1, 0)
 
-        for expert_idx in range(self.experts.num_experts):
+        for expert_idx, expert_layer in enumerate(self.experts):
             top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
-            has_tokens = token_idx.numel() > 0
 
-            # Run all tokens through the expert to gather stats.
-            gate, up = F.linear(
-                hidden_states, self.experts.gate_up_proj[expert_idx]
-            ).chunk(2, dim=-1)
-            expert_out_full = self.experts.act_fn(gate) * up
-            expert_out_full = F.linear(
-                expert_out_full, self.experts.down_proj[expert_idx]
-            )
-            if not has_tokens:
-                continue
-            expert_out = expert_out_full[token_idx]
+            if self.calibrate_all_experts:
+                expert_out = expert_layer(hidden_states)[token_idx]
+            else:
+                expert_out = expert_layer(hidden_states[token_idx])
 
-            expert_weights = top_k_weights[token_idx, top_k_pos]
-            weighted_output = expert_out * expert_weights.unsqueeze(-1)
-            final_hidden_states.index_add_(
-                0,
-                token_idx,
-                weighted_output.to(hidden_states.dtype),
-            )
+            if token_idx.numel() > 0:
+                expert_weights = top_k_weights[token_idx, top_k_pos]
+                weighted_output = expert_out * expert_weights.unsqueeze(-1)
+                final_hidden_states.index_add_(
+                    0,
+                    token_idx,
+                    weighted_output.to(hidden_states.dtype),
+                )
 
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
         )
 
-        return final_hidden_states
+        return final_hidden_states, router_logits
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         return original
