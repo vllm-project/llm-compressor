@@ -4,7 +4,7 @@ from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.logarithmic_equalization.base import (
     LogarithmicEqualizationModifier,
 )
-from llmcompressor.modifiers.smoothquant.base import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant.base import SmoothQuantModifier
 
 
 @pytest.mark.unit
