@@ -216,6 +216,12 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
 def _is_dist_and_same_ds(dataset: Dataset) -> bool:
     if not dist.is_initialized():
         return False
+    
+    assert len(dataset) > 0, (
+        "Dataset must have at least one sample on each"
+        f"device but got None for rank={dist.get_rank()}"
+    )
+
     # use _fingerprint if it exists, otherwise hash the first sample.
     # This isn't perfect but should work in most cases
     local_hash = getattr(dataset, "_fingerprint", str(abs(hash(str(dataset[0])))))
@@ -229,9 +235,12 @@ def _is_dist_and_same_ds(dataset: Dataset) -> bool:
 def _get_partition_start_end(
     num_samples: int, index: int, num_partitions: int
 ) -> tuple[int, int]:
-    appx_samples_per_partition = num_samples / num_partitions
-    start = math.floor(appx_samples_per_partition * index)
-    end = math.floor(appx_samples_per_partition * (index + 1))
+    # num_samples / num_partitions is average samples per partition
+    # we multiply this number with the partition indices to get partition bounds
+    # note that final partition has index+1 == num_partitions so it will 
+    # always get all samples 
+    start = math.floor(num_samples * (index/num_partitions))
+    end = math.floor(num_samples * ((index + 1)/num_partitions))
     return start, end
 
 
