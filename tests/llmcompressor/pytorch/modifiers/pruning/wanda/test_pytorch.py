@@ -18,6 +18,6 @@ def test_wanda_pytorch_is_registered():
         targets=targets,
     )
 
-    assert isinstance(type_, WandaPruningModifier), (
-        "PyTorch ConstantPruningModifier not registered"
-    )
+    assert isinstance(
+        type_, WandaPruningModifier
+    ), "PyTorch ConstantPruningModifier not registered"
