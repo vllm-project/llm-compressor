@@ -7,6 +7,7 @@ calibration data preparation, and dataloader creation for both training and
 one-shot calibration workflows.
 """
 
+import math
 import re
 from collections.abc import Iterator, Sized
 from typing import Any, Callable, Optional
@@ -14,14 +15,13 @@ from typing import Any, Callable, Optional
 import torch
 from datasets import Dataset
 from loguru import logger
+from torch import distributed as dist
 from torch.utils.data import DataLoader, RandomSampler, Sampler
 from transformers.data import DataCollatorWithPadding, default_data_collator
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.typing import Processor
-from torch import distributed as dist
-import math
 
 BS_WARNING_THRESHOLD = 16
 
@@ -212,11 +212,12 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
     else:
         raise ValueError(f"Unknown data collator {args.data_collator}")
 
+
 def _is_dist_and_same_ds(dataset: Dataset) -> bool:
     if not dist.is_initialized():
         return False
-    # use _fingerprint if it exists, otherwise hash the first sample. 
-    # This isn't perfect but should work in most cases 
+    # use _fingerprint if it exists, otherwise hash the first sample.
+    # This isn't perfect but should work in most cases
     local_hash = getattr(dataset, "_fingerprint", str(abs(hash(str(dataset[0])))))
 
     all_hashes = [None for _ in range(dist.get_world_size())]
@@ -224,11 +225,15 @@ def _is_dist_and_same_ds(dataset: Dataset) -> bool:
 
     return all(local_hash == other_hash for other_hash in all_hashes)
 
-def _get_partition_start_end(num_samples: int, index: int, num_partitions: int) -> tuple[int, int]:
+
+def _get_partition_start_end(
+    num_samples: int, index: int, num_partitions: int
+) -> tuple[int, int]:
     appx_samples_per_partition = num_samples / num_partitions
     start = math.floor(appx_samples_per_partition * index)
     end = math.floor(appx_samples_per_partition * (index + 1))
     return start, end
+
 
 def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
     num_samples = args.num_calibration_samples
@@ -249,7 +254,9 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
             "Detected distributed setting with identical datasets across ranks. "
             "partitioning dataset across ranks."
         )
-        start, end = _get_partition_start_end(num_samples, dist.get_rank(), dist.get_world_size())
+        start, end = _get_partition_start_end(
+            num_samples, dist.get_rank(), dist.get_world_size()
+        )
         dataset = dataset[start:end]
 
     if shuffle:
@@ -362,6 +369,7 @@ class LengthAwareSampler(Sampler[int]):
     def __len__(self) -> int:
         return self._num_samples
 
+
 def get_rank_partition(split: str, num_samples: int) -> str:
     """
     Utility for splitting data in a distributed setting
@@ -379,13 +387,17 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
     ds = load_dataset(
         DATASET_ID, split=split
-    ) 
+    )
 
-    for S samples and D devices, when S is not perfectly divisible by D, 
-    we give each device at least S//D samples and distribute 
+    for S samples and D devices, when S is not perfectly divisible by D,
+    we give each device at least S//D samples and distribute
     the remaining samples as evenly as possible across all devices
     """
-    assert "[" not in split, "Split string should not already contain partitioning brackets"
+    assert (
+        "[" not in split
+    ), "Split string should not already contain partitioning brackets"
 
-    start, end = _get_partition_start_end(num_samples, dist.get_rank(), dist.get_world_size())
+    start, end = _get_partition_start_end(
+        num_samples, dist.get_rank(), dist.get_world_size()
+    )
     return f"{split}[{start}:{end}]"
