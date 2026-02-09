@@ -135,7 +135,7 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 # MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 with ct_offload(): # <- context manager to wrap from_pretrained
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto", device_map="cpu")
-# model.model.config.num_hidden_layers = 3
+
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -143,7 +143,7 @@ DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
 
-#### CHANGE
+
 ds = load_dataset(
     DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
 )
@@ -170,7 +170,7 @@ oneshot(
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES, # TODO?
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 print(f"\nPipeline took {time.time()-start} seconds, rank={dist.get_rank()}")
 peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
