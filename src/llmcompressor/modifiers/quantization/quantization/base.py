@@ -76,7 +76,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         # TODO: this step can be combined with update_weight_zp_scale
         # once update_fused_layer_weight_global_scales is removed
         # and not required by vLLM
-        for _, module in tqdm.tqdm(named_modules, desc="Updating global scales"):
+        for _, module in named_modules:
             update_weight_global_scale(module)
 
         # NOTE: update_fused_layer_weight_global_scales operates on Attention
@@ -84,7 +84,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         # on targeted modules, we need to run on all modules.
         # Because this call is idempotent, setting all global_scales to the
         # min value, it is ok to run potentially multiple times for all modules
-        for module in tqdm.tqdm(state.model.modules(), desc="Fusing global scales"):
+        for module in state.model.modules():
             update_fused_layer_weight_global_scales(module)
 
         for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):

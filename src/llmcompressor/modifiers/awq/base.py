@@ -25,7 +25,7 @@ from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
@@ -233,6 +233,17 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
+
+        # Check for unsupported token masking with MoE up_proj -> down_proj mappings
+        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
+            raise ValueError(
+                "Token masking (use_loss_mask=True) is not supported with "
+                "up_proj -> down_proj mappings in MoE models. The MoE routing "
+                "mechanism dispatches tokens to different experts, and the loss mask "
+                "cannot be properly aligned with this dispatch. Please either "
+                "disable token masking or exclude the up_proj -> down_proj mapping "
+                "for MoE layers from the AWQ configuration."
+            )
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
@@ -442,8 +453,28 @@ class AWQModifier(Modifier, QuantizationMixin):
                 args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
+                activations = args[0].abs().detach()
+
+                # Get loss mask for current batch from state
+                session = active_session()
+                state = session.state
+                loss_masks = state.loss_masks if state else None
+                batch_idx = state.current_batch_idx if state else -1
+                loss_mask = (
+                    loss_masks[batch_idx] if loss_masks and batch_idx >= 0 else None
+                )
+
+                if loss_mask is not None:
+                    # Mask: [batch, seq] -> [batch, seq, 1]
+                    mask = loss_mask.to(activations.device).unsqueeze(-1)
+                    flat_activations = activations.flatten(0, -2)  # [batch*seq, hidden]
+                    flat_mask = mask.flatten(0, -2).squeeze(-1)
+                    masked_activations = flat_activations[flat_mask.bool()]
+                else:
+                    masked_activations = activations.flatten(0, -2)
+
                 act_mean, count = _accumulate_mean(
-                    args[0].abs().detach().flatten(0, -2),
+                    masked_activations,
                     self._smooth_activation_means.get(smooth_name, None),
                 )
                 self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
@@ -468,6 +499,14 @@ class AWQModifier(Modifier, QuantizationMixin):
             # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
+
+            # The line below is useful for models that use parallel transformer block,
+            # such as gemma 3, command A. Need a better way to integrate it to the code.
+            # layer_to_hook = (
+            #     mapping.parent.mlp
+            #     if hasattr(mapping.parent, 'mlp')
+            #     else mapping.balance_layers[0]
+            # )
             self.register_hook(
                 mapping.balance_layers[0],
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
@@ -785,15 +824,31 @@ class AWQModifier(Modifier, QuantizationMixin):
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
     ) -> float:
+        session = active_session()
+        loss_masks = session.state.loss_masks if session.state else None
+
         loss = 0.0
         num_elements = 0
 
         # Compute the MSE loss for each batch
-        for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
-            loss += torch.nn.functional.mse_loss(
-                fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
-            )
-            num_elements += fp16_batch.numel()
+        for batch_idx, (fp16_batch, int_w_batch) in enumerate(
+            zip(fp16_outputs, int_w_outputs)
+        ):
+            loss_mask = loss_masks[batch_idx] if loss_masks else None
+
+            if loss_mask is not None:
+                token_mask = loss_mask.to(fp16_batch.device) == 1  # (batch, seq)
+                fp16_masked = fp16_batch[token_mask]  # (num_masked_tokens, hidden)
+                int_w_masked = int_w_batch.to(fp16_batch.device)[token_mask]
+                loss += torch.nn.functional.mse_loss(
+                    fp16_masked, int_w_masked, reduction="sum"
+                )
+                num_elements += fp16_masked.numel()
+            else:
+                loss += torch.nn.functional.mse_loss(
+                    fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
+                )
+                num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
         return (loss / num_elements).item()
@@ -836,6 +891,27 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
+
+    def _has_moe_up_down_proj_mapping(self) -> bool:
+        """
+        Check if any resolved mapping is an up_proj -> down_proj mapping
+        where the balance layers are MoE experts (indicated by '.experts.'
+        in the name).
+
+        Token masking is not supported for such mappings because the MoE
+        routing mechanism dispatches tokens to different experts, and the
+        loss mask cannot be properly aligned with this dispatch.
+        """
+        for mapping in self._resolved_mappings:
+            # Check if this is an up_proj -> down_proj mapping
+            if mapping.smooth_name.endswith("up_proj"):
+                for balance_name in mapping.balance_names:
+                    if (
+                        balance_name.endswith("down_proj")
+                        and ".experts." in balance_name
+                    ):
+                        return True
+        return False
 
     @staticmethod
     def _compute_layer_means(layers: list[Module]) -> torch.Tensor:
