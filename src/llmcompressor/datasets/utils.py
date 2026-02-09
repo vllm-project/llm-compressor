@@ -216,7 +216,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
 def _is_dist_and_same_ds(dataset: Dataset) -> bool:
     if not dist.is_initialized():
         return False
-    
+
     assert len(dataset) > 0, (
         "Dataset must have at least one sample on each"
         f"device but got None for rank={dist.get_rank()}"
@@ -237,10 +237,10 @@ def _get_partition_start_end(
 ) -> tuple[int, int]:
     # num_samples / num_partitions is average samples per partition
     # we multiply this number with the partition indices to get partition bounds
-    # note that final partition has index+1 == num_partitions so it will 
-    # always get all samples 
-    start = math.floor(num_samples * (index/num_partitions))
-    end = math.floor(num_samples * ((index + 1)/num_partitions))
+    # note that final partition has index+1 == num_partitions so it will
+    # always get all samples
+    start = math.floor(num_samples * (index / num_partitions))
+    end = math.floor(num_samples * ((index + 1) / num_partitions))
     return start, end
 
 
