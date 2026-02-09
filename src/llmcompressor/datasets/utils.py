@@ -249,13 +249,6 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
     shuffle = args.shuffle_calibration_samples
     batch_size = args.batch_size
 
-    if num_samples is not None and num_samples > len(dataset):
-        logger.warning(
-            f"Requested {num_samples} samples but the provided dataset only has "
-            f"{len(dataset)} samples."
-        )
-        num_samples = len(dataset)
-
     # detect whether we're in a distributed setting
     # but all ranks have the same dataset.
     if _is_dist_and_same_ds(dataset):
@@ -268,6 +261,13 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
             num_samples, dist.get_rank(), dist.get_world_size()
         )
         dataset = dataset[start:end]
+
+    if num_samples is not None and num_samples > len(dataset):
+        logger.warning(
+            f"Requested {num_samples} samples but the provided dataset only has "
+            f"{len(dataset)} samples."
+        )
+        num_samples = len(dataset)
 
     if shuffle:
         if batch_size > 1:
