@@ -102,6 +102,14 @@ def tensors_to_precision(
         case Tensor():
             return tensors.float() if full_precision else tensors.half()
 
+        case OrderedDict():
+            return OrderedDict(
+                [
+                    (key, tensors_to_precision(tens, full_precision))
+                    for key, tens in tensors.items()
+                ]
+            )
+
         case Mapping():
             return {
                 key: tensors_to_precision(tens, full_precision)
