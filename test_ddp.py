@@ -172,11 +172,13 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES, # TODO?
 )
-print(f"took {time.time()-start} seconds", dist.get_rank())
+print(f"\nPipeline took {time.time()-start} seconds, rank={dist.get_rank()}")
+peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
+print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB, rank={dist.get_rank()}\n")
 # Confirm generations of the quantized model look sane.
 
-# dispatch_for_generation(model)
 if  dist.get_rank() == 0:
+    dispatch_for_generation(model)
     input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
         model.device
     )
@@ -186,12 +188,12 @@ if  dist.get_rank() == 0:
     print(tokenizer.decode(output[0]))
     print("==========================================\n\n")
 
-
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-GPTQ-ddp"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
-
-print("here", dist.get_rank())
+dist.barrier()
+if dist.get_rank() == 0:
+    SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-GPTQ-ddp"
+    model.save_pretrained(SAVE_DIR, save_compressed=True)
+    tokenizer.save_pretrained(SAVE_DIR)
+dist.barrier()
 
 dist.destroy_process_group()
 
