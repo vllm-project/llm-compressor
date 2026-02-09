@@ -263,6 +263,7 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
             "Detected distributed setting with identical datasets across ranks. "
             "partitioning dataset across ranks."
         )
+        num_samples = num_samples or len(dataset)
         start, end = _get_partition_start_end(
             num_samples, dist.get_rank(), dist.get_world_size()
         )
