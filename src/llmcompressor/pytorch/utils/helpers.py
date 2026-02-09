@@ -3,7 +3,9 @@ Utility / helper functions
 """
 
 import random
-from typing import Any, Dict, Iterable, List, Mapping, OrderedDict, Tuple, Union
+from collections import OrderedDict
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import numpy
 import torch
@@ -38,8 +40,8 @@ __all__ = [
 
 
 def tensors_to_device(
-    tensors: Union[Tensor, Iterable[Tensor], Dict[Any, Tensor]], device: str
-) -> Union[Tensor, Iterable[Tensor], Dict[Any, Tensor]]:
+    tensors: Tensor | Iterable[Tensor] | dict[Any, Tensor], device: str
+) -> Tensor | Iterable[Tensor] | dict[Any, Tensor]:
     """
     Default function for putting a tensor or collection of tensors to the proper device.
     Returns the tensor references after being placed on the proper device.
@@ -58,60 +60,77 @@ def tensors_to_device(
         ex: 'cpu', 'cuda', 'cuda:1'
     :return: the tensors or collection of tensors after being placed on the device
     """
-    if isinstance(tensors, Tensor):
-        return tensors.to(device)
+    match tensors:
+        case Tensor():
+            return tensors.to(device)
 
-    if isinstance(tensors, OrderedDict):
-        return OrderedDict(
-            [(key, tensors_to_device(tens, device)) for key, tens in tensors.items()]
-        )
+        case OrderedDict():
+            return OrderedDict(
+                [
+                    (key, tensors_to_device(tens, device))
+                    for key, tens in tensors.items()
+                ]
+            )
 
-    if isinstance(tensors, Mapping):
-        return {key: tensors_to_device(tens, device) for key, tens in tensors.items()}
+        case Mapping():
+            return {
+                key: tensors_to_device(tens, device) for key, tens in tensors.items()
+            }
 
-    if isinstance(tensors, tuple):
-        return tuple(tensors_to_device(tens, device) for tens in tensors)
+        case tuple():
+            return tuple(tensors_to_device(tens, device) for tens in tensors)
 
-    if isinstance(tensors, Iterable):
-        return [tensors_to_device(tens, device) for tens in tensors]
+        case Iterable():
+            return [tensors_to_device(tens, device) for tens in tensors]
 
-    raise ValueError(
-        "unrecognized type for tensors given of {}".format(tensors.__class__.__name__)
-    )
+        case _:
+            raise ValueError(
+                f"unrecognized type for tensors given of {tensors.__class__.__name__}"
+            )
 
 
 def tensors_to_precision(
-    tensors: Union[Tensor, Iterable[Tensor], Dict[Any, Tensor]], full_precision: bool
-) -> Union[Tensor, Iterable[Tensor], Dict[Any, Tensor]]:
+    tensors: Tensor | Iterable[Tensor] | dict[Any, Tensor], full_precision: bool
+) -> Tensor | Iterable[Tensor] | dict[Any, Tensor]:
     """
     :param tensors: the tensors to change the precision of
     :param full_precision: True for full precision (float 32) and
         False for half (float 16)
     :return: the tensors converted to the desired precision
     """
-    if isinstance(tensors, Tensor):
-        return tensors.float() if full_precision else tensors.half()
+    match tensors:
+        case Tensor():
+            return tensors.float() if full_precision else tensors.half()
 
-    if isinstance(tensors, Mapping):
-        return {
-            key: tensors_to_precision(tens, full_precision)
-            for key, tens in tensors.items()
-        }
+        case OrderedDict():
+            return OrderedDict(
+                [
+                    (key, tensors_to_precision(tens, full_precision))
+                    for key, tens in tensors.items()
+                ]
+            )
 
-    if isinstance(tensors, tuple):
-        return tuple(tensors_to_precision(tens, full_precision) for tens in tensors)
+        case Mapping():
+            return {
+                key: tensors_to_precision(tens, full_precision)
+                for key, tens in tensors.items()
+            }
 
-    if isinstance(tensors, Iterable):
-        return [tensors_to_precision(tens, full_precision) for tens in tensors]
+        case tuple():
+            return tuple(tensors_to_precision(tens, full_precision) for tens in tensors)
 
-    raise ValueError(
-        "unrecognized type for tensors given of {}".format(tensors.__class__.__name__)
-    )
+        case Iterable():
+            return [tensors_to_precision(tens, full_precision) for tens in tensors]
+
+        case _:
+            raise ValueError(
+                f"unrecognized type for tensors given of {tensors.__class__.__name__}"
+            )
 
 
 # used by calibration function, TODO: remove with data pipelines
 def tensors_module_forward(
-    tensors: Union[Tensor, Iterable[Tensor], Mapping[Any, Tensor]],
+    tensors: Tensor | Iterable[Tensor] | Mapping[Any, Tensor],
     module: Module,
     check_feat_lab_inp: bool = True,
 ) -> Any:
@@ -134,31 +153,29 @@ def tensors_module_forward(
         the first element assuming it's the features False to not check
     :return: the result of calling into the model for a forward pass
     """
-    if (
-        (isinstance(tensors, tuple) or isinstance(tensors, List))
-        and len(tensors) == 2
-        and check_feat_lab_inp
-    ):
+    if isinstance(tensors, (tuple, list)) and len(tensors) == 2 and check_feat_lab_inp:
         # assume if this is a list or tuple of 2 items that it is made up of
         # (features, labels) pass the features into a recursive call for the model
         return tensors_module_forward(tensors[0], module, check_feat_lab_inp=False)
 
-    if isinstance(tensors, Tensor):
-        return module(tensors)
+    match tensors:
+        case Tensor():
+            return module(tensors)
 
-    if isinstance(tensors, Mapping):
-        return module(**tensors)
+        case Mapping():
+            return module(**tensors)
 
-    if isinstance(tensors, Iterable):
-        return module(*tensors)
+        case Iterable():
+            return module(*tensors)
 
-    raise ValueError(
-        "unrecognized type for data given of {}".format(tensors.__class__.__name__)
-    )
+        case _:
+            raise ValueError(
+                f"unrecognized type for data given of {tensors.__class__.__name__}"
+            )
 
 
 def tensor_sparsity(
-    tens: Tensor, dim: Union[None, int, List[int], Tuple[int, ...]] = None
+    tens: Tensor, dim: None | int | list[int] | tuple[int, ...] = None
 ) -> Tensor:
     """
     :param tens: the tensor to calculate the sparsity for
@@ -207,7 +224,7 @@ def tensor_sparsity(
 ##############################
 
 
-def get_linear_layers(module: Module) -> Dict[str, Module]:
+def get_linear_layers(module: Module) -> dict[str, Module]:
     """
     :param module: the module to grab all linear layers for
     :return: a list of all linear layers in the module
@@ -217,7 +234,7 @@ def get_linear_layers(module: Module) -> Dict[str, Module]:
     }
 
 
-def get_quantized_layers(module: Module) -> List[Tuple[str, Module]]:
+def get_quantized_layers(module: Module) -> list[tuple[str, Module]]:
     """
     :param module: the module to get the quantized layers from
     :return: a list containing the names and modules of the quantized layers
