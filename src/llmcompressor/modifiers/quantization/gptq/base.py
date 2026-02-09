@@ -280,16 +280,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 
         ### Distributed
         
-        # each rank takes one module to quantize in each round
-        # reduce hessian to that rank
+        ## Assign modules to ranks
+        ## Accumulate hessian on assigned rank
         rank = dist.get_rank()
         world_size = dist.get_world_size()
-        rank_to_module_by_round = []
+        modules_for_rank = [[] for _ in range(world_size)]
         for index, module in enumerate(list(self._hessians.keys())):
             target_rank = index % world_size
-            if target_rank == 0: # new round
-                rank_to_module_by_round.append({})
-            rank_to_module_by_round[-1][target_rank]=module
+            modules_for_rank[target_rank].append(module)
             with self._maybe_onload_hessian(module):
                 H = self._hessians[module]
                 n = torch.Tensor([self._num_samples.pop(module)]).to(H.device)
@@ -299,29 +297,40 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 H/=n # REMOVE?
                 self._hessians[module]=H
 
-                # delete unneeded
+                # delete unneeded info
                 self._num_samples.pop(module,None)
                 if not rank == target_rank:
                     self._hessians.pop(module, None)
         
-        # module compression
-        for rank_to_module in rank_to_module_by_round:
-            # Each rank compresses its assigned module for that round
-            module = rank_to_module.get(rank, None)
+        ## Each rank compresses all modules it was assigned
+        for module in modules_for_rank[rank]:
             q_params = self.compress_single_module(module)
-            
-            # Each rank broadcasts the qparams for its assigned module
-            # TODO remove and instead have each rank 
-            # update the offload asynchronously
-            for src_rank, module  in rank_to_module.items():
-                broadcast_obj = q_params if rank == src_rank else [None, None, None, None] 
-                dist.broadcast_object_list(broadcast_obj, src=src_rank)
-                weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
-                update_offload_parameter(module, "weight", weight)
-                update_offload_parameter(module, "weight_scale", weight_scale)
-                update_offload_parameter(module, "weight_zero_point", weight_zero_point)
-                if weight_g_idx is not None:
-                    update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+            weight, weight_scale, weight_zero_point, weight_g_idx = q_params
+            update_offload_parameter(module, "weight", q_params)
+            update_offload_parameter(module, "weight_scale", weight_scale)
+            update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+            if weight_g_idx is not None:
+                update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+
+        ## Broadcast quantized parameters to other ranks
+        for src_rank, module in enumerate(modules_for_rank):
+            if rank == src_rank:
+                weight_g_idx = getattr(module, "weight_g_idx", None)
+                broadcast_obj = [
+                    getattr(module, "weight"),
+                    getattr(module, "weight_scale"),
+                    getattr(module, "weight_zero_point"),
+                    getattr(module, "weight_g_idx", None),
+                ]
+            else:
+                broadcast_obj = [None, None, None, None]
+            dist.broadcast_object_list(broadcast_obj, src=src_rank)
+            weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
+            update_offload_parameter(module, "weight", weight)
+            update_offload_parameter(module, "weight_scale", weight_scale)
+            update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+            if weight_g_idx is not None:
+                update_offload_parameter(module, "weight_g_idx", weight_g_idx)
 
     def compress_single_module(self, module):
         if module is None:
