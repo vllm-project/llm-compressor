@@ -61,7 +61,7 @@ outputs = model(**inputs)
 scores = outputs.logits[:, -1, :].max(dim=-1).values
 
 for i, (doc, score) in enumerate(zip(documents, scores)):
-    print(f"Document {i+1} score: {score.item():.4f}")
+    print(f"Document {i + 1} score: {score.item():.4f}")
     print(f"  Content: {doc[:80]}...")
 
 print("==========================================")

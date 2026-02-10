@@ -7,10 +7,11 @@ Usage:
 Example:
     python gsm8k_eval.py ./Qwen2.5-0.5B-Instruct-awq-fp8-dynamic
 """
+
 import argparse
+import os
 import subprocess
 import sys
-import os
 
 
 def evaluate_model(model_path):
@@ -24,11 +25,16 @@ def evaluate_model(model_path):
     # Note: Don't use batch_size=auto, it defaults to 1 which is super slow
     cmd = [
         "lm_eval",
-        "--model", "hf",
-        "--model_args", f"pretrained={model_path},dtype=auto",
-        "--tasks", "gsm8k",
-        "--batch_size", "16",
-        "--output_path", output_dir,
+        "--model",
+        "hf",
+        "--model_args",
+        f"pretrained={model_path},dtype=auto",
+        "--tasks",
+        "gsm8k",
+        "--batch_size",
+        "16",
+        "--output_path",
+        output_dir,
     ]
 
     try:

@@ -206,9 +206,9 @@ class CompressionLifecycle:
             if data is not None:
                 mod_data.append(data)
 
-        assert (
-            event is not None
-        ), f"Event lifecycle did not return an event for {event_type}"
+        assert event is not None, (
+            f"Event lifecycle did not return an event for {event_type}"
+        )
 
         return mod_data
 
