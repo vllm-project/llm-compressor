@@ -136,7 +136,6 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 with ct_offload(): # <- context manager to wrap from_pretrained
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto", device_map="cpu")
 
-
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
