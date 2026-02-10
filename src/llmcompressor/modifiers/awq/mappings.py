@@ -16,10 +16,21 @@ class AWQMapping:
     `AWQMapping`s are resolved into `ResolvedMapping`s, which
     retain pointers to the actual `torch.nn.Module`s and additional
     metadata at runtime
+
+    :param smooth_layer: regex or name of the activation layer to smooth
+    :param balance_layers: list of regex or names of weight layers that must
+        be balanced to offset the smoothing
+    :param activation_hook_target: optional dotted attribute path relative to the
+        parent module (lowest common ancestor of balance_layers) specifying which
+        submodule to hook for activation caching. Useful for parallel transformer
+        blocks (e.g. Cohere, Gemma 3) where the first balance layer is not the
+        correct place to capture activations. When ``None`` (default), the hook
+        is placed on ``balance_layers[0]``.
     """
 
     smooth_layer: str
     balance_layers: list[str]
+    activation_hook_target: str | None = None
 
 
 _default_mappings = [
@@ -223,6 +234,10 @@ class ResolvedMapping:
     :param balance_names: optional list of names of the balance_layers
     :param parent: parent module of the balance_layers
     :param parent_name: name of the parent module
+    :param activation_hook_target: optional resolved module to hook for activation
+        caching. When set, the activation cache hook is placed on this module
+        instead of ``balance_layers[0]``. Populated from
+        ``AWQMapping.activation_hook_target``.
     """
 
     smooth_name: str
@@ -231,6 +246,7 @@ class ResolvedMapping:
     balance_names: list[str]
     parent: Module
     parent_name: str
+    activation_hook_target: Module | None = None
 
 
 def get_layer_mappings_from_architecture(architecture: str) -> list[AWQMapping]:
