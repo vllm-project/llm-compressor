@@ -597,7 +597,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 def _smooth(
                     module: Module, orig_layer_weights: dict[Module, torch.Tensor]
                 ):
-                    scales = best_scales.to(module.weight.device)
+                    scales = best_scales.to(
+                        device=module.weight.device, dtype=module.weight.dtype
+                    )
                     if module in balance_layers:
                         update_offload_parameter(
                             module,
@@ -680,7 +682,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         if is_smooth_layer and layer.weight.ndim > 1:
             # Edge case: only scale the last scales.size(0) rows (divide by s)
-            scales_1d = (1.0 / scales_view).view(-1)
+            scales_1d = scales_view.reciprocal().view(-1)
             w = orig.clone()
             w[-scales_1d.size(0) :].div_(scales_1d.view(-1, 1))
             layer.weight.data.copy_(w)
@@ -772,6 +774,11 @@ class AWQModifier(Modifier, QuantizationMixin):
             )
             layers_to_patch = layers_to_patch + [mapping.smooth_layer]
 
+        # Get weight dtype from first layer to ensure scales match
+        weight_dtype = (
+            layers_to_patch[0].weight.dtype if layers_to_patch else torch.float32
+        )
+
         with patch_attrs(
             layers_to_patch,
             "weight_observer",
@@ -807,8 +814,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # avoid scaling values that overflow
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
+                # Ensure scales have correct dtype to avoid float64 promotion
+                scales = scales.to(dtype=weight_dtype)
                 _scalesview = scales.view(1, -1).to(device)
-                _scalesview_inv = (1.0 / _scalesview).to(device)
+                _scalesview_inv = _scalesview.reciprocal()
 
                 # Q(W * s) for balance layers, Q(W / s) for smooth layer
                 for layer in layers_to_patch:
