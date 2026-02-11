@@ -34,7 +34,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     reset_quantization_status,
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
-    get_layers_indivisible_by_group_size,
+    validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
@@ -107,6 +107,9 @@ class QuantizationMixin(HooksMixin):
         names. Example: {"weights": "MSE", "input": "MSE"}. If both individual
         observer parameters (weight_observer, input_observer, output_observer) and
         observer dict are provided, the observer dict takes precedence.
+    :param bypass_divisibility_checks: if True, skip the check that weight columns
+        are divisible by group_size for GROUP/TENSOR_GROUP. Use when your runtime
+        (e.g. vLLM) supports non-divisible dimensions. Defaults to False.
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
@@ -122,6 +125,7 @@ class QuantizationMixin(HooksMixin):
     input_observer: Optional[str] = None
     output_observer: Optional[str] = None
     observer: Optional[Dict[str, str]] = None
+    bypass_divisibility_checks: bool = False
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
@@ -216,24 +220,12 @@ class QuantizationMixin(HooksMixin):
 
         apply_quantization_config(model, self.resolved_config)
 
-        # Early check: strategies in STRATEGIES_REQUIRING_STRICT_GROUP_DIVISIBILITY
-        # (GROUP, TENSOR_GROUP) require columns % group_size == 0; BLOCK and others
-        # are not checked. See group_size_validation module policy.
-        indivisible = get_layers_indivisible_by_group_size(
-            model, self.resolved_targets, self.ignore
+        validate_group_size_divisibility(
+            model,
+            self.resolved_targets,
+            self.ignore,
+            bypass=self.bypass_divisibility_checks,
         )
-        if indivisible:
-            lines = [
-                f"  - {fqn} (columns={cols}, group_size={gs})"
-                for fqn, cols, gs in indivisible
-            ]
-            raise ValueError(
-                "The following layers have weight column counts not divisible by "
-                "group_size. Group and tensor-group quantization require "
-                "columns % group_size == 0; compressed-tensors will error when saving "
-                "or running forward. Add these layer names to the modifier's `ignore` "
-                "list and re-run.\n\n" + "\n".join(lines)
-            )
 
         # disable quantization until calibration
         model.apply(disable_quantization)
