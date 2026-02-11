@@ -70,7 +70,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - name: "⚙️ Install dependencies"
-        run: uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/cu129
+        run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "vllm-project/compressed-tensors"
@@ -83,7 +83,7 @@ jobs:
           uv pip uninstall compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly uv pip install . --extra-index-url https://download.pytorch.org/whl/cu129
+          BUILD_TYPE=nightly uv pip install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
