@@ -188,11 +188,11 @@ if  dist.get_rank() == 0:
     print("==========================================\n\n")
 
 dist.barrier()
-if dist.get_rank() == 0:
-    SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-GPTQ-ddp"
-    model.save_pretrained(SAVE_DIR, save_compressed=True)
-    tokenizer.save_pretrained(SAVE_DIR)
-dist.barrier()
+# if dist.get_rank() == 0:
+#     SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-GPTQ-ddp"
+#     model.save_pretrained(SAVE_DIR, save_compressed=True)
+#     tokenizer.save_pretrained(SAVE_DIR)
+# dist.barrier()
 
 dist.destroy_process_group()
 
