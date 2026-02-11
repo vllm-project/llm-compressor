@@ -9,6 +9,10 @@ on:
       - opened
       - reopened
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ready-label-check:
     runs-on: ubuntu-latest
