@@ -1,4 +1,5 @@
 """
+# AutoRound: https://github.com/intel/auto-round/tree/main
 CUDA_VISIBLE_DEVICES=0,1 python ddp_qwen3_example.py \
     --model Qwen/Qwen3-8B \
     --ddp \
