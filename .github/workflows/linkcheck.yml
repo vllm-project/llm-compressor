@@ -11,7 +11,7 @@ on:
 
 jobs:
   markdown-link-check:
-    runs-on: gcp-k8s-vllm-util
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
