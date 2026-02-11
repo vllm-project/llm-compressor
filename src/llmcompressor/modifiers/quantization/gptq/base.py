@@ -306,31 +306,31 @@ class GPTQModifier(Modifier, QuantizationMixin):
         for module in modules_for_rank[rank]:
             q_params = self.compress_single_module(module)
             weight, weight_scale, weight_zero_point, weight_g_idx = q_params
-            update_offload_parameter(module, "weight", q_params)
+            update_offload_parameter(module, "weight", weight)
             update_offload_parameter(module, "weight_scale", weight_scale)
             update_offload_parameter(module, "weight_zero_point", weight_zero_point)
             if weight_g_idx is not None:
                 update_offload_parameter(module, "weight_g_idx", weight_g_idx)
 
         ## Broadcast quantized parameters to other ranks
-        for src_rank, module in enumerate(modules_for_rank):
-            if rank == src_rank:
-                weight_g_idx = getattr(module, "weight_g_idx", None)
-                broadcast_obj = [
-                    getattr(module, "weight"),
-                    getattr(module, "weight_scale"),
-                    getattr(module, "weight_zero_point"),
-                    getattr(module, "weight_g_idx", None),
-                ]
-            else:
-                broadcast_obj = [None, None, None, None]
-            dist.broadcast_object_list(broadcast_obj, src=src_rank)
-            weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
-            update_offload_parameter(module, "weight", weight)
-            update_offload_parameter(module, "weight_scale", weight_scale)
-            update_offload_parameter(module, "weight_zero_point", weight_zero_point)
-            if weight_g_idx is not None:
-                update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+        for src_rank, modules in enumerate(modules_for_rank):
+            for module in modules:
+                if rank == src_rank:
+                    broadcast_obj = [
+                        getattr(module, "weight"),
+                        getattr(module, "weight_scale"),
+                        getattr(module, "weight_zero_point"),
+                        getattr(module, "weight_g_idx", None),
+                    ]
+                else:
+                    broadcast_obj = [None, None, None, None]
+                dist.broadcast_object_list(broadcast_obj, src=src_rank)
+                weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
+                update_offload_parameter(module, "weight", weight)
+                update_offload_parameter(module, "weight_scale", weight_scale)
+                update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+                if weight_g_idx is not None:
+                    update_offload_parameter(module, "weight_g_idx", weight_g_idx)
 
     def compress_single_module(self, module):
         if module is None:
