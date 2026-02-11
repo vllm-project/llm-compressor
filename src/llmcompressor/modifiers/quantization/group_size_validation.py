@@ -31,16 +31,30 @@ from compressed_tensors.quantization import QuantizationScheme, QuantizationStra
 from compressed_tensors.utils import match_named_modules
 
 __all__ = [
-    "STRATEGIES_REQUIRING_STRICT_GROUP_DIVISIBILITY",
+    "_layer_indivisible",
     "get_layers_indivisible_by_group_size",
+    "validate_group_size_divisibility",
 ]
 
-# Strategies for which we error on indivisible columns (no kernel support).
-# BLOCK is intentionally excluded: block kernels support non-divisible.
-STRATEGIES_REQUIRING_STRICT_GROUP_DIVISIBILITY = (
-    QuantizationStrategy.GROUP,
-    QuantizationStrategy.TENSOR_GROUP,
-)
+
+def _layer_indivisible(module: torch.nn.Module, weight_args) -> Tuple[int, int] | None:
+    """
+    If module has group/tensor_group weight and columns % group_size != 0,
+    return (columns, group_size); else return None.
+    """
+    strategy = getattr(weight_args, "strategy", None)
+    if strategy not in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+        return None
+    group_size = getattr(weight_args, "group_size", None)
+    if group_size is None:
+        return None
+    if not hasattr(module, "weight"):
+        return None
+    columns = int(module.weight.shape[-1])
+    group_size = int(group_size)
+    if columns >= group_size and columns % group_size != 0:
+        return (columns, group_size)
+    return None
 
 
 def get_layers_indivisible_by_group_size(
@@ -51,9 +65,9 @@ def get_layers_indivisible_by_group_size(
     """
     Find targeted layers whose weight columns are not divisible by group_size.
 
-    Only considers layers whose weight scheme is in
-    STRATEGIES_REQUIRING_STRICT_GROUP_DIVISIBILITY (GROUP, TENSOR_GROUP).
-    BLOCK and other strategies are not checked. Matches the condition
+    Only considers layers whose weight scheme is GROUP or TENSOR_GROUP (enum).
+    BLOCK and other strategies are not checked.
+    Matches the condition
     that triggers ValueError in compressed_tensors forward.py (columns >=
     group_size and columns % group_size != 0).
 
@@ -70,17 +84,34 @@ def get_layers_indivisible_by_group_size(
         scheme: QuantizationScheme | None = getattr(module, "quantization_scheme", None)
         if scheme is None or scheme.weights is None:
             continue
-        args = scheme.weights
-        if args.strategy not in STRATEGIES_REQUIRING_STRICT_GROUP_DIVISIBILITY:
-            continue
-        group_size = getattr(args, "group_size", None)
-        if group_size is None:
-            continue
-        if not hasattr(module, "weight"):
-            continue
-        weight = module.weight
-        # Same "columns" as compressed_tensors forward: last dim of weight
-        columns = weight.shape[-1]
-        if columns >= group_size and columns % group_size != 0:
+        result = _layer_indivisible(module, scheme.weights)
+        if result is not None:
+            columns, group_size = result
             indivisible.append((name, columns, group_size))
     return indivisible
+
+
+def validate_group_size_divisibility(
+    model: torch.nn.Module,
+    resolved_targets: Set[str],
+    ignore: list[str],
+) -> None:
+    """
+    Ensure targeted group/tensor_group layers have columns divisible by group_size.
+
+    If any such layer has columns % group_size != 0, raises ValueError with layer FQNs.
+    """
+    indivisible = get_layers_indivisible_by_group_size(model, resolved_targets, ignore)
+    if not indivisible:
+        return
+    lines = [
+        f"  - {fqn} (columns={cols}, group_size={gs})" for fqn, cols, gs in indivisible
+    ]
+    raise ValueError(
+        "The following layers have weight column counts not divisible by "
+        "group_size. Group and tensor-group quantization require "
+        "columns % group_size == 0; compressed-tensors will error when saving "
+        "or running forward. Add these layer names to the modifier's `ignore` "
+        "list and re-run, or set bypass_divisibility_checks=True if your "
+        "runtime (e.g. vLLM) supports non-divisible dimensions.\n\n" + "\n".join(lines)
+    )
