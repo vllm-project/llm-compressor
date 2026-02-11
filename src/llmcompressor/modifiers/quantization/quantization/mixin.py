@@ -33,6 +33,9 @@ from llmcompressor.modifiers.quantization.calibration import (
     initialize_observer,
     reset_quantization_status,
 )
+from llmcompressor.modifiers.quantization.group_size_validation import (
+    get_layers_indivisible_by_group_size,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 
@@ -212,6 +215,25 @@ class QuantizationMixin(HooksMixin):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
         apply_quantization_config(model, self.resolved_config)
+
+        # Early check: strategies in STRATEGIES_REQUIRING_STRICT_GROUP_DIVISIBILITY
+        # (GROUP, TENSOR_GROUP) require columns % group_size == 0; BLOCK and others
+        # are not checked. See group_size_validation module policy.
+        indivisible = get_layers_indivisible_by_group_size(
+            model, self.resolved_targets, self.ignore
+        )
+        if indivisible:
+            lines = [
+                f"  - {fqn} (columns={cols}, group_size={gs})"
+                for fqn, cols, gs in indivisible
+            ]
+            raise ValueError(
+                "The following layers have weight column counts not divisible by "
+                "group_size. Group and tensor-group quantization require "
+                "columns % group_size == 0; compressed-tensors will error when saving "
+                "or running forward. Add these layer names to the modifier's `ignore` "
+                "list and re-run.\n\n" + "\n".join(lines)
+            )
 
         # disable quantization until calibration
         model.apply(disable_quantization)
