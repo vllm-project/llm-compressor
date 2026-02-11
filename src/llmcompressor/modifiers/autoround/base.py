@@ -34,7 +34,6 @@ from llmcompressor.utils.pytorch import get_no_split_params
 __all__ = ["AutoRoundModifier"]
 
 
-
 class _LLModelWrapper(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -80,12 +79,6 @@ def suspend_offloading(model: nn.Module):
 
     for name, module in model.named_modules():
         offload_module(module, *offloading_info[name])
-
-
-def check_device(model, msg: str = ""):
-    device = next(model.parameters()).device
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    logger.info(f"[rank: {rank}] {msg}: Model is on device: {device}")
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
@@ -287,7 +280,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_offloading(wrapped_model),
         ):
-            check_device(wrapped_model, "wrapped_model device before AutoRound")
             self._update_device_map_for_dp(kwargs)
             ar = AutoRound(
                 model=wrapped_model,
@@ -318,7 +310,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._q_input = q_input
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
-            check_device(decoding_layer, "decoding_layer device after AutoRound")
 
         decoding_layer.eval()
         # Update offload parameters and remove temporary attributes
