@@ -3,19 +3,19 @@ source $DEV_ENV_DIR/.bash_profile
 # Define arrays of options to test
 MODEL_IDS=(
     "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    "meta-llama/Meta-Llama-3-8B-Instruct"
+    # "meta-llama/Meta-Llama-3-8B-Instruct"
 )
 
 DEVICE_MAPS=(
     "cpu"
     # "disk"
-    "cuda"
+    # "cuda"
 )
 
 GPU_COUNTS=(
-    1
+    # 1
     2
-    4
+    # 4
 )
 
 export MAX_GPUS=4
@@ -43,12 +43,12 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
 
             EVAL_OUTPUT_DIR="./${SAVE_DIR}_eval"
 
-            run $MAX_GPUS lm_eval \
-                --model vllm \
-                --model_args pretrained=./$SAVE_DIR,dtype=auto,max_model_len=2048,add_bos_token=True,tensor_parallel_size=$MAX_GPUS \
-                --tasks gsm8k \
-                --batch_size auto \
-                --output_path $EVAL_OUTPUT_DIR
+            # run $MAX_GPUS lm_eval \
+            #     --model vllm \
+            #     --model_args pretrained=./$SAVE_DIR,dtype=auto,max_model_len=2048,add_bos_token=True,tensor_parallel_size=$MAX_GPUS \
+            #     --tasks gsm8k \
+            #     --batch_size auto \
+            #     --output_path $EVAL_OUTPUT_DIR
 
             # Append evaluation metrics to output file
             if [ -f "${EVAL_OUTPUT_DIR}/results.json" ]; then
