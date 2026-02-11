@@ -264,7 +264,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Quantize modules which have been calibrated
         """
-
         ### Not Distributed
         if not (dist.is_initialized() and dist.get_world_size() > 1):
             for module in list(self._num_samples.keys()):
@@ -276,7 +275,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     update_offload_parameter(module, "weight_g_idx", g_idx)
                 # self._hessians[module] already deleted by quantize_weight
                 self._num_samples.pop(module, None)
-                return
+            return
                 
         ### Distributed
         
@@ -293,8 +292,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 n = torch.Tensor([self._num_samples.pop(module)]).to(H.device)
                 H*=n
                 dist.reduce(H, op=dist.ReduceOp.SUM, dst=target_rank)
-                dist.reduce(n, op=dist.ReduceOp.SUM, dst=target_rank) # REMOVE?
-                H/=n # REMOVE?
+                # dist.reduce(n, op=dist.ReduceOp.SUM, dst=target_rank) # REMOVE?
+                # H/=n # REMOVE?
                 self._hessians[module]=H
 
                 # delete unneeded info
@@ -313,7 +312,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 update_offload_parameter(module, "weight_g_idx", weight_g_idx)
 
         ## Broadcast quantized parameters to other ranks
-        for src_rank, modules in enumerate(modules_for_rank):
+        for src_rank, modules in enumerate(modules_for_rank): 
             for module in modules:
                 if rank == src_rank:
                     broadcast_obj = [
