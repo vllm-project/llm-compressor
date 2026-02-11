@@ -1,10 +1,12 @@
 """
 CUDA_VISIBLE_DEVICES=0,1 python ddp_qwen3_example.py \
     --model Qwen/Qwen3-8B \
+    --ddp \
     --nsamples 128  \
     --iters 200 \
     --disable_torch_compile \
-    --deterministic
+    --deterministic \
+
 """
 from loguru import logger
 from auto_round.calib_dataset import get_dataset
