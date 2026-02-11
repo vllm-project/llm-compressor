@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ibm-wdc-k8s-vllm-h100-util
+    runs-on: gcp-k8s-vllm-util
 
     outputs:
       matched-changes: ${{ steps.changed-files.outputs.all_changed_files }}
