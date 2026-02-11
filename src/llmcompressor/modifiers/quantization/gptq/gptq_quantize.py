@@ -93,6 +93,7 @@ def quantize_weight(
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
+    global_scale = getattr(module, "weight_global_scale", None)
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
@@ -101,7 +102,7 @@ def quantize_weight(
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        "memoryless_minmax",
+        quant_args.observer if quant_args.observer else "memoryless_minmax",
         base_name="weight",
         args=quant_args,
         module=module,
@@ -117,7 +118,8 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    if strategy == QuantizationStrategy.GROUP:
+    # generate scale, should include tensor group / use global scale
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         # mapping from column index to group index
         g_idx = (
             torch.arange(num_columns, device=W.device, dtype=torch.int)
@@ -201,10 +203,7 @@ def quantize_weight(
             # quantize column
             if strategy == QuantizationStrategy.TENSOR:
                 q = fake_quantize(
-                    q,
-                    scale,
-                    zero_point,
-                    quant_args,
+                    q, scale, zero_point, quant_args, global_scale=global_scale
                 )
             elif strategy == QuantizationStrategy.CHANNEL:
                 q = fake_quantize(
@@ -212,8 +211,13 @@ def quantize_weight(
                     scale[:, 0],
                     zero_point[:, 0],
                     quant_args,
+                    global_scale=global_scale,
                 )
-            elif strategy == QuantizationStrategy.GROUP:
+            # apply global scale to scale quant scale
+            elif strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+            ):
                 # get the group index for the current column
                 column_idx = i1 + i
                 group_index = g_idx[column_idx]
@@ -222,11 +226,13 @@ def quantize_weight(
                 # ends up being a channelwise application
                 altered_qargs = copy(quant_args)
                 altered_qargs.strategy = QuantizationStrategy.CHANNEL
+
                 q = fake_quantize(
                     q,
                     scale[:, group_index],
                     zero_point[:, group_index],
                     altered_qargs,
+                    global_scale=global_scale,
                 )
             else:
                 raise ValueError(
@@ -256,7 +262,7 @@ def quantize_weight(
             W[:, i2:] -= w_err
 
     has_gidx = False
-    if strategy == QuantizationStrategy.GROUP:
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         if actorder == ActivationOrdering.WEIGHT:
             # restore original permutation
             invperm = torch.argsort(perm)

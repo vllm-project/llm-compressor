@@ -1,0 +1,23 @@
+nav:
+  - Home: index.md
+  - Why use LLM Compressor?: getting-started/why-llmcompressor.md
+  - Choosing the right compression scheme: getting-started/choosing-scheme.md
+  - Choosing the right compression algorithm: getting-started/choosing-algo.md
+  - Getting started:
+    - getting-started/index.md
+    - Installing LLM Compressor: getting-started/install.md
+    - Compressing your Model: getting-started/compress.md
+    - Deploying with vLLM: getting-started/deploy.md
+    - FAQ: getting-started/faq.md
+  - Guides:
+    - Compression Schemes: guides/compression_schemes.md
+    - Saving a Model: guides/saving_a_model.md
+    - Observers: observers.md
+  - Examples:
+    - examples/index.md
+    - examples/*
+  - Developer:
+    - developer/index.md
+    - developer/*
+  - API Reference:
+    - api/*

@@ -1,7 +1,3 @@
----
-weight: -6
----
-
 # Deploy with vLLM
 
 Once you've compressed your model using LLM Compressor, you can deploy it for efficient inference using vLLM. This guide walks you through the deployment process, using the output from the [Compress Your Model](compress.md) guide. If you haven't completed that step, change the model arguments in the code snippets below to point to your desired model.
@@ -26,7 +22,7 @@ vLLM provides a Python API for easy integration with your applications, enabling
 ```python
 from vllm import LLM, SamplingParams
 
-model = LLM("./TinyLlama-1.1B-Chat-v1.0-INT8")
+model = LLM("Qwen3-30B-A3B-FP8-BLOCK")
 sampling_params = SamplingParams(max_tokens=256)
 outputs = model.generate("What is machine learning?", sampling_params)
 for output in outputs:
@@ -41,7 +37,7 @@ vLLM also provides an HTTP server for serving your model via a RESTful API that 
 To start the HTTP server, use the following command:
 
 ```bash
-vllm serve "TinyLlama-1.1B-Chat-v1.0-INT8"
+vllm serve "Qwen3-30B-A3B-FP8-BLOCK"
 ```
 
 By default, the server will run on `localhost:8000`. You can change the host and port by using the `--host` and `--port` flags. Now that the server is running, you can send requests to it using any HTTP client. For example, you can use `curl` to send a request:
@@ -50,7 +46,7 @@ By default, the server will run on `localhost:8000`. You can change the host and
 curl -X POST http://localhost:8000/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d '{
-        "model": "TinyLlama-1.1B-Chat-v1.0-INT8",
+        "model": "Qwen3-30B-A3B-FP8-BLOCK",
         "messages": [{"role": "user", "content": "What is machine learning?"}],
         "max_tokens": 256
     }'

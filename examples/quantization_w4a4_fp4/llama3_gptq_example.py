@@ -1,9 +1,15 @@
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    FP8_E4M3_DATA,
+    DynamicType,
+    QuantizationArgs,
+    QuantizationStrategy,
+    QuantizationType,
+)
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
@@ -51,16 +57,34 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="attn_head"
-            ),
-        )
-    }
+#   * quantize the weights to 4 bit with GPTQ with a group size 32
+NVFP4 = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        actorder="static",
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=16,
+        scale_dtype=FP8_E4M3_DATA.dtype,
+        zp_dtype=FP8_E4M3_DATA.dtype,
+        observer="memoryless_minmax",
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=DynamicType.LOCAL,
+        group_size=16,
+        observer="static_minmax",
+        scale_dtype=FP8_E4M3_DATA.dtype,
+        zp_dtype=FP8_E4M3_DATA.dtype,
+    ),
+    targets=["Linear"],
 )
+recipe = GPTQModifier(config_groups={"group_0": NVFP4}, ignore=["lm_head"])
 
 # Apply algorithms.
 oneshot(
@@ -82,6 +106,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-attention-fp8-head"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4-GPTQ"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

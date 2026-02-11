@@ -54,6 +54,35 @@ _moe_default_mappings = [
     ),
 ]
 
+# Qwen3Next uses hybrid attention: self_attn (layers 3,7,11,...) and
+# linear_attn/Gated DeltaNet (all other layers). Layer-specific patterns
+# are required since different layers have different projection structures.
+# Also includes shared_expert in the MoE MLP.
+# TODO: The self_attn layer indices are hardcoded for the 80B variant (48 layers,
+# interval=4, starting at layer 3). The interval is a configurable parameter in the
+# model config (full_attention_layer_interval). Consider making this dynamic.
+_qwen3_next_moe_mappings = [
+    AWQMapping(
+        "re:.*layers\\.(3|7|11|15|19|23|27|31|35|39|43|47)\\.input_layernorm$",
+        ["re:.*self_attn.q_proj$", "re:.*self_attn.k_proj$", "re:.*self_attn.v_proj$"],
+    ),
+    AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
+    AWQMapping(
+        "re:.*layers\\.(0|1|2|4|5|6|8|9|10|12|13|14|16|17|18|20|21|22|24|25|26|28|29|30|32|33|34|36|37|38|40|41|42|44|45|46)\\.input_layernorm$",
+        ["re:.*linear_attn.in_proj_qkvz$", "re:.*linear_attn.in_proj_ba$"],
+    ),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        [
+            "re:.*mlp.experts.*.gate_proj$",
+            "re:.*mlp.experts.*.up_proj$",
+            "re:.*mlp.shared_expert.gate_proj$",
+            "re:.*mlp.shared_expert.up_proj$",
+        ],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
 # Phi merges
 #  q, k, and v proj layers into a single qkv_proj layer
 #  gate and up proj layers into a single gate_up_proj layer
@@ -174,6 +203,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
+    "Qwen3NextForCausalLM": _qwen3_next_moe_mappings,
     "Glm4MoeForCausalLM": _default_mappings,
     "SeedOssForCausalLM": _default_mappings,
     "Ernie4_5_MoeForCausalLM": _default_mappings,
