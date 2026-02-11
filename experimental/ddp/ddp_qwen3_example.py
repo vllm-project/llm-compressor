@@ -17,10 +17,7 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-model_id = "Qwen/Qwen3-235B-A22B"
 model_id = "Qwen/Qwen3-8B"
-# model_id = "/data5/yiliu4/Qwen/Qwen2-0.5B"
-# model_id = "Qwen/Qwen2-0.5B"
 
 import argparse
 import os
@@ -154,12 +151,6 @@ def quantize_model(rank, world_size, args):
         # Other ranks just run quantization without saving
         logger.info(f"[Rank {rank}] Running quantization (not saving)")
 
-    # except Exception as e:
-    #     logger.info(f"[Rank {rank}] Error during quantization: {e}")
-    #     raise
-
-    # finally:
-    #     # Cleanup DDP
     if world_size > 1:
         cleanup_ddp()
 
