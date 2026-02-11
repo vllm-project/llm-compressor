@@ -17,6 +17,11 @@ env:
   UV_SYSTEM_PYTHON: 1
   UV_TORCH_BACKEND: "auto"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
 jobs:
 
   base-tests:

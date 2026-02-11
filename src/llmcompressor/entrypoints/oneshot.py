@@ -392,8 +392,7 @@ def oneshot(
         during forward pass in calibration. Default is set to True.
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
-        False to keep peak GPU memory low. Set True for faster calibration if you
-        have enough GPU memory for two batches of inputs.
+        False; set True for faster calibration when GPU memory allows.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.

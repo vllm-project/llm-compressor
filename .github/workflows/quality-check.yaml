@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [ main, 'release/*' ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   UV_SYSTEM_PYTHON: 1
   UV_TORCH_BACKEND: "auto"
