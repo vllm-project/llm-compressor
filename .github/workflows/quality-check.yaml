@@ -11,7 +11,7 @@ env:
 
 jobs:
   quality-check:
-    runs-on: ubuntu-22.04
+    runs-on: gcp-k8s-vllm-util
     steps:
       - uses: actions/setup-python@v5
         with:

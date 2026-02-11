@@ -133,7 +133,7 @@ jobs:
           coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   combine-coverage:
-    runs-on: ubuntu-22.04
+    runs-on: gcp-k8s-vllm-util
     needs: [base-tests, pytorch-tests]
     if: (success() || failure()) && inputs.code_coverage
     steps:
