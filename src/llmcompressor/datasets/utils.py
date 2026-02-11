@@ -131,12 +131,11 @@ def format_calibration_data(
     # num_workers=0; when num_workers>0, pin_memory speeds CPU->GPU transfer)
     num_workers = args.dataloader_num_workers
     pin_memory = torch.cuda.is_available() and num_workers > 0
-    # persistent_workers avoids worker respawn between epochs; prefetch_factor
-    # allows loading next batches in parallel (only used when num_workers > 0)
+    # persistent_workers avoids worker respawn between epochs (only when
+    # num_workers > 0). prefetch_factor is left at DataLoader default (2).
     kwargs: dict[str, Any] = {}
     if num_workers > 0:
         kwargs["persistent_workers"] = True
-        kwargs["prefetch_factor"] = 2
     return DataLoader(
         tokenized_dataset,
         batch_size=args.batch_size,
@@ -405,9 +404,10 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     DATASET_SPLIT = "train_sft"
     NUM_CALIBRATION_SAMPLES = 256
 
-    split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
+    split = get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
     ds = load_dataset(
-        DATASET_ID, split=split
+        DATASET_ID,
+        split=split,
     )
 
     for S samples and D devices, when S is not perfectly divisible by D,

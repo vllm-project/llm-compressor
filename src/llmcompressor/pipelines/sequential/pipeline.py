@@ -30,16 +30,23 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
-def _batches_with_prefetch(
+def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
     input_names: list[str],
     desc: str,
+    use_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
-    Yield (batch_idx, inputs) with the next batch prefetched in a background thread
-    to overlap fetch (onload from offload device) with the main-thread forward pass.
+    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
+    background thread to overlap fetch (onload from offload device) with the
+    main-thread forward pass.
     """
+    if not use_prefetch:
+        for batch_idx in tqdm(range(num_batches), desc=desc):
+            inputs = activations.fetch(batch_idx, input_names)
+            yield batch_idx, inputs
+        return
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = None
         for batch_idx in tqdm(range(num_batches), desc=desc):
@@ -48,7 +55,9 @@ def _batches_with_prefetch(
             else:
                 inputs = activations.fetch(batch_idx, input_names)
             if batch_idx + 1 < num_batches:
-                future = executor.submit(activations.fetch, batch_idx + 1, input_names)
+                future = executor.submit(
+                    activations.fetch, batch_idx + 1, input_names
+                )
             else:
                 future = None
             yield batch_idx, inputs
@@ -142,20 +151,13 @@ class SequentialPipeline(CalibrationPipeline):
                 use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    calib_batches = (
-                        _batches_with_prefetch(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            calib_desc,
-                        )
-                        if use_prefetch
-                        else (
-                            (i, activations.fetch(i, subgraph.input_names))
-                            for i in tqdm(range(num_batches), desc=calib_desc)
-                        )
-                    )
-                    for batch_idx, inputs in calib_batches:
+                    for batch_idx, inputs in _get_batches(
+                        activations,
+                        num_batches,
+                        subgraph.input_names,
+                        calib_desc,
+                        use_prefetch,
+                    ):
                         session.state.current_batch_idx = batch_idx
                         subgraph.forward(model, **inputs)
 
@@ -164,20 +166,13 @@ class SequentialPipeline(CalibrationPipeline):
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
                     with HooksMixin.disable_hooks():
-                        prop_batches = (
-                            _batches_with_prefetch(
-                                activations,
-                                num_batches,
-                                subgraph.input_names,
-                                prop_desc,
-                            )
-                            if use_prefetch
-                            else (
-                                (i, activations.fetch(i, subgraph.input_names))
-                                for i in tqdm(range(num_batches), desc=prop_desc)
-                            )
-                        )
-                        for batch_idx, inputs in prop_batches:
+                        for batch_idx, inputs in _get_batches(
+                            activations,
+                            num_batches,
+                            subgraph.input_names,
+                            prop_desc,
+                            use_prefetch,
+                        ):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)

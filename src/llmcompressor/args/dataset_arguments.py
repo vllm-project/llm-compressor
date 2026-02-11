@@ -268,9 +268,8 @@ class DatasetArguments(CustomDatasetArguments):
         default=False,
         metadata={
             "help": "When using the sequential pipeline, prefetch the next batch in a "
-            "background thread to overlap onload with forward. Default False to keep "
-            "peak GPU memory low (one batch of inputs at a time). Set True for faster "
-            "calibration if you have enough GPU memory for two batches of inputs."
+            "background thread to overlap onload with forward. Default False; set True "
+            "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
 
