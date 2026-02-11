@@ -127,13 +127,24 @@ def format_calibration_data(
     tokenized_dataset: Dataset,
     processor: Processor,
 ) -> DataLoader:
+    # Pin memory only when using workers (saves RAM for low-memory users when
+    # num_workers=0; when num_workers>0, pin_memory speeds CPU->GPU transfer)
+    num_workers = args.dataloader_num_workers
+    pin_memory = torch.cuda.is_available() and num_workers > 0
+    # persistent_workers avoids worker respawn between epochs; prefetch_factor
+    # allows loading next batches in parallel (only used when num_workers > 0)
+    kwargs: dict[str, Any] = {}
+    if num_workers > 0:
+        kwargs["persistent_workers"] = True
+        kwargs["prefetch_factor"] = 2
     return DataLoader(
         tokenized_dataset,
         batch_size=args.batch_size,
         sampler=_make_sampler(args, tokenized_dataset),
         collate_fn=_make_collate_fn(args, processor),
-        pin_memory=False,
-        num_workers=args.dataloader_num_workers,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
+        **kwargs,
     )
 
 
@@ -403,9 +414,9 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     we give each device at least S//D samples and distribute
     the remaining samples as evenly as possible across all devices
     """
-    assert (
-        "[" not in split
-    ), "Split string should not already contain partitioning brackets"
+    assert "[" not in split, (
+        "Split string should not already contain partitioning brackets"
+    )
 
     start, end = _get_partition_start_end(
         num_samples, dist.get_rank(), dist.get_world_size()

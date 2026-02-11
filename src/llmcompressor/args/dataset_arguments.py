@@ -258,9 +258,19 @@ class DatasetArguments(CustomDatasetArguments):
     dataloader_num_workers: int = field(
         default=0,
         metadata={
-            "help": "Number of worker processes for data loading. Set to 0 to disable "
-            "multiprocessing. Note: Custom data collators may not work with "
-            "multiprocessing. Default is 0."
+            "help": "Number of worker processes for data loading. Default is 0 (safe "
+            "for low CPU/GPU memory). Set to 2 or more for faster calibration if you "
+            "have sufficient RAM. Custom data collators may not work with "
+            "multiprocessing."
+        },
+    )
+    sequential_prefetch: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, prefetch the next batch in a "
+            "background thread to overlap onload with forward. Default False to keep "
+            "peak GPU memory low (one batch of inputs at a time). Set True for faster "
+            "calibration if you have enough GPU memory for two batches of inputs."
         },
     )
 

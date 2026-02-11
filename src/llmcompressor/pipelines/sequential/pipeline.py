@@ -1,5 +1,6 @@
 import contextlib
-from typing import TYPE_CHECKING
+from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.utils import disable_offloading
@@ -27,6 +28,30 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
+
+
+def _batches_with_prefetch(
+    activations: IntermediatesCache,
+    num_batches: int,
+    input_names: list[str],
+    desc: str,
+) -> Iterator[tuple[int, dict]]:
+    """
+    Yield (batch_idx, inputs) with the next batch prefetched in a background thread
+    to overlap fetch (onload from offload device) with the main-thread forward pass.
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = None
+        for batch_idx in tqdm(range(num_batches), desc=desc):
+            if future is not None:
+                inputs = future.result()
+            else:
+                inputs = activations.fetch(batch_idx, input_names)
+            if batch_idx + 1 < num_batches:
+                future = executor.submit(activations.fetch, batch_idx + 1, input_names)
+            else:
+                future = None
+            yield batch_idx, inputs
 
 
 @CalibrationPipeline.register("sequential")
@@ -113,28 +138,54 @@ class SequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # reduce memory movement by keeping modules onloaded
+                num_batches = len(dataloader)
+                use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
-                        inputs = activations.fetch(batch_idx, subgraph.input_names)
-
-                        # Set current batch index before forward pass for AWQ masking
-                        session.state.current_batch_idx = batch_idx
-
-                        subgraph.forward(model, **inputs)
+                    if use_prefetch:
+                        for batch_idx, inputs in _batches_with_prefetch(
+                            activations,
+                            num_batches,
+                            subgraph.input_names,
+                            calib_desc,
+                        ):
+                            session.state.current_batch_idx = batch_idx
+                            subgraph.forward(model, **inputs)
+                    else:
+                        for batch_idx in tqdm(range(num_batches), desc=calib_desc):
+                            inputs = activations.fetch(batch_idx, subgraph.input_names)
+                            session.state.current_batch_idx = batch_idx
+                            subgraph.forward(model, **inputs)
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
                     with HooksMixin.disable_hooks():
-                        for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
-                            inputs = activations.fetch(batch_idx, subgraph.input_names)
-                            output = subgraph.forward(model, **inputs)
-
-                            if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                        if use_prefetch:
+                            for batch_idx, inputs in _batches_with_prefetch(
+                                activations,
+                                num_batches,
+                                subgraph.input_names,
+                                prop_desc,
+                            ):
+                                output = subgraph.forward(model, **inputs)
+                                if subgraph_index < num_subgraphs - 1:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
+                        else:
+                            for batch_idx in tqdm(range(num_batches), desc=prop_desc):
+                                inputs = activations.fetch(
+                                    batch_idx, subgraph.input_names
+                                )
+                                output = subgraph.forward(model, **inputs)
+                                if subgraph_index < num_subgraphs - 1:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
