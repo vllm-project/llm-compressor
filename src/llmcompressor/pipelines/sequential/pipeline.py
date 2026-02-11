@@ -142,50 +142,46 @@ class SequentialPipeline(CalibrationPipeline):
                 use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    if use_prefetch:
-                        for batch_idx, inputs in _batches_with_prefetch(
+                    calib_batches = (
+                        _batches_with_prefetch(
                             activations,
                             num_batches,
                             subgraph.input_names,
                             calib_desc,
-                        ):
-                            session.state.current_batch_idx = batch_idx
-                            subgraph.forward(model, **inputs)
-                    else:
-                        for batch_idx in tqdm(range(num_batches), desc=calib_desc):
-                            inputs = activations.fetch(batch_idx, subgraph.input_names)
-                            session.state.current_batch_idx = batch_idx
-                            subgraph.forward(model, **inputs)
+                        )
+                        if use_prefetch
+                        else (
+                            (i, activations.fetch(i, subgraph.input_names))
+                            for i in tqdm(range(num_batches), desc=calib_desc)
+                        )
+                    )
+                    for batch_idx, inputs in calib_batches:
+                        session.state.current_batch_idx = batch_idx
+                        subgraph.forward(model, **inputs)
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
                     with HooksMixin.disable_hooks():
-                        if use_prefetch:
-                            for batch_idx, inputs in _batches_with_prefetch(
+                        prop_batches = (
+                            _batches_with_prefetch(
                                 activations,
                                 num_batches,
                                 subgraph.input_names,
                                 prop_desc,
-                            ):
-                                output = subgraph.forward(model, **inputs)
-                                if subgraph_index < num_subgraphs - 1:
-                                    activations.update(batch_idx, output)
-                                    activations.delete(
-                                        batch_idx, subgraph.consumed_names
-                                    )
-                        else:
-                            for batch_idx in tqdm(range(num_batches), desc=prop_desc):
-                                inputs = activations.fetch(
-                                    batch_idx, subgraph.input_names
-                                )
-                                output = subgraph.forward(model, **inputs)
-                                if subgraph_index < num_subgraphs - 1:
-                                    activations.update(batch_idx, output)
-                                    activations.delete(
-                                        batch_idx, subgraph.consumed_names
-                                    )
+                            )
+                            if use_prefetch
+                            else (
+                                (i, activations.fetch(i, subgraph.input_names))
+                                for i in tqdm(range(num_batches), desc=prop_desc)
+                            )
+                        )
+                        for batch_idx, inputs in prop_batches:
+                            output = subgraph.forward(model, **inputs)
+                            if subgraph_index < num_subgraphs - 1:
+                                activations.update(batch_idx, output)
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

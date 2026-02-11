@@ -73,6 +73,12 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         named_modules = list(
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
+        # TODO: this step can be combined with update_weight_zp_scale
+        # once update_fused_layer_weight_global_scales is removed
+        # and not required by vLLM
+        for _, module in named_modules:
+            update_weight_global_scale(module)
+
         # NOTE: update_fused_layer_weight_global_scales operates on Attention
         # and MLP layers, not quantizable Linear layers. Rather than running
         # on targeted modules, we need to run on all modules.
@@ -81,10 +87,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         for module in state.model.modules():
             update_fused_layer_weight_global_scales(module)
 
-        # Single pass over targeted modules: global scale then zp/scale (avoids
-        # two full iterations over named_modules)
         for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_global_scale(module)
             update_weight_zp_scale(module)
 
     def on_event(self, state: State, event: Event, **kwargs):
