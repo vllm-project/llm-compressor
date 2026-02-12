@@ -1,25 +1,9 @@
-from contextlib import contextmanager
 import argparse
 import json
 from datetime import datetime
 import torch
-from compressed_tensors.offload import offload_model
-from compressed_tensors.offload.dispatch import remove_dispatch
-from loguru import logger
 import torch.distributed as dist
-import inspect
 import os
-import psutil
-
-
-import torch
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
-from llmcompressor.datasets import get_rank_partition
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description="Run DDP quantization test")
@@ -50,13 +34,21 @@ parser.add_argument(
 args = parser.parse_args()
 
 ### USER API: torchrun --nproc_per_node=2 test_ddp.py --<args or just leave defaults>
-args = parser.parse_args()
 
-from compressed_tensors.offload import offload_model
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.datasets import get_rank_partition
+from compressed_tensors.offload import load_offloaded_model, init_dist
 
 
 MODEL_ID = args.model_id
-with offload_model(): # <- context manager to wrap from_pretrained
+init_dist()
+with load_offloaded_model(): # <- context manager to wrap from_pretrained
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto", device_map=args.device_map)
 # model.model.config.num_hidden_layers = 3
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -69,6 +61,7 @@ MAX_SEQUENCE_LENGTH = 512
 ds = load_dataset(
     DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
 )
+print(dist.get_rank(), len(ds))
 ds = ds.shuffle(seed=42)
 def preprocess(example):
     return {"text": tokenizer.apply_chat_template(example["messages"],tokenize=False,)}
@@ -89,11 +82,11 @@ start = time.time()
 oneshot(
     model=model,
     dataset=ds,
-    recipe=recipe,
-    # recipe=None,
+    # recipe=recipe,
+    recipe=None,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    # pipeline="sequential"
+    pipeline="sequential"
 )
 elapsed_time = time.time() - start
 print(f"\nPipeline took {elapsed_time} seconds, rank={dist.get_rank()}")
