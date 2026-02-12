@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: gcp-k8s-vllm-util
 
     outputs:
       matched-changes: ${{ steps.changed-files.outputs.all_changed_files }}
