@@ -97,7 +97,6 @@ def setup_model_and_config(request, tmpdir_factory):
 
 
 @requires_gpu
-@pytest.mark.integration
 def test_quantization_reload(setup_model_and_config):
     model, config, output_dir = setup_model_and_config
 
@@ -128,7 +127,6 @@ def test_quantization_reload(setup_model_and_config):
 
 
 @requires_gpu
-@pytest.mark.integration
 @torch.no_grad()
 def test_perplexity(setup_model_and_config):
     model, config, output_dir = setup_model_and_config
