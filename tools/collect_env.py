@@ -3,9 +3,9 @@ Script used to generate environment information for the purpose of
 creating bug reports. See `.github/ISSUE_TEMPLATE/bug_report.md`
 """
 
+import importlib
 import platform
 import sys
-import importlib
 
 
 def get_version(pkg_name):

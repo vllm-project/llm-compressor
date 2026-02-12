@@ -1,10 +1,10 @@
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
-from compressed_tensors.quantization import QuantizationScheme, QuantizationArgs
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"

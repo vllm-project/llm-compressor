@@ -121,7 +121,7 @@ setup(
             else "requests>=2.32.2"
         ),
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.9.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.9.0,<=2.9.1"),
+        ("torch>=2.9.0,<=2.10.0" if BUILD_TYPE == "release" else "torch>=2.9.0"),
         (
             "transformers>=4.56.1,<=4.57.6"
             if BUILD_TYPE == "release"
@@ -130,9 +130,9 @@ setup(
         ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
             # auto-round 0.9.1 cannot work with accelerate <1.10.0
-            "auto-round>=0.9.4,<=0.9.4"
+            "auto-round>=0.9.6,<=0.9.6"
             if BUILD_TYPE == "release"
-            else "auto-round>=0.9.4"
+            else "auto-round>=0.9.6"
         ),
         (
             "accelerate>=1.6.0,<=1.12.0"
@@ -163,10 +163,10 @@ setup(
             "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
             "pandas<2.3.0",
-            "torchvision<=0.24.1",
+            "torchvision",
             "librosa==0.11.0",
             "soundfile",
-            "torchcodec<=0.9.1",
+            "torchcodec",
             # linting, formatting, and type checking
             "mypy~=1.10.0",
             "ruff~=0.4.8",
@@ -182,7 +182,7 @@ setup(
             "mkdocs-api-autonav",
             "mkdocstrings-python",
             "mkdocs-gen-files",
-            "mkdocs-nav-weight",
+            "mkdocs-awesome-nav",
         ],
     },
     entry_points={
