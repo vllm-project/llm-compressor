@@ -260,7 +260,7 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
         start, end = _get_partition_start_end(
             num_samples, dist.get_rank(), dist.get_world_size()
         )
-        dataset = Subset(dataset, range(start,end))
+        dataset = dataset.select(range(start, end))
 
     if num_samples is not None and num_samples > len(dataset):
         logger.warning(
