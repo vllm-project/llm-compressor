@@ -16,7 +16,7 @@ import torch
 from datasets import Dataset
 from loguru import logger
 from torch import distributed as dist
-from torch.utils.data import DataLoader, RandomSampler, Sampler
+from torch.utils.data import DataLoader, RandomSampler, Sampler, Subset
 from transformers.data import DataCollatorWithPadding, default_data_collator
 
 from llmcompressor.args import DatasetArguments
@@ -260,7 +260,7 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
         start, end = _get_partition_start_end(
             num_samples, dist.get_rank(), dist.get_world_size()
         )
-        dataset = dataset[start:end]
+        dataset = Subset(dataset, range(start,end))
 
     if num_samples is not None and num_samples > len(dataset):
         logger.warning(
