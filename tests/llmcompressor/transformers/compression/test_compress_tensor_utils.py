@@ -175,7 +175,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         concatenate_data=concatenate_data,
         splits=splits,
         precision=dtype,
-        clear_sparse_session=False,
+        tie_word_embeddings=False,
     )
 
     # Fetch the oneshot model
