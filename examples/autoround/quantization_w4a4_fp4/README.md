@@ -103,9 +103,9 @@ lm_eval --model vllm-vlm \
 
 
 ##### Qwen3-VL-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=200)
-|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|                                       
-|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|                                       
-|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.8415|±  |0.0101|                                       
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.8415|±  |0.0101|
 |     |       |strict-match    |     5|exact_match|↑  |0.8408|±  |0.0101|
 
 > Note: quantized model accuracy may vary slightly due to nondeterminism.
