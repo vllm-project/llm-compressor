@@ -89,7 +89,7 @@ jobs:
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
-      - name: "🔬 Running transformers tests"
+      - name: "🔬 Running compression tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -vra tests/llmcompressor/transformers/compression
