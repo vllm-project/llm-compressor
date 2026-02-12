@@ -67,6 +67,7 @@ w8a8_dynamic_recipe_modifier = AutoRoundModifier(
 w8a8_static_recipe_modifier = AutoRoundModifier(
     ignore=["lm_head"],
     iters=0,
+    nable_torch_compile=False,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"],
