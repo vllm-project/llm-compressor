@@ -56,7 +56,7 @@ w8a8_dynamic_recipe_modifier = AutoRoundModifier(
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"],
-            weights=QuantizationArgs(num_bits=8, strategy="channel"),
+            weights=QuantizationArgs(num_bits=8, type="float", strategy="channel"),
             input_activations=QuantizationArgs(
                 num_bits=8, type="float", strategy="token", dynamic=True
             ),
@@ -67,7 +67,6 @@ w8a8_dynamic_recipe_modifier = AutoRoundModifier(
 w8a8_static_recipe_modifier = AutoRoundModifier(
     ignore=["lm_head"],
     iters=0,
-    nable_torch_compile=False,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"],
