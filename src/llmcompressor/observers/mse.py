@@ -197,12 +197,22 @@ def _grid_search_mse(
         if optimize_global_scale:
             global_scale = generate_gparam(shrinked_min_val, shrinked_max_val)
 
-        candidate_scales, candidate_zero_points = calculate_qparams(
-            min_vals=shrinked_min_val,
-            max_vals=shrinked_max_val,
-            quantization_args=args,
-            global_scale=global_scale,
-        )
+            # qparam minmax is constant
+            # since at runtime, the true minmax is chosen
+            candidate_scales, candidate_zero_points = calculate_qparams(
+                min_vals=min_val,
+                max_vals=max_val,
+                quantization_args=args,
+                global_scale=global_scale,
+            )
+
+        else:
+            candidate_scales, candidate_zero_points = calculate_qparams(
+                min_vals=shrinked_min_val,
+                max_vals=shrinked_max_val,
+                quantization_args=args,
+                global_scale=global_scale,
+            )
 
         # Note that observed.shape = (num_observations, *qparams_shape, group_size).
         # For the purposes of fake quantization, this is equivalent to token quant
