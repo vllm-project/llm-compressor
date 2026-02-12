@@ -2,13 +2,14 @@ import contextlib
 import logging
 import os
 import tempfile
+from functools import wraps
 from typing import Type
 
 import torch
-from accelerate import dispatch_model, infer_auto_device_map
-from accelerate.utils import get_balanced_memory
-from compressed_tensors.utils import patch_attr, remove_dispatch
+from compressed_tensors.offload import dispatch_model
+from compressed_tensors.utils import patch_attr
 from huggingface_hub import snapshot_download
+from loguru import logger
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
 from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
@@ -17,6 +18,7 @@ from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 __all__ = [
     "skip_weights_download",
     "patch_transformers_logger_level",
+    "get_main_device",
     "dispatch_for_generation",
 ]
 
@@ -116,28 +118,31 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
     transformers_logger.setLevel(level=restore_log_level)
 
 
-def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
+def get_main_device() -> torch.device:
+    rank = 0 if not torch.distributed.is_initialized() else torch.distributed.get_rank()
+    if torch.cuda.is_available():
+        return torch.device(f"cuda:{rank}")
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        return torch.device(f"xpu:{rank}")
+    else:
+        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        return torch.device("cpu")
+
+
+@wraps(dispatch_model)
+def dispatch_for_generation(*args, **kwargs) -> PreTrainedModel:
     """
     Dispatch a model autoregressive generation. This means that modules are dispatched
-    evenly across avaiable devices and kept onloaded if possible. Removes any HF hooks
-    that may have existed previously.
+    evenly across avaiable devices and kept onloaded if possible.
 
     :param model: model to dispatch
-    :return: model which is dispatched
+    :param hint_batch_size: reserve memory for batch size of inputs
+    :param hint_batch_seq_len: reserve memory for sequence of length of inputs
+    :param hint_model_dtype: reserve memory for model's dtype.
+        Will be inferred from model if none is provided
+    :param hint_extra_memory: extra memory reserved for model serving
+    :param no_split_modules: names of module classes which should not be split
+        across multiple devices
+    :return: dispatched model
     """
-    remove_dispatch(model)
-
-    no_split_module_classes = model._get_no_split_modules("auto")
-    max_memory = get_balanced_memory(
-        model,
-        dtype=model.dtype,
-        no_split_module_classes=no_split_module_classes,
-    )
-    device_map = infer_auto_device_map(
-        model,
-        dtype=model.dtype,
-        max_memory=max_memory,
-        no_split_module_classes=no_split_module_classes,
-    )
-
-    return dispatch_model(model, device_map=device_map)
+    return dispatch_model(*args, **kwargs)

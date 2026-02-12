@@ -1,7 +1,3 @@
----
-weight: -8
----
-
 # Compress Your Model
 
 LLM Compressor provides a straightforward way to compress your models using various optimization techniques. This guide walks you through the process of compressing a model with different quantization methods.
@@ -19,48 +15,53 @@ Before you start compressing, select the model you'd like to compress and a cali
 
 For this guide, we'll use the `TinyLlama` model and the `open_platypus` dataset for calibration. You can replace these with your own model and dataset as needed.
 
-## Select a Quantization Method and Scheme
-
-LLM Compressor supports several quantization methods and schemes, each with its own strengths and weaknesses. The choice of method and scheme will depend on your specific use case, hardware capabilities, and chosen trade-offs between model size, speed, and accuracy.
-
-Supported compression schemes include quantization into W4A16, W8A8‑INT8, and W8A8‑FP8 formats, and sparsification. For a more detailed overview of available quantization schemes, see [Compression Schemes](../guides/compression_schemes.md).
-
-Compression schemes use quantization methods including the following:
-
-| Method | Description | Accuracy Recovery vs. Time |
-|--------|-------------|----------------------------|
-| **GPTQ** | Utilizes second-order layer-wise optimizations to prioritize important weights/activations and enables updates to remaining weights | High accuracy recovery but more expensive/slower to run |
-| **AWQ** | Uses channelwise scaling to better preserve important outliers in weights and activations | Better accuracy recovery with faster runtime than GPTQ |
-| **SmoothQuant** | Smooths outliers in activations by folding them into weights, ensuring better accuracy for weight and activation quantized models | Good accuracy recovery with minimal calibration time; composable with other methods |
-| **Round-To-Nearest (RTN)** | Simple quantization technique that rounds each value to the nearest representable level in the target precision. | Provides moderate accuracy recovery in most scenarios. Computationally cheap and fast to implement, making it suitable for real-time or resource-constrained environments. |
-| **AutoRound** | AutoRound optimizes rounding and clipping ranges via sign-gradient descent. | Delivers leading 4-bit and superior sub-4-bit accuracy compared to GPTQ/AWQ, with runtime faster than GPTQ and on par with AWQ. |
-
-For this guide, we'll use `GPTQ` composed with `SmoothQuant` to create an `INT W8A8` quantized model. This combination provides a good balance for performance, accuracy, and compatability across a wide range of hardware.
-
 ## Apply the Recipe
 
 LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a predefined recipe to your model and dataset, making it easy to get started with compression. To apply what we discussed above, we'll import the necessary modifiers and create a recipe to apply to our model and dataset:
 
 ```python
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor import oneshot
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(scheme="W8A8", targets="Linear", ignore=["lm_head"]),
-]
-oneshot(
-    model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    dataset="open_platypus",
-    recipe=recipe,
-    output_dir="TinyLlama-1.1B-Chat-v1.0-INT8",
-    max_seq_length=2048,
-    num_calibration_samples=512,
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
+
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
+
+# Load model.
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+# Configure the quantization algorithm and scheme.
+# In this case, we:
+#   * quantize the weights to FP8 using RTN with block_size 128
+#   * quantize the activations dynamically to FP8 during inference
+recipe = QuantizationModifier(
+    targets="Linear",
+    scheme="FP8_BLOCK",
+    ignore=["lm_head", "re:.*mlp.gate$"],
 )
+
+# Apply quantization.
+oneshot(model=model, recipe=recipe)
+
+# Confirm generations of the quantized model look sane.
+print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
+output = model.generate(input_ids, max_new_tokens=20)
+print(tokenizer.decode(output[0]))
+print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-BLOCK"
+model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-When you run the above code, the compressed model is saved to the specified output directory: `TinyLlama-1.1B-Chat-v1.0-INT8`. You can then load this model using the Hugging Face Transformers library or vLLM for inference and testing. 
+When you run the above code, the compressed model is saved to the specified output directory: `Qwen3-30B-A3B-FP8-BLOCK`. You can then load this model using the Hugging Face Transformers library or vLLM for inference and testing. 
 
 ## Memory requirements for LLM Compressor
 
