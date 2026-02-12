@@ -29,7 +29,7 @@ recipe = AutoRoundModifier(
     targets="Linear",
     scheme="NVFP4",
     ignore=["re:.*lm_head", "re:.*visual.*"],
-    iters=200
+    iters=200,
 )
 
 # Apply algorithms.
