@@ -67,8 +67,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     Lifecycle:
 
     - on_initialize
-        - apply config to model
+        - QuantizationMixin.initialize_calibration
     - on_start
+        - apply config to model
         - add activation calibration hooks
         - add gptq weight calibration hooks
     - on_sequential_epoch_end
@@ -161,9 +162,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+        # untie word embeddings
+        self.initialize_quantization(state.model)
 
         # prepare module names
         self._module_names = {
@@ -178,9 +178,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
-        # register quantization calibration hooks
+        # apply config and register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
+        self.start_calibration(state.model)
 
         # register gptq hooks
         added_hook = False

@@ -18,17 +18,17 @@ from llmcompressor.metrics import (
     [
         PythonLogger(),
         LambdaLogger(
-            lambda_func=lambda tag, value, values, step, wall_time, level: logging.info(
-                f"{tag}, {value}, {values}, {step}, {wall_time}, {level}"
+            lambda_func=lambda tag, value, values, step, wall_time, level: (
+                logging.info(f"{tag}, {value}, {values}, {step}, {wall_time}, {level}")
+                or True
             )
-            or True
         ),
         *([WANDBLogger()] if WANDBLogger.available() else []),
         SparsificationGroupLogger(
-            lambda_func=lambda tag, value, values, step, wall_time, level: logging.info(
-                f"{tag}, {value}, {values}, {step}, {wall_time}, {level}"
-            )
-            or True,
+            lambda_func=lambda tag, value, values, step, wall_time, level: (
+                logging.info(f"{tag}, {value}, {values}, {step}, {wall_time}, {level}")
+                or True
+            ),
             python=True,
             tensorboard=True,
             wandb_=True,
