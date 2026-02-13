@@ -166,9 +166,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks
-        if self.has_config():
-            self.initialize_quantization(state.model)
+        self.initialize_quantization(state.model)
 
         # prepare module names
         self._add_temporary_names(state.model)
