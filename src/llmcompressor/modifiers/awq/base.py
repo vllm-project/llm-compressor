@@ -558,6 +558,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth_layer_targeted = (
                     self.smooth_layer_quantization
                     and mapping.smooth_name in targeted_names
+                    and hasattr(smooth_layer, "quantization_scheme")
+                    and hasattr(smooth_layer.quantization_scheme, "weights")
                 )
 
                 orig_layer_weights = {
@@ -566,11 +568,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     if hasattr(balance_layer, "quantization_scheme")
                     and hasattr(balance_layer.quantization_scheme, "weights")
                 }
-                if (
-                    smooth_layer_targeted
-                    and hasattr(smooth_layer, "quantization_scheme")
-                    and hasattr(smooth_layer.quantization_scheme, "weights")
-                ):
+                if smooth_layer_targeted:
                     orig_layer_weights[smooth_layer] = smooth_layer.weight.clone()
 
                 best_scales = self._compute_best_scale(
@@ -649,7 +647,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             for output in outputs
         ]
 
-    def _rescale_layer(
+    def _rescale_and_fake_quantize_layer(
         self,
         layer: Module,
         orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
@@ -667,15 +665,13 @@ class AWQModifier(Modifier, QuantizationMixin):
         w_qscheme = layer.quantization_scheme.weights
         orig = orig_layer_weights[layer].to(scales_view.device)
 
+        target_weight = layer.weight.data
         if is_smooth_layer and layer.weight.ndim > 1:
-            # Edge case: only scale the last scales.size(0) rows (divide by s)
-            scales_1d = scales_view.reciprocal().view(-1)
-            w = orig.clone()
-            w[-scales_1d.size(0) :].div_(scales_1d.view(-1, 1))
-            layer.weight.data.copy_(w)
-        else:
-            layer.weight.data.copy_(orig * scales_view)
-
+            partial_slice = slice(-scales_view.numel(), None)
+            orig = orig[*partial_slice]
+            target_weight= target_weight[*partial_slice]
+        target_weight.copy_(orig * scales_view)
+        
         should_calculate_gparam = (
             w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
         )
@@ -813,7 +809,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         if layer == mapping.smooth_layer
                         else _scalesview
                     )
-                    self._rescale_layer(
+                    self._rescale_and_fake_quantize_layer(
                         layer,
                         orig_layer_weights,
                         scales_view,
@@ -832,7 +828,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 ) and all(
                     getattr(layer.quantization_scheme.weights, "strategy", None)
                     == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers
+                    for layer in layers_to_patch
                 ):
                     update_fused_layer_weight_global_scales(mapping.parent)
 
