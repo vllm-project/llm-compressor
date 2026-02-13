@@ -76,9 +76,10 @@ class AWQModifier(Modifier, QuantizationMixin):
           balance_layers: ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]
         - smooth_layer: "re:.*final_layer_norm"
           balance_layers: ["re:.*fc1"]
-        # For parallel transformer blocks (e.g. Cohere), specify which
-        # submodule of the parent to hook for activation caching using
-        # activation_hook_target
+        # activation_hook_target specifies which submodule of the parent to hook
+        # for activation caching.
+        # This change is only useful for MoE models with parallel transformer blocks,
+        # and one should use the default value (None) in most cases.
       ignore: ["lm_head"]
       config_groups:
         group_0:
@@ -493,9 +494,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             # balance layer may not receive the right activations.  When
             # activation_hook_target is set on the mapping, hook that module
             # instead of balance_layers[0].
-            layer_to_hook = (
-                mapping.activation_hook_target or mapping.balance_layers[0]
-            )
+            layer_to_hook = mapping.activation_hook_target or mapping.balance_layers[0]
             self.register_hook(
                 layer_to_hook,
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
