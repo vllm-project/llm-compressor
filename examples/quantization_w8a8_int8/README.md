@@ -86,7 +86,7 @@ We first select the quantization algorithm. For W8A8, we want to:
 ```python
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 
 # Configure the quantization algorithms to run.
 recipe = [
