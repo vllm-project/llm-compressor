@@ -17,6 +17,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import PrivateAttr
+from torch import distributed as dist
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -30,7 +31,6 @@ from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
-from torch import distributed as dist
 
 __all__ = ["GPTQModifier"]
 
@@ -267,7 +267,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         ### Not Distributed
         if not (dist.is_initialized() and dist.get_world_size() > 1):
             for module in list(self._num_samples.keys()):
-                quantized_weight, scale, zero_point, g_idx = self.compress_single_module(module)
+                quantized_weight, scale, zero_point, g_idx = (
+                    self.compress_single_module(module)
+                )
                 update_offload_parameter(module, "weight", quantized_weight)
                 update_offload_parameter(module, "weight_scale", scale)
                 update_offload_parameter(module, "weight_zero_point", zero_point)
@@ -276,61 +278,114 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 # self._hessians[module] already deleted by quantize_weight
                 self._num_samples.pop(module, None)
             return
-                
+
         ### Distributed
-        
+
         ## Assign modules to ranks
         ## Accumulate hessian on assigned rank
-        rank = dist.get_rank()
-        world_size = dist.get_world_size()
-        modules_for_rank = [[] for _ in range(world_size)]
-        for index, module in enumerate(list(self._hessians.keys())):
-            target_rank = index % world_size
-            modules_for_rank[target_rank].append(module)
-            with self._maybe_onload_hessian(module):
-                H = self._hessians[module]
-                n = torch.Tensor([self._num_samples.pop(module)]).to(H.device)
-                H*=n
-                dist.reduce(H, op=dist.ReduceOp.SUM, dst=target_rank)
-                # dist.reduce(n, op=dist.ReduceOp.SUM, dst=target_rank) # REMOVE?
-                # H/=n # REMOVE?
-                self._hessians[module]=H
+        # import time
+        # start = time.time()
+        accum = 0
+        compress = 0
+        broadcast = 0
+        for i in range(1):
+            # print("start", i)
+            # start_accum = time.time()
+            rank = dist.get_rank()
+            world_size = dist.get_world_size()
 
-                # delete unneeded info
-                self._num_samples.pop(module,None)
-                if not rank == target_rank:
-                    self._hessians.pop(module, None)
-        
-        ## Each rank compresses all modules it was assigned
-        for module in modules_for_rank[rank]:
-            q_params = self.compress_single_module(module)
-            weight, weight_scale, weight_zero_point, weight_g_idx = q_params
-            update_offload_parameter(module, "weight", weight)
-            update_offload_parameter(module, "weight_scale", weight_scale)
-            update_offload_parameter(module, "weight_zero_point", weight_zero_point)
-            if weight_g_idx is not None:
-                update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+            # sort modules by hessian size largest first for bin packing
+            module_list = list(self._hessians.keys())
+            module_list.sort(key=lambda mod: self._hessians[mod].shape[0], reverse=True)
 
-        ## Broadcast quantized parameters to other ranks
-        for src_rank, modules in enumerate(modules_for_rank): 
-            for module in modules:
-                if rank == src_rank:
-                    broadcast_obj = [
-                        getattr(module, "weight"),
-                        getattr(module, "weight_scale"),
-                        getattr(module, "weight_zero_point"),
-                        getattr(module, "weight_g_idx", None),
-                    ]
-                else:
-                    broadcast_obj = [None, None, None, None]
-                dist.broadcast_object_list(broadcast_obj, src=src_rank)
-                weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
+            # load balancing: greedy bin packing
+            # assign each module to rank with smallest current workload
+            rank_to_modules = [[] for _ in range(world_size)]
+            module_to_rank = dict()
+            workload_for_rank = [0 for _ in range(world_size)]
+            for module in module_list:
+                target_rank = workload_for_rank.index(min(workload_for_rank))
+                rank_to_modules[target_rank].append(module)
+                module_to_rank[module] = target_rank
+                workload_for_rank[target_rank] += self._hessians[module].shape[0]
+
+            pending_comms = []
+            for module in module_list:
+                target_rank = module_to_rank[module]
+                with self._maybe_onload_hessian(module):
+                    H = self._hessians[module]
+                    n = torch.Tensor([self._num_samples.get(module)]).to(H.device)
+                    H *= n
+                    h_comm = dist.reduce(H, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True)
+                    n_comm = dist.reduce(n, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True)
+                    pending_comms.append(h_comm)
+                    pending_comms.append(n_comm)
+                    if rank == target_rank:
+                        # only need to wait for comms when actually using the reduced var
+                        self._wait_for_comms(pending_comms)
+                        pending_comms = []
+                        H/=n
+                        self._hessians[module] = H
+            # accum += time.time() - start_accum
+                    # delete unneeded info
+                    # self._num_samples.pop(module, None)
+                    # if not rank == target_rank:
+                        # self._hessians.pop(module, None)
+            dist.barrier()
+            # start_compress = time.time()
+            ## Each rank compresses all modules it was assigned
+            for module in rank_to_modules[rank]:
+                # s_mod = time.time()
+                q_params = self.compress_single_module(module)
+                # took = time.time() - s_mod
+                # print(dist.get_rank(), self._module_names[module], took, self._hessians[module].shape)
+                weight, weight_scale, weight_zero_point, weight_g_idx = q_params
                 update_offload_parameter(module, "weight", weight)
                 update_offload_parameter(module, "weight_scale", weight_scale)
                 update_offload_parameter(module, "weight_zero_point", weight_zero_point)
                 if weight_g_idx is not None:
                     update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+            # compress += time.time() - start_compress
+            # dist.barrier()
+            
 
+            ## Broadcast quantized parameters to other ranks
+            # broadcast_start = time.time()
+            for src_rank, modules in enumerate(rank_to_modules):
+                for module in modules:
+                    if rank == src_rank:
+                        broadcast_obj = [
+                            getattr(module, "weight"),
+                            getattr(module, "weight_scale"),
+                            getattr(module, "weight_zero_point"),
+                            getattr(module, "weight_g_idx", None),
+                        ]
+                    else:
+                        broadcast_obj = [None, None, None, None]
+                    dist.broadcast_object_list(broadcast_obj, src=src_rank)
+                    weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
+                    update_offload_parameter(module, "weight", weight)
+                    update_offload_parameter(module, "weight_scale", weight_scale)
+                    update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+                    if weight_g_idx is not None:
+                        update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+            # broadcast += time.time() - broadcast_start
+            # dist.barrier()
+        # print(dist.get_rank(), rank_to_modules)
+        # print(f"Rank {rank} total={time.time() - start:.2f} seconds "
+            # f"accum time={accum:.2f} seconds "
+            # f"compress time={compress:.2f} seconds "
+            # f"broadcast time={broadcast:.2f} seconds "
+            # f"{torch.cuda.max_memory_allocated() / 1024**3} GB"
+        # )
+        # dist.breakpoint()
+        # assert False
+
+    def _wait_for_comms(self, pending_comms):
+        for comm in list(pending_comms):
+            comm.wait()
+        pending_comms.clear()
+        
     def compress_single_module(self, module):
         if module is None:
             return None
@@ -342,7 +397,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             torch.no_grad(),
             align_module_device(module),
             self._maybe_onload_hessian(module),
-            CompressionLogger(module) as comp_logger,
+            # CompressionLogger(module) as comp_logger,
         ):
             loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                 module=module,
@@ -351,7 +406,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 blocksize=self.block_size,
                 percdamp=self.dampening_frac,
             )
-            comp_logger.set_loss(loss)
+            # comp_logger.set_loss(loss)
 
         return quantized_weight, scale, zero_point, g_idx
 
