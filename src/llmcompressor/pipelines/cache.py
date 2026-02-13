@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
 
+#from .helpers import TensorKeyWeakValueDictionary
 from weakref import WeakKeyDictionary
 
 import torch
@@ -46,7 +47,8 @@ class IntermediatesCache:
 
     # onload value -> offload value
     # used to avoid excess memory usage when shared tensors are offloaded
-    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
+    #offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
+    offload_values: dict[int, torch.Tensor] = dict()
 
     def __init__(
         self,
@@ -160,13 +162,16 @@ class IntermediatesCache:
         :return: dictionary mapping torch device to number of bytes in cache
         """
         sizes = defaultdict(lambda: 0)
+        memo = set()
 
         def _size_helper(intermediate: IntermediateValue) -> int:
             value = intermediate.value
 
             match value:
                 case torch.Tensor():
-                    sizes[value.device] += value.nbytes
+                    if value not in memo:
+                        sizes[value.device] += value.nbytes
+                    memo.add(value)
                 case list() | tuple():
                     for v in value:
                         _size_helper(v)
@@ -245,14 +250,17 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                # check for cache hit
-                if value in cls.offload_values:
-                    offloaded = cls.offload_values[value]
+                # check for cache hit between shared tensors
+                # Note: due to a (bug) in WeakKeyDictionary, we must check tensors using
+                # id. this is UNSAFE, since once the onloaded tensor is deleted, other
+                # python objects can reuse that id, leading to collisions.
+                if id(value) in cls.offload_values:
+                    offloaded = cls.offload_values[id(value)]
                 else:
                     # move to offload if no hit
                     offloaded = value.to(device=offload_device)
-                    cls.offload_values[value] = offloaded
-                
+                    cls.offload_values[id(value)] = offloaded
+
                 return IntermediateValue(
                     value=offloaded,
                     device=(onload_device if onload_device else value.device),
