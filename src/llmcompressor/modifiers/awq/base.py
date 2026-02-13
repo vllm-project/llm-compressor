@@ -536,8 +536,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                 orig_layer_weights = {
                     balance_layer: balance_layer.weight.clone()
                     for balance_layer in mapping.balance_layers
-                    if hasattr(balance_layer, "quantization_scheme")
-                    and hasattr(balance_layer.quantization_scheme, "weights")
                 }
 
                 best_scales = self._compute_best_scale(
