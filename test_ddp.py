@@ -246,7 +246,7 @@ if  dist.get_rank() == 0:
 
 dist.barrier()
 save_time = None
-if dist.get_rank() == 0 and args.save_dir:
+if args.save_dir:
     print("saving...")
     save_start = time.time()
     SAVE_DIR = args.save_dir

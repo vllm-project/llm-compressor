@@ -16,7 +16,7 @@ import torch
 from datasets import Dataset
 from loguru import logger
 from torch import distributed as dist
-from torch.utils.data import DataLoader, RandomSampler, Sampler
+from torch.utils.data import DataLoader, RandomSampler, Sampler, Subset
 from transformers.data import DataCollatorWithPadding, default_data_collator
 
 from llmcompressor.args import DatasetArguments
