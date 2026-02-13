@@ -30,6 +30,7 @@ from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
+from torch import distributed as dist
 
 __all__ = ["GPTQModifier"]
 
@@ -263,35 +264,96 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Quantize modules which have been calibrated
         """
-        for module in list(self._num_samples.keys()):
-            name = self._module_names[module]
-            num_samples = self._num_samples[module]
-            quant_args = getattr_chain(module, "quantization_scheme.weights")
+        ### Not Distributed
+        if not (dist.is_initialized() and dist.get_world_size() > 1):
+            for module in list(self._num_samples.keys()):
+                quantized_weight, scale, zero_point, g_idx = self.compress_single_module(module)
+                update_offload_parameter(module, "weight", quantized_weight)
+                update_offload_parameter(module, "weight_scale", scale)
+                update_offload_parameter(module, "weight_zero_point", zero_point)
+                if g_idx is not None:
+                    update_offload_parameter(module, "weight_g_idx", g_idx)
+                # self._hessians[module] already deleted by quantize_weight
+                self._num_samples.pop(module, None)
+            return
+                
+        ### Distributed
+        
+        ## Assign modules to ranks
+        ## Accumulate hessian on assigned rank
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        modules_for_rank = [[] for _ in range(world_size)]
+        for index, module in enumerate(list(self._hessians.keys())):
+            target_rank = index % world_size
+            modules_for_rank[target_rank].append(module)
+            with self._maybe_onload_hessian(module):
+                H = self._hessians[module]
+                n = torch.Tensor([self._num_samples.pop(module)]).to(H.device)
+                H*=n
+                dist.reduce(H, op=dist.ReduceOp.SUM, dst=target_rank)
+                # dist.reduce(n, op=dist.ReduceOp.SUM, dst=target_rank) # REMOVE?
+                # H/=n # REMOVE?
+                self._hessians[module]=H
 
-            logger.info(f"Quantizing {name} using {num_samples} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                self._maybe_onload_hessian(module),
-                CompressionLogger(module) as comp_logger,
-            ):
-                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-                    module=module,
-                    quant_args=quant_args,
-                    hessians_dict=self._hessians,
-                    blocksize=self.block_size,
-                    percdamp=self.dampening_frac,
-                )
-                comp_logger.set_loss(loss)
+                # delete unneeded info
+                self._num_samples.pop(module,None)
+                if not rank == target_rank:
+                    self._hessians.pop(module, None)
+        
+        ## Each rank compresses all modules it was assigned
+        for module in modules_for_rank[rank]:
+            q_params = self.compress_single_module(module)
+            weight, weight_scale, weight_zero_point, weight_g_idx = q_params
+            update_offload_parameter(module, "weight", weight)
+            update_offload_parameter(module, "weight_scale", weight_scale)
+            update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+            if weight_g_idx is not None:
+                update_offload_parameter(module, "weight_g_idx", weight_g_idx)
 
-            update_offload_parameter(module, "weight", quantized_weight)
-            update_offload_parameter(module, "weight_scale", scale)
-            update_offload_parameter(module, "weight_zero_point", zero_point)
-            if g_idx is not None:
-                update_offload_parameter(module, "weight_g_idx", g_idx)
+        ## Broadcast quantized parameters to other ranks
+        for src_rank, modules in enumerate(modules_for_rank): 
+            for module in modules:
+                if rank == src_rank:
+                    broadcast_obj = [
+                        getattr(module, "weight"),
+                        getattr(module, "weight_scale"),
+                        getattr(module, "weight_zero_point"),
+                        getattr(module, "weight_g_idx", None),
+                    ]
+                else:
+                    broadcast_obj = [None, None, None, None]
+                dist.broadcast_object_list(broadcast_obj, src=src_rank)
+                weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
+                update_offload_parameter(module, "weight", weight)
+                update_offload_parameter(module, "weight_scale", weight_scale)
+                update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+                if weight_g_idx is not None:
+                    update_offload_parameter(module, "weight_g_idx", weight_g_idx)
 
-            # self._hessians[module] already deleted by quantize_weight
-            del self._num_samples[module]
+    def compress_single_module(self, module):
+        if module is None:
+            return None
+        name = self._module_names[module]
+        quant_args = getattr_chain(module, "quantization_scheme.weights")
+
+        logger.info(f"Quantizing {name}")
+        with (
+            torch.no_grad(),
+            align_module_device(module),
+            self._maybe_onload_hessian(module),
+            CompressionLogger(module) as comp_logger,
+        ):
+            loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                module=module,
+                quant_args=quant_args,
+                hessians_dict=self._hessians,
+                blocksize=self.block_size,
+                percdamp=self.dampening_frac,
+            )
+            comp_logger.set_loss(loss)
+
+        return quantized_weight, scale, zero_point, g_idx
 
     def on_end(self, state: State, event: Event, **kwargs):
         """
