@@ -17,6 +17,11 @@ env:
   UV_SYSTEM_PYTHON: 1
   UV_TORCH_BACKEND: "auto"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
 jobs:
 
   base-tests:
@@ -76,7 +81,7 @@ jobs:
           coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   pytorch-tests:
-    runs-on: ibm-wdc-k8s-vllm-h100-solo
+    runs-on: gcp-k8s-vllm-l4-solo
     env:
       COVERAGE_FILE: ".coverage.pytorch"
       HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
@@ -115,7 +120,7 @@ jobs:
         uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest -v tests/llmcompressor/pytorch
+          pytest -vra tests/llmcompressor/pytorch
       - name: "Upload coverage report"
         if: (success() || failure()) && inputs.code_coverage
         uses: actions/upload-artifact@v4
@@ -133,7 +138,7 @@ jobs:
           coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   combine-coverage:
-    runs-on: ubuntu-22.04
+    runs-on: gcp-k8s-vllm-util
     needs: [base-tests, pytorch-tests]
     if: (success() || failure()) && inputs.code_coverage
     steps:
@@ -150,6 +155,10 @@ jobs:
           python-version: '3.12'
       - name: Install uv
         uses: astral-sh/setup-uv@v6
+      - name: Install make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
       - name: "Install dependencies"
         run: |
           uv pip install -U setuptools

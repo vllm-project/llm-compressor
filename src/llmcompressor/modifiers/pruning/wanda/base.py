@@ -1,5 +1,3 @@
-from typing import Dict, Tuple
-
 import torch
 from compressed_tensors.utils import (
     align_module_device,
@@ -66,15 +64,15 @@ class WandaPruningModifier(SparsityModifierBase):
     """
 
     # private variables
-    _row_scalars: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+    _row_scalars: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
 
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         """

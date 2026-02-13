@@ -3,11 +3,12 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from accelerate.hooks import add_hook_to_module, remove_hook_from_submodules
 from auto_round import AutoRound
 from auto_round.schemes import PRESET_SCHEMES as AR_PRESET_SCHEMES
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from auto_round.wrapper import WrapperWALayer
+from compressed_tensors.offload import get_execution_device, get_offloaded_device
+from compressed_tensors.offload.module import offload_module, remove_module_offload
 from compressed_tensors.quantization import (
     QuantizationMetadata,
     QuantizationScheme,
@@ -62,30 +63,22 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
 
 
 @contextmanager
-def suspend_accelerate_hooks(model: nn.Module):
+def suspend_offloading(model: nn.Module):
     """
-    Temporarily suspend Accelerate hooks from a model.
-
-    This context manager detaches all Accelerate hooks (used for device offloading,
-    dtype casting, etc.) from the model, allowing Autoround to operate without
-    interference. On exit, the model is restored to its original device
-    and all hooks are re-attached.
+    Temporarily suspend offloading, allow AutoRound to take over device movement
     """
-    saved_hooks = {}
-    original_device = next(model.parameters()).device
+    offloading_info = dict()
     for name, module in model.named_modules():
-        if hasattr(module, "_hf_hook"):
-            saved_hooks[name] = module._hf_hook
+        offloading_info[name] = (
+            get_execution_device(module),
+            get_offloaded_device(module),
+        )
+        remove_module_offload(module, onload_tensors=True)
 
-    remove_hook_from_submodules(model)
-    try:
-        yield
-    finally:
-        remove_hook_from_submodules(model)
-        model.to(original_device)
-        for name, module in model.named_modules():
-            if name in saved_hooks:
-                add_hook_to_module(module, saved_hooks[name], append=True)
+    yield
+
+    for name, module in model.named_modules():
+        offload_module(module, *offloading_info[name])
 
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
@@ -285,7 +278,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         with (
             torch.enable_grad(),
             align_module_device(decoding_layer),
-            suspend_accelerate_hooks(wrapped_model),
+            suspend_offloading(wrapped_model),
         ):
             ar = AutoRound(
                 model=wrapped_model,
@@ -439,6 +432,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     ar_value = getattr(module, ar_param_name)
                     if ar_value is None:
                         continue
+                    if self.scheme == "MXFP4" and ar_param_name == "scale":
+                        # Convert log2 scale back to normal scale for MXFP4
+                        ar_value = torch.exp2(ar_value.float())
                     if not isinstance(ar_value, torch.Tensor):
                         ar_value = torch.tensor(ar_value)
                     # Handle a special case that act_max -> input_global_scale
