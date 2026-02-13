@@ -82,11 +82,11 @@ start = time.time()
 oneshot(
     model=model,
     dataset=ds,
-    # recipe=recipe,
+    recipe=recipe,
     recipe=None,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    pipeline="sequential"
+    # pipeline="sequential"
 )
 elapsed_time = time.time() - start
 print(f"\nPipeline took {elapsed_time} seconds, rank={dist.get_rank()}")
