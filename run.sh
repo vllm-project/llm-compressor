@@ -14,7 +14,7 @@ DEVICE_MAPS=(
 )
 
 GPU_COUNTS=(
-    1
+    # 1
     2
     4
 )
@@ -29,8 +29,8 @@ echo "${GPU_COUNTS[@]}"
 for MODEL_ID in "${MODEL_IDS[@]}"; do
     for DEVICE_MAP in "${DEVICE_MAPS[@]}"; do
         for NUM_GPUS in "${GPU_COUNTS[@]}"; do
-            export SAVE_DIR=$MODEL_ID-$NUM_GPUS-$DEVICE_MAP
-
+            SAVE_DIR=$MODEL_ID-$NUM_GPUS-$DEVICE_MAP
+            EVAL_OUTPUT_DIR="./${SAVE_DIR}_eval"
             echo "=========================================="
             echo "Running experiment:"
             echo "  MODEL_ID: $MODEL_ID"
@@ -45,27 +45,13 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
                 --save_dir $SAVE_DIR \
                 --output_file $OUTPUT_FILE
 
-        done
-    done
-done
-
-for MODEL_ID in "${MODEL_IDS[@]}"; do
-    for DEVICE_MAP in "${DEVICE_MAPS[@]}"; do
-        for NUM_GPUS in "${GPU_COUNTS[@]}"; do
-            SAVE_DIR=$MODEL_ID-$NUM_GPUS-$DEVICE_MAP
-            echo "=========================================="
-            echo "Running Evaluation:"
-            echo "  SAVE_DIR: $SAVE_DIR"
-            echo "=========================================="
-
-            EVAL_OUTPUT_DIR="./${SAVE_DIR}_eval"
-
-            # run 4 lm_eval \
-            #     --model vllm \
-            #     --model_args pretrained=./$SAVE_DIR,dtype=auto,max_model_len=2048,add_bos_token=True,tensor_parallel_size=4 \
-            #     --tasks gsm8k \
-            #     --batch_size auto \
-            #     --output_path $EVAL_OUTPUT_DIR
+            echo "EVAL"
+            run 4 lm_eval \
+                --model vllm \
+                --model_args pretrained=./$SAVE_DIR,dtype=auto,max_model_len=2048,add_bos_token=True,tensor_parallel_size=4 \
+                --tasks gsm8k \
+                --batch_size auto \
+                --output_path $EVAL_OUTPUT_DIR
 
 
             if [ -d "$SAVE_DIR" ]; then
@@ -75,6 +61,8 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
         done
     done
 done
+
+
 
 for MODEL_ID in "${MODEL_IDS[@]}"; do
     for DEVICE_MAP in "${DEVICE_MAPS[@]}"; do

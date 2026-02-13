@@ -299,3 +299,43 @@ if dist.get_rank() == 0 and args.output_file:
 dist.barrier()
 
 dist.destroy_process_group()
+
+
+
+
+
+
+"""
+            for module in module_list:
+                src_rank = module_to_rank[module]
+
+                # Get parameters from module
+                weight = getattr(module, "weight")
+                weight_scale = getattr(module, "weight_scale")
+                weight_zero_point = getattr(module, "weight_zero_point")
+                weight_g_idx = getattr(module, "weight_g_idx", None)
+
+                # Store for later update
+                module_params.append((module, weight, weight_scale, weight_zero_point, weight_g_idx))
+
+                # Broadcast each tensor asynchronously
+                weight_comm = dist.broadcast(weight, src=src_rank, async_op=True)
+                scale_comm = dist.broadcast(weight_scale, src=src_rank, async_op=True)
+                zp_comm = dist.broadcast(weight_zero_point, src=src_rank, async_op=True)
+                pending_comms.extend([weight_comm, scale_comm, zp_comm])
+
+                if weight_g_idx is not None:
+                    gidx_comm = dist.broadcast(weight_g_idx, src=src_rank, async_op=True)
+                    pending_comms.append(gidx_comm)
+
+            # Wait for all broadcasts to complete
+            self._wait_for_comms(pending_comms)
+
+            # Update all parameters
+            for module, weight, weight_scale, weight_zero_point, weight_g_idx in module_params:
+                update_offload_parameter(module, "weight", weight)
+                update_offload_parameter(module, "weight_scale", weight_scale)
+                update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+                if weight_g_idx is not None:
+                    update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+"""

@@ -307,8 +307,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 target_rank = workload_for_rank.index(min(workload_for_rank))
                 rank_to_modules[target_rank].append(module)
                 module_to_rank[module] = target_rank
+                # empyrically the time is proportional to the number of rows in the hessian
                 workload_for_rank[target_rank] += self._hessians[module].shape[0]
 
+            # accumulate hessian on assigned rank
             pending_comms = []
             for module in module_list:
                 target_rank = module_to_rank[module]
@@ -328,9 +330,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
                         self._hessians[module] = H
             # accum += time.time() - start_accum
                     # delete unneeded info
-                    # self._num_samples.pop(module, None)
-                    # if not rank == target_rank:
-                        # self._hessians.pop(module, None)
+                    self._num_samples.pop(module, None)
+                    if not rank == target_rank:
+                        self._hessians.pop(module, None)
             dist.barrier()
             # start_compress = time.time()
             ## Each rank compresses all modules it was assigned
@@ -351,24 +353,39 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
             ## Broadcast quantized parameters to other ranks
             # broadcast_start = time.time()
-            for src_rank, modules in enumerate(rank_to_modules):
-                for module in modules:
-                    if rank == src_rank:
-                        broadcast_obj = [
-                            getattr(module, "weight"),
-                            getattr(module, "weight_scale"),
-                            getattr(module, "weight_zero_point"),
-                            getattr(module, "weight_g_idx", None),
-                        ]
-                    else:
-                        broadcast_obj = [None, None, None, None]
-                    dist.broadcast_object_list(broadcast_obj, src=src_rank)
-                    weight, weight_scale, weight_zero_point, weight_g_idx = broadcast_obj
-                    update_offload_parameter(module, "weight", weight)
-                    update_offload_parameter(module, "weight_scale", weight_scale)
-                    update_offload_parameter(module, "weight_zero_point", weight_zero_point)
-                    if weight_g_idx is not None:
-                        update_offload_parameter(module, "weight_g_idx", weight_g_idx)
+            module_params = []
+            for module in module_list:
+                src_rank = module_to_rank[module]
+
+                # Get parameters from module
+                weight = getattr(module, "weight")
+                weight_scale = getattr(module, "weight_scale")
+                weight_zero_point = getattr(module, "weight_zero_point")
+                weight_g_idx = getattr(module, "weight_g_idx", None)
+
+                # Store for later update
+                module_params.append((module, weight, weight_scale, weight_zero_point, weight_g_idx))
+
+                # Broadcast each tensor asynchronously
+                weight_comm = dist.broadcast(weight, src=src_rank, async_op=True)
+                scale_comm = dist.broadcast(weight_scale, src=src_rank, async_op=True)
+                zp_comm = dist.broadcast(weight_zero_point, src=src_rank, async_op=True)
+                pending_comms.extend([weight_comm, scale_comm, zp_comm])
+
+                if weight_g_idx is not None:
+                    gidx_comm = dist.broadcast(weight_g_idx, src=src_rank, async_op=True)
+                    pending_comms.append(gidx_comm)
+
+            # Wait for all broadcasts to complete
+            self._wait_for_comms(pending_comms)
+
+            # Update all parameters
+            for module, weight, weight_scale, weight_zero_point, weight_g_idx in module_params:
+                update_offload_parameter(module, "weight", weight)
+                update_offload_parameter(module, "weight_scale", weight_scale)
+                update_offload_parameter(module, "weight_zero_point", weight_zero_point)
+                if weight_g_idx is not None:
+                    update_offload_parameter(module, "weight_g_idx", weight_g_idx)
             # broadcast += time.time() - broadcast_start
             # dist.barrier()
         # print(dist.get_rank(), rank_to_modules)
@@ -397,7 +414,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             torch.no_grad(),
             align_module_device(module),
             self._maybe_onload_hessian(module),
-            # CompressionLogger(module) as comp_logger,
+            CompressionLogger(module) as comp_logger,
         ):
             loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                 module=module,
