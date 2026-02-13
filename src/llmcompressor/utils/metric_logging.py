@@ -77,7 +77,7 @@ class CompressionLogger:
             )
         except Exception:
             logger.bind(log_once=True).warning(
-                f"Failed to parse {visible_devices_env_var}. "
+                f"Could not parse {visible_devices_env_var}. "
                 "All devices will be monitored"
             )
 
