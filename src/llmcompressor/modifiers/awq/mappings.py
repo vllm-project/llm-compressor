@@ -192,6 +192,30 @@ _exaone4_mappings = [
     ),
 ]
 
+# Example mapping for MoE models with parallel transformer blocks, where
+# attention and MoE share the same input. This is the only case where
+# activation_hook_target is needed. Without it, the hook lands on
+# balance_layers[0] — which could be a single expert — capturing only that expert's
+# input rather than the full activation flowing into the MLP & Attention branch.
+# Setting activation_hook_target="mlp" hooks parent.mlp instead, so the cached
+# activations reflect the complete input to the MoE & Attention branch.
+_example_parallel_transformer_block_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            "re:.*mlp.experts.[0-9]+.gate_proj$",
+            "re:.*mlp.experts.[0-9]+.up_proj$",
+            "re:.*mlp.shared_experts.gate_proj$",
+            "re:.*mlp.shared_experts.up_proj$",
+            "re:.*mlp.gate$",
+            "re:.*q_proj$",
+            "re:.*k_proj$",
+            "re:.*v_proj$",
+        ],
+        activation_hook_target="mlp",
+    )
+]
+
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
