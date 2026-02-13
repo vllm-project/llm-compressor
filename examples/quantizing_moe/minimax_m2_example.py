@@ -85,7 +85,6 @@ recipe = AWQModifier(
         ),
         AWQMapping("re:.*w3$", ["re:.*w2$"]),
     ],
-    duo_scaling=False,
 )
 
 # Apply algorithms.
