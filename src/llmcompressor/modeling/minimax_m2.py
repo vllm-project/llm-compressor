@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
+
 from llmcompressor.modeling.moe_context import MoECalibrationModule
 
 if TYPE_CHECKING:
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 
 @MoECalibrationModule.register("MiniMaxM2SparseMoeBlock")
 class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
-    """Calibration module for MiniMaxM2SparseMoeBlock that supports calibrating all experts."""
+    """Calibration module for MiniMaxM2SparseMoeBlock with all-expert calibration."""
 
     is_permanent = False
 
@@ -61,7 +62,9 @@ class CalibrationMiniMaxM2SparseMoeBlock(MoECalibrationModule):
         hidden_states = hidden_states.view(-1, hidden_dim)
         router_logits = self.gate(hidden_states)
         if self.e_score_correction_bias.device != router_logits.device:
-            self.e_score_correction_bias = self.e_score_correction_bias.to(router_logits.device)
+            self.e_score_correction_bias = self.e_score_correction_bias.to(
+                router_logits.device
+            )
         top_k_index, top_k_weights = self._route_tokens_to_experts(self, router_logits)
 
         final_hidden_states = torch.zeros(

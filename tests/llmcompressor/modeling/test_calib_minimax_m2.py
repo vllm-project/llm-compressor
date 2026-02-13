@@ -22,7 +22,11 @@ def _load_minimax_remote_classes():
         "configuration_minimax_m2", "modeling_minimax_m2"
     )
     modeling_module = importlib.import_module(modeling_module_name)
-    return config.__class__, modeling_module.MiniMaxM2SparseMoeBlock, modeling_module.MiniMaxM2ForCausalLM
+    return (
+        config.__class__,
+        modeling_module.MiniMaxM2SparseMoeBlock,
+        modeling_module.MiniMaxM2ForCausalLM,
+    )
 
 
 def _make_tiny_minimax_config(config_cls):
