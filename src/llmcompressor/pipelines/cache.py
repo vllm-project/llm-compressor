@@ -254,7 +254,7 @@ class IntermediatesCache:
                 # Note: due to a (bug) in WeakKeyDictionary, we must check tensors using
                 # id. this is UNSAFE, since once the onloaded tensor is deleted, other
                 # python objects can reuse that id, leading to collisions.
-                key = torch.hash_tensor(torch.view_as_real(value) if value.is_complex() else value)
+                key = id(value) + sum(value.shape) + len(value.shape) #torch.hash_tensor(torch.view_as_real(value) if value.is_complex() else value)
                 if key in cls.offload_values:
                     offloaded = cls.offload_values[key]
                 else:
