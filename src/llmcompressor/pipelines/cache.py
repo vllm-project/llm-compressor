@@ -254,12 +254,14 @@ class IntermediatesCache:
                 # Note: due to a (bug) in WeakKeyDictionary, we must check tensors using
                 # id. this is UNSAFE, since once the onloaded tensor is deleted, other
                 # python objects can reuse that id, leading to collisions.
-                if id(value) in cls.offload_values:
-                    offloaded = cls.offload_values[id(value)]
+                key = torch.hash_tensor(torch.view_as_real(value) if value.is_complex() else value)
+                if key in cls.offload_values:
+                    offloaded = cls.offload_values[key]
                 else:
                     # move to offload if no hit
                     offloaded = value.to(device=offload_device)
-                    cls.offload_values[id(value)] = offloaded
+                    cls.offload_values[key] = offloaded
+                offloaded = value.to(device=offload_device)
 
                 return IntermediateValue(
                     value=offloaded,
