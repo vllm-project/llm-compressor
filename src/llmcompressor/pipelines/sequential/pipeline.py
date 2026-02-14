@@ -132,6 +132,8 @@ class SequentialPipeline(CalibrationPipeline):
                             inputs = activations.fetch(batch_idx, subgraph.input_names)
                             output = subgraph.forward(model, **inputs)
 
+                            activations.offload_values.clear()
+
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
