@@ -60,8 +60,7 @@ def test_get_layers_indivisible_by_group_size_finds_layer():
     from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
     from compressed_tensors.quantization.quant_args import QuantizationArgs
 
-    # 1) Unit test: _layer_indivisible with a simple args object (no CT QuantizationArgs
-    #    attribute quirks; tests our logic in isolation).
+    # 1) Unit test: _layer_indivisible with strategy=GROUP (enum).
     # Linear(in_features, out_features) has weight.shape = (out_features, in_features);
     # we use shape[-1] (columns) for group divisibility, so use in_features=200.
     linear = torch.nn.Linear(

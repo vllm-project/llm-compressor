@@ -95,12 +95,17 @@ def validate_group_size_divisibility(
     model: torch.nn.Module,
     resolved_targets: Set[str],
     ignore: list[str],
+    *,
+    bypass: bool = False,
 ) -> None:
     """
     Ensure targeted group/tensor_group layers have columns divisible by group_size.
 
     If any such layer has columns % group_size != 0, raises ValueError with layer FQNs.
+    When bypass is True, skips the check (e.g. for runtimes that support non-divisible).
     """
+    if bypass:
+        return
     indivisible = get_layers_indivisible_by_group_size(model, resolved_targets, ignore)
     if not indivisible:
         return
