@@ -24,8 +24,6 @@ strategy_cdiv in compressed_tensors.quantization.utils.helpers.
 
 from __future__ import annotations
 
-from typing import Set, Tuple
-
 import torch
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
 from compressed_tensors.utils import match_named_modules
@@ -37,7 +35,7 @@ __all__ = [
 ]
 
 
-def _layer_indivisible(module: torch.nn.Module, weight_args) -> Tuple[int, int] | None:
+def _layer_indivisible(module: torch.nn.Module, weight_args) -> tuple[int, int] | None:
     """
     If module has group/tensor_group weight and columns % group_size != 0,
     return (columns, group_size); else return None.
@@ -59,9 +57,9 @@ def _layer_indivisible(module: torch.nn.Module, weight_args) -> Tuple[int, int] 
 
 def get_layers_indivisible_by_group_size(
     model: torch.nn.Module,
-    resolved_targets: Set[str],
+    resolved_targets: set[str],
     ignore: list[str],
-) -> list[Tuple[str, int, int]]:
+) -> list[tuple[str, int, int]]:
     """
     Find targeted layers whose weight columns are not divisible by group_size.
 
@@ -79,7 +77,7 @@ def get_layers_indivisible_by_group_size(
     :return: List of (fqn, columns, group_size) for each layer that would
         fail at save/forward due to indivisibility.
     """
-    indivisible: list[Tuple[str, int, int]] = []
+    indivisible: list[tuple[str, int, int]] = []
     for name, module in match_named_modules(model, resolved_targets, ignore):
         scheme: QuantizationScheme | None = getattr(module, "quantization_scheme", None)
         if scheme is None or scheme.weights is None:
@@ -93,7 +91,7 @@ def get_layers_indivisible_by_group_size(
 
 def validate_group_size_divisibility(
     model: torch.nn.Module,
-    resolved_targets: Set[str],
+    resolved_targets: set[str],
     ignore: list[str],
     *,
     bypass: bool = False,

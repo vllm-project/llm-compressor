@@ -102,16 +102,18 @@ def test_initialize_quantization_raises_early_for_indivisible():
 
     with torch.no_grad():
         try:
-            modifier.on_initialize(state)
+            with pytest.raises(ValueError) as exc_info:
+                modifier.on_initialize(state)
+        except Exception:
             pytest.skip(
                 "no indivisible layers targeted (CT may not attach to simple models)"
             )
-        except ValueError as exc:
-            msg = str(exc)
-            assert "columns" in msg.lower() and "group_size" in msg.lower()
-            assert "ignore" in msg.lower()
-            assert "bypass_divisibility_checks" in msg
-            assert "200" in msg and "128" in msg
+            return
+        msg = str(exc_info.value)
+        assert "columns" in msg.lower() and "group_size" in msg.lower()
+        assert "ignore" in msg.lower()
+        assert "bypass_divisibility_checks" in msg
+        assert "200" in msg and "128" in msg
 
 
 def test_initialize_quantization_succeeds_when_indivisible_ignored():
