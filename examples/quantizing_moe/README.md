@@ -80,7 +80,7 @@ A custom scheme can also be specified using `config_groups`:
 ```python
 # Example of defining a custom quantization scheme
 
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 config_groups = {
     "group_0": {
