@@ -2,8 +2,8 @@ source $DEV_ENV_DIR/.bash_profile
 
 # Define arrays of options to test
 MODEL_IDS=(
-    "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    "meta-llama/Meta-Llama-3-8B-Instruct"
+    # "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    # "meta-llama/Meta-Llama-3-8B-Instruct"
     "Qwen/Qwen3-30B-A3B"
 )
 
@@ -16,7 +16,7 @@ DEVICE_MAPS=(
 GPU_COUNTS=(
     # 1
     2
-    4
+    # 4
 )
 
 export OUTPUT_FILE="./metrics.json"
@@ -45,19 +45,19 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
                 --save_dir $SAVE_DIR \
                 --output_file $OUTPUT_FILE
 
-            echo "EVAL"
-            run 4 lm_eval \
-                --model vllm \
-                --model_args pretrained=./$SAVE_DIR,dtype=auto,max_model_len=2048,add_bos_token=True,tensor_parallel_size=4 \
-                --tasks gsm8k \
-                --batch_size auto \
-                --output_path $EVAL_OUTPUT_DIR
+            # echo "EVAL"
+            # run 4 lm_eval \
+            #     --model vllm \
+            #     --model_args pretrained=./$SAVE_DIR,dtype=auto,max_model_len=2048,add_bos_token=True,tensor_parallel_size=4 \
+            #     --tasks gsm8k \
+            #     --batch_size auto \
+            #     --output_path $EVAL_OUTPUT_DIR
 
 
-            if [ -d "$SAVE_DIR" ]; then
-                echo "Deleting $SAVE_DIR"
-                rm -rf "$SAVE_DIR"
-            fi
+            # if [ -d "$SAVE_DIR" ]; then
+            #     echo "Deleting $SAVE_DIR"
+            #     rm -rf "$SAVE_DIR"
+            # fi
         done
     done
 done
@@ -76,3 +76,6 @@ done
 
 
 echo "All experiments completed!"
+
+
+
