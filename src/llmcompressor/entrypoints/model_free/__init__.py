@@ -56,7 +56,6 @@ def model_free_ptq(
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
     scheme_name, scheme = validate_scheme(scheme)
-    ignore = ignore or []
     device = gpu_if_available(device)
     validate_safetensors_index(model_files, scheme)
 
