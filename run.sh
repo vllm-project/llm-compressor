@@ -2,9 +2,9 @@ source $DEV_ENV_DIR/.bash_profile
 
 # Define arrays of options to test
 MODEL_IDS=(
-    # "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     # "meta-llama/Meta-Llama-3-8B-Instruct"
-    "Qwen/Qwen3-30B-A3B"
+    # "Qwen/Qwen3-30B-A3B"
 )
 
 DEVICE_MAPS=(

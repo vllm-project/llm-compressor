@@ -92,7 +92,7 @@ def quantize_weight(
     final_dtype = module.weight.dtype
     W = module.weight.clone()
     H = hessians_dict[module]  # unfortunately python does not have a `move` keyword
-    # del hessians_dict[module]  # so we have to delete the original reference manually
+    del hessians_dict[module]  # so we have to delete the original reference manually
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
