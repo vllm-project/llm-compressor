@@ -1,7 +1,5 @@
 # AWQ + FP8 Quantization Results
 
-Closes #2305
-
 **Model:** Meta-Llama-3-8B-Instruct
 **Hardware:** 8x NVIDIA A100-SXM4-80GB
 **Date:** Feb 10, 2026
@@ -10,9 +8,7 @@ Closes #2305
 
 Ran the example scripts with both FP8 schemes (FP8_DYNAMIC and FP8_BLOCK) on Meta-Llama-3-8B-Instruct, then evaluated on GSM8K as requested in #2305. FP8_DYNAMIC performs better overall.
 
-This PR adds:
-- `gsm8k_eval.py` - evaluation script for running GSM8K benchmarks
-- `RESULTS.md` - results and reproducible workflow
+This PR adds `RESULTS.md` with reproducible workflow for evaluating AWQ+FP8 quantization schemes on GSM8K.
 
 ## GSM8K Results
 
@@ -44,13 +40,8 @@ python fp8_block_llama_example.py
 
 ## Evaluation
 
-Use `gsm8k_eval.py` for running benchmarks:
+Run GSM8K evaluation using lm-eval:
 
-```bash
-python gsm8k_eval.py <model_path>
-```
-
-Or directly with lm-eval:
 ```bash
 lm_eval \
   --model hf \
