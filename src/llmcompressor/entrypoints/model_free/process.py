@@ -1,6 +1,7 @@
 import os
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
+from typing import Iterable
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme
@@ -23,10 +24,9 @@ from llmcompressor.entrypoints.model_free.microscale import (
 __all__ = ["validate_file", "process_file", "process_file_microscale_scheme"]
 
 
-
 def iter_quantizable_tensors(
     tensors: Mapping[str, torch.Tensor],
-    ignore: str | list[str],
+    ignore: Iterable[str],
 ) -> Iterator[tuple[str, str]]:
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
@@ -41,7 +41,7 @@ def iter_quantizable_tensors(
 def validate_file(
     file_path: str | os.PathLike,
     scheme: QuantizationScheme,
-    ignore: str | list[str],
+    ignore: Iterable[str],
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -61,7 +61,7 @@ def process_file(
     file_path: str | os.PathLike,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
-    ignore: str | list[str],
+    ignore: Iterable[str],
     device: str | torch.device,
 ) -> tuple[int, dict[str, str]]:
     """
@@ -105,7 +105,7 @@ def process_file_microscale_scheme(
     file_path: str | os.PathLike,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
-    ignore: str | list[str],
+    ignore: Iterable[str],
     device: str | torch.device,
 ) -> tuple[int, dict[str, str]]:
     """

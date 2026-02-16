@@ -2,7 +2,7 @@ import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import torch
 import tqdm
@@ -38,7 +38,7 @@ def model_free_ptq(
     model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
-    ignore: Optional[list[str]] = None,
+    ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
     device: Optional[torch.device | str] = None,
 ):
