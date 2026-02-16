@@ -12,6 +12,28 @@ from weakref import WeakKeyDictionary, ReferenceType, ref
 import torch
 from tqdm import tqdm
 
+class WeakTensoryKeyDictionary(WeakKeyDictionary):
+    def __contains__(self, key):
+        print("CHECKING CONTAINS", key)
+        try:
+           return super().__contains__(self, key)
+        except RuntimeError as e:
+            try:
+                print("WEIRD BEHAVIOR WITH", key.shape)
+                return any((id(k()) == id(key)) for k in self.data)
+            except:
+                raise(e)
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(self, key)
+        except RuntimeError as e:
+            try:
+                for k in self.data:
+                    if id(k()) == id(key):
+                        return self.data[k]
+            except:
+                raise(e)
 
 @dataclass
 class IntermediateValue:
@@ -47,8 +69,8 @@ class IntermediatesCache:
 
     # onload value -> offload value
     # used to avoid excess memory usage when shared tensors are offloaded
-    #offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
-    offload_values: dict[int, ReferenceType[torch.Tensor]] = dict()
+    offload_values: WeakTensoryKeyDictionary[torch.Tensor, torch.Tensor] = WeakTensoryKeyDictionary()
+    # offload_values: dict[int, ReferenceType[torch.Tensor]] = dict()
 
     def __init__(
         self,
@@ -255,13 +277,12 @@ class IntermediatesCache:
                 # id. this is UNSAFE, since once the onloaded tensor is deleted, other
                 # python objects can reuse that id, leading to collisions.
                 # key = torch.hash_tensor(torch.view_as_real(value) if value.is_complex() else value)
-                key = id(value) + 2*sum(value.shape) - 3*len(value.shape) + 4*value.numel()
-                if key in cls.offload_values:
-                    offloaded = cls.offload_values[key]()
+                if value in cls.offload_values:
+                    offloaded = cls.offload_values[value]
                 else:
                     # move to offload if no hit
                     offloaded = value.to(device=offload_device)
-                    cls.offload_values[key] = ref(offloaded)
+                    cls.offload_values[value] = offloaded
 
                 return IntermediateValue(
                     value=offloaded,
