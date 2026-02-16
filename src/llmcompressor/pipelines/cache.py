@@ -5,7 +5,6 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
-
 from weakref import WeakKeyDictionary
 
 import torch
@@ -26,20 +25,21 @@ class OverrideEqMode(TorchDispatchMode):
     tensor([True, True, True])
     >>> with OverrideEqMode():
     ...     a == b
-    tensor(True) 
+    tensor(True)
     """
 
     def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
         kwargs = kwargs or {}
-        
+
         # Check if the operation is equality
         if func is torch.ops.aten.eq.Tensor:
             # Override to use torch.equal
             # NOTE: Errors out without cast to torch.tensor
             return torch.tensor(torch.equal(*args, **kwargs))
-        
+
         # For all other operations, just run them normally
         return func(*args, **kwargs)
+
 
 @dataclass
 class IntermediateValue:

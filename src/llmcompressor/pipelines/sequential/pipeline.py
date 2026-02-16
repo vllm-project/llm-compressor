@@ -136,7 +136,5 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                    #print(activations.size()[torch.device("cpu")] / 1e9)
-
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
