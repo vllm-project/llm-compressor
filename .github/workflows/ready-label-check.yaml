@@ -8,6 +8,7 @@ on:
       - unlabeled
       - opened
       - reopened
+      - synchronize
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   ready-label-check:
-    runs-on: ubuntu-latest
+    runs-on: gcp-k8s-vllm-util
     steps:
       - name: Fail if ready label has not been applied to PR
         if: "!contains(github.event.pull_request.labels.*.name, 'ready')"
