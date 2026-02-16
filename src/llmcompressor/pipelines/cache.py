@@ -34,7 +34,7 @@ class OverrideEqMode(TorchDispatchMode):
         # Check if the operation is equality
         if func is torch.ops.aten.eq.Tensor:
             # Override to use torch.equal
-            assert len(args)==2, "Exactly 2 args must be provided"
+            assert len(args) == 2, "Exactly 2 args must be provided"
 
             # NOTE: Errors out without cast to torch.tensor
             return torch.tensor(id(args[0]) == id(args[1]))
