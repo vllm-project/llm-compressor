@@ -6,34 +6,40 @@ from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
 
-#from .helpers import TensorKeyWeakValueDictionary
-from weakref import WeakKeyDictionary, ReferenceType, ref
+from weakref import WeakKeyDictionary
 
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
-class WeakTensoryKeyDictionary(WeakKeyDictionary):
-    def __contains__(self, key):
-        print("CHECKING CONTAINS", key)
-        try:
-           return super().__contains__(self, key)
-        except RuntimeError as e:
-            try:
-                print("WEIRD BEHAVIOR WITH", key.shape)
-                return any((id(k()) == id(key)) for k in self.data)
-            except:
-                raise(e)
 
-    def __getitem__(self, key):
-        try:
-            return super().__getitem__(self, key)
-        except RuntimeError as e:
-            try:
-                for k in self.data:
-                    if id(k()) == id(key):
-                        return self.data[k]
-            except:
-                raise(e)
+class OverrideEqMode(TorchDispatchMode):
+    """
+    When using a torch.Tensor as a key in a dictionary, the equality
+    check must return a single value instead of a torch.Tensor
+    of bool values.
+    Use this override context for such cases, to swap out the torch.eq
+    check with a torch.equal check
+    >>> a = torch.tensor([1,2,3])
+    >>> b = torch.tensor([1,2,3])
+    >>> a == b
+    tensor([True, True, True])
+    >>> with OverrideEqMode():
+    ...     a == b
+    tensor(True) 
+    """
+
+    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        
+        # Check if the operation is equality
+        if func is torch.ops.aten.eq.Tensor:
+            # Override to use torch.equal
+            # NOTE: Errors out without cast to torch.tensor
+            return torch.tensor(torch.equal(*args, **kwargs))
+        
+        # For all other operations, just run them normally
+        return func(*args, **kwargs)
 
 @dataclass
 class IntermediateValue:
@@ -67,10 +73,9 @@ class IntermediatesCache:
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
 
-    # onload value -> offload value
+    # map of onload value -> offload value
     # used to avoid excess memory usage when shared tensors are offloaded
-    offload_values: WeakTensoryKeyDictionary[torch.Tensor, torch.Tensor] = WeakTensoryKeyDictionary()
-    # offload_values: dict[int, ReferenceType[torch.Tensor]] = dict()
+    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
 
     def __init__(
         self,
@@ -272,17 +277,14 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                # check for cache hit between shared tensors
-                # Note: due to a (bug) in WeakKeyDictionary, we must check tensors using
-                # id. this is UNSAFE, since once the onloaded tensor is deleted, other
-                # python objects can reuse that id, leading to collisions.
-                # key = torch.hash_tensor(torch.view_as_real(value) if value.is_complex() else value)
-                if value in cls.offload_values:
-                    offloaded = cls.offload_values[value]
-                else:
-                    # move to offload if no hit
-                    offloaded = value.to(device=offload_device)
-                    cls.offload_values[value] = offloaded
+                with OverrideEqMode():
+                    # check for cache hit between shared tensors
+                    if value in cls.offload_values:
+                        offloaded = cls.offload_values[value]
+                    else:
+                        # move to offload if no hit
+                        offloaded = value.to(device=offload_device)
+                        cls.offload_values[value] = offloaded
 
                 return IntermediateValue(
                     value=offloaded,
