@@ -18,7 +18,7 @@ class OverrideEqMode(TorchDispatchMode):
     check must return a single value instead of a torch.Tensor
     of bool values.
     Use this override context for such cases, to swap out the torch.eq
-    check with a torch.equal check
+    equality check for a check on id
     >>> a = torch.tensor([1,2,3])
     >>> b = torch.tensor([1,2,3])
     >>> a == b
@@ -34,8 +34,10 @@ class OverrideEqMode(TorchDispatchMode):
         # Check if the operation is equality
         if func is torch.ops.aten.eq.Tensor:
             # Override to use torch.equal
+            assert len(args)==2, "Exactly 2 args must be provided"
+
             # NOTE: Errors out without cast to torch.tensor
-            return torch.tensor(torch.equal(*args, **kwargs))
+            return torch.tensor(id(args[0]) == id(args[1]))
 
         # For all other operations, just run them normally
         return func(*args, **kwargs)

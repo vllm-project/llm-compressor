@@ -166,7 +166,7 @@ def deep_equal(a, b) -> bool:
 
 def test_override_eq_mode():
     a = torch.tensor([1, 2, 3])
-    b = torch.tensor([1, 2, 3])
+    b = a
     c = torch.tensor([2, 2, 2])
 
     with pytest.raises(RuntimeError):
