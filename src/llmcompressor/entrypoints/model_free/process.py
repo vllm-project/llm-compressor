@@ -40,8 +40,10 @@ def iter_quantizable_tensors(
 
 def validate_file(
     file_path: str | os.PathLike,
+    save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
+    device: str | torch.device,
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.

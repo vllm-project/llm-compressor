@@ -80,17 +80,18 @@ def model_free_ptq(
             logger.info(f"Copying {file_path} {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
-    # 1. validate quantizable tensors fail fast before long-running quantization
-    for _, resolved_path in tqdm.tqdm(model_files.items(), desc="Validating"):
-        if str(resolved_path).endswith("safetensors"):
-            validate_file(resolved_path, scheme, ignore)
-
-    # 2-5. quantize and compress weights
     with ThreadPoolExecutor(max_workers) as executor:
-        futures = [executor.submit(*job) for job in jobs]
+        # 1. validate quantizable tensors fail fast before long-running quantization
+        futures = [executor.submit(validate_file, *job[1:]) for job in jobs]
+        for future in tqdm.tqdm(
+            as_completed(futures), total=len(futures), desc="Validating"
+        ):
+            future.result()
 
+        # 2-5. quantize and compress weights
         total_size = 0
         weight_map = dict()
+        futures = [executor.submit(*job) for job in jobs]
         for future in tqdm.tqdm(
             as_completed(futures), total=len(futures), desc="Quantizing"
         ):
