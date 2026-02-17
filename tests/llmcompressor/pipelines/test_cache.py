@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
 
-from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
 
 
 @dataclass
@@ -162,3 +162,18 @@ def deep_equal(a, b) -> bool:
             return deep_equal(a_dict, b_dict)
         case _:
             return a == b
+
+
+def test_override_eq_mode():
+    a = torch.tensor([1, 2, 3])
+    b = a
+    c = torch.tensor([2, 2, 2])
+
+    with pytest.raises(RuntimeError):
+        assert a == b
+    with pytest.raises(RuntimeError):
+        assert not (a == c)
+
+    with OverrideEqMode():
+        assert a == b
+        assert not (a == c)
