@@ -8,6 +8,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_weight_zp_scale,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 
 __all__ = ["QuantizationModifier"]
 
