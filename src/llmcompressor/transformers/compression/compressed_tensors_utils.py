@@ -9,6 +9,7 @@ from compressed_tensors import (
     SparsityCompressionConfig,
 )
 from compressed_tensors.config import CompressionFormat
+from compressed_tensors.offload import to_accelerate
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -87,6 +88,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             )
             if compressor is not None:
                 compressor.compress_model(model)
+
+            # convert to accelerate offloaded for optimal saving with transformers
+            to_accelerate(model)
 
             # save (compressed) model structure
             original_save_pretrained.__get__(model, model_class)(
