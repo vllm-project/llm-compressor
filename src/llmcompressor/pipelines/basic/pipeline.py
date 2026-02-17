@@ -3,13 +3,13 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 import tqdm
-from compressed_tensors.utils import get_execution_device
+from compressed_tensors.offload import dispatch_model, get_execution_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
-from llmcompressor.utils import calibration_forward_context, dispatch_for_generation
+from llmcompressor.utils import calibration_forward_context
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -38,7 +38,7 @@ class BasicPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
-        dispatch_for_generation(model)  # basic dispatch is identical to generation
+        dispatch_model(model)  # basic dispatch is identical to generation
         model_device = get_execution_device(model)
         use_loss_mask = (
             getattr(dataset_args, "use_loss_mask", False) if dataset_args else False
