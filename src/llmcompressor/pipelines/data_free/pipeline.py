@@ -1,11 +1,11 @@
 from typing import TYPE_CHECKING, Optional
 
 import torch
+from compressed_tensors.offload import dispatch_model
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from compressed_tensors.offload import dispatch_model
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
