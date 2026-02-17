@@ -55,9 +55,7 @@ def _get_batches(
             else:
                 inputs = activations.fetch(batch_idx, input_names)
             if batch_idx + 1 < num_batches:
-                future = executor.submit(
-                    activations.fetch, batch_idx + 1, input_names
-                )
+                future = executor.submit(activations.fetch, batch_idx + 1, input_names)
             else:
                 future = None
             yield batch_idx, inputs

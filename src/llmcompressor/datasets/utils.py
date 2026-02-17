@@ -414,9 +414,9 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     we give each device at least S//D samples and distribute
     the remaining samples as evenly as possible across all devices
     """
-    assert "[" not in split, (
-        "Split string should not already contain partitioning brackets"
-    )
+    assert (
+        "[" not in split
+    ), "Split string should not already contain partitioning brackets"
 
     start, end = _get_partition_start_end(
         num_samples, dist.get_rank(), dist.get_world_size()
