@@ -5,9 +5,42 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
+from weakref import WeakKeyDictionary
 
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
+
+
+class OverrideEqMode(TorchDispatchMode):
+    """
+    When using a torch.Tensor as a key in a dictionary, the equality
+    check must return a single value instead of a torch.Tensor
+    of bool values.
+    Use this override context for such cases, to swap out the torch.eq
+    equality check for a check on id
+    >>> a = torch.tensor([1,2,3])
+    >>> b = torch.tensor([1,2,3])
+    >>> a == b
+    tensor([True, True, True])
+    >>> with OverrideEqMode():
+    ...     a == b
+    tensor(True)
+    """
+
+    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+
+        # Check if the operation is equality
+        if func is torch.ops.aten.eq.Tensor:
+            # Override to use torch.equal
+            assert len(args) == 2, "Exactly 2 args must be provided"
+
+            # NOTE: Errors out without cast to torch.tensor
+            return torch.tensor(id(args[0]) == id(args[1]))
+
+        # For all other operations, just run them normally
+        return func(*args, **kwargs)
 
 
 @dataclass
@@ -41,6 +74,10 @@ class IntermediatesCache:
 
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
+
+    # map of onload value -> offload value
+    # used to avoid excess memory usage when shared tensors are offloaded
+    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
 
     def __init__(
         self,
@@ -157,13 +194,16 @@ class IntermediatesCache:
         :return: dictionary mapping torch device to number of bytes in cache
         """
         sizes = defaultdict(lambda: 0)
+        memo = set()
 
         def _size_helper(intermediate: IntermediateValue) -> int:
             value = intermediate.value
 
             match value:
                 case torch.Tensor():
-                    sizes[value.device] += value.nbytes
+                    if value not in memo:
+                        sizes[value.device] += value.nbytes
+                    memo.add(value)
                 case list() | tuple():
                     for v in value:
                         _size_helper(v)
@@ -242,8 +282,17 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
+                with OverrideEqMode():
+                    # check for cache hit between shared tensors
+                    if value in cls.offload_values:
+                        offloaded = cls.offload_values[value]
+                    else:
+                        # move to offload if no hit
+                        offloaded = value.to(device=offload_device)
+                        cls.offload_values[value] = offloaded
+
                 return IntermediateValue(
-                    value=value.to(device=offload_device),
+                    value=offloaded,
                     device=(onload_device if onload_device else value.device),
                 )
             case list():
