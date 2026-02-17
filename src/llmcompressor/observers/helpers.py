@@ -12,7 +12,7 @@ from typing import Optional
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import (
-    pad_tensor_for_block_quant,
+    maybe_pad_tensor_for_block_quant,
     strategy_cdiv,
 )
 
@@ -81,7 +81,7 @@ def _flatten_weight(
 
         # If shape is incompatible, zero-pad to compatible shape
         # so as not to distort resultant qparams
-        value = pad_tensor_for_block_quant(value, args.block_structure)
+        value = maybe_pad_tensor_for_block_quant(value, args.block_structure)
         rows, cols = value.shape
 
         block_rows = strategy_cdiv(rows, block_height, args.strategy, strict=True)
