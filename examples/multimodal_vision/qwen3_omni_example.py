@@ -1,5 +1,6 @@
 import requests
 import soundfile as sf
+from compressed_tensors.offload import dispatch_model
 from PIL import Image
 from transformers import (
     AutoProcessor,
@@ -13,7 +14,6 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
-from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
@@ -69,7 +69,7 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 messages = [
     {
         "role": "user",

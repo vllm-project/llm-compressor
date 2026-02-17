@@ -1,8 +1,8 @@
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 
@@ -25,7 +25,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
