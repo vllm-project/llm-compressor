@@ -12,6 +12,7 @@ with load_offloaded_model():
         dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
         trust_remote_code=True,
+        offload_folder="./offload_folder",
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
