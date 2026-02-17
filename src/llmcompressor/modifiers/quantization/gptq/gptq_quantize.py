@@ -279,12 +279,15 @@ def quantize_weight(
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
+    q_param_dict = {
+         "weight": W,
+        "weight_scale": scale.to(dtype=final_dtype),
+        "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
+    }
+    if g_idx is not None:
+        q_param_dict["weight_g_idx"] = g_idx
     return (
-        loss,
-        W,
-        scale.to(dtype=final_dtype),
-        zero_point.to(dtype=quant_args.zp_dtype),
-        g_idx,
+        loss, q_param_dict
     )
 
 

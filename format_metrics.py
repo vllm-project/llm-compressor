@@ -18,8 +18,6 @@ def format_metrics_table(json_file: str = "metrics.json"):
         ("world_size", 11),
         ("max_time", 10),
         ("max_memory", 11),
-        ("strict_match", 13),
-        ("flex_extract", 13),
     ]
 
     # Print header (centered)
@@ -32,13 +30,7 @@ def format_metrics_table(json_file: str = "metrics.json"):
     for entry in data:
         values = []
         for col, width in columns:
-            # Handle nested eval_metrics
-            if col == "strict_match":
-                val = entry.get("eval_metrics", {}).get("strict_match", {}).get("value", "N/A")
-            elif col == "flex_extract":
-                val = entry.get("eval_metrics", {}).get("flexible_extract", {}).get("value", "N/A")
-            else:
-                val = entry.get(col, 'N/A')
+            val = entry.get(col, 'N/A')
 
             # Round float values to 2 decimals
             if isinstance(val, float):

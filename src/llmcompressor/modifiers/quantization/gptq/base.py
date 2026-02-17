@@ -35,6 +35,7 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
+_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
 
 class GPTQModifier(Modifier, QuantizationMixin):
     """
@@ -300,7 +301,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
                     hessians_dict=self._hessians,
@@ -309,11 +310,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 )
                 comp_logger.set_loss(loss)
 
-            update_offload_parameter(module, "weight", quantized_weight)
-            update_offload_parameter(module, "weight_scale", scale)
-            update_offload_parameter(module, "weight_zero_point", zero_point)
-            if g_idx is not None:
-                update_offload_parameter(module, "weight_g_idx", g_idx)
+            for attr, val in q_param_dict.items():
+                update_offload_parameter(module, attr, val)
 
             # self._hessians[module] already deleted by quantize_weight
             self._num_samples.pop(module, None)
@@ -346,12 +344,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
             # Get parameters from module
             to_broadcast = []
-            for attr in ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]:
-                to_broadcast.append(getattr(module, attr, None))
+            for attr in _GPTQ_Q_PARAMS:
+                if getattr(module, attr, None):
+                    to_broadcast.append(getattr(module, attr, None))
                 
             # Broadcast each tensor asynchronously (note update happens in place)
-            for tensor in [t for t in to_broadcast if t is not None]:
-                pending_comms.append(dist.broadcast(tensor, src=src_rank, async_op=True))
+            for tensor in filter(None, to_broadcast):
+                pending_comms.append(
+                    dist.broadcast(tensor, src=src_rank, async_op=True)
+                )
         wait_for_comms(pending_comms)
 
     def on_end(self, state: State, event: Event, **kwargs):
