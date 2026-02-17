@@ -7,13 +7,14 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
-import math
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
-from compressed_tensors.quantization.utils import strategy_cdiv
+from compressed_tensors.quantization.utils import (
+    pad_tensor_for_block_quant,
+    strategy_cdiv,
+)
 
 __all__ = ["flatten_for_calibration"]
 
@@ -77,12 +78,11 @@ def _flatten_weight(
     if args.strategy == QuantizationStrategy.BLOCK:
         # (1, num_block_rows, num_block_cols, block_width * block_height)
         block_height, block_width = args.block_structure
+
+        # If shape is incompatible, zero-pad to compatible shape
+        # so as not to distort resultant qparams
+        value = pad_tensor_for_block_quant(value, args.block_structure)
         rows, cols = value.shape
-        # If shape is incompatible, pad to compatible shape with the median value
-        # of the block so as not to distort resultant qparams
-        if rows % block_height != 0 or cols % block_width != 0:
-            value = _pad_to_block_size_with_mean(value, args.block_structure)
-            rows, cols = value.shape
 
         block_rows = strategy_cdiv(rows, block_height, args.strategy, strict=True)
         block_cols = strategy_cdiv(cols, block_width, args.strategy, strict=True)
@@ -152,60 +152,3 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
         return value.transpose(1, 2).flatten(0, 1).unsqueeze(-2).unsqueeze(-2)
 
     raise ValueError(f"Unknown strategy {args.strategy}")
-
-
-def _pad_to_block_size_with_mean(
-    value: torch.Tensor, block_size: tuple[int, int]
-) -> torch.Tensor:
-    """
-    Given an input 2d tensor and a desired block size,
-    return a padded tensor that is evenly divisible by
-    the block size and with all padded values being equal
-    to the mean value of the filled block, so as to avoid
-    altering qparams calculations like min, max, mean.
-
-    :param value: tensor to be padded
-    :param block_size: desired block size, height x width
-    :return: padded tensor
-    """
-    block_height, block_width = block_size
-    rows, cols = value.shape
-    block_rows = math.ceil(rows / block_height)
-    block_cols = math.ceil(cols / block_width)
-    padding_rows = block_rows * block_height - rows
-    padding_cols = block_cols * block_width - cols
-
-    if padding_rows == 0 and padding_cols == 0:
-        return value
-
-    # pad to new tensor with zeros at the end (right-pad)
-    value = F.pad(value, (0, padding_cols, 0, padding_rows), "constant", value=0.0)
-    rows, cols = value.shape
-
-    # pad last rows along each column, except for bottom right
-    for block_col_idx in range(block_cols - 1):
-        value[
-            (rows - padding_rows) :,
-            block_col_idx * block_width : (1 + block_col_idx) * block_width,
-        ] = value[
-            (rows - block_height) : (rows - padding_rows),
-            block_col_idx * block_width : (1 + block_col_idx) * block_width,
-        ].mean()
-    # pad last columns along each row, except for bottom right
-    for block_row_idx in range(block_rows - 1):
-        value[
-            block_row_idx * block_height : (1 + block_row_idx) * block_height,
-            (cols - padding_cols) :,
-        ] = value[
-            block_row_idx * block_height : (1 + block_row_idx) * block_height,
-            (cols - block_width) : (cols - padding_cols),
-        ].mean()
-    # pad bottom-right block (last row and last column)
-    last_mean = value[
-        rows - block_height : rows - padding_rows,
-        cols - block_width : cols - padding_cols,
-    ].mean()
-    value[rows - block_height :, (cols - padding_cols) :] = last_mean
-    value[(rows - padding_rows) :, cols - block_width :] = last_mean
-
-    return value
