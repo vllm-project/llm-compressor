@@ -8,7 +8,11 @@ strategies like NVFP4.
 """
 
 import torch
+<<<<<<< HEAD
 from compressed_tensors.offload import align_modules, update_offload_parameter
+=======
+from compressed_tensors.offload import update_offload_parameter
+>>>>>>> fa99bd3a (rest of changes)
 from compressed_tensors.quantization import QuantizationStrategy, is_attention_module
 from torch.nn import Linear, Module
 
@@ -69,20 +73,23 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
         ):
             return
 
-        with align_modules([submodule.q_proj, submodule.v_proj, submodule.k_proj]):
-            global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.q_proj.weight_global_scale.data,
-                        submodule.k_proj.weight_global_scale.data,
-                        submodule.v_proj.weight_global_scale.data,
-                    )
-                )
-            ).reshape([1])
+        global_scale = torch.stack(
+            [
+                submodule.q_proj.weight_global_scale,
+                submodule.k_proj.weight_global_scale,
+                submodule.v_proj.weight_global_scale,
+            ]
+        ).min(keepdim=True)
 
+<<<<<<< HEAD
         update_offload_parameter(submodule.k_proj, "weight_global_scale", global_scale)
         update_offload_parameter(submodule.q_proj, "weight_global_scale", global_scale)
         update_offload_parameter(submodule.v_proj, "weight_global_scale", global_scale)
+=======
+        update_offload_parameter(submodule.k_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.q_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.v_proj, global_scale, "weight_global_scale")
+>>>>>>> fa99bd3a (rest of changes)
 
         del global_scale
 
@@ -90,21 +97,24 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
         if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
             return
 
-        with align_modules([submodule.gate_proj, submodule.up_proj]):
-            global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.gate_proj.weight_global_scale.data,
-                        submodule.up_proj.weight_global_scale.data,
-                    )
-                )
-            ).reshape([1])
+        global_scale = torch.stack(
+            [
+                submodule.gate_proj.weight_global_scale.data,
+                submodule.up_proj.weight_global_scale.data,
+            ]
+        ).min(keepdim=True)
 
         update_offload_parameter(
+<<<<<<< HEAD
             submodule.gate_proj,
             "weight_global_scale",
             global_scale,
         )
         update_offload_parameter(submodule.up_proj, "weight_global_scale", global_scale)
+=======
+            submodule.gate_proj, global_scale, "weight_global_scale"
+        )
+        update_offload_parameter(submodule.up_proj, global_scale, "weight_global_scale")
+>>>>>>> fa99bd3a (rest of changes)
 
         del global_scale

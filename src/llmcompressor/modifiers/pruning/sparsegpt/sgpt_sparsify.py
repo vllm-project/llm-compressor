@@ -56,6 +56,7 @@ def accumulate_hessian(
     return H, num_samples
 
 
+@torch.no_grad()
 def sparsify_weight(
     module: torch.nn.Module,
     hessians_dict: Dict[torch.nn.Module, torch.Tensor],

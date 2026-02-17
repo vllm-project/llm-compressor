@@ -1,7 +1,7 @@
 import pytest
 import torch
 from accelerate import dispatch_model
-from compressed_tensors import align_module_device, update_offload_parameter
+from compressed_tensors import update_offload_parameter
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
@@ -36,19 +36,17 @@ def test_untie_word_embeddings(offload, dtype, tie_word_embeddings, device):
         untie_word_embeddings(model)
 
     # modify lm head
-    with torch.no_grad(), align_module_device(model.lm_head):
+    with torch.no_grad():
         update_offload_parameter(model.lm_head, "weight", model.lm_head.weight + 1)
 
-    with (
-        align_module_device(model.lm_head),
-        align_module_device(model.model.embed_tokens),
-    ):
-        if tie_word_embeddings:
-            assert model.lm_head.weight is model.model.embed_tokens.weight
-            assert model.config.tie_word_embeddings
-        else:
-            assert model.lm_head.weight is not model.model.embed_tokens.weight
-            assert not model.config.tie_word_embeddings
+    lm_head_weight = model.lm_head.weight
+    embed_tokens_weight = model.model.embed_tokens.weight
+    if tie_word_embeddings:
+        assert lm_head_weight is embed_tokens_weight
+        assert model.config.tie_word_embeddings
+    else:
+        assert lm_head_weight is not embed_tokens_weight
+        assert not model.config.tie_word_embeddings
 
 
 @requires_gpu
