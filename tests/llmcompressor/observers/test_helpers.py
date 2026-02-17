@@ -6,9 +6,7 @@ from compressed_tensors.quantization import (
     initialize_module_for_quantization,
 )
 
-from llmcompressor.observers.helpers import (
-    flatten_for_calibration,
-)
+from llmcompressor.observers.helpers import flatten_for_calibration
 
 
 def make_dummy_g_idx(columns: int, group_size: int) -> torch.Tensor:
