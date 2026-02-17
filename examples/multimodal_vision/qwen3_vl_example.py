@@ -2,13 +2,13 @@ import base64
 from io import BytesIO
 
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen3-VL-8B-Instruct"
@@ -89,7 +89,7 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 messages = [
     {
         "role": "user",

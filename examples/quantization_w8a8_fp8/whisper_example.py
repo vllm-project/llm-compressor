@@ -1,9 +1,9 @@
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoProcessor, WhisperForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "openai/whisper-large-v2"
 
@@ -26,7 +26,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 ds = load_dataset(
     "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation[:1]"
 )

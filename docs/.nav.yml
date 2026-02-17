@@ -9,6 +9,20 @@ nav:
     - Compressing your Model: getting-started/compress.md
     - Deploying with vLLM: getting-started/deploy.md
     - FAQ: getting-started/faq.md
+  - Key Models:
+    - key-models/index.md
+    - Llama 4:
+      - key-models/llama4/index.md
+      - FP8 Example: key-models/llama4/fp8-example.md
+    - Qwen3:
+      - key-models/qwen3/index.md
+      - FP8 Example: key-models/qwen3/fp8-example.md
+    - Kimi-K2:
+      - key-models/kimi-k2/index.md
+      - FP8 Example: key-models/kimi-k2/fp8-example.md
+    - Mistral Large 3:
+      - key-models/mistral-large-3/index.md
+      - FP8 Example: key-models/mistral-large-3/fp8-example.md
   - Guides:
     - Compression Schemes: guides/compression_schemes.md
     - Saving a Model: guides/saving_a_model.md
