@@ -14,11 +14,11 @@ Let's walk through the main steps of the quantization process:
 Load the model using `AutoModelForCausalLM`:
 
 ```python
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from compressed_tensors.offload import dispatch_model
 
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 

@@ -107,11 +107,11 @@ Note that the model can be swapped for a local or remote HF-compatible checkpoin
 Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 
 ```python
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from compressed_tensors.offload import dispatch_model
 
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
