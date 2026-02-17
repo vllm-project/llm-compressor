@@ -1,6 +1,6 @@
 import torch
-from compressed_tensors.utils import (
-    align_module_device,
+from compressed_tensors.offload import (
+    disable_offloading,
     get_execution_device,
     update_offload_parameter,
 )
@@ -110,11 +110,7 @@ class WandaPruningModifier(SparsityModifierBase):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                CompressionLogger(module),
-            ):
+            with disable_offloading(), CompressionLogger(module):
                 sparsified_weight = sparsify_weight(
                     module=module,
                     row_scalars_dict=self._row_scalars,

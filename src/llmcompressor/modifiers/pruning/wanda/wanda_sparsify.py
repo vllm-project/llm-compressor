@@ -53,6 +53,7 @@ def accumulate_row_scalars(
     return row_scalars, num_samples
 
 
+@torch.no_grad()
 def sparsify_weight(
     module: torch.nn.Module,
     row_scalars_dict: Dict[torch.nn.Module, torch.Tensor],

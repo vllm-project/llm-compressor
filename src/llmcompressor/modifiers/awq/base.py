@@ -3,20 +3,22 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.offload import (
+    disable_offloading,
+    get_execution_device,
+    update_offload_parameter,
+)
 from compressed_tensors.quantization import (
     QuantizationStrategy,
     disable_quantization,
     forward_quantize,
 )
 from compressed_tensors.utils import (
-    align_modules,
-    get_execution_device,
     get_lowest_common_ancestor_name,
     getattr_chain,
     match_modules_set,
     match_named_modules,
     patch_attrs,
-    update_offload_parameter,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
@@ -523,7 +525,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             parent_module = mapping.parent
 
             with (
-                align_modules([parent_module, smooth_layer, *balance_layers]),
+                disable_offloading(),
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
@@ -730,6 +732,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         balance_layer.weight,
                         should_calculate_gparam=should_calculate_gparam,
                     )
+                    # do not update offload, only update onload
                     balance_layer.weight.data = (
                         forward_quantize(
                             balance_layer,

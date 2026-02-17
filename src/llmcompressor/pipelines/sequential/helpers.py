@@ -4,11 +4,11 @@ from collections import deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from accelerate.hooks import remove_hook_from_module
-from compressed_tensors.offload import disable_onloading, offload_model
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_targets
 from loguru import logger
@@ -22,7 +22,6 @@ from transformers.configuration_utils import PretrainedConfig
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
-from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
@@ -35,7 +34,6 @@ __all__ = [
     "trace_subgraphs",
     "Subgraph",
     "get_sequential_targets",
-    "dispatch_for_sequential",
     "handle_sequential_oom",
 ]
 
@@ -527,24 +525,6 @@ def get_sequential_ancestors(model: Module, targets: set[Module]) -> set[Module]
 
     is_ancestor(model)
     return ancestors
-
-
-def dispatch_for_sequential(
-    model: PreTrainedModel,
-    onload_device: Optional[torch.device | str] = None,
-    offload_device: torch.device | str = torch.device("cpu"),
-) -> PreTrainedModel:
-    """
-    Dispatch a model for sequential calibration using a sequential pipeline.
-    The model will be offloaded to the CPU and dispatched to CUDA/XPU device
-    if available. Removes any existing hooks.
-
-    :param model: model to dispatch
-    :return: dispatched model
-    """
-    if onload_device is None:
-        onload_device = get_main_device()
-    return offload_model(model, onload_device, offload_device)
 
 
 def _get_autowrap_functions() -> tuple[Callable[[Any], Any], ...]:

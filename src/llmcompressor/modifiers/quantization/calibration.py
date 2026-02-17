@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import torch
+from compressed_tensors.offload import update_offload_parameter
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -8,11 +9,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.utils import (
-    align_module_device,
-    getattr_chain,
-    update_offload_parameter,
-)
+from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.nn import Module
 
@@ -100,20 +97,19 @@ def call_observer(
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
     """
-    with align_module_device(module):
-        if value is None and base_name == "weight":
-            value = module.weight
-        observer: Observer = getattr(module, f"{base_name}_observer")
+    if value is None and base_name == "weight":
+        value = module.weight
+    observer: Observer = getattr(module, f"{base_name}_observer")
 
-        if should_calculate_gparam:
-            global_scale = observer.get_global_scale(value)
-            update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
+    if should_calculate_gparam:
+        global_scale = observer.get_global_scale(value)
+        update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
 
-        if should_calculate_qparams:
-            scale, zero_point = observer(value)
-            update_offload_parameter(module, f"{base_name}_scale", scale)
-            if hasattr(module, f"{base_name}_zero_point"):
-                update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
+    if should_calculate_qparams:
+        scale, zero_point = observer(value)
+        update_offload_parameter(module, f"{base_name}_scale", scale)
+        if hasattr(module, f"{base_name}_zero_point"):
+            update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
 
 
 def update_weight_global_scale(module: Module):
