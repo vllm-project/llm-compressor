@@ -11,8 +11,9 @@ with load_offloaded_model():
         model_id,
         dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
+        trust_remote_code=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
 # Confirm that model is dispatched correctly
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
@@ -34,6 +35,7 @@ recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head
 # Apply algorithms.
 oneshot(
     model=model,
+    processor=tokenizer,
     dataset=DATASET_ID,
     splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     recipe=recipe,
