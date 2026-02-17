@@ -1,6 +1,5 @@
 import pytest
 import torch
-from accelerate.utils import align_module_device
 from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data import DataLoader
@@ -37,22 +36,21 @@ def _get_quant_info(model):
     quant_info_weights = {}
     quant_info_inputs = {}
     for name, module in model.named_modules():
-        with align_module_device(module):
-            if is_module_quantized(module):
-                if module.quantization_scheme.weights is not None:
-                    quant_info_weights[name] = (
-                        module.weight_scale,
-                        module.weight_zero_point,
-                        module.weight,
-                    )
+        if is_module_quantized(module):
+            if module.quantization_scheme.weights is not None:
+                quant_info_weights[name] = (
+                    module.weight_scale,
+                    module.weight_zero_point,
+                    module.weight,
+                )
 
-                if module.quantization_scheme.input_activations is not None:
-                    is_dynamic = module.quantization_scheme.input_activations.dynamic
-                    if not is_dynamic:
-                        quant_info_inputs[name] = (
-                            module.input_scale,
-                            module.input_zero_point,
-                        )
+            if module.quantization_scheme.input_activations is not None:
+                is_dynamic = module.quantization_scheme.input_activations.dynamic
+                if not is_dynamic:
+                    quant_info_inputs[name] = (
+                        module.input_scale,
+                        module.input_zero_point,
+                    )
 
     return quant_info_weights, quant_info_inputs
 
