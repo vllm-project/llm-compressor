@@ -3,7 +3,6 @@ from collections import defaultdict
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors.quantization.utils import module_type
-from compressed_tensors.utils import align_module_device
 from tqdm import tqdm
 
 from llmcompressor.modifiers import Modifier
@@ -136,14 +135,12 @@ def is_sparse_compression_target(
     :return: whether or not the module is a target for sparsity compression,
         i.e True if it is sparse and follows the sparsity structure, else False
     """
-    with align_module_device(module):
-        result = (
-            hasattr(module, "weight")
-            and tensor_sparsity(module.weight) >= sparsity_threshold
-            and tensor_follows_mask_structure(
-                tensor=module.weight, mask=sparsity_structure
-            )
-        )
+    module_weight = getattr(module, "weight", None)
+    result = (
+        module_weight is not None
+        and tensor_sparsity(module_weight) >= sparsity_threshold
+        and tensor_follows_mask_structure(module_weight, sparsity_structure)
+    )
 
     return result
 

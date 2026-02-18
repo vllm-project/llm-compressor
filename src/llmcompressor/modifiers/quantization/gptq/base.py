@@ -2,19 +2,18 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.offload import (
+    disable_offloading,
+    get_execution_device,
+    update_offload_parameter,
+)
 from compressed_tensors.quantization import (
+    ActivationOrdering,
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStrategy,
 )
-from compressed_tensors.quantization.quant_args import ActivationOrdering
-from compressed_tensors.utils import (
-    align_module_device,
-    get_execution_device,
-    getattr_chain,
-    match_named_modules,
-    update_offload_parameter,
-)
+from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -269,12 +268,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
             logger.info(f"Quantizing {name} using {num_samples} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                self._maybe_onload_hessian(module),
-                CompressionLogger(module) as comp_logger,
-            ):
+            with disable_offloading(), self._maybe_onload_hessian(
+                module
+            ), CompressionLogger(module) as comp_logger:
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                     module=module,
                     quant_args=quant_args,

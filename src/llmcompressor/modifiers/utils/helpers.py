@@ -8,8 +8,8 @@ strategies like NVFP4.
 """
 
 import torch
+from compressed_tensors.offload import update_offload_parameter
 from compressed_tensors.quantization import QuantizationStrategy, is_attention_module
-from compressed_tensors.utils import align_modules, update_parameter_data
 from torch.nn import Linear, Module
 
 __all__ = ["update_fused_layer_weight_global_scales"]
@@ -69,20 +69,17 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
         ):
             return
 
-        with align_modules([submodule.q_proj, submodule.v_proj, submodule.k_proj]):
-            global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.q_proj.weight_global_scale.data,
-                        submodule.k_proj.weight_global_scale.data,
-                        submodule.v_proj.weight_global_scale.data,
-                    )
-                )
-            ).reshape([1])
+        global_scale = torch.stack(
+            [
+                submodule.q_proj.weight_global_scale,
+                submodule.k_proj.weight_global_scale,
+                submodule.v_proj.weight_global_scale,
+            ]
+        ).min(keepdim=True)
 
-        update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
-        update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
-        update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.k_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.q_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.v_proj, global_scale, "weight_global_scale")
 
         del global_scale
 
@@ -90,17 +87,16 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
         if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
             return
 
-        with align_modules([submodule.gate_proj, submodule.up_proj]):
-            global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.gate_proj.weight_global_scale.data,
-                        submodule.up_proj.weight_global_scale.data,
-                    )
-                )
-            ).reshape([1])
+        global_scale = torch.stack(
+            [
+                submodule.gate_proj.weight_global_scale.data,
+                submodule.up_proj.weight_global_scale.data,
+            ]
+        ).min(keepdim=True)
 
-        update_parameter_data(submodule.gate_proj, global_scale, "weight_global_scale")
-        update_parameter_data(submodule.up_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(
+            submodule.gate_proj, global_scale, "weight_global_scale"
+        )
+        update_offload_parameter(submodule.up_proj, global_scale, "weight_global_scale")
 
         del global_scale

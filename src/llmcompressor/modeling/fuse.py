@@ -1,11 +1,7 @@
 from typing import Iterable
 
 import torch
-from compressed_tensors import (
-    align_module_device,
-    get_execution_device,
-    update_offload_parameter,
-)
+from compressed_tensors.offload import update_offload_parameter
 
 __all__ = ["center_embeddings", "fuse_norm_linears"]
 
@@ -22,11 +18,11 @@ def center_embeddings(embedding: torch.nn.Module):
     if not hasattr(embedding, "weight"):
         raise ValueError(f"Cannot fuse norm of type {type(embedding)}")
 
-    with align_module_device(embedding):
-        weight_dtype = embedding.weight.dtype
-        weight = embedding.weight.to(PRECISION)
-        new_weight = weight - weight.mean(dim=-1, keepdim=True)
-        new_weight = new_weight.to(weight_dtype)
+    embedding_weight = embedding.weight
+    weight_dtype = embedding_weight.dtype
+    weight = embedding_weight.to(PRECISION)
+    new_weight = weight - weight.mean(dim=-1, keepdim=True)
+    new_weight = new_weight.to(weight_dtype)
 
     update_offload_parameter(embedding, "weight", new_weight)
 
@@ -44,18 +40,11 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
     if not hasattr(norm, "weight"):
         raise ValueError(f"Cannot fuse norm of type {type(norm)}")
 
-    for linear in linears:
-        # NOTE: spinquant does this op in float64
-        exec_device = get_execution_device(norm)
-        with (
-            align_module_device(norm, exec_device),
-            align_module_device(linear, exec_device),
-        ):
-            weight_dtype = linear.weight.dtype
-            new_weight = linear.weight.to(PRECISION) * norm.weight.to(PRECISION)
-            new_weight = new_weight.to(weight_dtype)
+    norm_weight = norm.weight
 
+    for linear in linears:
+        new_weight = linear.weight.to(PRECISION) * norm_weight.to(PRECISION)
         update_offload_parameter(linear, "weight", new_weight)
 
-    new_norm_weight = torch.ones_like(norm.weight, device="cpu")
+    new_norm_weight = torch.ones_like(norm_weight, device="cpu")
     update_offload_parameter(norm, "weight", new_norm_weight)
