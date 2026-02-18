@@ -16,7 +16,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 # NOTE: only datafree quantization is supported for Qwen3-VL-MoE currently
 recipe = QuantizationModifier(
     targets="Linear",
-    scheme="FP8_DYNAMIC",
+    scheme="FP8_BLOCK",
     ignore=[
         "re:.*lm_head",
         "re:visual.*",
@@ -38,6 +38,6 @@ recipe = QuantizationModifier(
 oneshot(model=model, recipe=recipe)
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = "/raid/engine/dsikka/" + "Qwen3.5-397B-A17B" + "-FP8-DYNAMIC"
+SAVE_DIR = "/raid/engine/dsikka/" + "Qwen3.5-397B-A17B" + "-FP8-Block"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)

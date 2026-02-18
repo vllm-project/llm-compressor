@@ -54,15 +54,15 @@ class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
                 ]
             )
 
-        intermediate_size = original.down_proj.shape[1]
+        intermediate_size = original.down_proj.shape[-1]
 
         for i in range(self.num_experts):
             gate_up = original.gate_up_proj[i]
             down = original.down_proj[i]
 
-            gate_proj = gate_up[:, :intermediate_size]
-            up_proj = gate_up[:, intermediate_size:]
+            gate_proj = gate_up[:intermediate_size, :]
+            up_proj = gate_up[intermediate_size:, :]
 
-            self[i].gate_proj.weight.data = gate_proj.t().clone().contiguous()
-            self[i].up_proj.weight.data = up_proj.t().clone().contiguous()
-            self[i].down_proj.weight.data = down.t().clone().contiguous()
+            self[i].gate_proj.weight.data = gate_proj.clone().contiguous()
+            self[i].up_proj.weight.data = up_proj.clone().contiguous()
+            self[i].down_proj.weight.data = down.clone().contiguous()
