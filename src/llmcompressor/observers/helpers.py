@@ -33,7 +33,7 @@ def flatten_for_calibration(
 
     For block quantization, value will be zero-padded if it is not evenly
     divisible by block_size, so as not to distort the calculated qparams and to be
-    compatible with vllm block-wise kernels that do not requires even divisibility.
+    compatible with vllm block-wise kernels that do not require even divisibility.
 
     The first dim is the number of observations (usually the batch size times number of
     tokens), the middle dims are the dimension of the scales, and the last dim is the
