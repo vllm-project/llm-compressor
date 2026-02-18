@@ -4,7 +4,7 @@ source $DEV_ENV_DIR/.bash_profile
 MODEL_IDS=(
     # "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     "meta-llama/Meta-Llama-3-8B-Instruct"
-    # "Qwen/Qwen3-30B-A3B"
+    "Qwen/Qwen3-30B-A3B"
 )
 
 DEVICE_MAPS=(
@@ -14,13 +14,13 @@ DEVICE_MAPS=(
 )
 
 GPU_COUNTS=(
-    # 1
-    # 2
+    1
+    2
     # 3
-    # 4
+    4
     # 5
     # 6
-    7
+    # 7
 )
 
 export OUTPUT_FILE="./metrics.json"

@@ -284,9 +284,7 @@ def quantize_weight(
     }
     if g_idx is not None:
         q_param_dict["weight_g_idx"] = g_idx
-    return (
-        loss, q_param_dict
-    )
+    return (loss, q_param_dict)
 
 
 def _apply_activation_ordering(

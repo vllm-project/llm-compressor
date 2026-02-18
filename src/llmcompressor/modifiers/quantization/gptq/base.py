@@ -2,6 +2,7 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -18,10 +19,8 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 from torch import distributed as dist
-from compressed_tensors.offload.dist_utils import is_distributed
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.utils import greedy_bin_packing, wait_for_comms
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
@@ -32,11 +31,13 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.utils import greedy_bin_packing, wait_for_comms
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
 _GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
+
 
 class GPTQModifier(Modifier, QuantizationMixin):
     """
@@ -284,7 +285,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # send hessians to assigned ranks
         self._reduce_hessian_to_target_rank(module_list, module_to_rank)
-        
+
         self.compress_module_list(rank_to_modules[rank])
 
         # broadcast compressed modules to each rank
@@ -305,7 +306,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
-                    hessian=self._hessians[module]/self._num_samples[module],
+                    hessian=self._hessians[module] / self._num_samples[module],
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
@@ -320,24 +321,28 @@ class GPTQModifier(Modifier, QuantizationMixin):
             self._num_samples.pop(module, None)
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
-            rank = dist.get_rank()
-            pending_comms = []
-            for module in module_list:
-                target_rank = module_to_rank[module]
-                with self._maybe_onload_hessian(module):
-                    H = self._hessians[module]
-                    n = torch.Tensor([self._num_samples.get(module)]).to(H.device)
-                    h_comm = dist.reduce(H, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True)
-                    n_comm = dist.reduce(n, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True)
-                    pending_comms.append(h_comm)
-                    pending_comms.append(n_comm)
-                    if rank == target_rank:
-                        wait_for_comms(pending_comms)
-                        self._hessians[module] = H
-                        self._num_samples[module] = n
-                    if rank != target_rank:
-                        self._hessians.pop(module, None)
-                        self._num_samples.pop(module, None)
+        rank = dist.get_rank()
+        pending_comms = []
+        for module in module_list:
+            target_rank = module_to_rank[module]
+            with self._maybe_onload_hessian(module):
+                H = self._hessians[module]
+                n = torch.Tensor([self._num_samples.get(module)]).to(H.device)
+                h_comm = dist.reduce(
+                    H, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
+                )
+                n_comm = dist.reduce(
+                    n, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
+                )
+                pending_comms.append(h_comm)
+                pending_comms.append(n_comm)
+                if rank == target_rank:
+                    wait_for_comms(pending_comms)
+                    self._hessians[module] = H
+                    self._num_samples[module] = n
+                if rank != target_rank:
+                    self._hessians.pop(module, None)
+                    self._num_samples.pop(module, None)
 
     def _broadcast_quantized_params(self, module_list, module_to_rank):
         pending_comms = []
@@ -349,7 +354,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             for attr in _GPTQ_Q_PARAMS:
                 if getattr(module, attr, None) is not None:
                     to_broadcast.append(getattr(module, attr, None))
-                
+
             # Broadcast each tensor asynchronously
             # note: update in place, since compress_module_list updated the offload
             for tensor in to_broadcast:
