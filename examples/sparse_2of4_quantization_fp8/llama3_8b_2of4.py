@@ -1,12 +1,12 @@
 import argparse
 
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.obcq import SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # Configuration
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -101,7 +101,7 @@ oneshot(
 
 # Validate the compressed model
 print("\n========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )
