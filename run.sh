@@ -14,12 +14,12 @@ DEVICE_MAPS=(
 )
 
 GPU_COUNTS=(
-    1
-    2
-    3
-    4
-    5
-    6
+    # 1
+    # 2
+    # 3
+    # 4
+    # 5
+    # 6
     7
 )
 
@@ -35,9 +35,6 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
         for NUM_GPUS in "${GPU_COUNTS[@]}"; do
             SAVE_DIR=$MODEL_ID-$NUM_GPUS-$DEVICE_MAP
             EVAL_OUTPUT_DIR="./${SAVE_DIR}_eval"
-            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            QUANT_LOG="${SAVE_DIR}-${TIMESTAMP}-quant.log"
-            EVAL_LOG="${SAVE_DIR}-${TIMESTAMP}-eval.log"
 
             echo "=========================================="
             echo "Running experiment:"
@@ -53,7 +50,6 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
                 --device_map $DEVICE_MAP \
                 --save_dir $SAVE_DIR \
                 --output_file $OUTPUT_FILE \
-                2>&1 | tee "$QUANT_LOG"
 
             echo "EVAL"
             run 4 lm_eval \
@@ -62,7 +58,6 @@ for MODEL_ID in "${MODEL_IDS[@]}"; do
                 --tasks gsm8k \
                 --batch_size auto \
                 --output_path $EVAL_OUTPUT_DIR \
-                2>&1 | tee "$EVAL_LOG"
 
 
             if [ -d "$SAVE_DIR" ]; then

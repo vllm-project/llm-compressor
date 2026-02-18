@@ -11,126 +11,6 @@ import inspect
 import os
 import psutil
 
-def is_ddp() -> bool:
-    return torch.distributed.is_initialized() and torch.distributed.get_world_size() > 1
-
-def init_dist():
-    rank = int(os.environ["RANK"])
-    local_rank = int(os.environ["LOCAL_RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-
-    device = torch.device(f"cuda:{local_rank}")
-    torch.cuda.set_device(device)
-    dist.init_process_group(
-        backend="nccl",
-        init_method="env://",
-        rank=rank,
-        world_size=world_size,
-        device_id=device,
-    )
-    dist.barrier()
-
-def convert_to_ct_offload(model, case, local_rank):
-
-    if case=="cuda":
-        remove_dispatch(model)
-
-    if case == "cpu":
-        if any(hasattr(m, '_hf_hook') for m in model.modules()):
-            raise NotImplementedError(
-                "Detected that model didn't fit entirely in ram and accelerate used "
-                "disk offloading, need CT Distributed Disk Offloading to support this"
-            )
-        remove_dispatch(model)
-        onload_device = torch.device(f"cuda:{local_rank}")
-        offload_device = torch.device("cpu")
-        offload_model(model, onload_device, offload_device)
-    return model
-
-def patch_from_pretrained(cls, local_rank):
-    cls.from_pretrained_orig = cls.from_pretrained
-
-    def patched_from_pretrained(*args, **kwargs):
-        ### OVERWRITE DEVICE MAP TO HANDLE DISTRIBUTED CASE
-        device_map = kwargs.get("device_map")
-        case=None
-        if device_map == "cuda":
-            kwargs["device_map"]=local_rank
-            case="cuda"
-        elif device_map in ["cpu"]:
-            # we only want to load into cpu once
-            if local_rank != 0:
-                kwargs["device_map"]="meta" 
-        elif device_map in ["disk"]:    
-            if local_rank == 0:
-                kwargs["device_map"]="auto"
-                kwargs["max_memory"] = {"cpu": 296049920}
-            else:
-                kwargs["device_map"]="meta" 
-
-
-        elif device_map is None:
-            logger.warning("No device_map given to from_pretrained, defaulting to cpu")
-            kwargs["device_map"]="cpu" if local_rank == 0 else "meta" 
-            case="cpu"
-        elif device_map == "auto":
-            raise NotImplementedError(f"device_map == {device_map} is not implemented, use cpu or cuda")
-        else:
-            raise NotImplementedError(f"device_map == {device_map} is not implemented, use cpu or cuda")
-        
-        ### LOAD WITH ACCELERATE + CORRECTED DEVICE MAP
-        model = cls.from_pretrained_orig(*args, **kwargs)
-
-        ### CONVERT FROM ACCELERATE TO OUR OFFLOADING TOOL
-        model = convert_to_ct_offload(model, case, local_rank)
-
-        ### PATCH SAVE_PRETRAINED SO IT WiLL WORK WITH CT OFFLOAD
-        # model = patch_save_pretrained(model)
-
-        return model
-
-    cls.from_pretrained = patched_from_pretrained
-    return cls
-
-
-@contextmanager
-def ct_offload():
-    if not is_ddp():
-        init_dist()
-    ### Finds the correct frame with imports to patch
-    frame = inspect.currentframe()
-    while frame:
-        # Skip frames from contextlib module
-        if 'contextlib' not in frame.f_code.co_filename:
-            caller_globals = frame.f_globals
-            break
-        frame = frame.f_back
-    else:
-        raise RuntimeError("Could not find caller frame")
-
-    local_rank = dist.get_rank()
-    # wrap from_pretrained
-    # to swap accelerate offloading for CT offloading
-    # wrap save_pretrained
-    # to work with CT offloading
-    patched = []
-    for _, load_cls in caller_globals.items():
-        if (
-            hasattr(load_cls, 'from_pretrained') and
-            hasattr(load_cls, '__module__') and
-            'transformers' in load_cls.__module__
-        ):
-            patched.append(load_cls)
-            patch_from_pretrained(load_cls, local_rank)
-
-    yield
-
-    ### CLEANUP #####
-    for load_cls in patched:
-        load_cls.from_pretrained = load_cls.from_pretrained_orig
-        del load_cls.from_pretrained_orig
-        
-
 ### USER API: torchrun --nproc_per_node=2 test_ddp.py
 ### START OF TEST
 import torch
@@ -141,6 +21,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 from llmcompressor.datasets import get_rank_partition
+from compressed_tensors.offload import load_offloaded_model, init_dist
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description="Run DDP quantization test")
@@ -171,7 +52,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 MODEL_ID = args.model_id
-with ct_offload(): # <- context manager to wrap from_pretrained
+init_dist()
+with load_offloaded_model(): # <- context manager to wrap from_pretrained
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto", device_map=args.device_map)
 # model.model.config.num_hidden_layers = 3
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -297,43 +179,3 @@ if dist.get_rank() == 0 and args.output_file:
 dist.barrier()
 
 dist.destroy_process_group()
-
-
-
-
-
-
-"""
-            for module in module_list:
-                src_rank = module_to_rank[module]
-
-                # Get parameters from module
-                weight = getattr(module, "weight")
-                weight_scale = getattr(module, "weight_scale")
-                weight_zero_point = getattr(module, "weight_zero_point")
-                weight_g_idx = getattr(module, "weight_g_idx", None)
-
-                # Store for later update
-                module_params.append((module, weight, weight_scale, weight_zero_point, weight_g_idx))
-
-                # Broadcast each tensor asynchronously
-                weight_comm = dist.broadcast(weight, src=src_rank, async_op=True)
-                scale_comm = dist.broadcast(weight_scale, src=src_rank, async_op=True)
-                zp_comm = dist.broadcast(weight_zero_point, src=src_rank, async_op=True)
-                pending_comms.extend([weight_comm, scale_comm, zp_comm])
-
-                if weight_g_idx is not None:
-                    gidx_comm = dist.broadcast(weight_g_idx, src=src_rank, async_op=True)
-                    pending_comms.append(gidx_comm)
-
-            # Wait for all broadcasts to complete
-            self._wait_for_comms(pending_comms)
-
-            # Update all parameters
-            for module, weight, weight_scale, weight_zero_point, weight_g_idx in module_params:
-                update_offload_parameter(module, "weight", weight)
-                update_offload_parameter(module, "weight_scale", weight_scale)
-                update_offload_parameter(module, "weight_zero_point", weight_zero_point)
-                if weight_g_idx is not None:
-                    update_offload_parameter(module, "weight_g_idx", weight_g_idx)
-"""
