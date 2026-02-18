@@ -111,7 +111,10 @@ class IntermediatesCache:
         This method iterates through all batches in the dataloader and offloads
         them to the specified device. For faster cache preparation, consider:
         - Increasing batch_size to reduce the number of iterations
-        - Using num_workers > 0 in the DataLoader for parallel loading
+        - Using num_workers > 0 in the DataLoader for parallel loading (e.g. the
+          calibration DataLoader from format_calibration_data uses
+          dataloader_num_workers; when > 0, pin_memory and prefetch_factor are
+          also set where applicable, which speeds both cache build and calibration)
         - Ensuring data preprocessing is done before creating the dataloader
 
         :param dataloader: dataloader which generates values to be cached
