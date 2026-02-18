@@ -12,37 +12,6 @@ from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
 
-class OverrideEqMode(TorchDispatchMode):
-    """
-    When using a torch.Tensor as a key in a dictionary, the equality
-    check must return a single value instead of a torch.Tensor
-    of bool values.
-    Use this override context for such cases, to swap out the torch.eq
-    equality check for a check on id
-    >>> a = torch.tensor([1,2,3])
-    >>> b = torch.tensor([1,2,3])
-    >>> a == b
-    tensor([True, True, True])
-    >>> with OverrideEqMode():
-    ...     a == b
-    tensor(True)
-    """
-
-    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
-        kwargs = kwargs or {}
-
-        # Check if the operation is equality
-        if func is torch.ops.aten.eq.Tensor:
-            # Override to use torch.equal
-            assert len(args) == 2, "Exactly 2 args must be provided"
-
-            # NOTE: Errors out without cast to torch.tensor
-            return torch.tensor(id(args[0]) == id(args[1]))
-
-        # For all other operations, just run them normally
-        return func(*args, **kwargs)
-
-
 @dataclass
 class IntermediateValue:
     """
@@ -286,7 +255,8 @@ class IntermediatesCache:
                     else:
                         # move to offload if no hit
                         offloaded = value.to(device=offload_device)
-                        cls.offload_values[value] = offloaded
+                        if offloaded is not value:  # avoid circular ref
+                            cls.offload_values[value] = offloaded
 
                 return IntermediateValue(
                     value=offloaded,
@@ -323,3 +293,34 @@ class IntermediatesCache:
                 ):
                     warnings.warn(f"Offloading not implemented for type {type(value)}.")
                 return IntermediateValue(value=value, device=None)
+
+
+class OverrideEqMode(TorchDispatchMode):
+    """
+    When using a torch.Tensor as a key in a dictionary, the equality
+    check must return a single value instead of a torch.Tensor
+    of bool values.
+    Use this override context for such cases, to swap out the torch.eq
+    equality check for a check on id
+    >>> a = torch.tensor([1,2,3])
+    >>> b = torch.tensor([1,2,3])
+    >>> a == b
+    tensor([True, True, True])
+    >>> with OverrideEqMode():
+    ...     a == b
+    tensor(True)
+    """
+
+    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+
+        # Check if the operation is equality
+        if func is torch.ops.aten.eq.Tensor:
+            # Override to use torch.equal
+            assert len(args) == 2, "Exactly 2 args must be provided"
+
+            # NOTE: Errors out without cast to torch.tensor
+            return torch.tensor(id(args[0]) == id(args[1]))
+
+        # For all other operations, just run them normally
+        return func(*args, **kwargs)
