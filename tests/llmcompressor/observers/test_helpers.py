@@ -41,7 +41,7 @@ def test_flatten_for_calibration_input(args):
         (QuantizationArgs(strategy="group", group_size=4), make_dummy_g_idx(8, 4)),
         (QuantizationArgs(strategy="tensor_group", group_size=4), None),
         (QuantizationArgs(strategy="block", block_structure=[5, 4]), None),
-        # When block structure is not evenly divisible
+        # When block structure does not evenly divide module.weight
         (QuantizationArgs(strategy="block", block_structure=[5, 6]), None),
     ],
 )
