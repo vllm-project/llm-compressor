@@ -14,8 +14,9 @@ from .deepseek_v3 import CalibrationDeepseekV3MoE  # noqa: F401
 from .glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 from .llama4 import SequentialLlama4TextMoe  # noqa: F401
 from .qwen3_moe import CalibrationQwen3MoeSparseMoeBlock  # noqa: F401
+from .qwen3_5_moe import CalibrationQwen3_5MoeSparseMoeBlock  # noqa: F401
 from .qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock  # noqa: F401
 from .qwen3_next_moe import CalibrationQwen3NextSparseMoeBlock  # noqa: F401
-# TODO: add granite4, Qwen3Next
+# TODO: add granite4
 
 from .fuse import *
