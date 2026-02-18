@@ -33,8 +33,8 @@ class MemorylessMSEObserver(Observer):
     :param **observer_kwargs: keyword arguments for observer initialization\n
         maxshrink: maximum shrink amount (in grid steps). The number of
             search steps is int(maxshrink * grid)\n
-        patience: number of consecutive search steps without improvement before
-            early stopping\n
+        patience: kept for backward compatibility only. No longer used
+    as early stopping was removed for torch.compile compatibility\n
         grid: resolution of the shrink search. Larger values give finer granularity
             in shrink factors\n
         norm: exponent used when computing the error. norm = 2 approximates MSE\n
@@ -104,8 +104,8 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
     :param **observer_kwargs: keyword arguments for observer initialization\n
         maxshrink: maximum shrink amount (in grid steps). The number of
             search steps is int(maxshrink * grid)\n
-        patience: number of consecutive search steps without improvement before
-            early stopping\n
+        patience: kept for backward compatibility only. No longer used
+    as early stopping was removed for torch.compile compatibility\n
         grid: resolution of the shrink search. Larger values give finer granularity
             in shrink factors\n
         norm: exponent used when computing the error. norm = 2 approximates MSE\n
