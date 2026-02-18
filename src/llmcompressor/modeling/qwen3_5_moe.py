@@ -65,7 +65,7 @@ class CalibrationQwen3_5MoeSparseMoeBlock(MoECalibrationModule):
         )
 
         for expert_idx, expert_layer in enumerate(self.experts):
-            idx, token_idx = torch.where(expert_mask[expert_idx].squeeze(0))
+            idx, token_idx = torch.where(expert_mask[expert_idx])
 
             if self.calibrate_all_experts:
                 expert_out = expert_layer(hidden_states_reshaped)[token_idx]
