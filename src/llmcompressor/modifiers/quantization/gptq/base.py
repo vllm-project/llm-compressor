@@ -271,7 +271,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         ### Not Distributed
         if not is_distributed():
             self.compress_module_list(list(self._num_samples.keys()))
-
+            return
+        
         ### Distributed
         rank = dist.get_rank()
         world_size = dist.get_world_size()
