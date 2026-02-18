@@ -1,9 +1,9 @@
 from auto_round.calib_dataset import get_dataset
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoProcessor, Llama4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
@@ -51,7 +51,7 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 sample = processor(text="Hello my name is", return_tensors="pt")
 sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=1)
