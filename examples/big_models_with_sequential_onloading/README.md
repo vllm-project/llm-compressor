@@ -35,11 +35,11 @@ oneshot(
 During `oneshot`, only one gpu is required which will be used to onload each layer for calibration in a sequential manner.
 
 ```python
-dispatch_for_generation(model)
+dispatch_model(model)
 sample = tokenizer("Hello my name is", return_tensors="pt")
 sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 ```
 
-Finally, we call `dispatch_for_generation` to evenly load the model across available devices (potentially offloading the model if required) and run sample generations on the newly quantized model.
+Finally, we call `dispatch_model` to evenly load the model across available devices (potentially offloading the model if required) and run sample generations on the newly quantized model.
