@@ -7,7 +7,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
-from compressed_tensors.utils import patch_attr
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.moving_base import MovingAverageObserverBase
@@ -32,7 +31,7 @@ class MemorylessMSEObserver(Observer):
     :param module: optional module with attached quantization parameters. This argument
         is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization\n
-        maxshrink: maximum shrink amount (in “grid steps”). The number of
+        maxshrink: maximum shrink amount (in grid steps). The number of
             search steps is int(maxshrink * grid)\n
         patience: number of consecutive search steps without improvement before
             early stopping\n
@@ -52,6 +51,11 @@ class MemorylessMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
+        # Pre-create args with TOKEN strategy to avoid patch_attr context manager
+        # which causes torch.compile graph breaks
+        self._token_args = self.args.model_copy(
+            update={"strategy": QuantizationStrategy.TOKEN}
+        )
 
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals](mse_quant_error)
@@ -59,8 +63,8 @@ class MemorylessMSEObserver(Observer):
         return _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
-            self.patience,
             self.grid,
             self.norm,
             global_scale=global_scale,
@@ -72,8 +76,8 @@ class MemorylessMSEObserver(Observer):
         return _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
-            self.patience,
             self.grid,
             self.norm,
             global_scale=None,
@@ -98,7 +102,7 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
     :param module: optional module with attached quantization parameters. This argument
         is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization\n
-        maxshrink: maximum shrink amount (in “grid steps”). The number of
+        maxshrink: maximum shrink amount (in grid steps). The number of
             search steps is int(maxshrink * grid)\n
         patience: number of consecutive search steps without improvement before
             early stopping\n
@@ -118,6 +122,9 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
+        self._token_args = self.args.model_copy(
+            update={"strategy": QuantizationStrategy.TOKEN}
+        )
 
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals](mse_quant_error)
@@ -125,8 +132,8 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         return _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
-            self.patience,
             self.grid,
             self.norm,
             global_scale=global_scale,
@@ -138,8 +145,8 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         return _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
-            self.patience,
             self.grid,
             self.norm,
             global_scale=None,
@@ -150,8 +157,8 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
 def _grid_search_mse(
     observed: torch.Tensor,
     args: QuantizationArgs,
+    token_args: QuantizationArgs,
     maxshrink: float,
-    patience: float,
     grid: float,
     norm: float,
     global_scale: Optional[torch.Tensor] = None,
@@ -161,16 +168,20 @@ def _grid_search_mse(
     Perform a 1-D grid search to find per-channel min/max ranges that minimize
     mean-squared quantization error.
 
-    This routine progressively “shrinks” the absolute min/max ranges of the
+    This routine progressively shrinks the absolute min/max ranges of the
     observed tensor and evaluates the quantization error at each candidate
     range. For each shrink factor ``p = 1 - i/grid`` up to ``maxshrink``.
 
+    This implementation is torch.compile compatible:
+    - Uses pre-created token_args instead of patch_attr context manager
+    - Uses torch.where instead of data-dependent control flow (early stopping)
+
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
-    :param args: quantization args used for computing qparams and fake quant
-    :param maxshrink: maximum shrink amount (in “grid steps”). The number of
-        search steps is int(maxshrink * grid)
-    :param patience: number of consecutive search steps without improvement before
-        early stopping
+    :param args: quantization args used for computing qparams
+    :param token_args: quantization args with strategy set to TOKEN, pre-created
+        to avoid patch_attr context manager which causes torch.compile graph breaks
+    :param maxshrink: maximum shrink amount. The number of search steps is
+        int(maxshrink * grid)
     :param grid: resolution of the shrink search. Larger values give finer granularity
         in shrink factors
     :param norm: exponent used when computing the error. norm = 2 approximates MSE
@@ -185,11 +196,8 @@ def _grid_search_mse(
     best_min_val = min_val.clone()
     best_max_val = max_val.clone()
 
-    # Early stopping params
-    no_improve_count = 0
-
-    # @ksayers @HGCharles: investigate searching over separate shrinking factors
-    for i in range(int(maxshrink * grid)):
+    num_steps = int(maxshrink * grid)
+    for i in range(num_steps):
         p = 1 - i / grid
         shrinked_min_val = p * min_val
         shrinked_max_val = p * max_val
@@ -204,33 +212,23 @@ def _grid_search_mse(
             global_scale=global_scale,
         )
 
-        # Note that observed.shape = (num_observations, *qparams_shape, group_size).
-        # For the purposes of fake quantization, this is equivalent to token quant
-        with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
-            q = fake_quantize(
-                observed,
-                candidate_scales.unsqueeze(-1),
-                candidate_zero_points.unsqueeze(-1),
-                args,
-                global_scale=global_scale,
-            ).to(observed.dtype)
-            # Note that due to forward quantization implementation, token quant,
-            # unlike tensor_group, requires extra dtype cast
+        # Use pre-created token_args instead of patch_attr context manager
+        # to maintain torch.compile compatibility
+        q = fake_quantize(
+            observed,
+            candidate_scales.unsqueeze(-1),
+            candidate_zero_points.unsqueeze(-1),
+            token_args,
+            global_scale=global_scale,
+        ).to(observed.dtype)
 
-        q -= observed
-        q.abs_()
-        q.pow_(norm)
-        err = torch.sum(q, dim=(0, -1))
+        err = torch.sum((q - observed).abs().pow(norm), dim=(0, -1))
 
-        tmp = err < best_error
-        if torch.any(tmp):
-            best_error[tmp] = err[tmp]
-            best_min_val[tmp] = shrinked_min_val[tmp]
-            best_max_val[tmp] = shrinked_max_val[tmp]
-            no_improve_count = 0
-        else:
-            no_improve_count += 1
-            if no_improve_count >= patience:
-                break
+        # Use torch.where instead of boolean indexing + torch.any for
+        # torch.compile compatibility (avoids data-dependent control flow)
+        improved = err < best_error
+        best_error = torch.where(improved, err, best_error)
+        best_min_val = torch.where(improved, shrinked_min_val, best_min_val)
+        best_max_val = torch.where(improved, shrinked_max_val, best_max_val)
 
     return best_min_val, best_max_val
