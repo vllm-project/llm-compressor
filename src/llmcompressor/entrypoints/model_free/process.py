@@ -43,9 +43,52 @@ def process_file(
 
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
+
+        # rename params from modelopt to CT convention
+        # modelopt's nvfp4-quantized layers, found by inspection
+        # - model.layers.0.mlp.down_proj.weight
+        # - model.layers.0.mlp.gate_proj.weight
+        # - model.layers.0.mlp.up_proj.weight
+        # - model.layers.3.mlp.shared_experts.down_proj.weight
+        # - model.layers.3.mlp.shared_experts.gate_proj.weight
+        # - model.layers.3.mlp.shared_experts.up_proj.weight
+        # - model.layers.3.mlp.experts.0.down_proj.weight
+        # - model.layers.3.mlp.experts.0.gate_proj.weight
+        # - model.layers.3.mlp.experts.0.up_proj.weight
+        if _match_name(module_name, "re:.*mlp.*\.(gate|up|down)_proj$"):
+            match param_name:
+                # input_scale -> input_global_scale F32
+                case "input_scale":
+                    # convert modelopt input_scale x -> 1/x
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1070-L1073
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1134
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/compressed_tensors/schemes/compressed_tensors_w4a4_nvfp4.py#L190
+                    tensors[f"{module_name}.input_global_scale"] = 1 / tensors[name]
+                    del tensors[name]
+                # weight -> weight_packed U8
+                case "weight":
+                    # TODO reverse packing order(?)
+                    tensors[f"{module_name}.weight_packed"] = tensors[name]
+                    del tensors[name]
+                # weight_scale -> weight_scale F8_E4M3
+                case "weight_scale":
+                    pass
+                # weight_scale_2 -> weight_global_scale F32
+                case "weight_scale_2":
+                    # convert modelopt weight_scale_2 x -> 1/x
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1066-L1068
+                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/compressed_tensors/schemes/compressed_tensors_w4a4_nvfp4.py#L163-L166
+                    tensors[f"{module_name}.weight_global_scale"] = 1 / tensors[name]
+                    del tensors[name]
+                case _:
+                    print(f"Hit unexpected tensor {name}")
+
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
+        is_targeted = (is_linear_weight and "Linear" in scheme.targets) or any(
+            _match_name(module_name, target) for target in scheme.targets
+        )
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        if not is_linear_weight or is_ignored:
+        if is_ignored or not is_targeted:
             continue
 
         # 1. initialize module with qparams (on device)
@@ -104,8 +147,11 @@ def process_file_microscale_scheme(
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
+        is_targeted = (is_linear_weight and "Linear" in scheme.targets) or any(
+            _match_name(module_name, target) for target in scheme.targets
+        )
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        if not is_linear_weight or is_ignored:
+        if is_ignored or not is_targeted:
             continue
 
         # 1. initialize module with qparams (on device)

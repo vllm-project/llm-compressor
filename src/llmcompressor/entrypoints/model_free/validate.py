@@ -47,7 +47,8 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
     # target all modules; filter by ignore list
     # technically this should be "re:.*", but vllm's
     # ct moe layer has a hard coded check for "Linear"
-    scheme.targets = ["Linear"]
+    if len(scheme.targets) == 0:
+        scheme.targets.append("Linear")
     return scheme_name, scheme
 
 
