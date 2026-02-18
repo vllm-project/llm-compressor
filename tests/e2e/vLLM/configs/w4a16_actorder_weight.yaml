@@ -1,5 +1,6 @@
 cadence: "nightly"
 test_type: "regression"
+test_group: "rhaiis"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 recipe: tests/e2e/vLLM/recipes/actorder/recipe_w4a16_actorder_weight.yaml
 dataset_id: openai/gsm8k
