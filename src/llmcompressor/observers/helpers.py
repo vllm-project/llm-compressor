@@ -29,7 +29,10 @@ def flatten_for_calibration(
     Reshapes the value according to the quantization strategy for the purposes of
     scale/zp calibration. The value after flattening has the following shape:
 
-    `(num_observations, *qparam_shape, group_size)`
+    - `(num_observations, *qparam_shape, group_size)`
+    - `(num_observations, *qparam_shape, *block_structure)` for block
+      quantization. If value is not evenly divisible by block_size, it will be
+      zero-padded so as not to distort the calculated qparams
 
     The first dim is the number of observations (usually the batch size times number of
     tokens), the middle dims are the dimension of the scales, and the last dim is the
