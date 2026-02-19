@@ -276,7 +276,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if not is_distributed():
             self.compress_module_list(list(self._num_samples.keys()))
             return
-        
+
         ### Distributed
         rank = dist.get_rank()
         world_size = dist.get_world_size()
@@ -311,7 +311,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
-                    hessian=self._hessians[module].pop() / self._num_samples[module].pop(),
+                    hessian=self._hessians[module].pop()
+                    / self._num_samples[module].pop(),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
@@ -329,12 +330,22 @@ class GPTQModifier(Modifier, QuantizationMixin):
         for module in module_list:
             target_rank = module_to_rank[module]
             with self._maybe_onload_hessian(module):
-                pending_comms.append(dist.reduce(
-                    self._hessians[module], op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
-                ))
-                pending_comms.append(dist.reduce(
-                    self._num_samples[module], op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
-                ))
+                pending_comms.append(
+                    dist.reduce(
+                        self._hessians[module],
+                        op=dist.ReduceOp.SUM,
+                        dst=target_rank,
+                        async_op=True,
+                    )
+                )
+                pending_comms.append(
+                    dist.reduce(
+                        self._num_samples[module],
+                        op=dist.ReduceOp.SUM,
+                        dst=target_rank,
+                        async_op=True,
+                    )
+                )
                 if rank != target_rank:
                     self._hessians.pop(module, None)
                     self._num_samples.pop(module, None)
@@ -350,7 +361,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
             for attr in _GPTQ_Q_PARAMS:
                 if getattr(module, attr, None) is not None:
                     pending_comms.append(
-                        dist.broadcast(getattr(module, attr), src=src_rank, async_op=True)
+                        dist.broadcast(
+                            getattr(module, attr), src=src_rank, async_op=True
+                        )
                     )
         wait_for_comms(pending_comms)
 
