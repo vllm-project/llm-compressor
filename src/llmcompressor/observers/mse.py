@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import (
@@ -7,7 +7,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
-from compressed_tensors.utils import patch_attr
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.moving_base import MovingAverageObserverBase
@@ -56,11 +55,11 @@ class MemorylessMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.enable_torch_compile = observer_kwargs.get("enable_torch_compile", False)
 
-        # Pre-create token_args for compiled path to avoid patch_attr
-        if self.enable_torch_compile:
-            self._token_args = self.args.model_copy(
-                update={"strategy": QuantizationStrategy.TOKEN}
-            )
+        # Pre-create token_args to avoid patch_attr context manager
+        # which causes torch.compile graph breaks
+        self._token_args = self.args.model_copy(
+            update={"strategy": QuantizationStrategy.TOKEN}
+        )
 
     def _call_grid_search(
         self,
@@ -82,6 +81,7 @@ class MemorylessMSEObserver(Observer):
         return _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
@@ -141,10 +141,11 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.enable_torch_compile = observer_kwargs.get("enable_torch_compile", False)
 
-        if self.enable_torch_compile:
-            self._token_args = self.args.model_copy(
-                update={"strategy": QuantizationStrategy.TOKEN}
-            )
+        # Pre-create token_args to avoid patch_attr context manager
+        # which causes torch.compile graph breaks
+        self._token_args = self.args.model_copy(
+            update={"strategy": QuantizationStrategy.TOKEN}
+        )
 
     def _call_grid_search(
         self,
@@ -166,6 +167,7 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         return _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
@@ -184,9 +186,68 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         return self._call_grid_search(observed, None, True)
 
 
+def _compute_candidate_error(
+    observed: torch.Tensor,
+    args: QuantizationArgs,
+    token_args: QuantizationArgs,
+    min_val: torch.Tensor,
+    max_val: torch.Tensor,
+    p: float,
+    norm: float,
+    global_scale: Optional[torch.Tensor],
+    optimize_global_scale: bool,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Compute the quantization error for a single shrink factor.
+
+    Shared helper used by both the default and torch.compile-compatible
+    grid search paths to avoid code duplication.
+
+    :param observed: value of shape (num_observations, *qparams_shape, group_size)
+    :param args: quantization args used for computing qparams
+    :param token_args: quantization args with strategy set to TOKEN, pre-created
+        to avoid patch_attr context manager which causes torch.compile graph breaks
+    :param min_val: per-channel minimum values
+    :param max_val: per-channel maximum values
+    :param p: shrink factor (1 - i/grid)
+    :param norm: exponent used when computing the error
+    :param global_scale: precomputed global scale to use for quantization
+    :param optimize_global_scale: If True, recompute global_scale from candidates
+    :return: (error, shrinked_min_val, shrinked_max_val)
+    """
+    shrinked_min_val = p * min_val
+    shrinked_max_val = p * max_val
+
+    if optimize_global_scale:
+        global_scale = generate_gparam(shrinked_min_val, shrinked_max_val)
+
+    candidate_scales, candidate_zero_points = calculate_qparams(
+        min_vals=shrinked_min_val,
+        max_vals=shrinked_max_val,
+        quantization_args=args,
+        global_scale=global_scale,
+    )
+
+    # Use pre-created token_args instead of patch_attr context manager
+    # to maintain torch.compile compatibility
+    q = fake_quantize(
+        observed,
+        candidate_scales.unsqueeze(-1),
+        candidate_zero_points.unsqueeze(-1),
+        token_args,
+        global_scale=global_scale,
+    ).to(observed.dtype)
+    # Note that due to forward quantization implementation, token quant,
+    # unlike tensor_group, requires extra dtype cast
+
+    err = torch.sum((q - observed).abs().pow(norm), dim=(0, -1))
+    return err, shrinked_min_val, shrinked_max_val
+
+
 def _grid_search_mse(
     observed: torch.Tensor,
     args: QuantizationArgs,
+    token_args: QuantizationArgs,
     maxshrink: float,
     patience: float,
     grid: float,
@@ -202,8 +263,12 @@ def _grid_search_mse(
     observed tensor and evaluates the quantization error at each candidate
     range. For each shrink factor ``p = 1 - i/grid`` up to ``maxshrink``.
 
+    Uses early stopping to skip unnecessary search steps when no improvement
+    is found for ``patience`` consecutive steps.
+
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
     :param args: quantization args used for computing qparams and fake quant
+    :param token_args: quantization args with strategy set to TOKEN
     :param maxshrink: maximum shrink amount (in "grid steps"). The number of
         search steps is int(maxshrink * grid)
     :param patience: number of consecutive search steps without improvement before
@@ -222,42 +287,15 @@ def _grid_search_mse(
     best_min_val = min_val.clone()
     best_max_val = max_val.clone()
 
-    # Early stopping params
     no_improve_count = 0
 
     # @ksayers @HGCharles: investigate searching over separate shrinking factors
     for i in range(int(maxshrink * grid)):
         p = 1 - i / grid
-        shrinked_min_val = p * min_val
-        shrinked_max_val = p * max_val
-
-        if optimize_global_scale:
-            global_scale = generate_gparam(shrinked_min_val, shrinked_max_val)
-
-        candidate_scales, candidate_zero_points = calculate_qparams(
-            min_vals=shrinked_min_val,
-            max_vals=shrinked_max_val,
-            quantization_args=args,
-            global_scale=global_scale,
+        err, shrinked_min_val, shrinked_max_val = _compute_candidate_error(
+            observed, args, token_args, min_val, max_val, p, norm,
+            global_scale, optimize_global_scale,
         )
-
-        # Note that observed.shape = (num_observations, *qparams_shape, group_size).
-        # For the purposes of fake quantization, this is equivalent to token quant
-        with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
-            q = fake_quantize(
-                observed,
-                candidate_scales.unsqueeze(-1),
-                candidate_zero_points.unsqueeze(-1),
-                args,
-                global_scale=global_scale,
-            ).to(observed.dtype)
-            # Note that due to forward quantization implementation, token quant,
-            # unlike tensor_group, requires extra dtype cast
-
-        q -= observed
-        q.abs_()
-        q.pow_(norm)
-        err = torch.sum(q, dim=(0, -1))
 
         tmp = err < best_error
         if torch.any(tmp):
@@ -287,16 +325,13 @@ def _grid_search_mse_compiled(
     torch.compile-compatible version of _grid_search_mse.
 
     Differences from the default path:
-    - Uses pre-created token_args instead of patch_attr context manager
-      (patch_attr causes graph breaks)
     - Uses torch.where instead of data-dependent control flow
-      (early stopping causes graph breaks)
+      (early stopping and torch.any cause graph breaks)
     - No early stopping: runs all search steps for deterministic compilation
 
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
     :param args: quantization args used for computing qparams
-    :param token_args: quantization args with strategy set to TOKEN, pre-created
-        to avoid patch_attr context manager which causes torch.compile graph breaks
+    :param token_args: quantization args with strategy set to TOKEN
     :param maxshrink: maximum shrink amount. The number of search steps is
         int(maxshrink * grid)
     :param grid: resolution of the shrink search. Larger values give finer granularity
@@ -316,30 +351,10 @@ def _grid_search_mse_compiled(
     num_steps = int(maxshrink * grid)
     for i in range(num_steps):
         p = 1 - i / grid
-        shrinked_min_val = p * min_val
-        shrinked_max_val = p * max_val
-
-        if optimize_global_scale:
-            global_scale = generate_gparam(shrinked_min_val, shrinked_max_val)
-
-        candidate_scales, candidate_zero_points = calculate_qparams(
-            min_vals=shrinked_min_val,
-            max_vals=shrinked_max_val,
-            quantization_args=args,
-            global_scale=global_scale,
+        err, shrinked_min_val, shrinked_max_val = _compute_candidate_error(
+            observed, args, token_args, min_val, max_val, p, norm,
+            global_scale, optimize_global_scale,
         )
-
-        # Use pre-created token_args instead of patch_attr context manager
-        # to maintain torch.compile compatibility
-        q = fake_quantize(
-            observed,
-            candidate_scales.unsqueeze(-1),
-            candidate_zero_points.unsqueeze(-1),
-            token_args,
-            global_scale=global_scale,
-        ).to(observed.dtype)
-
-        err = torch.sum((q - observed).abs().pow(norm), dim=(0, -1))
 
         # Use torch.where instead of boolean indexing + torch.any for
         # torch.compile compatibility (avoids data-dependent control flow)
