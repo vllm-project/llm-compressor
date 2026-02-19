@@ -312,8 +312,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
-                    hessian=self._hessians[module].pop()
-                    / self._num_samples[module].pop(),
+                    hessian=self._hessians.pop(module) / self._num_samples.pop(module),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
