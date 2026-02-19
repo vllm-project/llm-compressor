@@ -56,16 +56,6 @@ Use the table below to select the algorithm that best matches your deployment re
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |
 
-## Supported model types
-
-The following model architectures are fully supported in LLM Compressor:
-
-| Model type | Notes |
-|------------|-------|
-| Standard language models |  Llama, Mistral, Qwen, and more |
-| Multimodal/Vision models | Vision-language models |
-| Mixture of Experts (MoE) models | DeepSeek, Qwen MoE, Mistral |
-| Large multi-GPU models | Multi-GPU and CPU offloading support |
 
 ### Mixed-precision quantization for accuracy recovery
 
@@ -88,5 +78,6 @@ See [the non-uniform quantization examples](https://github.com/vllm-project/llm-
 
 ## Next steps
 
+- [Choosing your dataset](./choosing-dataset.md)
 - [Compress your first model](compress.md)
 - [Deploy with vLLM](deploy.md)
