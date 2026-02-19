@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 
 # Select model and load it.
 model_id = "meta-llama/Llama-3.3-70B-Instruct"
