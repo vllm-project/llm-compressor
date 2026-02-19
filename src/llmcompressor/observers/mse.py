@@ -54,9 +54,7 @@ class MemorylessMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
-        self.enable_torch_compile = observer_kwargs.get(
-            "enable_torch_compile", False
-        )
+        self.enable_torch_compile = observer_kwargs.get("enable_torch_compile", False)
 
         # Pre-create token_args for compiled path to avoid patch_attr
         if self.enable_torch_compile:
@@ -141,9 +139,7 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
-        self.enable_torch_compile = observer_kwargs.get(
-            "enable_torch_compile", False
-        )
+        self.enable_torch_compile = observer_kwargs.get("enable_torch_compile", False)
 
         if self.enable_torch_compile:
             self._token_args = self.args.model_copy(
