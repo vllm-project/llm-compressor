@@ -34,8 +34,8 @@ def accumulate_hessian(
     inp: torch.Tensor,
     module: torch.nn.Module,
     H: torch.Tensor | None,
-    num_samples: int,
-) -> tuple[torch.Tensor, int]:
+    num_samples: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)

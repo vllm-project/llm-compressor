@@ -128,7 +128,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _num_samples: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+        default_factory=dict
+    )
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -253,7 +255,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "cpu" if self.offload_hessians else get_execution_device(module)
             )
             self._hessians[module] = make_empty_hessian(module, device=init_device)
-            self._num_samples[module] = 0
+            self._num_samples[module] = torch.zeros(
+                1, device=get_execution_device(module)
+            )
 
         # Accumulate hessian with input with optional offloading
         with self._maybe_onload_hessian(module):
@@ -307,13 +311,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
-                    hessian=self._hessians[module] / self._num_samples[module],
+                    hessian=self._hessians[module].pop() / self._num_samples[module].pop(),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
                 comp_logger.set_loss(loss)
-                del self._hessians[module]
-                del self._num_samples[module]
 
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
@@ -327,23 +329,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
         for module in module_list:
             target_rank = module_to_rank[module]
             with self._maybe_onload_hessian(module):
-                H = self._hessians[module]
-                n = torch.Tensor([self._num_samples.get(module)]).to(H.device)
-                h_comm = dist.reduce(
-                    H, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
-                )
-                n_comm = dist.reduce(
-                    n, op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
-                )
-                pending_comms.append(h_comm)
-                pending_comms.append(n_comm)
-                if rank == target_rank:
-                    wait_for_comms(pending_comms)
-                    self._hessians[module] = H
-                    self._num_samples[module] = n
+                pending_comms.append(dist.reduce(
+                    self._hessians[module], op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
+                ))
+                pending_comms.append(dist.reduce(
+                    self._num_samples[module], op=dist.ReduceOp.SUM, dst=target_rank, async_op=True
+                ))
                 if rank != target_rank:
                     self._hessians.pop(module, None)
                     self._num_samples.pop(module, None)
+        wait_for_comms(pending_comms)
 
     def _broadcast_quantized_params(self, module_list, module_to_rank):
         pending_comms = []
@@ -351,17 +346,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
             src_rank = module_to_rank[module]
 
             # Get parameters from module
-            to_broadcast = []
+            pending_comms = []
             for attr in _GPTQ_Q_PARAMS:
                 if getattr(module, attr, None) is not None:
-                    to_broadcast.append(getattr(module, attr, None))
-
-            # Broadcast each tensor asynchronously
-            # note: update in place, since compress_module_list updated the offload
-            for tensor in to_broadcast:
-                pending_comms.append(
-                    dist.broadcast(tensor, src=src_rank, async_op=True)
-                )
+                    pending_comms.append(
+                        dist.broadcast(getattr(module, attr), src=src_rank, async_op=True)
+                    )
         wait_for_comms(pending_comms)
 
     def on_end(self, state: State, event: Event, **kwargs):
