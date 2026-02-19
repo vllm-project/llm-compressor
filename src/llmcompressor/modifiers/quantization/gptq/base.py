@@ -2,6 +2,7 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -17,6 +18,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import PrivateAttr
+from torch import distributed as dist
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -29,9 +31,12 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.utils import greedy_bin_packing, wait_for_comms
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
+
+_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
 
 
 class GPTQModifier(Modifier, QuantizationMixin):
@@ -123,7 +128,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _num_samples: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+        default_factory=dict
+    )
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -248,7 +255,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "cpu" if self.offload_hessians else get_execution_device(module)
             )
             self._hessians[module] = make_empty_hessian(module, device=init_device)
-            self._num_samples[module] = 0
+            self._num_samples[module] = torch.zeros(
+                tuple(), device=get_execution_device(module)
+            )
 
         # Accumulate hessian with input with optional offloading
         with self._maybe_onload_hessian(module):
@@ -263,7 +272,32 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Quantize modules which have been calibrated
         """
-        for module in list(self._num_samples.keys()):
+        ### Not Distributed
+        if not is_distributed():
+            self.compress_module_list(list(self._num_samples.keys()))
+            return
+
+        ### Distributed
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+
+        # Assign modules to ranks
+        module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
+            list(self._hessians.keys()),
+            world_size,
+            item_weight_fn=lambda mod: self._hessians[mod].shape[0],
+        )
+
+        # send hessians to assigned ranks
+        self._reduce_hessian_to_target_rank(module_list, module_to_rank)
+
+        self.compress_module_list(rank_to_modules[rank])
+
+        # broadcast compressed modules to each rank
+        self._broadcast_quantized_params(module_list, module_to_rank)
+
+    def compress_module_list(self, module_list):
+        for module in module_list:
             name = self._module_names[module]
             num_samples = self._num_samples[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
@@ -275,23 +309,59 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
-                    hessians_dict=self._hessians,
+                    hessian=self._hessians.pop(module) / self._num_samples.pop(module),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
                 comp_logger.set_loss(loss)
 
-            update_offload_parameter(module, "weight", quantized_weight)
-            update_offload_parameter(module, "weight_scale", scale)
-            update_offload_parameter(module, "weight_zero_point", zero_point)
-            if g_idx is not None:
-                update_offload_parameter(module, "weight_g_idx", g_idx)
+            for attr, val in q_param_dict.items():
+                update_offload_parameter(module, attr, val)
 
-            # self._hessians[module] already deleted by quantize_weight
-            del self._num_samples[module]
+    def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
+        rank = dist.get_rank()
+        pending_comms = []
+        for module in module_list:
+            target_rank = module_to_rank[module]
+            with self._maybe_onload_hessian(module):
+                pending_comms.append(
+                    dist.reduce(
+                        self._hessians[module],
+                        op=dist.ReduceOp.SUM,
+                        dst=target_rank,
+                        async_op=True,
+                    )
+                )
+                pending_comms.append(
+                    dist.reduce(
+                        self._num_samples[module],
+                        op=dist.ReduceOp.SUM,
+                        dst=target_rank,
+                        async_op=True,
+                    )
+                )
+                if rank != target_rank:
+                    self._hessians.pop(module, None)
+                    self._num_samples.pop(module, None)
+        wait_for_comms(pending_comms)
+
+    def _broadcast_quantized_params(self, module_list, module_to_rank):
+        pending_comms = []
+        for module in module_list:
+            src_rank = module_to_rank[module]
+
+            # Get parameters from module
+            for attr in _GPTQ_Q_PARAMS:
+                if getattr(module, attr, None) is not None:
+                    pending_comms.append(
+                        dist.broadcast(
+                            getattr(module, attr), src=src_rank, async_op=True
+                        )
+                    )
+        wait_for_comms(pending_comms)
 
     def on_end(self, state: State, event: Event, **kwargs):
         """

@@ -25,11 +25,11 @@ strategy_cdiv in compressed_tensors.quantization.utils.helpers.
 from __future__ import annotations
 
 import torch
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
 from compressed_tensors.utils import match_named_modules
 
 __all__ = [
-    "_layer_indivisible",
     "get_layers_indivisible_by_group_size",
     "validate_group_size_divisibility",
 ]
@@ -77,16 +77,19 @@ def get_layers_indivisible_by_group_size(
     :return: List of (fqn, columns, group_size) for each layer that would
         fail at save/forward due to indivisibility.
     """
-    indivisible: list[tuple[str, int, int]] = []
-    for name, module in match_named_modules(model, resolved_targets, ignore):
-        scheme: QuantizationScheme | None = getattr(module, "quantization_scheme", None)
-        if scheme is None or scheme.weights is None:
-            continue
-        result = _layer_indivisible(module, scheme.weights)
-        if result is not None:
-            columns, group_size = result
-            indivisible.append((name, columns, group_size))
-    return indivisible
+    with disable_onloading():
+        indivisible: list[tuple[str, int, int]] = []
+        for name, module in match_named_modules(model, resolved_targets, ignore):
+            scheme: QuantizationScheme | None = getattr(
+                module, "quantization_scheme", None
+            )
+            if scheme is None or scheme.weights is None:
+                continue
+            result = _layer_indivisible(module, scheme.weights)
+            if result is not None:
+                columns, group_size = result
+                indivisible.append((name, columns, group_size))
+        return indivisible
 
 
 def validate_group_size_divisibility(
