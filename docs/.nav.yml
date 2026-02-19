@@ -1,15 +1,15 @@
 nav:
   - Home: index.md
   - Why use LLM Compressor?: steps/why-llmcompressor.md
-  - Choosing your model: steps/choosing-model.md
-  - Choosing the right compression scheme: steps/choosing-scheme.md
-  - Choosing the right compression algorithm: steps/choosing-algo.md
-  - Compressing your model: steps/compressing.md
+  - Compresssing your model, step-by-step:
+    - Choosing your model: steps/choosing-model.md
+    - Choosing the right compression scheme: steps/choosing-scheme.md
+    - Choosing the right compression algorithm: steps/choosing-algo.md
+    - Compressing your model: steps/compressing.md
   - Deploying with vLLM: steps/deploy.md
   - Getting started:
     - getting-started/index.md
     - Installing LLM Compressor: getting-started/install.md
-    - FAQ: getting-started/faq.md
   - Key Models:
     - key-models/index.md
     - Llama 4:
@@ -38,3 +38,5 @@ nav:
     - developer/*
   - API Reference:
     - api/*
+  - FAQ: 
+    - faq/faq.md
