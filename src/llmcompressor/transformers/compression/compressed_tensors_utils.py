@@ -9,6 +9,7 @@ from compressed_tensors import (
     SparsityCompressionConfig,
 )
 from compressed_tensors.config import CompressionFormat
+from compressed_tensors.offload import is_rank0
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -88,22 +89,23 @@ def modify_save_pretrained(model: PreTrainedModel):
             if compressor is not None:
                 compressor.compress_model(model)
 
-            # save (compressed) model structure
-            original_save_pretrained.__get__(model, model_class)(
-                save_directory,
-                safe_serialization=safe_serialization,
-                **kwargs,
-            )
+            if is_rank0():
+                # save (compressed) model structure
+                original_save_pretrained.__get__(model, model_class)(
+                    save_directory,
+                    safe_serialization=safe_serialization,
+                    **kwargs,
+                )
 
-            # update config to reflect compression
-            if compressor is not None:
-                compressor.update_config(save_directory)
+                # update config to reflect compression
+                if compressor is not None:
+                    compressor.update_config(save_directory)
 
-            # update existing recipe
-            update_and_save_recipe(model.name_or_path, save_directory)
+                # update existing recipe
+                update_and_save_recipe(model.name_or_path, save_directory)
 
-            # copy python files from cache dir to save_path if any
-            copy_python_files_from_model_cache(model, save_directory)
+                # copy python files from cache dir to save_path if any
+                copy_python_files_from_model_cache(model, save_directory)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
