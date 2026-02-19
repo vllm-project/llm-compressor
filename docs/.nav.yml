@@ -5,6 +5,7 @@ nav:
     - Choosing your model: steps/choosing-model.md
     - Choosing the right compression scheme: steps/choosing-scheme.md
     - Choosing the right compression algorithm: steps/choosing-algo.md
+    - Choosing a dataset: steps/choosing-dataset.md
     - Compressing your model: steps/compressing.md
   - Deploying with vLLM: steps/deploy.md
   - Getting started:
