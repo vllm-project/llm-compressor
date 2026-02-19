@@ -1,3 +1,4 @@
+from compressed_tensors.offload import dispatch_model
 from compressed_tensors.utils import replace_module
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.granitemoehybrid.modeling_granitemoehybrid import (
@@ -7,7 +8,6 @@ from transformers.models.granitemoehybrid.modeling_granitemoehybrid import (
 from llmcompressor import oneshot
 from llmcompressor.modeling.granite4 import GraniteMoeHybridParallelExpertsLinear
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 """Please see details in `README_granite4.md`."""
 
@@ -45,7 +45,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer(
     "What is your favorite TV show?", return_tensors="pt"
 ).input_ids.to("cuda")

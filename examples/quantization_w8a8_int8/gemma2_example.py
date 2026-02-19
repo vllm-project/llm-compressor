@@ -1,9 +1,9 @@
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # 1) Select model and load it.
 MODEL_ID = "google/gemma-2-2b-it"
@@ -69,7 +69,7 @@ oneshot(
 # or use vLLM for sample generation.
 # Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

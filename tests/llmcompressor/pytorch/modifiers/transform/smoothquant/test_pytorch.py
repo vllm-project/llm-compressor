@@ -1,7 +1,7 @@
 import pytest
 from torch.nn import Linear
 
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 
 
 @pytest.mark.unit
