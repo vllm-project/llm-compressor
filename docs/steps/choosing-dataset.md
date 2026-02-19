@@ -4,10 +4,10 @@ Depending on your selected algorithm or scheme, you may also require a dataset. 
 
 ## Algorithms requiring datasets
 
-- AWQ
-- GPTQ
-- AutoRound
-- SmoothQuant
+- **AWQ**
+- **GPTQ**
+- **AutoRound**
+- **SmoothQuant**
 
 !!! info
     RTN (Round-to-Nearest) quantization is data-free and can compress models without any calibration dataset. However, calibration-based methods typically achieve better accuracy recovery, especially at lower bit-widths.
@@ -17,8 +17,8 @@ Depending on your selected algorithm or scheme, you may also require a dataset. 
 Quantization schemes where activations are quantized non-dynamically (i.e the scales to quantize the activations are not determined during inference time) will also require a dataset. 
 
 These Include:
-- NVFP4: Data is required to calibrate the activation scales, allowing quantization of the activatins to FP4 during inference
-- Static-Per Tensor Activation Quantization: Commonly used with FP8 and INT8 weight quantization, if you are targeting a static-per tensor scheme for activation quantization, data is required to calibrate a single scale which enables quantization of the activations to 8 bits during inference
+- **NVFP4**: Data is required to calibrate the activation scales, allowing quantization of the activatins to FP4 during inference
+- **Static-Per Tensor Activation Quantization**: Commonly used with FP8 and INT8 weight quantization, if you are targeting a static-per tensor scheme for activation quantization, data is required to calibrate a single scale which enables quantization of the activations to 8 bits during inference
 
 ## Key considerations
 
