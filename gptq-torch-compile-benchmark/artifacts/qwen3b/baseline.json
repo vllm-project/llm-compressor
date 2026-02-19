@@ -1,0 +1,44 @@
+{
+  "scenario": "qwen3b",
+  "config": {
+    "model": "Qwen/Qwen2.5-3B",
+    "num_calibration_samples": 256,
+    "max_seq_length": 512,
+    "description": "Qwen2.5-3B - production representative"
+  },
+  "mode": "baseline",
+  "times": [
+    873.3770228539997,
+    885.256329754
+  ],
+  "peak_memory_runs": [
+    {
+      "allocated_gb": 0.01,
+      "reserved_gb": 2.961,
+      "max_allocated_gb": 2.361,
+      "max_reserved_gb": 2.961
+    },
+    {
+      "allocated_gb": 0.01,
+      "reserved_gb": 2.961,
+      "max_allocated_gb": 2.361,
+      "max_reserved_gb": 2.961
+    }
+  ],
+  "peak_memory": {
+    "max_allocated_gb": 2.361,
+    "max_reserved_gb": 2.961
+  },
+  "mean_time": 879.3166763039999,
+  "variance_stats": {
+    "mean": 879.3166763039999,
+    "stddev": 8.399938464786358,
+    "cv": 0.9552802410268753,
+    "min": 873.3770228539997,
+    "max": 885.256329754,
+    "p50": 879.3166763039999,
+    "p90": 885.256329754,
+    "p99": 885.256329754
+  },
+  "status": "success"
+}
