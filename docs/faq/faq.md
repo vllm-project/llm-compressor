@@ -16,7 +16,7 @@ This involves understanding your hardware availability and inference requirement
 
 **4. What are the memory requirements for compression?**
 
-Refer to [Memory Requirements for LLM Compressor](compress.md#memory-requirements-for-llm-compressor).
+Refer to [Memory Requirements for LLM Compressor](../guides/memory.md).
 
 **5. Which model layers should be quantized?**
 

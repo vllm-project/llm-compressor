@@ -22,4 +22,20 @@ Welcome to the LLM Compressor guides section! Here you'll find comprehensive doc
 
     [:octicons-arrow-right-24: Saving a Model](saving_a_model.md)
 
+- :material-content-save:{ .lg .middle } Memory requirements
+
+    ---
+
+    Learn about LLM Compressor's memory requirements for various supported algorithms
+
+    [:octicons-arrow-right-24: LLM Compressor Memory Requirements](./memory.md)
+
+- :material-content-save:{ .lg .middle } Runtime requirements
+
+    ---
+
+     Learn about LLM Compressor's runtime requirements for various supported algorithms
+
+    [:octicons-arrow-right-24: LLM Compressor Memory Requirements](./runtime.md)
+
 </div>

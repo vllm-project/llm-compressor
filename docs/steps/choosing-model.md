@@ -1,8 +1,8 @@
-# Select a Model and Dataset
+# Select a Model
 
-Before you start compressing, select the model you'd like to compress and a calibration dataset that is representative of your use case. LLM Compressor supports a variety of models and integrates natively with Hugging Face Transformers and Model Hub, so a great starting point is to use a model from the Hugging Face Model Hub. LLM Compressor also supports many datasets from the Hugging Face Datasets library, making it easy to find a suitable dataset for calibration.
+The first step in the compression workflow is selecting a compatible model. LLM Compressor supports a wide range of architectures including decoder-only language models (such as Llama3), multi-modal vision-language models (such as Qwen3 VL), and Mixture-of-Experts (MoE) models (such as Llama4, Kimi-K2, and Qwen3 VL MoE variants).
 
-For this guide, we'll use the `TinyLlama` model and the `open_platypus` dataset for calibration. You can replace these with your own model and dataset as needed.
+LLM Compressor integrates seamlessly with the Hugging Face ecosystem, allowing you to directly reference any compatible model from the Hugging Face Model Hub using its model identifier (e.g., `meta-llama/Meta-Llama-3-8B-Instruct`). The library will automatically download and load the model, making Hugging Face the recommended starting point for most users. Alternatively, you can compress locally-stored models by providing a path to the model directory containing the model weights and configuration files. 
 
 ## Next Steps
 
