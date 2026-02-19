@@ -28,12 +28,11 @@ def test_validate_file_raises_for_non_2d_linear_weight(tmp_path):
         validate_file(path, None, _get_block_scheme(), [], None)
 
 
-def test_validate_file_raises_for_block_incompatible_shape(tmp_path):
+def test_validate_file_does_not_raise_for_block_incompatible_shape(tmp_path):
     path = tmp_path / "bad_block.safetensors"
     save_file(
         {"model.layers.0.mlp.down_proj.weight": torch.ones(17, 16)},
         str(path),
     )
 
-    with pytest.raises(ValueError, match="strict division"):
-        validate_file(path, None, _get_block_scheme(), [], None)
+    validate_file(path, None, _get_block_scheme(), [], None)
