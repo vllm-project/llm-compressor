@@ -26,7 +26,6 @@ def dataloader():
     return dataloader
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize("extra_targets,expected", [([], 0), (["lm_head"], 1)])
 def test_lm_head(extra_targets, expected, model, dataloader):
     kwargs = {

@@ -21,7 +21,6 @@ GPU_CONFIGS_DIRECTORY = (
 )
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_consecutive_runs_small(config, tmp_path):
     _test_consecutive_runs(
@@ -35,7 +34,6 @@ def test_consecutive_runs_small(config, tmp_path):
 
 
 @requires_gpu
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
 def test_consecutive_runs_gpu(config, tmp_path):
     assert not is_model_ct_quantized_from_path(

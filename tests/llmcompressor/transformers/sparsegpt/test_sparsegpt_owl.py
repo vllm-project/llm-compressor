@@ -10,7 +10,6 @@ from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.utils.pytorch.module import get_layers
 
 
-@pytest.mark.integration
 def test_infer_owl_layer_sparsity():
     target_sparsity = 0.7
     vocab_size = 512

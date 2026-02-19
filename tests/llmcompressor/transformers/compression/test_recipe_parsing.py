@@ -54,20 +54,20 @@ def recipe_variants():
     ]
 
     yaml_string = """
-DEFAULT_stage:
-  DEFAULT_modifiers:
-    SmoothQuantModifier:
-      smoothing_strength: 0.8
-      mappings:
-      - - ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
-        - re:.*input_layernorm
-      - - ['re:.*gate_proj', 're:.*up_proj']
-        - re:.*post_attention_layernorm
-    GPTQModifier:
-      targets: Linear
-      ignore: [lm_head]
-      scheme: W8A8
-"""
+    DEFAULT_stage:
+    DEFAULT_modifiers:
+        SmoothQuantModifier:
+        smoothing_strength: 0.8
+        mappings:
+        - - ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
+            - re:.*input_layernorm
+        - - ['re:.*gate_proj', 're:.*up_proj']
+            - re:.*post_attention_layernorm
+        GPTQModifier:
+        targets: Linear
+        ignore: [lm_head]
+        scheme: W8A8
+    """
 
     yaml_path = str(Path(__file__).parent / "recipes" / "smoothquant_gptq_w8a8.yaml")
 
@@ -75,7 +75,6 @@ DEFAULT_stage:
 
 
 @requires_gpu
-@pytest.mark.integration
 @pytest.mark.parametrize(
     "recipe",
     recipe_variants(),

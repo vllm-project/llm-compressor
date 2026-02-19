@@ -10,7 +10,6 @@ CONFIGS_DIRECTORY = (
 
 
 @requires_gpu
-@pytest.mark.integration
 @pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
 def test_oneshot_with_modifier_object(tmp_path, config):
     output_dir = tmp_path / "oneshot_out"
