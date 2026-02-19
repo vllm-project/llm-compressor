@@ -256,7 +256,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
             self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = torch.zeros(
-                1, device=get_execution_device(module)
+                tuple(), device=get_execution_device(module)
             )
 
         # Accumulate hessian with input with optional offloading
@@ -299,9 +299,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def compress_module_list(self, module_list):
         for module in module_list:
             name = self._module_names[module]
+            num_samples = self._num_samples[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name}")
+            logger.info(f"Quantizing {name} using {num_samples} samples")
             with (
                 torch.no_grad(),
                 align_module_device(module),
@@ -320,9 +321,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
-
-            # self._hessians[module] already deleted by quantize_weight
-            self._num_samples.pop(module, None)
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
         rank = dist.get_rank()
@@ -357,7 +355,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
             src_rank = module_to_rank[module]
 
             # Get parameters from module
-            pending_comms = []
             for attr in _GPTQ_Q_PARAMS:
                 if getattr(module, attr, None) is not None:
                     pending_comms.append(
