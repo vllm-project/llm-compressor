@@ -180,8 +180,8 @@ class IntermediatesCache:
                     for v in value.values():
                         _size_helper(v)
                 case _ if is_dataclass(value):
-                    for field in fields(value):
-                        _size_helper(getattr(value, field.name))
+                    for f in fields(value):
+                        _size_helper(getattr(value, f.name))
                 case _:
                     # this handles primitive values that don't match any other cases
                     sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
@@ -223,10 +223,12 @@ class IntermediatesCache:
             case dict():
                 return {k: cls._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
-                for field in fields(value):
-                    v = getattr(value, field.name)
-                    setattr(value, field.name, cls._onload_value(v))
-                return value
+                return type(value)(
+                    **{
+                        f.name: cls._onload_value(getattr(value, f.name))
+                        for f in fields(value)
+                    }
+                )
             case _:
                 # handles primitive values that should be returned as is.
                 # without this, a MatchError would be raised for unhandled types.
@@ -283,10 +285,15 @@ class IntermediatesCache:
                     device=None,
                 )
             case _ if is_dataclass(value):
-                for field in fields(value):
-                    v = getattr(value, field.name)
-                    setattr(value, field.name, cls._offload_value(v, **kwargs))
-                return IntermediateValue(value=value, device=None)
+                return IntermediateValue(
+                    value=type(value)(
+                        **{
+                            f.name: cls._offload_value(getattr(value, f.name), **kwargs)
+                            for f in fields(value)
+                        }
+                    ),
+                    device=None,
+                )
             case _:
                 # handles primitive values and provides a warning for unsupported types.
                 # without this, values trigger a MatchError exception.
