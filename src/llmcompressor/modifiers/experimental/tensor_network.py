@@ -1,4 +1,5 @@
 import inspect
+from functools import reduce
 
 import tensorly as tl
 import torch
@@ -16,6 +17,9 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.experimental.tensorized_linear import (
     TensorizedLinear,
+)
+from llmcompressor.modifiers.experimental.block_tensorized_linear import (
+    BlockTensorizedLinear,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -74,10 +78,9 @@ class TensorNetworkModifier(Modifier):
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
         to torch.device("cpu") if you are encountering OOM errors
-    :param num_blocks: Number of blocks to break target linear matrix into. Every
-        target layer must have row and column size evenly divisible by n_blocks.
-        Value must be an integer squared (e.g. 1, 4, 9, 16, ...)
-        Defaults to 1.
+    :param num_blocks: Optional block size to be used for BlockTensorizedLinear.
+        If set, the Linear layer will be broken into square matrices of this size.
+        If unset, TensorizedLinear will be used.
     :param num_cores: Number of cores (also known as sites) in each resultant MPO.
         Defaults to 3.
     """
@@ -89,7 +92,7 @@ class TensorNetworkModifier(Modifier):
     targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
     ignore: list[str] = Field(default_factory=list)
     offload_device: torch.device | None = None
-    num_blocks: int = 1
+    block_size: int | None = None
     num_cores: int = 3
 
     # Cache list of forward input args for each parent module, one dict for each batch
@@ -109,7 +112,7 @@ class TensorNetworkModifier(Modifier):
         self.started_ = True
 
         # register caching hooks
-        self._setup_activation_cache_hooks()
+        self._setup_target_args_cache_hooks(state.model)
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -153,31 +156,37 @@ class TensorNetworkModifier(Modifier):
 
         return True
 
-    def _setup_activation_cache_hooks(self, model: nn.Module) -> None:
+    def _setup_target_args_cache_hooks(self, model: nn.Module) -> None:
         """
         Attach a forward hook to each targeted Linear layer we want to tensorize
         """
 
-        def cache_target_kwargs_hook(
-            module: nn.Module,
-            args: tuple[torch.Tensor, ...],
-            kwargs,
-        ):
-            values = inspect.signature(module.forward).bind(*args, **kwargs)
-            self._target_args_cache[module].append(values.arguments)
+        def create_cache_target_inputs_outputs_hook(name: str):
+            def cache_target_inputs_outputs_hook(
+                module: nn.Module,
+                args: tuple[torch.Tensor, ...],
+                output: torch.Tensor,
+            ):
+                assert len(args) == 1, "linear layer can only have one input"
+                self._target_args_cache[(name, module)].append(
+                    {
+                        "input": args[0].detach().clone(),
+                        "output": output.detach().clone(),
+                    }
+                )
+
+            return cache_target_inputs_outputs_hook
 
         for name, module in match_named_modules(model, self.targets, self.ignore):
             if not isinstance(module, nn.Linear):
                 continue
+
             self._target_args_cache[(name, module)] = IntermediatesCache(
                 None,
                 self.offload_device,
             )
             self.register_hook(
-                module,
-                cache_target_kwargs_hook,
-                "forward_pre",
-                with_kwargs=True,
+                module, create_cache_target_inputs_outputs_hook(name), "forward"
             )
 
     @torch.no_grad()
@@ -192,71 +201,38 @@ class TensorNetworkModifier(Modifier):
         """
         # NOTE: When using SequentialPipeline, not all the targeted layers
         # will have cached activations in the segment being udpated
-        for name, module in tqdm(self._target_args_cache.keys(), desc="Tensorizing"):
+        # cache keys outside of for loop, as they are consumed during iteration
+        name_module_keys = list(self._target_args_cache.keys())
+        for name, module in tqdm(name_module_keys, desc="Tensorizing"):
             with (
                 align_modules([module]),
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                # [STEP 1]: Compute output of module
-                dense_outputs = self._run_samples(module)
-                if len(dense_outputs) == 0 or all(
-                    f.numel() == 0 for f in dense_outputs
-                ):
-                    logger.info(
-                        f"Skipping layer {name}, no activations "
-                        "found to scale. This can occasionally occur in MoE models "
-                        "when certain experts are not activated by calibration samples."
-                    )
-                    del self._target_args_cache[(name, module)]
-                    continue
-                if not all(
-                    [dense_output.isfinite().all() for dense_output in dense_outputs]
-                ):
-                    logger.warning(
-                        f"Skipping layer {name}, NaN or inf "
-                        "outputs found during forward pass of the module. "
-                        "The model is either generating NaN output with provided "
-                        "calibration data set, or the targets are incorrectly set "
-                        "and modifying the model in undesired ways. "
-                        "If you encounter this consistently, raise an issue at "
-                        "https://github.com/vllm-project/llm-compressor/issues"
-                    )
-                    del self._target_args_cache[(name, module)]
-                    continue
+                tensorized_linear = self._get_trained_tensorized_layer(name, module)
 
-                # [STEP 2]: Tensorize
-                tensorized_linear = TensorizedLinear.from_linear(module, rank=2)
+                # Replace linear layer with its tensorized_linear approximation
+                parent = get_parent_of_model_by_name(model, name)
+                leaf_name = name.split(".")[-1]
+                setattr(parent, leaf_name, tensorized_linear)
 
-                # [STEP 3]: Retrain
-                # TODO train tensorize_linear against dense_outputs w/ MSELoss
-
-                # [STEP 4]: Apply to module
-                # TODO use TensorizedLinear with einsum string
-                @torch.no_grad()
-                def _apply_tensorized(module: nn.Linear):
-                    update_offload_parameter(
-                        module,
-                        "weight",
-                        tensorized_linear.to_matrix(),
-                    )
-
-                _apply_tensorized(module)
-
-                # remove caches needed to smooth this mapping
-                del self._target_args_cache[(name, module)]
+            # remove caches needed to smooth this mapping
+            del self._target_args_cache[(name, module)]
 
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: nn.Module) -> list[torch.Tensor]:
-        outputs = [
-            module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
-        ]
-        return [
-            # If Tuple, assume that first argument is the input
-            output[0] if isinstance(output, tuple) else output
-            for output in outputs
-        ]
+    def _get_trained_tensorized_layer(
+        self, name: str, linear: torch.nn.Linear
+    ) -> TensorizedLinear | BlockTensorizedLinear:
+        # create tensorized layer
+        tensorized_linear = TensorizedLinear.from_linear(
+            linear.to(torch.float32), rank=2
+        )
+        intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
+
+        # retrain
+        # TODO train tensorize_linear against dense_outputs w/ MSELoss
+        return tensorized_linear
 
     @torch.no_grad()
     def _compute_loss(
@@ -287,3 +263,37 @@ class TensorNetworkModifier(Modifier):
         """
         if len(self._target_args_cache) != 0:
             raise RuntimeError("Some cached activations were not used")
+
+
+def get_parent_of_model_by_name(
+    model: torch.nn.Module, module_name: str
+) -> torch.nn.Module:
+    """
+    Retrieves the parent module of a nested module specified by its full name.
+
+
+    :param model: The root of the module tree
+    :param module_name: The dot-separated name of the nested module, for example
+        'model.layers.0.self_attn.q_proj'
+
+    :return: The parent module, or None if the module is the root or not found.
+    """
+    if "." not in module_name:
+        # The module is a direct child of the root, so the root is its parent
+        return model
+
+    # Split the name into parts and get the name of the parent
+    parts = module_name.split(".")
+    parent_name = ".".join(parts[:-1])
+
+    # try:
+    # Use reduce and getattr to traverse to the parent module
+    parent_module = reduce(getattr, parent_name.split("."), model)
+    # Verify that the retrieved object is indeed an nn.Module
+    if isinstance(parent_module, nn.Module):
+        return parent_module
+    else:
+        return None
+    # except AttributeError:
+    #     # If any part of the path is invalid, the parent is not found
+    #     return None
