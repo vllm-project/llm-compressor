@@ -7,20 +7,20 @@ from llmcompressor.modifiers.experimental import TensorizedLinear, BlockTensoriz
 
 
 @pytest.mark.parametrize(
-    "batch_size,in_features,out_features,block_size,num_cores,bias",
+    "batch_size,seq_len,in_features,out_features,block_size,num_cores,bias",
     [
-        (5, 32, 64, None, 2, True),
-        (6, 32, 64, None, 2, False),
-        (7, 64, 32, 16, 2, False),
-        (8, 128, 64, 16, 3, True),
-        (5, 1024, 1024, 16, 3, True),
-        (6, 1024, 1024, 16, 3, False),
-        (7, 1024, 1024, None, 4, True),
-        (8, 2048, 2048, None, 3, False),
+        (5, None, 32, 64, None, 2, True),
+        (6, 16, 32, 64, None, 2, False),
+        (7, 32, 64, 32, 16, 2, False),
+        (8, None, 128, 64, 16, 3, True),
+        (5, None, 1024, 1024, 16, 3, True),
+        (6, 8, 1024, 1024, 16, 3, False),
+        (7, 16, 1024, 1024, None, 4, True),
+        (8, None, 2048, 2048, None, 3, False),
     ],
 )
 def test_tensorized_linear_reconstructs_weight_and_output(
-    batch_size, in_features, out_features, block_size, num_cores, bias
+    batch_size, seq_len, in_features, out_features, block_size, num_cores, bias
 ):
     in_features = 32
     out_features = 64
@@ -41,7 +41,11 @@ def test_tensorized_linear_reconstructs_weight_and_output(
         F.mse_loss(orig_weight, tensorized_weight) < 1e-4
     ), "Weights not reconstructing"
 
-    inpt = torch.rand((batch_size, in_features), requires_grad=False)
+    inpt = (
+        torch.rand((batch_size, seq_len, in_features), requires_grad=False)
+        if seq_len is not None
+        else torch.rand((batch_size, in_features), requires_grad=False)
+    )
     orig_output = linear(inpt)
     tensorized_output = tensorized_linear(inpt)
 
