@@ -54,9 +54,9 @@ class CalibrationQwen3_5MoeSparseMoeBlock(MoECalibrationModule):
         _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
 
         # expert mask: (num_experts, top_k, num_tokens)
-        expert_mask = F.one_hot(
-            selected_experts, num_classes=self.num_experts
-        ).permute(2, 1, 0)
+        expert_mask = F.one_hot(selected_experts, num_classes=self.num_experts).permute(
+            2, 1, 0
+        )
 
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
