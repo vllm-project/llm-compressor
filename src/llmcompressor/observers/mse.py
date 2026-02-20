@@ -293,8 +293,15 @@ def _grid_search_mse(
     for i in range(int(maxshrink * grid)):
         p = 1 - i / grid
         err, shrinked_min_val, shrinked_max_val = _compute_candidate_error(
-            observed, args, token_args, min_val, max_val, p, norm,
-            global_scale, optimize_global_scale,
+            observed,
+            args,
+            token_args,
+            min_val,
+            max_val,
+            p,
+            norm,
+            global_scale,
+            optimize_global_scale,
         )
 
         tmp = err < best_error
@@ -352,8 +359,15 @@ def _grid_search_mse_compiled(
     for i in range(num_steps):
         p = 1 - i / grid
         err, shrinked_min_val, shrinked_max_val = _compute_candidate_error(
-            observed, args, token_args, min_val, max_val, p, norm,
-            global_scale, optimize_global_scale,
+            observed,
+            args,
+            token_args,
+            min_val,
+            max_val,
+            p,
+            norm,
+            global_scale,
+            optimize_global_scale,
         )
 
         # Use torch.where instead of boolean indexing + torch.any for

@@ -99,7 +99,9 @@ def test_mse_observer_torch_compile():
         observer="memoryless_mse",
         observer_kwargs={"enable_torch_compile": True},
     )
-    observer = Observer.load_from_registry("memoryless_mse", base_name="weight", args=args)
+    observer = Observer.load_from_registry(
+        "memoryless_mse", base_name="weight", args=args
+    )
 
     x = torch.randn(1, 1, 128)
     eager_scale, eager_zp = observer(x)
