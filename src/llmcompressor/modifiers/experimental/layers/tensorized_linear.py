@@ -127,9 +127,9 @@ class TensorizedLinear(nn.Module):
                 shape.append(dim)
                 remainder = remainder / dim
         assert len(shape) == num_cores, "Something wrong with len(shape)"
-        assert math.prod(shape) == num_features, (
-            f"Something wrong with num_features, {shape}, {num_features}"
-        )
+        assert (
+            math.prod(shape) == num_features
+        ), f"Something wrong with num_features, {shape}, {num_features}"
         return shape
 
     def to_matrix(self) -> torch.Tensor:

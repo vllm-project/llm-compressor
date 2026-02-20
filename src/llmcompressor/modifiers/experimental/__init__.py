@@ -1,5 +1,5 @@
-# isort: skip_file
+# ruff: noqa
 
-from .layers.tensorized_linear import *
 from .tensor_network import *
+from .layers.tensorized_linear import *
 from .layers.block_tensorized_linear import *

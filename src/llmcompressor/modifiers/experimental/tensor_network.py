@@ -2,8 +2,11 @@ import inspect
 
 import tensorly as tl
 import torch
-from compressed_tensors.utils import (align_modules, match_named_modules,
-                                      update_offload_parameter)
+from compressed_tensors.utils import (
+    align_modules,
+    match_named_modules,
+    update_offload_parameter,
+)
 from loguru import logger
 from pydantic import ConfigDict, Field, PrivateAttr
 from torch import nn
@@ -11,8 +14,9 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.experimental.layers.tensorized_linear import \
-    TensorizedLinear
+from llmcompressor.modifiers.experimental.layers.tensorized_linear import (
+    TensorizedLinear,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.helpers import calibration_forward_context
