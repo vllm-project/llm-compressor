@@ -12,6 +12,8 @@ from llmcompressor.modifiers.experimental import TensorizedLinear, BlockTensoriz
         (32, 64, None, 2, False),
         (64, 32, 16, 2, False),
         (128, 64, 16, 3, True),
+        (1024, 1024, 16, 3, True),
+        (1024, 1024, 16, 3, False),
     ],
 )
 def test_tensorized_linear_reconstructs_weight_and_output(
@@ -44,4 +46,11 @@ def test_tensorized_linear_reconstructs_weight_and_output(
     assert (
         orig_output.shape == tensorized_output.shape
     ), "Output activations have incorrect shape"
-    (orig_output - tensorized_output).abs().max() < 1e-6, "Outputs not reconstructing"
+    assert (
+        orig_output - tensorized_output
+    ).abs().max() < 1e-6, "Outputs not reconstructing"
+
+    dense_tensorized_output = tensorized_linear.dense_forward(inpt)
+    assert (
+        dense_tensorized_output - tensorized_output
+    ).abs().max() < 1e-6, "Outputs of forward and dense_forward are incompatible"

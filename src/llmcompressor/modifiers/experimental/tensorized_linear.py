@@ -139,10 +139,68 @@ class TensorizedLinear(nn.Module):
         return self.tt_matrix.to_matrix()
 
     def forward(self, x):
-        # TODO use einsum string instead of rebuilding matrix
-        # form full weight matrix
-        W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
+        """
+        Performs forward pass on input x by building einsum contraction
+        string for TT-matrix vector product.
+        """
+        # Use einsum contraction instead of rebuilding full matrix
+        batch_size = x.shape[0]
 
+        # Get shapes from factors
+        input_shape = [f.shape[2] for f in self.factors]
+        output_shape = [f.shape[1] for f in self.factors]
+        num_cores = len(self.factors)
+
+        # Reshape input to expose individual dimensions: (batch, m_0, m_1, ..., m_{d-1})
+        x_reshaped = x.reshape(batch_size, *input_shape)
+
+        # Build einsum string using single-character labels (torch.einsum requirement)
+        # Assign characters: a-z for various indices
+        # 'b' = batch
+        # Next num_cores chars for input dims (m_i)
+        # Next num_cores chars for output dims (n_i)
+        # Next num_cores+1 chars for rank dims (r_i)
+
+        input_chars = [chr(ord("c") + i) for i in range(num_cores)]  # c, d, e, ...
+        output_chars = [chr(ord("C") + i) for i in range(num_cores)]  # C, D, E, ...
+        rank_chars = [chr(ord("p") + i) for i in range(num_cores + 1)]  # p, q, r, ...
+
+        # Input: batch + input dimensions
+        input_subscripts = "b" + "".join(input_chars)
+
+        # Each core: rank_i + output_i + input_i + rank_{i+1}
+        core_subscripts = [
+            f"{rank_chars[i]}{output_chars[i]}{input_chars[i]}{rank_chars[i+1]}"
+            for i in range(num_cores)
+        ]
+
+        # Output: batch + output dimensions
+        output_subscripts = "b" + "".join(output_chars)
+
+        einsum_string = (
+            f"{input_subscripts},{','.join(core_subscripts)}->{output_subscripts}"
+        )
+
+        # Contract using einsum
+        result = torch.einsum(einsum_string, x_reshaped, *self.factors)
+
+        # Reshape output to (batch, out_features)
+        result = result.reshape(batch_size, -1)
+
+        # Add bias if present
+        if self.bias is not None:
+            result = result + self.bias
+
+        return result
+
+    def dense_forward(self, x):
+        """
+        Forward pass using the dense weight matrix reconstruction.
+        This is the original implementation kept for testing purposes.
+        Less efficient than forward() but useful for verification.
+        """
+        # Form full weight matrix
+        W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
         return F.linear(x, W, self.bias)
 
     @property

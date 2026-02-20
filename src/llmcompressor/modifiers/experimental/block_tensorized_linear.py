@@ -127,6 +127,18 @@ class BlockTensorizedLinear(nn.Module):
 
         return y
 
+    def dense_forward(self, x):
+        assert x.shape[-1] == self.in_features
+        out_shape = x.shape[:-1] + (self.out_features,)
+        y = torch.zeros(out_shape)
+        for i in range(self.num_blocks[0]):
+            for j in range(self.num_blocks[1]):
+                y[..., i * self.block_size : (i + 1) * self.block_size] += self.blocks[
+                    f"{i}_{j}"
+                ].dense_forward(x[..., j * self.block_size : (j + 1) * self.block_size])
+
+        return y
+
     @property
     def num_params(self):
         return sum([b.num_params() for b in self.blocks.values()])
