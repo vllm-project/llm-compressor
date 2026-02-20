@@ -14,6 +14,8 @@ from llmcompressor.modifiers.experimental import TensorizedLinear, BlockTensoriz
         (128, 64, 16, 3, True),
         (1024, 1024, 16, 3, True),
         (1024, 1024, 16, 3, False),
+        (1024, 1024, None, 4, True),
+        (1024, 1024, None, 2, False),
     ],
 )
 def test_tensorized_linear_reconstructs_weight_and_output(
