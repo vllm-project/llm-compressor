@@ -33,7 +33,7 @@ recipe = [
         ],
         targets=["Linear"],
         # offload_device=torch.device("cpu"),
-        block_size=32,
+        # block_size=128,
     ),
 ]
 

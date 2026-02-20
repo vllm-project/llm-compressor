@@ -232,39 +232,24 @@ class TensorNetworkModifier(Modifier):
     ) -> TensorizedLinear | BlockTensorizedLinear:
         # create tensorized layer
         tensorized_linear = (
-            TensorizedLinear.from_linear(linear.to(torch.float32), rank=2)
+            TensorizedLinear.from_linear(linear, num_cores=3, rank="same")
             if self.block_size is None
-            else BlockTensorizedLinear.from_linear(linear, self.block_size, rank=2)
+            else BlockTensorizedLinear.from_linear(
+                linear, self.block_size, num_cores=3, rank="same"
+            )
         )
 
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
+
+        batch_0 = intermediates.fetch(0)
+
+        output = tensorized_linear.forward(batch_0["input"].to(torch.float32))
+        # print("GOT OUTPUTS", output, batch_0["output"])
 
         # retrain
         # TODO retrain tensorize_linear against dense_outputs w/ MSELoss
 
         return tensorized_linear
-
-    @torch.no_grad()
-    def _compute_loss(
-        self,
-        dense_outputs: list[torch.Tensor],
-        tensorized_outputs: list[torch.Tensor],
-        device: torch.device,
-    ) -> torch.Tensor:
-        loss = 0.0
-        num_elements = 0
-
-        # Compute the MSE loss for each batch
-        for dense_batch, tensorized_batch in zip(dense_outputs, tensorized_outputs):
-            loss += torch.nn.functional.mse_loss(
-                dense_batch, tensorized_batch.to(dense_batch.device)
-            ).item()
-            num_elements += dense_batch.numel()
-
-        # Normalize the loss by the total number of elements
-        loss /= num_elements
-
-        return loss
 
     def _assert_all_activations_consumed(self):
         """
