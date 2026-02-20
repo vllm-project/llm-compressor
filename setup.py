@@ -150,7 +150,6 @@ setup(
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.13.1a2"
         ),
-        ("auto-round==0.9.1"),
         "tensorly",
     ],
     extras_require={

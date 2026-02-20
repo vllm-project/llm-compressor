@@ -1,31 +1,21 @@
 import inspect
-from itertools import product
-from typing import Literal
 
+import tensorly as tl
 import torch
-from compressed_tensors.quantization import disable_quantization
-from compressed_tensors.utils import (
-    align_modules,
-    get_execution_device,
-    match_named_modules,
-    update_offload_parameter,
-)
+from compressed_tensors.utils import (align_modules, match_named_modules,
+                                      update_offload_parameter)
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr, Field
+from pydantic import ConfigDict, Field, PrivateAttr
 from torch import nn
 from tqdm import tqdm
-import tensorly as tl
-from tensorly.decomposition import tensor_train
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
+from llmcompressor.modifiers.experimental.layers.tensorized_linear import \
+    TensorizedLinear
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layer_by_name
-from llmcompressor.modifiers.experimental.tensorized_linear import TensorizedLinear
 
 tl.set_backend("pytorch")
 

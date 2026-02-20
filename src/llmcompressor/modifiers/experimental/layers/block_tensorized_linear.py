@@ -1,8 +1,9 @@
 import math
+
+import tensorly as tl
 import torch
 from torch import nn
-import torch.nn.functional as F
-import tensorly as tl
+
 from llmcompressor.modifiers.experimental import TensorizedLinear
 
 tl.set_backend("pytorch")
@@ -13,14 +14,15 @@ __all__ = ["BlockTensorizedLinear"]
 # TODO move next to compressed_tensors..CompressedLinear
 class BlockTensorizedLinear(nn.Module):
     """
-    BlockTensorizedLinear is an abstraction that allows a linear mapping to be reconstructed
-    from constituent blocks. For example, if one wanted to break down a weight matrix into
+    BlockTensorizedLinear is an abstraction that allows a linear mapping to be
+    reconstructed from constituent blocks. For example, if one wanted to break
+    down a weight matrix into
 
     W = [ W11 W12
           W21 W22]
 
-    so that W11, ..., W22 can be compressed further, found to be useful when compressing into
-    tensor network topologies with limited entanglement (e.g. MPOs).
+    so that W11, ..., W22 can be compressed further, found to be useful when compressing
+    into tensor network topologies with limited entanglement (e.g. MPOs).
 
     Original implemtntation:
     https://github.com/tensorly/Proceedings_IEEE_companion_notebooks/blob/master/tt-compression.ipynb

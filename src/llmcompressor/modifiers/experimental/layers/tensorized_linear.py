@@ -1,9 +1,10 @@
 import math
-import torch
-from torch import nn
-import torch.nn.functional as F
+
 import tensorly as tl
+import torch
+import torch.nn.functional as F
 from tensorly.tt_matrix import TTMatrix
+from torch import nn
 
 tl.set_backend("pytorch")
 
@@ -126,9 +127,9 @@ class TensorizedLinear(nn.Module):
                 shape.append(dim)
                 remainder = remainder / dim
         assert len(shape) == num_cores, "Something wrong with len(shape)"
-        assert (
-            math.prod(shape) == num_features
-        ), f"Something wrong with num_features, {shape}, {num_features}"
+        assert math.prod(shape) == num_features, (
+            f"Something wrong with num_features, {shape}, {num_features}"
+        )
         return shape
 
     def to_matrix(self) -> torch.Tensor:
