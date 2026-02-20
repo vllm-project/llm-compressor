@@ -4,7 +4,7 @@ import tensorly as tl
 import torch
 from torch import nn
 
-from llmcompressor.modifiers.experimental.layers import TensorizedLinear
+from llmcompressor.modifiers.experimental.tensorized_linear import TensorizedLinear
 
 tl.set_backend("pytorch")
 

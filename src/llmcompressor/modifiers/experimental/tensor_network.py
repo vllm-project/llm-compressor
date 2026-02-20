@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.experimental.layers.tensorized_linear import (
+from llmcompressor.modifiers.experimental.tensorized_linear import (
     TensorizedLinear,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
