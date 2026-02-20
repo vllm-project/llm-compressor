@@ -168,6 +168,11 @@ class TensorNetworkModifier(Modifier):
                 output: torch.Tensor,
             ):
                 assert len(args) == 1, "linear layer can only have one input"
+                if (name, module) not in self._target_args_cache:
+                    self._target_args_cache[(name, module)] = IntermediatesCache(
+                        None,
+                        self.offload_device,
+                    )
                 self._target_args_cache[(name, module)].append(
                     {
                         "input": args[0].detach().clone(),
@@ -181,10 +186,6 @@ class TensorNetworkModifier(Modifier):
             if not isinstance(module, nn.Linear):
                 continue
 
-            self._target_args_cache[(name, module)] = IntermediatesCache(
-                None,
-                self.offload_device,
-            )
             self.register_hook(
                 module, create_cache_target_inputs_outputs_hook(name), "forward"
             )
@@ -201,15 +202,20 @@ class TensorNetworkModifier(Modifier):
         """
         # NOTE: When using SequentialPipeline, not all the targeted layers
         # will have cached activations in the segment being udpated
-        # cache keys outside of for loop, as they are consumed during iteration
-        name_module_keys = list(self._target_args_cache.keys())
-        for name, module in tqdm(name_module_keys, desc="Tensorizing"):
+
+        for name, module in tqdm(
+            # cast to list to cache in memory, as dict is modified during iteration
+            list(self._target_args_cache.keys()),
+            desc="Tensorizing",
+        ):
             with (
                 align_modules([module]),
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                tensorized_linear = self._get_trained_tensorized_layer(name, module)
+                tensorized_linear = self._get_trained_tensorized_layer(
+                    name, module.to(torch.float32)
+                )
 
                 # Replace linear layer with its tensorized_linear approximation
                 parent = get_parent_of_model_by_name(model, name)
@@ -225,13 +231,17 @@ class TensorNetworkModifier(Modifier):
         self, name: str, linear: torch.nn.Linear
     ) -> TensorizedLinear | BlockTensorizedLinear:
         # create tensorized layer
-        tensorized_linear = TensorizedLinear.from_linear(
-            linear.to(torch.float32), rank=2
+        tensorized_linear = (
+            TensorizedLinear.from_linear(linear.to(torch.float32), rank=2)
+            if self.block_size is None
+            else BlockTensorizedLinear.from_linear(linear, self.block_size, rank=2)
         )
+
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
 
         # retrain
-        # TODO train tensorize_linear against dense_outputs w/ MSELoss
+        # TODO retrain tensorize_linear against dense_outputs w/ MSELoss
+
         return tensorized_linear
 
     @torch.no_grad()
