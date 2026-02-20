@@ -213,9 +213,7 @@ class TensorNetworkModifier(Modifier):
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                tensorized_linear = self._get_trained_tensorized_layer(
-                    name, module.to(torch.float32)
-                )
+                tensorized_linear = self._get_trained_tensorized_layer(name, module)
 
                 # Replace linear layer with its tensorized_linear approximation
                 parent = get_parent_of_model_by_name(model, name)
@@ -243,7 +241,7 @@ class TensorNetworkModifier(Modifier):
 
         batch_0 = intermediates.fetch(0)
 
-        output = tensorized_linear.forward(batch_0["input"].to(torch.float32))
+        output = tensorized_linear.forward(batch_0["input"])
         # print("GOT OUTPUTS", output, batch_0["output"])
 
         # retrain

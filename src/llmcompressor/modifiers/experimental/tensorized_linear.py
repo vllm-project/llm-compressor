@@ -24,26 +24,28 @@ class TensorizedLinear(nn.Module):
         self,
         shape: tuple[int],
         rank: int | tuple[int] | None,
-        tt_matrix: TTMatrix | None,
+        factors: tuple[torch.Tensor, ...] | None,
         bias: torch.Tensor | None = None,
+        dtype: torch.dtype = torch.bfloat16,
         **kwargs,
     ):
         super(TensorizedLinear, self).__init__(**kwargs)
 
         self.rank = rank
         self.shape = shape
-        self.bias = bias
+        self.dtype = dtype
+        self.bias = bias.to(dtype) if bias is not None else bias
 
         # if not provided, initialize tt_matrix and weights
-        if tt_matrix is None:
+        if factors is None or len(factors) == 0:
             tt_matrix = tl.random.random_tt_matrix(shape, rank=rank)
             for f in tt_matrix.factors:
                 f.data.uniform_(-0.1, 0.1)
+            factors = tt_matrix.factors
 
-        self.tt_matrix = tt_matrix
         # Add and register the factors
         self.factors = nn.ParameterList(
-            [nn.Parameter(f, requires_grad=True) for f in tt_matrix.factors]
+            [nn.Parameter(f.to(dtype), requires_grad=True) for f in factors]
         )
 
     @classmethod
@@ -56,6 +58,7 @@ class TensorizedLinear(nn.Module):
         """
         Build TensorizedLinear from an input torch.nn.Linear layer
 
+
         linear: original linear layer's weight matrix
         rank: determines the number of parameters
             if float, sets the total number of parameters to be
@@ -63,7 +66,12 @@ class TensorizedLinear(nn.Module):
             if "same", same number of parameters as original
                 (completely reconstructs the linear mapping)
         """
-        return cls.from_weight_and_bias(linear.weight, linear.bias, rank, num_cores)
+        return cls.from_weight_and_bias(
+            linear.weight.detach(),
+            linear.bias.detach() if linear.bias is not None else None,
+            rank,
+            num_cores,
+        )
 
     @classmethod
     def from_weight_and_bias(
@@ -98,14 +106,20 @@ class TensorizedLinear(nn.Module):
         # It is probably this because the linear weight matrix has
         #   a shape of (out_features, in_features)
         shape = output_shape + input_shape
+
+        # upconvert to float32 before svd, no bfloat16 implementation
+        orig_dtype = weight.dtype
+        weight = weight.to(torch.float32)
+        tt_matrix = tl.decomposition.tensor_train_matrix(
+            tl.reshape(weight, shape),
+            rank=rank,
+        )
         return cls(
             shape,
             rank,
-            tl.decomposition.tensor_train_matrix(
-                tl.reshape(weight, shape),
-                rank=rank,
-            ),
+            tt_matrix.factors,
             bias,
+            dtype=orig_dtype,
         )
 
     @staticmethod
