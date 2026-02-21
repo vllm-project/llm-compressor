@@ -54,6 +54,46 @@ def test_initialization(sample_dataloader):
 
 
 @pytest.mark.unit
+def test_iter_prefetch_matches_iter(sample_cache):
+    """iter_prefetch yields the same batch contents as iter."""
+
+    def batch_dicts_equal(a: dict, b: dict) -> bool:
+        if set(a.keys()) != set(b.keys()):
+            return False
+        return all(deep_equal(a[k], b[k]) for k in a)
+
+    via_iter = list(sample_cache.iter())
+    via_prefetch = list(sample_cache.iter_prefetch())
+    assert len(via_iter) == len(via_prefetch)
+    for i, (b_iter, b_prefetch) in enumerate(zip(via_iter, via_prefetch)):
+        assert batch_dicts_equal(b_iter, b_prefetch), f"batch {i} differs"
+
+
+def deep_equal(a, b) -> bool:
+    if type(a) is not type(b):
+        return False
+
+    match a:
+        case torch.Tensor():
+            return torch.equal(a, b)
+        case list() | tuple():
+            if len(a) != len(b):
+                return False
+            return all(deep_equal(_a, _b) for _a, _b in zip(a, b))
+        case dict():
+            if a.keys() != b.keys():
+                return False
+            return all(deep_equal(a[key], b[key]) for key in a.keys())
+        case _ if is_dataclass(a):
+            a_dict = {field.name: getattr(a, field.name) for field in fields(a)}
+            b_dict = {field.name: getattr(b, field.name) for field in fields(b)}
+
+            return deep_equal(a_dict, b_dict)
+        case _:
+            return a == b
+
+
+@pytest.mark.unit
 def test_fetch_inputs(sample_cache):
     fetched = sample_cache.fetch(0, ["input_ids", "attention_mask"])
 
@@ -138,30 +178,6 @@ def test_device_handling(sample_dataloader):
     # Verify tensors are loaded back to GPU when fetched
     fetched = cache.fetch(0, ["hidden_states"])
     assert fetched["hidden_states"].device.type == "cuda"
-
-
-def deep_equal(a, b) -> bool:
-    if type(a) is not type(b):
-        return False
-
-    match a:
-        case torch.Tensor():
-            return torch.equal(a, b)
-        case list() | tuple():
-            if len(a) != len(b):
-                return False
-            return all(deep_equal(_a, _b) for _a, _b in zip(a, b))
-        case dict():
-            if a.keys() != b.keys():
-                return False
-            return all(deep_equal(a[key], b[key]) for key in a.keys())
-        case _ if is_dataclass(a):
-            a_dict = {field.name: getattr(a, field.name) for field in fields(a)}
-            b_dict = {field.name: getattr(b, field.name) for field in fields(b)}
-
-            return deep_equal(a_dict, b_dict)
-        case _:
-            return a == b
 
 
 def test_override_eq_mode():

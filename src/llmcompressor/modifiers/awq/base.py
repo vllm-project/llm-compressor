@@ -607,9 +607,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
-        outputs = [
-            module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
-        ]
+        cache = self._parent_args_cache[module]
+        batch_iter = (
+            cache.iter_prefetch()
+            if self.offload_device is not None
+            else cache
+        )
+        outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
         return [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
