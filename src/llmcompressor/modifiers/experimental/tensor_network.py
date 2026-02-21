@@ -232,6 +232,8 @@ class TensorNetworkModifier(Modifier):
     def _get_trained_tensorized_layer(
         self, name: str, linear: torch.nn.Linear
     ) -> TensorizedLinear | BlockTensorizedLinear:
+        intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
+
         # create tensorized layer
         tensorized_linear = (
             TensorizedLinear.from_linear(
@@ -243,7 +245,7 @@ class TensorNetworkModifier(Modifier):
             )
         )
 
-        intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
+        tensorized_linear = tensorized_linear.to(intermediates.fetch(0)["input"].device)
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
@@ -281,7 +283,7 @@ class TensorNetworkModifier(Modifier):
                 if epoch % 10 == 0 or epoch == num_epochs - 1:
                     logger.info(
                         f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                        f"Avg Loss: {avg_loss:.6f}"
+                        f"Avg Loss: {avg_loss:.8f}"
                     )
 
         return tensorized_linear

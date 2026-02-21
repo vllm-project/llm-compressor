@@ -118,7 +118,7 @@ class BlockTensorizedLinear(nn.Module):
     def forward(self, x):
         assert x.shape[-1] == self.in_features
         out_shape = x.shape[:-1] + (self.out_features,)
-        y = torch.zeros(out_shape)
+        y = torch.zeros(out_shape, device=x.device, dtype=x.dtype)
         for i in range(self.num_blocks[0]):
             for j in range(self.num_blocks[1]):
                 y[..., i * self.block_size : (i + 1) * self.block_size] += self.blocks[
@@ -130,7 +130,7 @@ class BlockTensorizedLinear(nn.Module):
     def dense_forward(self, x):
         assert x.shape[-1] == self.in_features
         out_shape = x.shape[:-1] + (self.out_features,)
-        y = torch.zeros(out_shape)
+        y = torch.zeros(out_shape, device=x.device, dtype=x.dtype)
         for i in range(self.num_blocks[0]):
             for j in range(self.num_blocks[1]):
                 y[..., i * self.block_size : (i + 1) * self.block_size] += self.blocks[
