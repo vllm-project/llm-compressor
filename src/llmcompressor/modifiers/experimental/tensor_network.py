@@ -83,6 +83,9 @@ class TensorNetworkModifier(Modifier):
         If unset, TensorizedLinear will be used.
     :param num_cores: Number of cores (also known as sites) in each resultant MPO.
         Defaults to 3.
+    :param rank: determines the number of parameters. The tensorized layer will
+        have a total number of parameters equal to linear.weight.numel() * rank
+        Should be in range (0.0, 1.0]. A value of 1.0 means no compression.
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -94,6 +97,7 @@ class TensorNetworkModifier(Modifier):
     offload_device: torch.device | None = None
     block_size: int | None = None
     num_cores: int = 3
+    rank: float = 0.5
 
     # Cache list of forward input args for each parent module, one dict for each batch
     _target_args_cache: dict[tuple[str, nn.Linear], IntermediatesCache] = PrivateAttr(
