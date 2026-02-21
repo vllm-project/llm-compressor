@@ -151,6 +151,8 @@ setup(
             else "compressed-tensors>=0.13.1a2"
         ),
         "tensorly",
+        # optimized torch.einsum, automatically found and used
+        "opt-einsum",
     ],
     extras_require={
         "dev": [

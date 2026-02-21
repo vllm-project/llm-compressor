@@ -86,6 +86,9 @@ class TensorNetworkModifier(Modifier):
     :param rank: determines the number of parameters. The tensorized layer will
         have a total number of parameters equal to linear.weight.numel() * rank
         Should be in range (0.0, 1.0]. A value of 1.0 means no compression.
+    :param batch_size: batch_size to use when updating gradient, which is often
+        more memory intensive than forward passes. torch.einsum can be particularly
+        memory intensive. If unset, defaults to batch_size of dataset passed.
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -98,7 +101,7 @@ class TensorNetworkModifier(Modifier):
     block_size: int | None = None
     num_cores: int = 3
     rank: float = 0.5
-
+    batch_size: int | None = None
     # Cache list of forward input args for each parent module, one dict for each batch
     _target_args_cache: dict[tuple[str, nn.Linear], IntermediatesCache] = PrivateAttr(
         default_factory=dict
@@ -232,7 +235,11 @@ class TensorNetworkModifier(Modifier):
     def _get_trained_tensorized_layer(
         self, name: str, linear: torch.nn.Linear
     ) -> TensorizedLinear | BlockTensorizedLinear:
+        # cache all training data on device
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
+        batch_inputs, batch_outputs = self.get_batch_inputs_outputs(
+            intermediates, self.batch_size
+        )
 
         # create tensorized layer
         tensorized_linear = (
@@ -250,7 +257,9 @@ class TensorNetworkModifier(Modifier):
         # Calculate parameter counts for logging
         original_params = sum(p.numel() for p in linear.parameters())
         tensorized_params = tensorized_linear.num_params
-        compression_ratio = original_params / tensorized_params if tensorized_params > 0 else 0
+        compression_ratio = (
+            original_params / tensorized_params if tensorized_params > 0 else 0
+        )
 
         logger.info(
             f"Layer {name} - Original params: {original_params:.2e}, "
@@ -267,18 +276,24 @@ class TensorNetworkModifier(Modifier):
             # Training loop with early stopping
             num_epochs = 100
             patience = 10  # Stop if no improvement for this many epochs
-            min_delta = 1e-7  # Minimum improvement to be considered progress
+            min_frac_delta = (
+                1e-2  # Minimum improvement over previous loss to be considered progress
+            )
             min_loss_threshold = 1e-6  # Stop if loss is already this good
+            loss_history = []
 
             best_loss = float("inf")
             epochs_without_improvement = 0
 
-            for epoch in range(num_epochs):
+            num_samples = 0
+
+            for epoch in (pbar := tqdm(range(num_epochs))):
                 total_loss = 0.0
                 num_batches = 0
 
                 for batch in intermediates.iter():
                     batch_input, dense_output = batch.values()
+                    batch_size = batch_input.shape[0]
 
                     # Zero gradients
                     optimizer.zero_grad()
@@ -289,16 +304,21 @@ class TensorNetworkModifier(Modifier):
                     # Compute MSE loss against original dense output
                     loss = criterion(batch_output, dense_output)
 
-                    loss.backward()
-                    optimizer.step()
+                    # Step only if requisite number of samples has been reached
+                    if num_samples + batch_size > self.batch_size:
+                        num_samples = 0
+                        loss.backward()
+                        optimizer.step()
 
-                    total_loss += loss.item()
-                    num_batches += 1
+                        total_loss += loss.item()
+                        num_batches += 1
 
                 avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
                 # Early stopping check
-                if avg_loss < best_loss - min_delta:
+                if len(loss_history) > 0 and avg_loss < loss_history[-1] * (
+                    1.0 - min_frac_delta
+                ):
                     # Significant improvement
                     best_loss = avg_loss
                     epochs_without_improvement = 0
@@ -306,13 +326,12 @@ class TensorNetworkModifier(Modifier):
                     # No significant improvement
                     epochs_without_improvement += 1
 
-                # Log progress periodically
-                if epoch % 10 == 0 or epoch == num_epochs - 1:
-                    logger.info(
-                        f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                        f"Avg Loss: {avg_loss:.2e}, Best Loss: {best_loss:.2e}"
-                    )
+                pbar.set_description(
+                    f"Layer {name} - Epoch {epoch}/{num_epochs}, "
+                    f"Avg Loss: {avg_loss:.2e}, Best Loss: {best_loss:.2e}"
+                )
 
+                loss_history.append(avg_loss)
                 # Check early stopping conditions
                 if avg_loss < min_loss_threshold:
                     logger.info(
@@ -329,6 +348,15 @@ class TensorNetworkModifier(Modifier):
                     break
 
         return tensorized_linear
+
+    @staticmethod
+    def get_batch_inputs_outputs(
+        intermediates: IntermediatesCache, batch_size: int | None = None
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        """
+        Fully onloads a batched dataset from IntermediatesCache,
+        if necessary by re-batching to the necessary batch_size.
+        """
 
     def _assert_all_activations_consumed(self):
         """

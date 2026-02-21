@@ -168,8 +168,8 @@ class TensorizedLinear(nn.Module):
         batch_dims = original_shape[:-1]
 
         # Flatten all batch dimensions: (..., in_features) -> (batch_total, in_features)
-        x_flat = x.reshape(-1, in_features)
-        batch_total = x_flat.shape[0]
+        x = x.reshape(-1, in_features)
+        batch_total = x.shape[0]
 
         # Get shapes from factors
         input_shape = [f.shape[2] for f in self.factors]
@@ -177,7 +177,7 @@ class TensorizedLinear(nn.Module):
         num_cores = len(self.factors)
 
         # Reshape input to expose individual dimensions: (batch, m_0, m_1, ..., m_{d-1})
-        x_reshaped = x_flat.reshape(batch_total, *input_shape)
+        x = x.reshape(batch_total, *input_shape)
 
         # Build einsum string using single-character labels (torch.einsum requirement)
         # Assign characters: a-z for various indices
@@ -207,7 +207,7 @@ class TensorizedLinear(nn.Module):
         )
 
         # Contract using einsum
-        result = torch.einsum(einsum_string, x_reshaped, *self.factors)
+        result = torch.einsum(einsum_string, x, *self.factors)
 
         # Reshape output to (batch_total, out_features)
         out_features = math.prod(output_shape)
