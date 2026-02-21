@@ -267,7 +267,7 @@ class TensorNetworkModifier(Modifier):
 
             # Training loop with early stopping
             num_epochs = 100
-            patience = 10  # Stop if no improvement for this many epochs
+            patience = 3  # Stop if no improvement for this many epochs
             min_frac_delta = (
                 1e-2  # Minimum improvement over previous loss to be considered progress
             )
@@ -312,12 +312,12 @@ class TensorNetworkModifier(Modifier):
                 if len(loss_history) > 0:
                     if loss < best_loss:
                         best_loss = loss
-                    if loss < loss_history[-1] * (1.0 - min_frac_delta):
+                    if loss < (loss_history[-1] * (1.0 - min_frac_delta)):
                         # Significant improvement
                         epochs_without_improvement = 0
-                else:
-                    # No significant improvement
-                    epochs_without_improvement += 1
+                    else:
+                        # No significant improvement
+                        epochs_without_improvement += 1
 
                 pbar.set_description(
                     f"Layer {name} - Epoch {epoch}/{num_epochs}, "
