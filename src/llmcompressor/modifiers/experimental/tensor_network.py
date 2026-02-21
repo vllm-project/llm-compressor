@@ -247,14 +247,32 @@ class TensorNetworkModifier(Modifier):
 
         tensorized_linear = tensorized_linear.to(intermediates.fetch(0)["input"].device)
 
+        # Calculate parameter counts for logging
+        original_params = sum(p.numel() for p in linear.parameters())
+        tensorized_params = tensorized_linear.num_params
+        compression_ratio = original_params / tensorized_params if tensorized_params > 0 else 0
+
+        logger.info(
+            f"Layer {name} - Original params: {original_params:.2e}, "
+            f"Tensorized params: {tensorized_params:.2e}, "
+            f"Compression ratio: {compression_ratio:.2f}x"
+        )
+
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
             # Setup optimizer and loss function
             optimizer = torch.optim.Adam(tensorized_linear.parameters(), lr=1e-5)
             criterion = nn.MSELoss()
 
-            # Training loop
+            # Training loop with early stopping
             num_epochs = 100
+            patience = 10  # Stop if no improvement for this many epochs
+            min_delta = 1e-7  # Minimum improvement to be considered progress
+            min_loss_threshold = 1e-6  # Stop if loss is already this good
+
+            best_loss = float("inf")
+            epochs_without_improvement = 0
+
             for epoch in range(num_epochs):
                 total_loss = 0.0
                 num_batches = 0
@@ -279,12 +297,36 @@ class TensorNetworkModifier(Modifier):
 
                 avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
+                # Early stopping check
+                if avg_loss < best_loss - min_delta:
+                    # Significant improvement
+                    best_loss = avg_loss
+                    epochs_without_improvement = 0
+                else:
+                    # No significant improvement
+                    epochs_without_improvement += 1
+
                 # Log progress periodically
                 if epoch % 10 == 0 or epoch == num_epochs - 1:
                     logger.info(
                         f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                        f"Avg Loss: {avg_loss:.8f}"
+                        f"Avg Loss: {avg_loss:.2e}, Best Loss: {best_loss:.2e}"
                     )
+
+                # Check early stopping conditions
+                if avg_loss < min_loss_threshold:
+                    logger.info(
+                        f"Layer {name} - Early stopping: loss {avg_loss:.2e} "
+                        f"below threshold {min_loss_threshold:.2e} at epoch {epoch}"
+                    )
+                    break
+
+                if epochs_without_improvement >= patience:
+                    logger.info(
+                        f"Layer {name} - Early stopping: no improvement for "
+                        f"{patience} epochs at epoch {epoch}. Best loss: {best_loss:.2e}"
+                    )
+                    break
 
         return tensorized_linear
 
