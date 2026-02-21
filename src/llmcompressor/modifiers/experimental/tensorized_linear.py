@@ -150,7 +150,7 @@ class TensorizedLinear(nn.Module):
         """
         Return tensorized weights expanded into a single weight matrix
         """
-        return self.tt_matrix.to_matrix()
+        return tl.tt_matrix.tt_matrix_to_matrix(self.factors)
 
     def forward(self, x):
         """

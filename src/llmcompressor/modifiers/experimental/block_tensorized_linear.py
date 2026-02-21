@@ -47,6 +47,17 @@ class BlockTensorizedLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
 
+        # Store block references in a 2D list for easier access
+        # This is more torch.compile-friendly than dynamic ModuleDict access
+        self._block_grid = nn.ModuleList(
+            [
+                nn.ModuleList(
+                    [self.blocks[f"{i}_{j}"] for j in range(self.num_blocks[1])]
+                )
+                for i in range(self.num_blocks[0])
+            ]
+        )
+
     @classmethod
     def from_linear(
         cls,
@@ -117,15 +128,65 @@ class BlockTensorizedLinear(nn.Module):
 
     def forward(self, x):
         assert x.shape[-1] == self.in_features
-        out_shape = x.shape[:-1] + (self.out_features,)
-        y = torch.zeros(out_shape, device=x.device, dtype=x.dtype)
-        for i in range(self.num_blocks[0]):
-            for j in range(self.num_blocks[1]):
-                y[..., i * self.block_size : (i + 1) * self.block_size] += self.blocks[
-                    f"{i}_{j}"
-                ](x[..., j * self.block_size : (j + 1) * self.block_size])
+
+        # Store original shape and flatten batch dimensions
+        original_shape = x.shape
+        batch_dims = original_shape[:-1]
+
+        # Flatten to (...batch..., in_features) -> (total_batch, in_features)
+        x_flat = x.reshape(-1, self.in_features)
+        batch_size = x_flat.shape[0]
+
+        # Reshape input to separate blocks: (batch, num_blocks[1], block_size)
+        x_blocks = x_flat.reshape(batch_size, self.num_blocks[1], self.block_size)
+
+        # Pre-allocate output: (batch, num_blocks[0], block_size)
+        y_blocks = torch.zeros(
+            batch_size,
+            self.num_blocks[0],
+            self.block_size,
+            device=x.device,
+            dtype=x.dtype,
+        )
+
+        # Use compiled forward implementation
+        y_blocks = self._forward_impl(x_blocks, y_blocks)
+
+        # Reshape output back: (batch, num_blocks[0], block_size) -> (batch, out_features)
+        y_flat = y_blocks.reshape(batch_size, self.out_features)
+
+        # Restore original batch dimensions
+        y = y_flat.reshape(*batch_dims, self.out_features)
 
         return y
+
+    # TODO cannot compile, get NotImplementedError
+    # @torch.compile(dynamic=True)
+    def _forward_impl(self, x_blocks: torch.Tensor, y_blocks: torch.Tensor):
+        """
+        Core forward implementation that processes blocks.
+        This method can be compiled by torch.compile for better performance.
+
+        Args:
+            x_blocks: Input reshaped as (batch, num_blocks[1], block_size)
+            y_blocks: Pre-allocated output (batch, num_blocks[0], block_size)
+
+        Returns:
+            y_blocks with accumulated block outputs
+        """
+        # Process all blocks using the grid structure
+        for i in range(self.num_blocks[0]):
+            for j in range(self.num_blocks[1]):
+                # Get block from grid (more compile-friendly than ModuleDict access)
+                block = self._block_grid[i][j]
+
+                # Apply block to corresponding input slice
+                block_output = block(x_blocks[:, j, :])
+
+                # Accumulate into output
+                y_blocks[:, i, :] = y_blocks[:, i, :] + block_output
+
+        return y_blocks
 
     def dense_forward(self, x):
         assert x.shape[-1] == self.in_features
