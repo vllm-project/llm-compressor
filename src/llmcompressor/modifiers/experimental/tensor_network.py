@@ -234,10 +234,12 @@ class TensorNetworkModifier(Modifier):
     ) -> TensorizedLinear | BlockTensorizedLinear:
         # create tensorized layer
         tensorized_linear = (
-            TensorizedLinear.from_linear(linear, num_cores=3, rank="same")
+            TensorizedLinear.from_linear(
+                linear, num_cores=self.num_cores, rank=self.rank
+            )
             if self.block_size is None
             else BlockTensorizedLinear.from_linear(
-                linear, self.block_size, num_cores=3, rank="same"
+                linear, self.block_size, num_cores=self.num_cores, rank=self.rank
             )
         )
 
