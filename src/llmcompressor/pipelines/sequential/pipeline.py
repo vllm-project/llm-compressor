@@ -1,5 +1,4 @@
 import contextlib
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -40,25 +39,18 @@ def _get_batches(
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched in a
     background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass.
+    main-thread forward pass. Delegates to
+    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
     """
-    if not use_prefetch:
-        for batch_idx in tqdm(range(num_batches), desc=desc):
-            inputs = activations.fetch(batch_idx, input_names)
-            yield batch_idx, inputs
-        return
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = None
-        for batch_idx in tqdm(range(num_batches), desc=desc):
-            if future is not None:
-                inputs = future.result()
-            else:
-                inputs = activations.fetch(batch_idx, input_names)
-            if batch_idx + 1 < num_batches:
-                future = executor.submit(activations.fetch, batch_idx + 1, input_names)
-            else:
-                future = None
-            yield batch_idx, inputs
+    batch_source = (
+        activations.iter_prefetch(input_names)
+        if use_prefetch
+        else activations.iter(input_names)
+    )
+    for batch_idx, inputs in tqdm(
+        enumerate(batch_source), total=num_batches, desc=desc
+    ):
+        yield batch_idx, inputs
 
 
 @CalibrationPipeline.register("sequential")
