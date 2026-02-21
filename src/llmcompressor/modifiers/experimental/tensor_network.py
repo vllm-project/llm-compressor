@@ -3,6 +3,7 @@ from functools import reduce
 
 import tensorly as tl
 import torch
+import torch.nn.functional as F
 from compressed_tensors.utils import (
     align_modules,
     match_named_modules,
@@ -227,6 +228,8 @@ class TensorNetworkModifier(Modifier):
                 leaf_name = name.split(".")[-1]
                 setattr(parent, leaf_name, tensorized_linear)
 
+                del self._target_args_cache[(name, module)]
+
         self._assert_all_activations_consumed()
 
     def _get_trained_tensorized_layer(
@@ -241,7 +244,7 @@ class TensorNetworkModifier(Modifier):
             else BlockTensorizedLinear.from_linear(
                 linear, self.block_size, num_cores=self.num_cores, rank=self.rank
             )
-        ).to(linear.device)
+        ).to(linear.weight.device)
 
         # Calculate parameter counts for logging
         original_params = sum(p.numel() for p in linear.parameters())
@@ -255,14 +258,6 @@ class TensorNetworkModifier(Modifier):
             f"Tensorized params: {tensorized_params:.2e}, "
             f"Compression ratio: {compression_ratio:.2f}x"
         )
-
-        # cache all training data on device
-        batch_inputs_and_outputs = self.get_batch_inputs_outputs(
-            self._target_args_cache[(name, linear)], self.batch_size
-        )
-        del self._target_args_cache[(name, linear)]
-
-        tensorized_linear = tensorized_linear.to(batch_inputs_and_outputs[0][0].device)
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
@@ -285,8 +280,11 @@ class TensorNetworkModifier(Modifier):
             for epoch in (pbar := tqdm(range(num_epochs))):
                 total_loss = 0.0
                 num_batches = 0
+                cosine_similarities = []
 
-                for batch_input, dense_output in batch_inputs_and_outputs:
+                for batch_input, dense_output in self.get_batch_inputs_outputs(
+                    self._target_args_cache[(name, linear)], self.batch_size
+                ):
                     # Zero gradients
                     optimizer.zero_grad()
 
@@ -296,9 +294,14 @@ class TensorNetworkModifier(Modifier):
                     # Compute loss against original dense output
                     # TODO try (1-F.cosine_similarity(..)) as criterion instead
                     loss = criterion(tensorized_batch_output, dense_output)
-
                     loss.backward()
                     optimizer.step()
+
+                    cosine_similarities.append(
+                        F.cosine_similarity(tensorized_batch_output, dense_output)
+                        .abs()
+                        .mean()
+                    )
 
                     total_loss += loss.item()
                     num_batches += 1
@@ -318,7 +321,8 @@ class TensorNetworkModifier(Modifier):
 
                 pbar.set_description(
                     f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                    f"Avg Loss: {loss:.2e}, Best Loss: {best_loss:.2e}"
+                    f"Avg Loss: {loss:.2e}, Best Loss: {best_loss:.2e}, "
+                    f"Cosine Similarity: {sum(cosine_similarities)/len(cosine_similarities):.3f}"
                 )
 
                 loss_history.append(loss)
