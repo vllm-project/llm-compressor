@@ -239,15 +239,44 @@ class TensorNetworkModifier(Modifier):
 
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
 
-        for batch in intermediates.iter():
-            batch_input, dense_output = batch.values()
-            batch_output = tensorized_linear.forward(batch_input)
-            print(
-                "GOT BATCH", batch_input.shape, dense_output.shape, batch_output.shape
-            )
+        # Enable gradients for training (parent _tensorize has @torch.no_grad())
+        with torch.enable_grad():
+            # Setup optimizer and loss function
+            optimizer = torch.optim.Adam(tensorized_linear.parameters(), lr=1e-3)
+            criterion = nn.MSELoss()
 
-            # retrain
-            # TODO retrain tensorize_linear against dense_outputs w/ MSELoss
+            # Training loop
+            num_epochs = 100
+            for epoch in range(num_epochs):
+                total_loss = 0.0
+                num_batches = 0
+
+                for batch in intermediates.iter():
+                    batch_input, dense_output = batch.values()
+
+                    # Zero gradients
+                    optimizer.zero_grad()
+
+                    # Forward pass through tensorized layer
+                    batch_output = tensorized_linear(batch_input)
+
+                    # Compute MSE loss against original dense output
+                    loss = criterion(batch_output, dense_output)
+
+                    loss.backward()
+                    optimizer.step()
+
+                    total_loss += loss.item()
+                    num_batches += 1
+
+                avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+
+                # Log progress periodically
+                if epoch % 10 == 0 or epoch == num_epochs - 1:
+                    logger.info(
+                        f"Layer {name} - Epoch {epoch}/{num_epochs}, "
+                        f"Avg Loss: {avg_loss:.6f}"
+                    )
 
         return tensorized_linear
 
