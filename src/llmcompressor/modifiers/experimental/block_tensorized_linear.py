@@ -180,7 +180,9 @@ class BlockTensorizedLinear(nn.Module):
                     for j in range(self.num_blocks[1])
                 ],
                 dim=0,
-            ).sum(dim=0)  # Sum across columns: (num_cols, batch, block_size) -> (batch, block_size)
+            ).sum(
+                dim=0
+            )  # Sum across columns: (num_cols, batch, block_size) -> (batch, block_size)
             for i in range(self.num_blocks[0])
         ]
 
@@ -204,7 +206,7 @@ class BlockTensorizedLinear(nn.Module):
 
     @property
     def num_params(self):
-        return sum([b.num_params() for b in self.blocks.values()])
+        return sum([b.num_params for b in self.blocks.values()])
 
 
 def get_nearest_power_of_2(n: int):
