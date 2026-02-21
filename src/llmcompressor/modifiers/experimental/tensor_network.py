@@ -350,13 +350,79 @@ class TensorNetworkModifier(Modifier):
         return tensorized_linear
 
     @staticmethod
+    @staticmethod
     def get_batch_inputs_outputs(
         intermediates: IntermediatesCache, batch_size: int | None = None
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
         """
         Fully onloads a batched dataset from IntermediatesCache,
         if necessary by re-batching to the necessary batch_size.
+
+        This implementation avoids torch.cat to save memory - it processes
+        cached batches incrementally.
+
+        Args:
+            intermediates: Cache containing input/output pairs
+            batch_size: Optional target batch size for re-batching. If None,
+                returns data in original batch sizes.
+
+        Returns:
+            Tuple of (input_batches, output_batches) where each is a list of tensors
         """
+        # If no re-batching needed, just collect original batches
+        if batch_size is None:
+            input_batches = []
+            output_batches = []
+            for batch in intermediates.iter():
+                batch_input, batch_output = batch.values()
+                input_batches.append(batch_input)
+                output_batches.append(batch_output)
+            return input_batches, output_batches
+
+        # Re-batch efficiently by appending chunks instead of individual samples
+        input_batches = []
+        output_batches = []
+
+        # Accumulator for partial batches (stores chunks, not individual samples)
+        current_inputs = []
+        current_outputs = []
+        current_count = 0
+
+        for batch in intermediates.iter():
+            batch_input, batch_output = batch.values()
+            num_samples = batch_input.shape[0]
+            start_idx = 0
+
+            while start_idx < num_samples:
+                # How many samples do we need to fill current batch?
+                samples_needed = batch_size - current_count
+                samples_available = num_samples - start_idx
+
+                # Take as many as we can (min of needed and available)
+                chunk_size = min(samples_needed, samples_available)
+                end_idx = start_idx + chunk_size
+
+                # Append chunk (not individual samples!)
+                current_inputs.append(batch_input[start_idx:end_idx])
+                current_outputs.append(batch_output[start_idx:end_idx])
+                current_count += chunk_size
+
+                # If we filled a batch, emit it and reset
+                if current_count == batch_size:
+                    input_batches.append(torch.cat(current_inputs, dim=0))
+                    output_batches.append(torch.cat(current_outputs, dim=0))
+                    current_inputs = []
+                    current_outputs = []
+                    current_count = 0
+
+                start_idx = end_idx
+
+        # Don't forget the last partial batch if it exists
+        if current_count > 0:
+            input_batches.append(torch.cat(current_inputs, dim=0))
+            output_batches.append(torch.cat(current_outputs, dim=0))
+
+        return input_batches, output_batches
 
     def _assert_all_activations_consumed(self):
         """
