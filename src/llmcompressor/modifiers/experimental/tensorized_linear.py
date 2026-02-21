@@ -137,7 +137,9 @@ class TensorizedLinear(nn.Module):
             if i == 0:
                 shape.append(round(remainder))
             else:
-                dim = get_nearest_power_of_2(remainder ** (1 / (num_cores - i)))
+                dim = get_nearest_power_of_2(
+                    remainder ** (1 / (num_cores - len(shape)))
+                )
                 shape.append(dim)
                 remainder = remainder / dim
         assert len(shape) == num_cores, "Something wrong with len(shape)"

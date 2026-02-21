@@ -207,20 +207,3 @@ class BlockTensorizedLinear(nn.Module):
     @property
     def num_params(self):
         return sum([b.num_params for b in self.blocks.values()])
-
-
-def get_nearest_power_of_2(n: int):
-    if n <= 0:
-        return 1  # Handle edge cases
-
-    # Calculate log base 2
-    lg = math.log2(n)
-
-    # Get the two closest powers
-    p_lower = 2 ** int(math.floor(lg))
-    p_upper = 2 ** int(math.ceil(lg))
-
-    # Compare distances
-    if (n - p_lower) < (p_upper - n):
-        return p_lower
-    return p_upper
