@@ -28,10 +28,10 @@ def test_tensorized_linear_reconstructs_weight_and_output(
     linear = torch.nn.Linear(in_features, out_features, bias=bias)
 
     tensorized_linear = (
-        TensorizedLinear.from_linear(linear, num_cores=num_cores, rank="same")
+        TensorizedLinear.from_linear(linear, num_cores=num_cores, rank=1.0)
         if block_size is None
         else BlockTensorizedLinear.from_linear(
-            linear, block_size, num_cores=num_cores, rank="same"
+            linear, block_size, num_cores=num_cores, rank=1.0
         )
     )
 

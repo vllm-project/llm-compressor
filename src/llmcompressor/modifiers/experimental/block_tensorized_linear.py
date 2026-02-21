@@ -153,17 +153,16 @@ class BlockTensorizedLinear(nn.Module):
 
     def _forward_impl(self, x_blocks: torch.Tensor):
         """
-        Fully vectorized forward implementation with NO Python loops.
+        Memory-efficient forward implementation that balances speed and memory usage.
 
-        Processes all blocks at once using nested list comprehensions and
-        vectorized stack + sum operations. This eliminates all Python iteration
-        overhead and is significantly faster than the original nested loop version.
+        Instead of keeping all block outputs in memory simultaneously, this version:
+        1. Pre-allocates the output tensor
+        2. Processes each row sequentially, computing column blocks in parallel
+        3. Writes results directly to the output tensor
+        4. Allows intermediate tensors to be garbage collected after each row
 
-        How it works:
-        1. Outer list comp processes all output rows (i) in parallel
-        2. Inner list comp processes all input columns (j) for each row in parallel
-        3. torch.stack + sum combines column results for each row
-        4. Final stack + permute assembles all rows into output tensor
+        This uses less memory than the fully-vectorized version while still being
+        much faster than nested loops.
 
         Args:
             x_blocks: Input reshaped as (batch, num_blocks[1], block_size)
@@ -171,24 +170,32 @@ class BlockTensorizedLinear(nn.Module):
         Returns:
             y_blocks: Output tensor of shape (batch, num_blocks[0], block_size)
         """
-        # Process ALL rows at once using list comprehension
-        # For each row i, compute all column blocks in parallel and sum them
-        all_row_outputs = [
-            torch.stack(
-                [
-                    self._block_grid[i][j](x_blocks[:, j, :])
-                    for j in range(self.num_blocks[1])
-                ],
-                dim=0,
-            ).sum(
-                dim=0
-            )  # Sum across columns: (num_cols, batch, block_size) -> (batch, block_size)
-            for i in range(self.num_blocks[0])
-        ]
+        batch_size = x_blocks.shape[0]
 
-        # Stack all rows: list of (batch, block_size) -> (num_rows, batch, block_size)
-        # Then permute to (batch, num_rows, block_size)
-        y_blocks = torch.stack(all_row_outputs, dim=0).permute(1, 0, 2)
+        # Pre-allocate output tensor
+        y_blocks = torch.zeros(
+            batch_size,
+            self.num_blocks[0],
+            self.block_size,
+            device=x_blocks.device,
+            dtype=x_blocks.dtype,
+        )
+
+        # Process each row sequentially to save memory
+        for i in range(self.num_blocks[0]):
+            # Process all column blocks for this row in parallel
+            row_outputs = [
+                self._block_grid[i][j](x_blocks[:, j, :])
+                for j in range(self.num_blocks[1])
+            ]
+
+            # Stack and sum, then write directly to output
+            # (num_cols, batch, block_size) -> (batch, block_size)
+            row_result = torch.stack(row_outputs, dim=0).sum(dim=0)
+            y_blocks[:, i, :] = row_result
+
+            # Explicitly delete intermediate tensors to free memory
+            del row_outputs, row_result
 
         return y_blocks
 
