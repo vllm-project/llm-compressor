@@ -227,20 +227,11 @@ class TensorNetworkModifier(Modifier):
                 leaf_name = name.split(".")[-1]
                 setattr(parent, leaf_name, tensorized_linear)
 
-            # remove caches needed to smooth this mapping
-            del self._target_args_cache[(name, module)]
-
         self._assert_all_activations_consumed()
 
     def _get_trained_tensorized_layer(
         self, name: str, linear: torch.nn.Linear
     ) -> TensorizedLinear | BlockTensorizedLinear:
-        # cache all training data on device
-        intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
-        batch_inputs_and_outputs = self.get_batch_inputs_outputs(
-            intermediates, self.batch_size
-        )
-
         # create tensorized layer
         tensorized_linear = (
             TensorizedLinear.from_linear(
@@ -250,9 +241,7 @@ class TensorNetworkModifier(Modifier):
             else BlockTensorizedLinear.from_linear(
                 linear, self.block_size, num_cores=self.num_cores, rank=self.rank
             )
-        )
-
-        tensorized_linear = tensorized_linear.to(intermediates.fetch(0)["input"].device)
+        ).to(linear.device)
 
         # Calculate parameter counts for logging
         original_params = sum(p.numel() for p in linear.parameters())
@@ -266,6 +255,14 @@ class TensorNetworkModifier(Modifier):
             f"Tensorized params: {tensorized_params:.2e}, "
             f"Compression ratio: {compression_ratio:.2f}x"
         )
+
+        # cache all training data on device
+        batch_inputs_and_outputs = self.get_batch_inputs_outputs(
+            self._target_args_cache[(name, linear)], self.batch_size
+        )
+        del self._target_args_cache[(name, linear)]
+
+        tensorized_linear = tensorized_linear.to(batch_inputs_and_outputs[0][0].device)
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
@@ -296,7 +293,8 @@ class TensorNetworkModifier(Modifier):
                     # Forward pass through tensorized layer
                     tensorized_batch_output = tensorized_linear(batch_input)
 
-                    # Compute MSE loss against original dense output
+                    # Compute loss against original dense output
+                    # TODO try (1-F.cosine_similarity(..)) as criterion instead
                     loss = criterion(tensorized_batch_output, dense_output)
 
                     loss.backward()
@@ -305,15 +303,15 @@ class TensorNetworkModifier(Modifier):
                     total_loss += loss.item()
                     num_batches += 1
 
-                avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+                loss = total_loss / num_batches if num_batches > 0 else 0.0
 
                 # Early stopping check
-                if len(loss_history) > 0 and avg_loss < loss_history[-1] * (
-                    1.0 - min_frac_delta
-                ):
-                    # Significant improvement
-                    best_loss = avg_loss
-                    epochs_without_improvement = 0
+                if len(loss_history) > 0:
+                    if loss < best_loss:
+                        best_loss = loss
+                    if loss < loss_history[-1] * (1.0 - min_frac_delta):
+                        # Significant improvement
+                        epochs_without_improvement = 0
                 else:
                     # No significant improvement
                     epochs_without_improvement += 1
@@ -345,7 +343,7 @@ class TensorNetworkModifier(Modifier):
     @staticmethod
     def get_batch_inputs_outputs(
         intermediates: IntermediatesCache, batch_size: int | None = None
-    ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
         """
         Fully onloads a batched dataset from IntermediatesCache,
         if necessary by re-batching to the necessary batch_size.
@@ -359,21 +357,19 @@ class TensorNetworkModifier(Modifier):
                 returns data in original batch sizes.
 
         Returns:
-            Tuple of (input_batches, output_batches) where each is a list of tensors
+            List of tuples of (input_batches, output_batches) with appropriate
+            batch_size.
         """
         # If no re-batching needed, just collect original batches
         if batch_size is None:
-            input_batches = []
-            output_batches = []
+            input_and_output_batches = []
             for batch in intermediates.iter():
                 batch_input, batch_output = batch.values()
-                input_batches.append(batch_input)
-                output_batches.append(batch_output)
-            return input_batches, output_batches
+                input_and_output_batches.append((batch_input, batch_output))
+            return input_and_output_batches
 
         # Re-batch efficiently by appending chunks instead of individual samples
-        input_batches = []
-        output_batches = []
+        input_and_output_batches = []
 
         # Accumulator for partial batches (stores chunks, not individual samples)
         current_inputs = []
@@ -400,9 +396,13 @@ class TensorNetworkModifier(Modifier):
                 current_count += chunk_size
 
                 # If we filled a batch, emit it and reset
-                if current_count == batch_size:
-                    input_batches.append(torch.cat(current_inputs, dim=0))
-                    output_batches.append(torch.cat(current_outputs, dim=0))
+                if current_count >= batch_size:
+                    input_and_output_batches.append(
+                        (
+                            torch.cat(current_inputs, dim=0),
+                            torch.cat(current_outputs, dim=0),
+                        )
+                    )
                     current_inputs = []
                     current_outputs = []
                     current_count = 0
@@ -410,11 +410,12 @@ class TensorNetworkModifier(Modifier):
                 start_idx = end_idx
 
         # Don't forget the last partial batch if it exists
-        if current_count > 0:
-            input_batches.append(torch.cat(current_inputs, dim=0))
-            output_batches.append(torch.cat(current_outputs, dim=0))
+        if len(current_inputs) > 0:
+            input_and_output_batches.append(
+                (torch.cat(current_inputs, dim=0)), torch.cat(current_outputs, dim=0)
+            )
 
-        return input_batches, output_batches
+        return input_and_output_batches
 
     def _assert_all_activations_consumed(self):
         """
