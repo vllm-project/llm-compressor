@@ -239,10 +239,10 @@ class TensorNetworkModifier(Modifier):
 
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
 
-        # Enable gradients for training (parent _tensorize has @torch.no_grad())
+        # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
             # Setup optimizer and loss function
-            optimizer = torch.optim.Adam(tensorized_linear.parameters(), lr=1e-3)
+            optimizer = torch.optim.Adam(tensorized_linear.parameters(), lr=1e-5)
             criterion = nn.MSELoss()
 
             # Training loop
