@@ -608,6 +608,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
         cache = self._parent_args_cache[module]
+        # When offloading, prefetch overlaps CPU->device onload with forward pass.
         batch_iter = (
             cache.iter_prefetch()
             if self.offload_device is not None

@@ -203,7 +203,7 @@ class IntermediatesCache:
         """
         Iterate over batches with the next batch prefetched in a background thread.
         Overlaps onload from offload_device with consumption of the current batch,
-        which can reduce latency when offloading to CPU.
+        which can reduce wall-clock time when offloading to CPU.
 
         Yields the same fetched batch dicts as :meth:`iter`; only the timing
         of onloads differs.
@@ -215,15 +215,16 @@ class IntermediatesCache:
             future = None
             for batch_index in range(num_batches):
                 if future is not None:
-                    yield future.result()
+                    current = future.result()
                 else:
-                    yield self.fetch(batch_index, input_names)
+                    current = self.fetch(batch_index, input_names)
                 if batch_index + 1 < num_batches:
                     future = executor.submit(
                         self.fetch, batch_index + 1, input_names
                     )
                 else:
                     future = None
+                yield current
 
     def __iter__(self) -> Generator[Any, None, None]:
         yield from self.iter()

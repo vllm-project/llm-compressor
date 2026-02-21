@@ -54,6 +54,13 @@ def test_initialization(sample_dataloader):
 
 
 @pytest.mark.unit
+def test_iter_prefetch_empty_cache():
+    """iter_prefetch yields nothing when cache has no batches."""
+    cache = IntermediatesCache.empty(0, torch.device("cpu"))
+    assert list(cache.iter_prefetch()) == []
+
+
+@pytest.mark.unit
 def test_iter_prefetch_matches_iter(sample_cache):
     """iter_prefetch yields the same batch contents as iter."""
 
