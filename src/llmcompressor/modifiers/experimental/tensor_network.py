@@ -237,7 +237,7 @@ class TensorNetworkModifier(Modifier):
     ) -> TensorizedLinear | BlockTensorizedLinear:
         # cache all training data on device
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
-        batch_inputs, batch_outputs = self.get_batch_inputs_outputs(
+        batch_inputs_and_outputs = self.get_batch_inputs_outputs(
             intermediates, self.batch_size
         )
 
@@ -285,33 +285,25 @@ class TensorNetworkModifier(Modifier):
             best_loss = float("inf")
             epochs_without_improvement = 0
 
-            num_samples = 0
-
             for epoch in (pbar := tqdm(range(num_epochs))):
                 total_loss = 0.0
                 num_batches = 0
 
-                for batch in intermediates.iter():
-                    batch_input, dense_output = batch.values()
-                    batch_size = batch_input.shape[0]
-
+                for batch_input, dense_output in batch_inputs_and_outputs:
                     # Zero gradients
                     optimizer.zero_grad()
 
                     # Forward pass through tensorized layer
-                    batch_output = tensorized_linear(batch_input)
+                    tensorized_batch_output = tensorized_linear(batch_input)
 
                     # Compute MSE loss against original dense output
-                    loss = criterion(batch_output, dense_output)
+                    loss = criterion(tensorized_batch_output, dense_output)
 
-                    # Step only if requisite number of samples has been reached
-                    if num_samples + batch_size > self.batch_size:
-                        num_samples = 0
-                        loss.backward()
-                        optimizer.step()
+                    loss.backward()
+                    optimizer.step()
 
-                        total_loss += loss.item()
-                        num_batches += 1
+                    total_loss += loss.item()
+                    num_batches += 1
 
                 avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
