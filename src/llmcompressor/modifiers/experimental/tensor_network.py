@@ -318,14 +318,14 @@ class TensorNetworkModifier(Modifier):
 
                 pbar.set_description(
                     f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                    f"Avg Loss: {avg_loss:.2e}, Best Loss: {best_loss:.2e}"
+                    f"Avg Loss: {loss:.2e}, Best Loss: {best_loss:.2e}"
                 )
 
-                loss_history.append(avg_loss)
+                loss_history.append(loss)
                 # Check early stopping conditions
-                if avg_loss < min_loss_threshold:
+                if loss < min_loss_threshold:
                     logger.info(
-                        f"Layer {name} - Early stopping: loss {avg_loss:.2e} "
+                        f"Layer {name} - Early stopping: Avg loss {loss:.2e} "
                         f"below threshold {min_loss_threshold:.2e} at epoch {epoch}"
                     )
                     break
@@ -340,37 +340,30 @@ class TensorNetworkModifier(Modifier):
         return tensorized_linear
 
     @staticmethod
-    @staticmethod
     def get_batch_inputs_outputs(
         intermediates: IntermediatesCache, batch_size: int | None = None
-    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    ):
         """
-        Fully onloads a batched dataset from IntermediatesCache,
-        if necessary by re-batching to the necessary batch_size.
-
-        This implementation avoids torch.cat to save memory - it processes
-        cached batches incrementally.
+        Generator that yields batches from IntermediatesCache one at a time.
+        This is memory-efficient as each batch can be garbage collected before
+        the next one is loaded.
 
         Args:
             intermediates: Cache containing input/output pairs
             batch_size: Optional target batch size for re-batching. If None,
-                returns data in original batch sizes.
+                yields data in original batch sizes.
 
-        Returns:
-            List of tuples of (input_batches, output_batches) with appropriate
-            batch_size.
+        Yields:
+            Tuples of (input_batch, output_batch) with appropriate batch_size
         """
-        # If no re-batching needed, just collect original batches
+        # If no re-batching needed, just yield original batches
         if batch_size is None:
-            input_and_output_batches = []
             for batch in intermediates.iter():
                 batch_input, batch_output = batch.values()
-                input_and_output_batches.append((batch_input, batch_output))
-            return input_and_output_batches
+                yield (batch_input, batch_output)
+            return
 
         # Re-batch efficiently by appending chunks instead of individual samples
-        input_and_output_batches = []
-
         # Accumulator for partial batches (stores chunks, not individual samples)
         current_inputs = []
         current_outputs = []
@@ -395,14 +388,14 @@ class TensorNetworkModifier(Modifier):
                 current_outputs.append(batch_output[start_idx:end_idx])
                 current_count += chunk_size
 
-                # If we filled a batch, emit it and reset
-                if current_count >= batch_size:
-                    input_and_output_batches.append(
-                        (
-                            torch.cat(current_inputs, dim=0),
-                            torch.cat(current_outputs, dim=0),
-                        )
-                    )
+                # If we filled a batch, yield it and reset
+                if current_count == batch_size:
+                    batch_inputs_concat = torch.cat(current_inputs, dim=0)
+                    batch_outputs_concat = torch.cat(current_outputs, dim=0)
+                    yield (batch_inputs_concat, batch_outputs_concat)
+
+                    # Explicitly delete to encourage garbage collection
+                    del batch_inputs_concat, batch_outputs_concat
                     current_inputs = []
                     current_outputs = []
                     current_count = 0
@@ -410,12 +403,8 @@ class TensorNetworkModifier(Modifier):
                 start_idx = end_idx
 
         # Don't forget the last partial batch if it exists
-        if len(current_inputs) > 0:
-            input_and_output_batches.append(
-                (torch.cat(current_inputs, dim=0)), torch.cat(current_outputs, dim=0)
-            )
-
-        return input_and_output_batches
+        if current_count > 0:
+            yield (torch.cat(current_inputs, dim=0), torch.cat(current_outputs, dim=0))
 
     def _assert_all_activations_consumed(self):
         """
