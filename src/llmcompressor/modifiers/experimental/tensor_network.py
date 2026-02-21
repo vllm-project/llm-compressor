@@ -239,13 +239,15 @@ class TensorNetworkModifier(Modifier):
 
         intermediates: IntermediatesCache = self._target_args_cache[(name, linear)]
 
-        batch_0 = intermediates.fetch(0)
+        for batch in intermediates.iter():
+            batch_input, dense_output = batch.values()
+            batch_output = tensorized_linear.forward(batch_input)
+            print(
+                "GOT BATCH", batch_input.shape, dense_output.shape, batch_output.shape
+            )
 
-        output = tensorized_linear.forward(batch_0["input"])
-        # print("GOT OUTPUTS", output, batch_0["output"])
-
-        # retrain
-        # TODO retrain tensorize_linear against dense_outputs w/ MSELoss
+            # retrain
+            # TODO retrain tensorize_linear against dense_outputs w/ MSELoss
 
         return tensorized_linear
 
