@@ -134,20 +134,20 @@ class BlockTensorizedLinear(nn.Module):
         batch_dims = original_shape[:-1]
 
         # Flatten to (...batch..., in_features) -> (total_batch, in_features)
-        x_flat = x.reshape(-1, self.in_features)
-        batch_size = x_flat.shape[0]
+        x = x.reshape(-1, self.in_features)
+        batch_size = x.shape[0]
 
         # Reshape input to separate blocks: (batch, num_blocks[1], block_size)
-        x_blocks = x_flat.reshape(batch_size, self.num_blocks[1], self.block_size)
+        x = x.reshape(batch_size, self.num_blocks[1], self.block_size)
 
         # Use fully vectorized forward implementation (no Python loops!)
-        y_blocks = self._forward_impl(x_blocks)
+        y = self._forward_impl(x)
 
         # Reshape output back: (batch, num_blocks[0], block_size) -> (batch, out_features)
-        y_flat = y_blocks.reshape(batch_size, self.out_features)
+        y = y.reshape(batch_size, self.out_features)
 
         # Restore original batch dimensions
-        y = y_flat.reshape(*batch_dims, self.out_features)
+        y = y.reshape(*batch_dims, self.out_features)
 
         return y
 
