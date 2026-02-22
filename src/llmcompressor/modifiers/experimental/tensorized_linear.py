@@ -276,13 +276,17 @@ class TensorizedLinear(nn.Module):
             U, S, Vh = torch.linalg.svd(combined, full_matrices=False)
 
             # Determine new rank: keep top (1 - rank_reduction_factor) of singular values
-            current_rank = S.shape[0]
+            current_rank = r_bond
             new_rank = max(1, int(current_rank * (1.0 - rank_reduction_factor)))
+            if new_rank >= current_rank:
+                new_rank = current_rank - 1
 
             # Truncate to new rank
             U_truncated = U[:, :new_rank]
             S_truncated = S[:new_rank]
             Vh_truncated = Vh[:new_rank, :]
+
+            # TODO check if re-normalizing S_truncated to have same det is important
 
             # Reconstruct left and right matrices with reduced bond dimension
             left_matrix_new = U_truncated  # (left_dims, new_rank)

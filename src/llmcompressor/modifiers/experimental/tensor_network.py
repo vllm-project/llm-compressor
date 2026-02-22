@@ -211,11 +211,8 @@ class TensorNetworkModifier(Modifier):
         # NOTE: When using SequentialPipeline, not all the targeted layers
         # will have cached activations in the segment being udpated
 
-        for name, module in tqdm(
-            # cast to list to cache in memory, as dict is modified during iteration
-            list(self._target_args_cache.keys()),
-            desc="Tensorizing",
-        ):
+        # cast to list to cache in memory, as dict is modified during iteration
+        for name, module in list(self._target_args_cache.keys()):
             with (
                 align_modules([module]),
                 calibration_forward_context(model),
@@ -233,7 +230,11 @@ class TensorNetworkModifier(Modifier):
         self._assert_all_activations_consumed()
 
     def _get_trained_tensorized_layer(
-        self, name: str, linear: torch.nn.Linear
+        self,
+        name: str,
+        linear: torch.nn.Linear,
+        target_cosine_similarity=0.95,  # Reduce if target cosine similarity met
+        rank_reduction_factor=0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
     ) -> TensorizedLinear | BlockTensorizedLinear:
         """
         Create a tensorized equivalent of the input Linear matrix with adaptive rank pruning.
@@ -248,9 +249,6 @@ class TensorNetworkModifier(Modifier):
 
         This adaptively finds the minimal rank needed for acceptable reconstruction.
         """
-        target_cosine_similarity = 0.95
-        # Reduce rank by 25% each iteration
-        rank_reduction_factor = 0.25
 
         # Start with full rank for lossless reconstruction
         best_tensorized_linear = tensorized_linear = (
@@ -261,10 +259,15 @@ class TensorNetworkModifier(Modifier):
             )
         ).to(linear.weight.device)
 
+        total_num_epochs = 0
         while True:
             # Train this rank level
-            final_cosine_similarity = self._train_tensorized_layer(
-                tensorized_linear, name, linear
+            final_cosine_similarity, total_num_epochs = self._train_tensorized_layer(
+                tensorized_linear,
+                name,
+                linear,
+                target_cosine_similarity=target_cosine_similarity,
+                total_num_epochs=total_num_epochs,
             )
 
             if final_cosine_similarity >= target_cosine_similarity:
@@ -280,13 +283,16 @@ class TensorNetworkModifier(Modifier):
         # Return best achieved
         return best_tensorized_linear
 
+    # re-enable grad for training (parent _tensorize has @torch.no_grad())
+    @torch.enable_grad()
     def _train_tensorized_layer(
         self,
         tensorized_linear: TensorizedLinear | BlockTensorizedLinear,
         name: str,
         linear: torch.nn.Linear,
         target_cosine_similarity=0.99,
-    ) -> float:
+        total_num_epochs=0,
+    ) -> tuple[float, int]:
         """
         Train a tensorized layer and return final average cosine similarity.
 
@@ -294,105 +300,115 @@ class TensorNetworkModifier(Modifier):
 
         Returns:
             Average cosine similarity across all batches after training
+            Accumulated total_num_epochs
         """
         original_params = sum(p.numel() for p in linear.parameters())
         tensorized_params = tensorized_linear.num_params
-        compression_pct = tensorized_params / original_params
+        compression_pct = (
+            f"{compression_pct:.1%}"
+            if (compression_pct := (tensorized_params / original_params)) < 0.99
+            else "100 %"
+        )
 
-        # re-enable grad for training (parent _tensorize has @torch.no_grad())
-        with torch.enable_grad():
-            # SGD with momentum uses ~2x memory vs SGD
-            # Adam uses ~3x memory vs SGD
-            optimizer = torch.optim.SGD(
-                tensorized_linear.parameters(),
-                lr=1e-4,  # Higher LR than Adam since SGD needs larger steps
-                momentum=0.9,  # Helps convergence with cosine similarity loss
+        # SGD with momentum uses ~2x memory vs SGD
+        # Adam uses ~3x memory vs SGD
+        optimizer = torch.optim.SGD(
+            tensorized_linear.parameters(),
+            lr=1e-4,  # Higher LR than Adam since SGD needs larger steps
+            momentum=0.9,  # Helps convergence with cosine similarity loss
+        )
+
+        # Training loop with early stopping
+        max_total_num_epochs = 100
+        # Stop if no improvement for this many epochs
+        patience = 5
+        # Minimum improvement over previous loss to be considered progress
+        min_frac_delta = 1e-2
+        loss_history = []
+
+        best_loss = float("inf")
+        epochs_without_improvement = 0
+        final_avg_cosine_similarity = 0.0  # Track final cosine similarity
+
+        pbar = tqdm(
+            range(max_total_num_epochs - total_num_epochs),
+            desc=f"{name} | ",
+        )
+        pbar.update(total_num_epochs)
+        pbar.total = 100
+        for epoch in pbar:
+            total_loss = 0.0
+            num_batches = 0
+            cosine_similarities = []
+            mses = []
+
+            for batch_input, dense_output in self.get_batch_inputs_outputs(
+                self._target_args_cache[(name, linear)], self.batch_size
+            ):
+                # Zero gradients
+                optimizer.zero_grad()
+
+                # Forward pass through tensorized layer
+                tensorized_batch_output = tensorized_linear(batch_input)
+
+                # Compute cosine similarity loss (1 - cosine_similarity)
+                # This encourages vectors to align in the same direction vs.
+                # loss = F.mse_loss(tensorized_batch_output, dense_output)
+                cosine_sim = F.cosine_similarity(
+                    tensorized_batch_output, dense_output, dim=-1
+                )
+                loss = (1 - cosine_sim).mean()
+
+                loss.backward()
+                optimizer.step()
+
+                cosine_similarities.append(cosine_sim.detach().abs().mean())
+                mses.append(
+                    F.mse_loss(
+                        tensorized_batch_output.detach(), dense_output.detach()
+                    ).item()
+                )
+                total_loss += loss.item()
+                num_batches += 1
+
+            epoch_loss = total_loss / num_batches
+
+            # Calculate average cosine similarity for this epoch
+            final_avg_cosine_similarity = (
+                sum(cosine_similarities) / len(cosine_similarities)
+                if cosine_similarities
+                else 0.0
             )
 
-            # Training loop with early stopping
-            num_epochs = 100
-            # Stop if no improvement for this many epochs
-            patience = 5
-            # Minimum improvement over previous loss to be considered progress
-            min_frac_delta = 1e-2
-            loss_history = []
+            # Early stopping check
+            if len(loss_history) > 0:
+                if epoch_loss < best_loss:
+                    best_loss = epoch_loss
+                if epoch_loss < (loss_history[-1] * (1.0 - min_frac_delta)):
+                    # Significant improvement
+                    epochs_without_improvement = 0
+                else:
+                    # No significant improvement
+                    epochs_without_improvement += 1
+            loss_history.append(epoch_loss)
 
-            best_loss = float("inf")
-            epochs_without_improvement = 0
-            final_avg_cosine_similarity = 0.0  # Track final cosine similarity
+            pbar.set_description(
+                f"{name} | # params : "
+                f"{tensorized_params:.1e} ({compression_pct}) | "
+                f"mse: {sum(mses)/len(mses):.2e} | "
+                f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
+            )
+            pbar.update(1)
+            total_num_epochs += 1
 
-            for epoch in (pbar := tqdm(range(num_epochs))):
-                total_loss = 0.0
-                num_batches = 0
-                cosine_similarities = []
-                mses = []
-
-                for batch_input, dense_output in self.get_batch_inputs_outputs(
-                    self._target_args_cache[(name, linear)], self.batch_size
-                ):
-                    # Zero gradients
-                    optimizer.zero_grad()
-
-                    # Forward pass through tensorized layer
-                    tensorized_batch_output = tensorized_linear(batch_input)
-
-                    # Compute cosine similarity loss (1 - cosine_similarity)
-                    # This encourages vectors to align in the same direction vs.
-                    # loss = F.mse_loss(tensorized_batch_output, dense_output)
-                    cosine_sim = F.cosine_similarity(
-                        tensorized_batch_output, dense_output, dim=-1
-                    )
-                    loss = (1 - cosine_sim).mean()
-
-                    loss.backward()
-                    optimizer.step()
-
-                    cosine_similarities.append(cosine_sim.detach().abs().mean())
-                    mses.append(
-                        F.mse_loss(
-                            tensorized_batch_output.detach(), dense_output.detach()
-                        ).item()
-                    )
-                    total_loss += loss.item()
-                    num_batches += 1
-
-                epoch_loss = total_loss / num_batches
-
-                # Calculate average cosine similarity for this epoch
-                final_avg_cosine_similarity = (
-                    sum(cosine_similarities) / len(cosine_similarities)
-                    if cosine_similarities
-                    else 0.0
-                )
-
-                # Early stopping check
-                if len(loss_history) > 0:
-                    if epoch_loss < best_loss:
-                        best_loss = epoch_loss
-                    if epoch_loss < (loss_history[-1] * (1.0 - min_frac_delta)):
-                        # Significant improvement
-                        epochs_without_improvement = 0
-                    else:
-                        # No significant improvement
-                        epochs_without_improvement += 1
-                loss_history.append(epoch_loss)
-
-                pbar.set_description(
-                    f"{name} | # params : "
-                    f"{tensorized_params:.1e} / {original_params:.1e} ({compression_pct:0.1%}) | "
-                    f" ({epoch:02d}/{num_epochs}) mse: {sum(mses)/len(mses):.2e} | "
-                    f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
-                )
-
-                # Check early stopping conditions
-                if (
-                    loss < (1 - target_cosine_similarity)
-                    or epochs_without_improvement >= patience
-                ):
-                    break
+            # Check early stopping conditions
+            if (
+                epoch > 2 and loss < (1 - target_cosine_similarity)
+            ) or epochs_without_improvement >= patience:
+                break
 
         # Return final average cosine similarity achieved
-        return final_avg_cosine_similarity
+        return final_avg_cosine_similarity, total_num_epochs
 
     @staticmethod
     def get_batch_inputs_outputs(
