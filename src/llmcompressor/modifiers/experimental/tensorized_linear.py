@@ -232,6 +232,77 @@ class TensorizedLinear(nn.Module):
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
         return F.linear(x, W, self.bias)
 
+    def truncate_ranks(self, rank_reduction_factor: float) -> "TensorizedLinear":
+        """
+        Truncate TT-matrix ranks by removing smallest singular values at each bond.
+
+        For each bond between cores, we:
+        1. Reshape cores to expose the bond dimension
+        2. Perform SVD across the bond
+        3. Keep only top (1 - rank_reduction_factor) singular values
+        4. Reconstruct cores with reduced rank
+
+        Args:
+            rank_reduction_factor: Fraction to reduce ranks by (0.2 = remove 20% of rank)
+
+        Returns:
+            New TensorizedLinear with reduced ranks
+        """
+        factors = [f.detach().clone() for f in self.factors]
+        num_cores = len(factors)
+
+        # Process each bond (interface between consecutive cores)
+        for k in range(num_cores - 1):
+            # Current core k has shape: (r_{k-1}, n_k, m_k, r_k)
+            # Next core k+1 has shape: (r_k, n_{k+1}, m_{k+1}, r_{k+1})
+            # Bond dimension is r_k
+
+            left_core = factors[k]
+            right_core = factors[k + 1]
+
+            # Reshape left core to matrix: (r_{k-1} * n_k * m_k, r_k)
+            r_left, n_k, m_k, r_bond = left_core.shape
+            left_matrix = left_core.reshape(r_left * n_k * m_k, r_bond)
+
+            # Reshape right core to matrix: (r_k, n_{k+1} * m_{k+1} * r_right)
+            r_bond_check, n_kp1, m_kp1, r_right = right_core.shape
+            assert r_bond == r_bond_check, "Bond dimensions must match"
+            right_matrix = right_core.reshape(r_bond, n_kp1 * m_kp1 * r_right)
+
+            # Combine cores across bond: (left_dims, bond) @ (bond, right_dims)
+            combined = left_matrix @ right_matrix
+
+            # SVD to find singular values
+            U, S, Vh = torch.linalg.svd(combined, full_matrices=False)
+
+            # Determine new rank: keep top (1 - rank_reduction_factor) of singular values
+            current_rank = S.shape[0]
+            new_rank = max(1, int(current_rank * (1.0 - rank_reduction_factor)))
+
+            # Truncate to new rank
+            U_truncated = U[:, :new_rank]
+            S_truncated = S[:new_rank]
+            Vh_truncated = Vh[:new_rank, :]
+
+            # Reconstruct left and right matrices with reduced bond dimension
+            left_matrix_new = U_truncated  # (left_dims, new_rank)
+            right_matrix_new = torch.diag(S_truncated) @ Vh_truncated  # (new_rank, right_dims)
+
+            # Reshape back to core format
+            factors[k] = left_matrix_new.reshape(r_left, n_k, m_k, new_rank)
+            factors[k + 1] = right_matrix_new.reshape(new_rank, n_kp1, m_kp1, r_right)
+
+        # Create new TensorizedLinear with truncated factors
+        new_tensorized = TensorizedLinear(
+            shape=self.shape,
+            rank=None,  # rank is now implicit in factors
+            factors=factors,
+            bias=self.bias.clone() if self.bias is not None else None,
+            dtype=self.dtype,
+        )
+
+        return new_tensorized.to(self.factors[0].device)
+
     @property
     def num_params(self):
         return sum([p.numel() for p in self.parameters()])

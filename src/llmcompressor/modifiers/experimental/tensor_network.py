@@ -236,29 +236,86 @@ class TensorNetworkModifier(Modifier):
         self, name: str, linear: torch.nn.Linear
     ) -> TensorizedLinear | BlockTensorizedLinear:
         """
-        Create a tensorized equivalent of the input Linear matrix.
-        New module will be on same device and with same dtype.
+        Create a tensorized equivalent of the input Linear matrix with adaptive rank pruning.
 
-        - Create (block-)tensorized Linear layer
-        - Train layer against input and output activations in cache
-        - TODO instead of hardcoding rank, set to rank=1.0, and
-          slowly truncate least important singular values if threshold
-          cosine similarity is reached.
-          The resultant MPO probably needs to have remaining singular
-          values re-normalized, so determinant remains the same?
+        Strategy:
+        1. Start with rank=1.0 (full rank, lossless reconstruction)
+        2. Train until cosine similarity >= threshold (0.95)
+        3. If achieved, re-decompose with reduced rank
+        4. Retrain and check if threshold can still be maintained
+        5. Repeat until threshold can no longer be met
+        6. Return the maximally compressed layer that meets threshold
+
+        This adaptively finds the minimal rank needed for acceptable reconstruction.
         """
-        # create tensorized layer
+        target_cosine_similarity = 0.95
+        rank_reduction_factor = 0.8  # Reduce rank by 20% each iteration
+
+        # Start with full rank for lossless reconstruction
+        current_rank = 1.0
+        best_tensorized_linear = None
+        best_rank = current_rank
+
+        logger.debug(
+            f"Layer {name} - Starting adaptive rank pruning with target "
+            f"cosine similarity >= {target_cosine_similarity}"
+        )
+
+        # Create initial full-rank tensorized layer
         tensorized_linear = (
             TensorizedLinear.from_linear(
-                linear, num_cores=self.num_cores, rank=self.rank
+                linear, num_cores=self.num_cores, rank=current_rank
             )
             if self.block_size is None
             else BlockTensorizedLinear.from_linear(
-                linear, self.block_size, num_cores=self.num_cores, rank=self.rank
+                linear, self.block_size, num_cores=self.num_cores, rank=current_rank
             )
         ).to(linear.weight.device)
 
-        # Calculate parameter counts for logging
+        while True:
+            logger.debug(f"Layer {name} - Training with current rank={current_rank}")
+
+            # Train this rank level
+            final_cosine_similarity = self._train_tensorized_layer(
+                tensorized_linear, name, linear, current_rank
+            )
+
+            if final_cosine_similarity >= target_cosine_similarity:
+                best_tensorized_linear = tensorized_linear
+                best_rank = current_rank
+
+                # Preseve learned params -- truncate current layer instead of recreating
+                tensorized_linear = tensorized_linear.truncate_ranks(
+                    rank_reduction_factor
+                )
+            else:
+                # Threshold not met - use previous best (or current if first iteration)
+                logger.debug(
+                    f"Layer {name} - Rank {current_rank} achieved only "
+                    f"{final_cosine_similarity:.4f} < {target_cosine_similarity}. "
+                    f"Stopping pruning. Final rank: {best_rank}"
+                )
+                break
+
+        # Return best tensorized layer (or current if first iteration failed)
+        return (
+            best_tensorized_linear
+            if best_tensorized_linear is not None
+            else tensorized_linear
+        )
+
+    def _train_tensorized_layer(
+        self,
+        tensorized_linear: TensorizedLinear | BlockTensorizedLinear,
+        name: str,
+        linear: torch.nn.Linear,
+    ) -> float:
+        """
+        Train a tensorized layer and return final average cosine similarity.
+
+        Returns:
+            Average cosine similarity across all batches after training
+        """
         original_params = sum(p.numel() for p in linear.parameters())
         tensorized_params = tensorized_linear.num_params
         compression_pct = tensorized_params / original_params
@@ -269,21 +326,23 @@ class TensorNetworkModifier(Modifier):
             # Adam uses ~3x memory vs SGD
             optimizer = torch.optim.SGD(
                 tensorized_linear.parameters(),
-                lr=1e-3,  # Higher LR than Adam since SGD needs larger steps
+                lr=1e-4,  # Higher LR than Adam since SGD needs larger steps
                 momentum=0.9,  # Helps convergence with cosine similarity loss
             )
 
             # Training loop with early stopping
             num_epochs = 100
-            patience = 3  # Stop if no improvement for this many epochs
-            min_frac_delta = (
-                1e-2  # Minimum improvement over previous loss to be considered progress
-            )
-            min_loss_threshold = 1e-6  # Stop if loss is already this good
+            # Stop if no improvement for this many epochs
+            patience = 5
+            # Minimum improvement over previous loss to be considered progress
+            min_frac_delta = 1e-2
+            # Stop if cosine similarity already >=0.99
+            min_loss_threshold = 1e-2
             loss_history = []
 
             best_loss = float("inf")
             epochs_without_improvement = 0
+            final_avg_cosine_similarity = 0.0  # Track final cosine similarity
 
             for epoch in (pbar := tqdm(range(num_epochs))):
                 total_loss = 0.0
@@ -322,6 +381,13 @@ class TensorNetworkModifier(Modifier):
 
                 epoch_loss = total_loss / num_batches
 
+                # Calculate average cosine similarity for this epoch
+                final_avg_cosine_similarity = (
+                    sum(cosine_similarities) / len(cosine_similarities)
+                    if cosine_similarities
+                    else 0.0
+                )
+
                 # Early stopping check
                 if len(loss_history) > 0:
                     if epoch_loss < best_loss:
@@ -342,21 +408,11 @@ class TensorNetworkModifier(Modifier):
                 )
 
                 # Check early stopping conditions
-                if loss < min_loss_threshold:
-                    logger.info(
-                        f"Layer {name} - Early stopping: Epoch loss {epoch_loss:.2e} "
-                        f"below threshold {min_loss_threshold:.2e} at epoch {epoch}"
-                    )
+                if loss < min_loss_threshold or epochs_without_improvement >= patience:
                     break
 
-                if epochs_without_improvement >= patience:
-                    logger.info(
-                        f"Layer {name} - Early stopping: no improvement for "
-                        f"{patience} epochs at epoch {epoch}. Best loss: {best_loss:.2e}"
-                    )
-                    break
-
-        return tensorized_linear
+        # Return final average cosine similarity achieved
+        return final_avg_cosine_similarity
 
     @staticmethod
     def get_batch_inputs_outputs(
