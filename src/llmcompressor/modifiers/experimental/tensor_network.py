@@ -249,14 +249,12 @@ class TensorNetworkModifier(Modifier):
         # Calculate parameter counts for logging
         original_params = sum(p.numel() for p in linear.parameters())
         tensorized_params = tensorized_linear.num_params
-        compression_ratio = (
-            original_params / tensorized_params if tensorized_params > 0 else 0
-        )
+        compression_pct = tensorized_params / original_params
 
         logger.info(
-            f"Layer {name} - Original params: {original_params:.2e}, "
-            f"Tensorized params: {tensorized_params:.2e}, "
-            f"Compression ratio: {compression_ratio:.2f}x"
+            f"{name} | Original params: {original_params:.2e} | "
+            f"Tensorized params: {tensorized_params:.2e} "
+            f"({compression_pct:.1%}%)"
         )
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
@@ -292,13 +290,15 @@ class TensorNetworkModifier(Modifier):
                     tensorized_batch_output = tensorized_linear(batch_input)
 
                     # Compute loss against original dense output
-                    # TODO try (1-F.cosine_similarity(..)) as criterion instead
+                    # TODO try (1-F.cosine_similarity(..)) as criterion instead?
                     loss = criterion(tensorized_batch_output, dense_output)
                     loss.backward()
                     optimizer.step()
 
                     cosine_similarities.append(
-                        F.cosine_similarity(tensorized_batch_output, dense_output)
+                        F.cosine_similarity(
+                            tensorized_batch_output.detach(), dense_output.detach()
+                        )
                         .abs()
                         .mean()
                     )
@@ -306,30 +306,30 @@ class TensorNetworkModifier(Modifier):
                     total_loss += loss.item()
                     num_batches += 1
 
-                loss = total_loss / num_batches if num_batches > 0 else 0.0
+                epoch_loss = total_loss / num_batches
 
                 # Early stopping check
                 if len(loss_history) > 0:
-                    if loss < best_loss:
-                        best_loss = loss
-                    if loss < (loss_history[-1] * (1.0 - min_frac_delta)):
+                    if epoch_loss < best_loss:
+                        best_loss = epoch_loss
+                    if epoch_loss < (loss_history[-1] * (1.0 - min_frac_delta)):
                         # Significant improvement
                         epochs_without_improvement = 0
                     else:
                         # No significant improvement
                         epochs_without_improvement += 1
+                loss_history.append(epoch_loss)
 
                 pbar.set_description(
                     f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                    f"Avg Loss: {loss:.2e}, Best Loss: {best_loss:.2e}, "
+                    f"Epoch Loss: {epoch_loss:.2e}, Best Loss: {best_loss:.2e}, "
                     f"Cosine Similarity: {sum(cosine_similarities)/len(cosine_similarities):.3f}"
                 )
 
-                loss_history.append(loss)
                 # Check early stopping conditions
                 if loss < min_loss_threshold:
                     logger.info(
-                        f"Layer {name} - Early stopping: Avg loss {loss:.2e} "
+                        f"Layer {name} - Early stopping: Epoch loss {epoch_loss:.2e} "
                         f"below threshold {min_loss_threshold:.2e} at epoch {epoch}"
                     )
                     break
