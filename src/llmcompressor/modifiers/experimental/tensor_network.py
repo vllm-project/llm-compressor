@@ -235,6 +235,18 @@ class TensorNetworkModifier(Modifier):
     def _get_trained_tensorized_layer(
         self, name: str, linear: torch.nn.Linear
     ) -> TensorizedLinear | BlockTensorizedLinear:
+        """
+        Create a tensorized equivalent of the input Linear matrix.
+        New module will be on same device and with same dtype.
+
+        - Create (block-)tensorized Linear layer
+        - Train layer against input and output activations in cache
+        - TODO instead of hardcoding rank, set to rank=1.0, and
+          slowly truncate least important singular values if threshold
+          cosine similarity is reached.
+          The resultant MPO probably needs to have remaining singular
+          values re-normalized, so determinant remains the same?
+        """
         # create tensorized layer
         tensorized_linear = (
             TensorizedLinear.from_linear(
@@ -250,12 +262,6 @@ class TensorNetworkModifier(Modifier):
         original_params = sum(p.numel() for p in linear.parameters())
         tensorized_params = tensorized_linear.num_params
         compression_pct = tensorized_params / original_params
-
-        logger.info(
-            f"{name} | Original params: {original_params:.2e} | "
-            f"Tensorized params: {tensorized_params:.2e} "
-            f"({compression_pct:.1%}%)"
-        )
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
@@ -323,9 +329,10 @@ class TensorNetworkModifier(Modifier):
                 loss_history.append(epoch_loss)
 
                 pbar.set_description(
-                    f"Layer {name} - Epoch {epoch}/{num_epochs}, "
-                    f"Epoch Loss: {epoch_loss:.2e}, Best Loss: {best_loss:.2e}, "
-                    f"Cosine Similarity: {sum(cosine_similarities)/len(cosine_similarities):.3f}"
+                    f"{name} | Epoch {epoch}/{num_epochs} | num_params Tensorized / Original : "
+                    f"{tensorized_params:.2e} / {original_params:.2e} ({compression_pct:.1%})"
+                    f"Loss (Best): {epoch_loss:.2e} ({best_loss:.2e}) | "
+                    f"cos similarity: {sum(cosine_similarities)/len(cosine_similarities):.3f}"
                 )
 
                 # Check early stopping conditions
