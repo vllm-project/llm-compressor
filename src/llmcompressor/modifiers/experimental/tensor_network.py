@@ -259,9 +259,8 @@ class TensorNetworkModifier(Modifier):
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
-            # Setup optimizer and loss function
+            # Setup optimizer (using cosine similarity loss instead of MSE)
             optimizer = torch.optim.Adam(tensorized_linear.parameters(), lr=1e-5)
-            criterion = nn.MSELoss()
 
             # Training loop with early stopping
             num_epochs = 100
@@ -289,19 +288,17 @@ class TensorNetworkModifier(Modifier):
                     # Forward pass through tensorized layer
                     tensorized_batch_output = tensorized_linear(batch_input)
 
-                    # Compute loss against original dense output
-                    # TODO try (1-F.cosine_similarity(..)) as criterion instead?
-                    loss = criterion(tensorized_batch_output, dense_output)
+                    # Compute cosine similarity loss (1 - cosine_similarity)
+                    # This encourages vectors to align in the same direction vs.
+                    # loss = F.mse_loss(tensorized_batch_output, dense_output)
+                    cosine_sim = F.cosine_similarity(
+                        tensorized_batch_output, dense_output, dim=-1
+                    )
+                    cosine_similarities.append(cosine_sim.detach().abs().mean())
+                    loss = (1 - cosine_sim).mean()
+
                     loss.backward()
                     optimizer.step()
-
-                    cosine_similarities.append(
-                        F.cosine_similarity(
-                            tensorized_batch_output.detach(), dense_output.detach()
-                        )
-                        .abs()
-                        .mean()
-                    )
 
                     total_loss += loss.item()
                     num_batches += 1
