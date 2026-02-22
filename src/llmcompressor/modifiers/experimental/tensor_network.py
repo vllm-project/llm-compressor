@@ -248,7 +248,7 @@ class TensorNetworkModifier(Modifier):
 
         This adaptively finds the minimal rank needed for acceptable reconstruction.
         """
-        target_cosine_similarity = 0.99
+        target_cosine_similarity = 0.95
         # Reduce rank by 25% each iteration
         rank_reduction_factor = 0.25
 
