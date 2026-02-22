@@ -277,7 +277,7 @@ class TensorNetworkModifier(Modifier):
 
             # Train this rank level
             final_cosine_similarity = self._train_tensorized_layer(
-                tensorized_linear, name, linear, current_rank
+                tensorized_linear, name, linear
             )
 
             if final_cosine_similarity >= target_cosine_similarity:

@@ -41,22 +41,18 @@ class BlockTensorizedLinear(nn.Module):
     ):
         super(BlockTensorizedLinear, self).__init__(**kwargs)
 
-        self.blocks = nn.ModuleDict(blocks)
+        # Store block references in a 2D list for easier access
+        # This is more torch.compile-friendly than dynamic ModuleDict access
+        self.blocks = nn.ModuleList(
+            [
+                nn.ModuleList([blocks[(i, j)] for j in range(num_blocks[1])])
+                for i in range(num_blocks[0])
+            ]
+        )
         self.block_size = block_size
         self.num_blocks = num_blocks
         self.in_features = in_features
         self.out_features = out_features
-
-        # Store block references in a 2D list for easier access
-        # This is more torch.compile-friendly than dynamic ModuleDict access
-        self._block_grid = nn.ModuleList(
-            [
-                nn.ModuleList(
-                    [self.blocks[f"{i}_{j}"] for j in range(self.num_blocks[1])]
-                )
-                for i in range(self.num_blocks[0])
-            ]
-        )
 
     @classmethod
     def from_linear(
@@ -121,7 +117,7 @@ class BlockTensorizedLinear(nn.Module):
         matrix_chunks = []
         for i in range(self.num_blocks[0]):
             row_chunks = [
-                self.blocks[(i, j)].to_matrix() for j in range(self.num_blocks[1])
+                self.blocks[i][j].to_matrix() for j in range(self.num_blocks[1])
             ]
             matrix_chunks.append(torch.cat(row_chunks, dim=1))
         return torch.cat(matrix_chunks)
@@ -140,9 +136,8 @@ class BlockTensorizedLinear(nn.Module):
         truncated_blocks = {}
         for i in range(self.num_blocks[0]):
             for j in range(self.num_blocks[1]):
-                block_key = (i, j)
-                original_block = self.blocks[block_key]
-                truncated_blocks[block_key] = original_block.truncate_ranks(
+                original_block = self.blocks[i][j]
+                truncated_blocks[(i, j)] = original_block.truncate_ranks(
                     rank_reduction_factor
                 )
 
@@ -235,8 +230,10 @@ class BlockTensorizedLinear(nn.Module):
         for i in range(self.num_blocks[0]):
             for j in range(self.num_blocks[1]):
                 y[..., i * self.block_size : (i + 1) * self.block_size] += self.blocks[
-                    f"{i}_{j}"
-                ].dense_forward(x[..., j * self.block_size : (j + 1) * self.block_size])
+                    i
+                ][j].dense_forward(
+                    x[..., j * self.block_size : (j + 1) * self.block_size]
+                )
 
         return y
 
