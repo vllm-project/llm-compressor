@@ -1,4 +1,4 @@
-import math
+from itertools import product
 
 import tensorly as tl
 import torch
@@ -239,4 +239,11 @@ class BlockTensorizedLinear(nn.Module):
 
     @property
     def num_params(self):
-        return sum([b.num_params for b in self.blocks.values()])
+        return sum(
+            [
+                self.blocks[i][j].num_params
+                for (i, j) in product(
+                    range(self.num_blocks[0]), range(self.num_blocks[1])
+                )
+            ]
+        )
