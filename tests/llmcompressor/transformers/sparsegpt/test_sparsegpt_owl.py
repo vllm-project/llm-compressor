@@ -1,5 +1,6 @@
 import pytest
 import torch
+from compressed_tensors.utils import match_named_modules
 from datasets import Dataset
 from transformers import AutoModelForCausalLM
 
@@ -7,7 +8,6 @@ from llmcompressor.args import DatasetArguments
 from llmcompressor.core.session_functions import create_session
 from llmcompressor.datasets import format_calibration_data
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
-from llmcompressor.utils.pytorch.module import get_layers
 
 
 @pytest.mark.integration
@@ -31,7 +31,7 @@ def test_infer_owl_layer_sparsity():
         dataloader = format_calibration_data(args, dataset, None)
 
         sequential_targets = modifier._infer_sequential_targets(model)
-        layers = get_layers(sequential_targets, model)
+        layers = dict(match_named_modules(model, sequential_targets))
         sparsities = modifier._infer_owl_layer_sparsity(model, layers, dataloader)
         assert sparsities.keys() == layers.keys()
 
