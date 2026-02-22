@@ -22,7 +22,7 @@ class CalibrateQwen3_5MoeTextSparseMoeBlock(MoECalibrationModule):
         self,
         original: "Qwen3_5MoeSparseMoeBlock",
         config: "Qwen3_5MoeConfig",
-        calibrate_all_experts: bool,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         text_config: "Qwen3_5MoeTextConfig" = config.get_text_config()
@@ -33,6 +33,7 @@ class CalibrateQwen3_5MoeTextSparseMoeBlock(MoECalibrationModule):
         self.shared_expert_gate = original.shared_expert_gate
         self.gate = original.gate
         self.experts = SequentialQwen3VLMoeTextExperts(text_config, original.experts)
+        self.calibrate_all_experts = calibrate_all_experts
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
