@@ -259,8 +259,13 @@ class TensorNetworkModifier(Modifier):
 
         # re-enable grad for training (parent _tensorize has @torch.no_grad())
         with torch.enable_grad():
-            # Setup optimizer (using cosine similarity loss instead of MSE)
-            optimizer = torch.optim.Adam(tensorized_linear.parameters(), lr=1e-5)
+            # SGD with momentum uses ~2x memory vs SGD
+            # Adam uses ~3x memory vs SGD
+            optimizer = torch.optim.SGD(
+                tensorized_linear.parameters(),
+                lr=1e-3,  # Higher LR than Adam since SGD needs larger steps
+                momentum=0.9,  # Helps convergence with cosine similarity loss
+            )
 
             # Training loop with early stopping
             num_epochs = 100
