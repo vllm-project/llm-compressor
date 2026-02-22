@@ -30,6 +30,7 @@ __all__ = [
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
+    "recompute_qparams_from_observer",
 ]
 
 
@@ -233,6 +234,41 @@ def calibrate_key_hook(module: Module, key_states: torch.Tensor):
 
 def calibrate_value_hook(module: Module, value_states: torch.Tensor):
     calibrate_activations(module, value_states, base_name="v")
+
+
+def recompute_qparams_from_observer(module: Module, base_name: str):
+    """
+    Recompute scale and zero_point from an observer's accumulated
+    past_min_vals/past_max_vals. Used after DDP all-reduce to update
+    qparams from synchronized statistics.
+
+    :param module: module with quantization parameters
+    :param base_name: "input", "output", "q", "k", or "v"
+    """
+    from compressed_tensors.quantization.utils import calculate_qparams
+
+    observer: Observer = getattr(module, f"{base_name}_observer", None)
+    if observer is None:
+        return
+
+    min_vals = getattr(observer, "past_min_vals", None)
+    max_vals = getattr(observer, "past_max_vals", None)
+
+    if min_vals is None or max_vals is None:
+        return
+
+    global_scale = getattr(module, f"{base_name}_global_scale", None)
+
+    scale, zero_point = calculate_qparams(
+        min_vals=min_vals,
+        max_vals=max_vals,
+        quantization_args=observer.args,
+        global_scale=global_scale,
+    )
+
+    update_offload_parameter(module, f"{base_name}_scale", scale)
+    if hasattr(module, f"{base_name}_zero_point"):
+        update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
 
 
 def apply_calibration_status(module: Module):
