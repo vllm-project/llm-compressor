@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import warnings
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
 from weakref import WeakKeyDictionary
@@ -195,6 +196,35 @@ class IntermediatesCache:
     def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
+
+    def iter_prefetch(
+        self, input_names: list[str] | None = None
+    ) -> Generator[Any, None, None]:
+        """
+        Iterate over batches with the next batch prefetched in a background thread.
+        Overlaps onload from offload_device with consumption of the current batch,
+        which can reduce wall-clock time when offloading to CPU.
+
+        Yields the same fetched batch dicts as :meth:`iter`; only the timing
+        of onloads differs.
+        """
+        num_batches = len(self.batch_intermediates)
+        if num_batches == 0:
+            return
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = None
+            for batch_index in range(num_batches):
+                if future is not None:
+                    current = future.result()
+                else:
+                    current = self.fetch(batch_index, input_names)
+                if batch_index + 1 < num_batches:
+                    future = executor.submit(
+                        self.fetch, batch_index + 1, input_names
+                    )
+                else:
+                    future = None
+                yield current
 
     def __iter__(self) -> Generator[Any, None, None]:
         yield from self.iter()
