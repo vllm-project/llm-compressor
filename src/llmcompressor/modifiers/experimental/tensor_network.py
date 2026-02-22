@@ -289,6 +289,7 @@ class TensorNetworkModifier(Modifier):
                 total_loss = 0.0
                 num_batches = 0
                 cosine_similarities = []
+                mses = []
 
                 for batch_input, dense_output in self.get_batch_inputs_outputs(
                     self._target_args_cache[(name, linear)], self.batch_size
@@ -305,12 +306,17 @@ class TensorNetworkModifier(Modifier):
                     cosine_sim = F.cosine_similarity(
                         tensorized_batch_output, dense_output, dim=-1
                     )
-                    cosine_similarities.append(cosine_sim.detach().abs().mean())
                     loss = (1 - cosine_sim).mean()
 
                     loss.backward()
                     optimizer.step()
 
+                    cosine_similarities.append(cosine_sim.detach().abs().mean())
+                    mses.append(
+                        F.mse_loss(
+                            tensorized_batch_output.detach(), dense_output.detach()
+                        ).item()
+                    )
                     total_loss += loss.item()
                     num_batches += 1
 
@@ -329,10 +335,10 @@ class TensorNetworkModifier(Modifier):
                 loss_history.append(epoch_loss)
 
                 pbar.set_description(
-                    f"{name} | Epoch {epoch}/{num_epochs} | num_params Tensorized / Original : "
-                    f"{tensorized_params:.2e} / {original_params:.2e} ({compression_pct:.1%})"
-                    f"Loss (Best): {epoch_loss:.2e} ({best_loss:.2e}) | "
-                    f"cos similarity: {sum(cosine_similarities)/len(cosine_similarities):.3f}"
+                    f"{name} ({epoch}/{num_epochs}) | # params : "
+                    f"{tensorized_params:.1e} / {original_params:.1e} ({compression_pct:.1%}) | "
+                    f"mse: {sum(mses)/len(mses):.3f} | "
+                    f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
                 )
 
                 # Check early stopping conditions
