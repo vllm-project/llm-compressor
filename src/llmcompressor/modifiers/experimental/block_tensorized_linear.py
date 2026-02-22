@@ -70,8 +70,8 @@ class BlockTensorizedLinear(nn.Module):
         block_size: the size of each block. linear layer must have
             shape such that
                 linear.shape[i] % block_size == 0 for any i
-            For now, hard-coding num_rows == num_columns
-            # TODO allow for block_size: tuple[int, int]
+            For now, hard-coding num_rows == num_columns,
+            square matrices preferred
         rank: same as TensorizedLinear.from_linear
         num_cores: same as TensorizedLinear.from_linear
         """
