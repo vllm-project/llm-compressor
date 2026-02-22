@@ -32,7 +32,7 @@ class BlockTensorizedLinear(nn.Module):
         self,
         # TODO: make Generic instead of hard-coded to TensorizedLinear
         # Using strings as keys here to be compatible with torch.nn.ModuleDict
-        blocks: dict[str, TensorizedLinear],
+        blocks: dict[tuple[int, int], TensorizedLinear],
         block_size: int,
         num_blocks: tuple[int, int],
         in_features: int,
@@ -92,7 +92,7 @@ class BlockTensorizedLinear(nn.Module):
         blocks: dict[tuple[int, int], TensorizedLinear] = {}
         for i in range(num_rows):
             for j in range(num_cols):
-                blocks[f"{i}_{j}"] = TensorizedLinear.from_weight_and_bias(
+                blocks[(i, j)] = TensorizedLinear.from_weight_and_bias(
                     weight=linear.weight[
                         i * block_size : (i + 1) * block_size,
                         j * block_size : (j + 1) * block_size,
@@ -121,10 +121,39 @@ class BlockTensorizedLinear(nn.Module):
         matrix_chunks = []
         for i in range(self.num_blocks[0]):
             row_chunks = [
-                self.blocks[f"{i}_{j}"].to_matrix() for j in range(self.num_blocks[1])
+                self.blocks[(i, j)].to_matrix() for j in range(self.num_blocks[1])
             ]
             matrix_chunks.append(torch.cat(row_chunks, dim=1))
         return torch.cat(matrix_chunks)
+
+    def truncate_ranks(self, rank_reduction_factor: float) -> "BlockTensorizedLinear":
+        """
+        Truncate ranks of all constituent blocks by calling truncate_ranks on each.
+
+        Args:
+            rank_reduction_factor: Fraction to reduce ranks by (0.2 = remove 20% of rank)
+
+        Returns:
+            New BlockTensorizedLinear with all blocks having reduced ranks
+        """
+        # Truncate each block
+        truncated_blocks = {}
+        for i in range(self.num_blocks[0]):
+            for j in range(self.num_blocks[1]):
+                block_key = (i, j)
+                original_block = self.blocks[block_key]
+                truncated_blocks[block_key] = original_block.truncate_ranks(
+                    rank_reduction_factor
+                )
+
+        # Create new BlockTensorizedLinear with truncated blocks
+        return BlockTensorizedLinear(
+            blocks=truncated_blocks,
+            block_size=self.block_size,
+            num_blocks=self.num_blocks,
+            in_features=self.in_features,
+            out_features=self.out_features,
+        )
 
     def forward(self, x):
         assert x.shape[-1] == self.in_features
