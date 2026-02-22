@@ -6,7 +6,7 @@ All functions are no-ops when torch.distributed is not initialized.
 from typing import Dict, List, Tuple
 
 import torch
-from compressed_tensors.utils import get_execution_device, update_offload_parameter
+from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
 from torch import distributed as dist
 from torch.nn import Module
@@ -147,7 +147,8 @@ def broadcast_module_parameter(
     if param is None:
         return
 
-    device = get_execution_device(module)
+    # NCCL requires each rank to use its own GPU
+    device = torch.device(f"cuda:{dist.get_rank()}")
     tensor = param.data.to(device)
     dist.broadcast(tensor, src=src_rank)
     update_offload_parameter(module, param_name, tensor)
