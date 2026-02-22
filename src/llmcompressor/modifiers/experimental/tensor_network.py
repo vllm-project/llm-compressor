@@ -248,33 +248,20 @@ class TensorNetworkModifier(Modifier):
 
         This adaptively finds the minimal rank needed for acceptable reconstruction.
         """
-        target_cosine_similarity = 0.95
-        rank_reduction_factor = 0.8  # Reduce rank by 20% each iteration
+        target_cosine_similarity = 0.99
+        # Reduce rank by 25% each iteration
+        rank_reduction_factor = 0.25
 
         # Start with full rank for lossless reconstruction
-        current_rank = 1.0
-        best_tensorized_linear = None
-        best_rank = current_rank
-
-        logger.debug(
-            f"Layer {name} - Starting adaptive rank pruning with target "
-            f"cosine similarity >= {target_cosine_similarity}"
-        )
-
-        # Create initial full-rank tensorized layer
-        tensorized_linear = (
-            TensorizedLinear.from_linear(
-                linear, num_cores=self.num_cores, rank=current_rank
-            )
+        best_tensorized_linear = tensorized_linear = (
+            TensorizedLinear.from_linear(linear, num_cores=self.num_cores, rank="same")
             if self.block_size is None
             else BlockTensorizedLinear.from_linear(
-                linear, self.block_size, num_cores=self.num_cores, rank=current_rank
+                linear, self.block_size, num_cores=self.num_cores, rank="same"
             )
         ).to(linear.weight.device)
 
         while True:
-            logger.debug(f"Layer {name} - Training with current rank={current_rank}")
-
             # Train this rank level
             final_cosine_similarity = self._train_tensorized_layer(
                 tensorized_linear, name, linear
@@ -282,36 +269,28 @@ class TensorNetworkModifier(Modifier):
 
             if final_cosine_similarity >= target_cosine_similarity:
                 best_tensorized_linear = tensorized_linear
-                best_rank = current_rank
 
                 # Preseve learned params -- truncate current layer instead of recreating
                 tensorized_linear = tensorized_linear.truncate_ranks(
                     rank_reduction_factor
                 )
             else:
-                # Threshold not met - use previous best (or current if first iteration)
-                logger.debug(
-                    f"Layer {name} - Rank {current_rank} achieved only "
-                    f"{final_cosine_similarity:.4f} < {target_cosine_similarity}. "
-                    f"Stopping pruning. Final rank: {best_rank}"
-                )
                 break
 
-        # Return best tensorized layer (or current if first iteration failed)
-        return (
-            best_tensorized_linear
-            if best_tensorized_linear is not None
-            else tensorized_linear
-        )
+        # Return best achieved
+        return best_tensorized_linear
 
     def _train_tensorized_layer(
         self,
         tensorized_linear: TensorizedLinear | BlockTensorizedLinear,
         name: str,
         linear: torch.nn.Linear,
+        target_cosine_similarity=0.99,
     ) -> float:
         """
         Train a tensorized layer and return final average cosine similarity.
+
+        Early exits if target_cosine_similarity achieved.
 
         Returns:
             Average cosine similarity across all batches after training
@@ -336,8 +315,6 @@ class TensorNetworkModifier(Modifier):
             patience = 5
             # Minimum improvement over previous loss to be considered progress
             min_frac_delta = 1e-2
-            # Stop if cosine similarity already >=0.99
-            min_loss_threshold = 1e-2
             loss_history = []
 
             best_loss = float("inf")
@@ -401,14 +378,17 @@ class TensorNetworkModifier(Modifier):
                 loss_history.append(epoch_loss)
 
                 pbar.set_description(
-                    f"{name} ({epoch}/{num_epochs}) | # params : "
-                    f"{tensorized_params:.1e} / {original_params:.1e} ({compression_pct:.1%}) | "
-                    f"mse: {sum(mses)/len(mses):.3f} | "
+                    f"{name} | # params : "
+                    f"{tensorized_params:.1e} / {original_params:.1e} ({compression_pct:0.1%}) | "
+                    f" ({epoch:02d}/{num_epochs}) mse: {sum(mses)/len(mses):.2e} | "
                     f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
                 )
 
                 # Check early stopping conditions
-                if loss < min_loss_threshold or epochs_without_improvement >= patience:
+                if (
+                    loss < (1 - target_cosine_similarity)
+                    or epochs_without_improvement >= patience
+                ):
                     break
 
         # Return final average cosine similarity achieved

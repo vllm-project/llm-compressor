@@ -31,7 +31,6 @@ class TensorizedLinear(nn.Module):
     ):
         super(TensorizedLinear, self).__init__(**kwargs)
 
-        self.rank = rank
         self.shape = shape
         self.dtype = dtype
         self.bias = bias.to(dtype) if bias is not None else bias
@@ -248,7 +247,8 @@ class TensorizedLinear(nn.Module):
         Returns:
             New TensorizedLinear with reduced ranks
         """
-        factors = [f.detach().clone() for f in self.factors]
+        orig_device = self.factors[0].device
+        factors = [f.detach().to(torch.float32) for f in self.factors]
         num_cores = len(factors)
 
         # Process each bond (interface between consecutive cores)
@@ -286,7 +286,9 @@ class TensorizedLinear(nn.Module):
 
             # Reconstruct left and right matrices with reduced bond dimension
             left_matrix_new = U_truncated  # (left_dims, new_rank)
-            right_matrix_new = torch.diag(S_truncated) @ Vh_truncated  # (new_rank, right_dims)
+            right_matrix_new = (
+                torch.diag(S_truncated) @ Vh_truncated
+            )  # (new_rank, right_dims)
 
             # Reshape back to core format
             factors[k] = left_matrix_new.reshape(r_left, n_k, m_k, new_rank)
@@ -301,7 +303,7 @@ class TensorizedLinear(nn.Module):
             dtype=self.dtype,
         )
 
-        return new_tensorized.to(self.factors[0].device)
+        return new_tensorized.to(orig_device)
 
     @property
     def num_params(self):

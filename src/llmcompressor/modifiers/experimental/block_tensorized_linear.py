@@ -207,7 +207,6 @@ class BlockTensorizedLinear(nn.Module):
 
         # Process each row sequentially to save memory
         for i in range(self.num_blocks[0]):
-            # Process all column blocks for this row in parallel
             row_outputs = [
                 self.blocks[i][j](x_blocks[:, j, :]) for j in range(self.num_blocks[1])
             ]
