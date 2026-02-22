@@ -8,7 +8,7 @@ from llmcompressor.modifiers.pruning.utils.pytorch import (
     LayerParamMasking,
     param_mask_name,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
+from llmcompressor.utils.pytorch.module import build_parameterized_layers
 
 __all__ = ["ConstantPruningModifier"]
 
@@ -29,7 +29,9 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
         if not state.model:
             return False
 
-        self.parameterized_layers_ = get_layers_params(self.targets, state.model)
+        self.parameterized_layers_ = build_parameterized_layers(
+            state.model, self.targets
+        )
 
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
             self.add_mask(
