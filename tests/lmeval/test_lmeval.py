@@ -100,12 +100,29 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
-        self.seed = eval_config.get("seed", None)
+        self.seed = eval_config.get("seed", 42)
 
         if self.seed is not None:
             random.seed(self.seed)
             numpy.random.seed(self.seed)
             torch.manual_seed(self.seed)
+
+            # Enhanced GPU/CUDA determinism
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(self.seed)
+                torch.cuda.manual_seed_all(self.seed)
+
+                # Enable deterministic operations
+                torch.backends.cudnn.deterministic = True
+                torch.backends.cudnn.benchmark = False
+
+                # Set CUDA workspace config for deterministic algorithms
+                os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+
+                # Enable deterministic algorithms (warn instead of error for unsupported ops)
+                torch.use_deterministic_algorithms(True, warn_only=True)
+
+            logger.info(f"Seed set to {self.seed} with deterministic mode enabled")
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
