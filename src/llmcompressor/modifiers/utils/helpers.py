@@ -80,9 +80,9 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 )
             ).reshape([1])
 
-        update_offload_parameter(submodule.k_proj, global_scale, "weight_global_scale")
-        update_offload_parameter(submodule.q_proj, global_scale, "weight_global_scale")
-        update_offload_parameter(submodule.v_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.k_proj, "weight_global_scale", global_scale)
+        update_offload_parameter(submodule.q_proj, "weight_global_scale", global_scale)
+        update_offload_parameter(submodule.v_proj, "weight_global_scale", global_scale)
 
         del global_scale
 
@@ -101,8 +101,10 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
             ).reshape([1])
 
         update_offload_parameter(
-            submodule.gate_proj, global_scale, "weight_global_scale"
+            submodule.gate_proj,
+            "weight_global_scale",
+            global_scale,
         )
-        update_offload_parameter(submodule.up_proj, global_scale, "weight_global_scale")
+        update_offload_parameter(submodule.up_proj, "weight_global_scale", global_scale)
 
         del global_scale
