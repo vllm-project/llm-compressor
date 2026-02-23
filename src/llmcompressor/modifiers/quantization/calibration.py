@@ -11,7 +11,6 @@ from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import (
     align_module_device,
     getattr_chain,
-    match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
@@ -202,6 +201,8 @@ def calibrate_weights(
                 "calibrate_weights requires either named_modules or both "
                 "targets and ignore"
             )
+        from compressed_tensors.utils import match_named_modules
+
         named_modules = list(match_named_modules(model, targets, ignore))
     else:
         named_modules = list(named_modules)
