@@ -1,14 +1,13 @@
 import os
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
 from typing import Iterable
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme
-from compressed_tensors.utils.match import _match_name
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
+from llmcompressor.entrypoints.model_free.helpers import iter_quantizable_tensors
 from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_global_scale,
     calibrate_scale_zp,
@@ -20,28 +19,13 @@ from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
 )
+from llmcompressor.entrypoints.model_free.processors import Processor
 
-__all__ = ["validate_file", "process_file", "process_file_microscale_scheme"]
-
-
-def iter_quantizable_tensors(
-    tensors: Mapping[str, torch.Tensor],
-    ignore: Iterable[str],
-    targets: Iterable[str] = tuple(),
-) -> Iterator[tuple[str, str]]:
-    for name in list(tensors.keys()):
-        module_name, param_name = name.rsplit(".", 1)
-        is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
-        is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        is_targeted = (
-            True
-            if len(targets) == 0
-            else any(_match_name(module_name, target) for target in targets)
-        )
-        if (not is_linear_weight) or is_ignored or (not is_targeted):
-            continue
-
-        yield module_name, name
+__all__ = [
+    "validate_file",
+    "process_file",
+    "process_file_microscale_scheme",
+]
 
 
 def validate_file(
@@ -71,6 +55,7 @@ def process_file(
     scheme: QuantizationScheme,
     ignore: Iterable[str],
     device: str | torch.device,
+    processors: Iterable[Processor] = tuple(),
 ) -> tuple[int, dict[str, str]]:
     """
     Quantize and compress tensors in a given safetensors file
@@ -81,50 +66,16 @@ def process_file(
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
     :param device: device used to quantize and compress weights
+    :param processors: any additional processing we wish to apply to the checkpoint,
+        e.g. conversion of some layers from some format to compressed-tensors
     """
     assert not is_microscale_scheme(scheme), "Use `_process_file_microscale_scheme`"
     tensors = load_file(file_path)
 
-    for module_name, name in iter_quantizable_tensors(tensors, ignore, scheme.targets):
-        param_name = name.rsplit(".", 1)[-1]
-        # rename params from modelopt to CT convention
-        # modelopt's nvfp4-quantized layers, found by inspection
-        # - model.layers.0.mlp.down_proj.weight
-        # - model.layers.0.mlp.gate_proj.weight
-        # - model.layers.0.mlp.up_proj.weight
-        # - model.layers.3.mlp.shared_experts.down_proj.weight
-        # - model.layers.3.mlp.shared_experts.gate_proj.weight
-        # - model.layers.3.mlp.shared_experts.up_proj.weight
-        # - model.layers.3.mlp.experts.0.down_proj.weight
-        # - model.layers.3.mlp.experts.0.gate_proj.weight
-        # - model.layers.3.mlp.experts.0.up_proj.weight
-        if _match_name(module_name, "re:.*mlp.*\.(gate|up|down)_proj$"):
-            match param_name:
-                # input_scale -> input_global_scale F32
-                case "input_scale":
-                    # convert modelopt input_scale x -> 1/x
-                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1070-L1073
-                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1134
-                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/compressed_tensors/schemes/compressed_tensors_w4a4_nvfp4.py#L190
-                    tensors[f"{module_name}.input_global_scale"] = 1 / tensors[name]
-                    del tensors[name]
-                # weight -> weight_packed U8
-                case "weight":
-                    tensors[f"{module_name}.weight_packed"] = tensors[name]
-                    del tensors[name]
-                # weight_scale -> weight_scale F8_E4M3
-                case "weight_scale":
-                    pass
-                # weight_scale_2 -> weight_global_scale F32
-                case "weight_scale_2":
-                    # convert modelopt weight_scale_2 x -> 1/x
-                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/modelopt.py#L1066-L1068
-                    # https://github.com/vllm-project/vllm/blob/v0.13.0/vllm/model_executor/layers/quantization/compressed_tensors/schemes/compressed_tensors_w4a4_nvfp4.py#L163-L166
-                    tensors[f"{module_name}.weight_global_scale"] = 1 / tensors[name]
-                    del tensors[name]
-                case _:
-                    print(f"Hit unexpected tensor {name}")
+    for processor in processors:
+        processor.process(tensors)
 
+    for module_name, name in iter_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
         # 1. initialize module with qparams (on device)
@@ -154,6 +105,7 @@ def process_file_microscale_scheme(
     scheme: QuantizationScheme,
     ignore: Iterable[str],
     device: str | torch.device,
+    processors: Iterable[Processor] = tuple(),
 ) -> tuple[int, dict[str, str]]:
     """
     Quantize and compress tensors in a given safetensors file
@@ -164,6 +116,8 @@ def process_file_microscale_scheme(
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
     :param device: device used to quantize and compress weights
+    :param processors: any additional processing we wish to apply to the checkpoint,
+        e.g. conversion of some layers from some format to compressed-tensors
     """
     assert is_microscale_scheme(scheme), "Use `_process_file` for non-microscale scheme"
     tensors = load_file(file_path)
@@ -179,6 +133,9 @@ def process_file_microscale_scheme(
         for name in matched_set.values()
     }
     fused_modules = defaultdict(dict)
+
+    for processor in processors:
+        processor.process(tensors)
 
     for module_name, name in iter_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)

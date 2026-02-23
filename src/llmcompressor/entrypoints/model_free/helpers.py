@@ -1,7 +1,7 @@
 import os
 import re
 from collections import defaultdict
-from typing import Mapping, TypeVar
+from typing import Iterable, Iterator, Mapping, TypeVar
 
 import torch
 from compressed_tensors.utils.match import _match_name
@@ -16,6 +16,7 @@ __all__ = [
     "match_names_set_eager",
     "MatchedNamesSet",
     "invert_mapping",
+    "iter_quantizable_tensors",
 ]
 
 KeyType = TypeVar("K")
@@ -116,3 +117,23 @@ def invert_mapping(
         inverse[value].append(key)
 
     return inverse
+
+
+def iter_quantizable_tensors(
+    tensors: Mapping[str, torch.Tensor],
+    ignore: Iterable[str],
+    targets: Iterable[str] = tuple(),
+) -> Iterator[tuple[str, str]]:
+    for name in list(tensors.keys()):
+        module_name, param_name = name.rsplit(".", 1)
+        is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
+        is_ignored = any(_match_name(module_name, ign) for ign in ignore)
+        is_targeted = (
+            True
+            if len(targets) == 0
+            else any(_match_name(module_name, target) for target in targets)
+        )
+        if (not is_linear_weight) or is_ignored or (not is_targeted):
+            continue
+
+        yield module_name, name

@@ -22,6 +22,7 @@ from llmcompressor.entrypoints.model_free.process import (
     process_file_microscale_scheme,
     validate_file,
 )
+from llmcompressor.entrypoints.model_free.processors import Processor
 from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
     update_safetensors_index,
@@ -41,6 +42,7 @@ def model_free_ptq(
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
     device: Optional[torch.device | str] = None,
+    processors: Iterable[Processor] = tuple(),
 ):
     """
     Quantize a model without the need for a model definition. This function operates on
@@ -52,6 +54,8 @@ def model_free_ptq(
         ignored
     :param max_workers: number of worker threads to process files with
     :param device: gpu device to accelerate quantization with
+    :param processors: any additional processing we wish to apply to the checkpoint,
+        e.g. conversion of some layers from some format to compressed-tensors
     """
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
