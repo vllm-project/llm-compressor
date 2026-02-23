@@ -6,7 +6,7 @@ LLM Compressor is capable of compressing models much larger than the amount of m
 
 ![sequential_onloading](../assets/sequential_onloading.jpg)
 
-If basic calibration/inference is represented with the following psuedo code...
+If basic calibration/inference is represented with the following pseudo code...
 ```python
 for i in range(len(activations)):
     for layer in model.layers:
