@@ -13,6 +13,7 @@ SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
 
 
 # Apply FP8-Block to the model's compatible self_attn Linear layers
+# Convert modelopt NVFP4 format to compressed-tensors format
 # Once quantized, the model is saved to SAVE_DIR.
 def run_model_free_ptq():
     model_free_ptq(
@@ -21,19 +22,19 @@ def run_model_free_ptq():
         scheme=QuantizationScheme(
             **FP8_BLOCK,
             targets=[
-                # NOTE: skipping self_attn.kv_a_proj_with_mqa
-                #  shape 576x7168 is incompatible with block size 128x128
-                # NOTE: skipping self_attn.q_a_proj
-                #  fused with kv_a_proj_with_mqa, so must have the same quant config
-                # NOTE: skipping self_attn.kv_b_proj
-                #  already dequantized by MLA
-                # Target the remaining self_attn layers:
+                # Target fused layers, must have the same quant config
+                # shape 576x7168 is compatible with block size 128x128
+                #   - self_attn.kv_a_proj_with_mqa
+                #   - self_attn.q_a_proj
+                "re:.*self_attn.(kv_a_proj_with_mqa|q_a_proj)$",
+                # Target remaining self_attn layers:
                 #   - self_attn.o_proj
                 #   - self_attn.q_b_proj
-                "re:.*self_attn.(o_proj|q_b_proj).*"
+                "re:.*self_attn.(o_proj|q_b_proj).*",
             ],
         ),
-        ignore=["re:.*self_attn.(kv_a_proj_with_mqa|kv_b_proj|q_a_proj)$"],
+        # Skipping self_attn.kv_b_proj, already dequantized by MLA
+        ignore=["re:.*self_attn.kv_b_proj$"],
         max_workers=32,
         device="cuda:0",
         processors=[
