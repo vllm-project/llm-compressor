@@ -44,7 +44,7 @@ with load_offloaded_model():
 
 In order to specify where disk-offloaded weights should be stored, please specify the `offload_folder` argument.
 
-You can then call `oneshot` as usually to perform calibration and compression. Some operations may be slower due to disk offloading.
+You can then call `oneshot` as usual to perform calibration and compression. Some operations may be slower due to disk offloading.
 
 ## Distributed Oneshot ##
 When performing `oneshot` with distributed computing, you will need to ensure that your model does not replicate offloaded values across ranks, otherwise this will create excess work and memory usage. Coordinated loading between ranks is automatically handled by the `load_offloaded_model` context, so long as it is entered after `torch.distributed` has been initialized.
