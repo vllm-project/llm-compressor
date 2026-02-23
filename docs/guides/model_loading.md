@@ -1,5 +1,5 @@
 # Model Loading #
-LLM Compressor utilizes the [Compressed Tensors](https://github.com/vllm-project/compressed-tensors) library to handle model offloading. In nearly all cases, it is recommend to compress your model using the [sequential pipeline](./sequential_onloading.md), enables the quantization of large models without requiring significant VRAM. 
+LLM Compressor utilizes the [Compressed Tensors](https://github.com/vllm-project/compressed-tensors) library to handle model offloading. In nearly all cases, it is recommended to compress your model using the [sequential pipeline](./sequential_onloading.md), which enables the quantization of large models without requiring significant VRAM. 
 
 !!! tip
     For more information on when to use the *basic* pipeline rather than the *sequential* pipeline, see [Basic Pipeline](./model_loading.md#basic-pipeline). In these cases, it is recommended to load your model onto GPU first, rather than CPU/Disk.
