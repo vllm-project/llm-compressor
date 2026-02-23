@@ -17,7 +17,7 @@ Distributed=False | "auto" | "cuda" | "cpu" | "auto_offload"
 -- | -- | -- | -- | --
 offloaded_model context required? | No | No | No | Yes
 Behavior | Try to load model onto all visible cuda devices. Fallback to cpu and disk if model too large | Try to load model onto first cuda device only. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
-LLM Compressor Examples | This is the recommend load option when using the "basic" pipeline |   |   | This is the recommend load option when using the "sequential" pipeline
+LLM Compressor Examples | This is the recommended load option when using the "basic" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 Distributed=True | "auto" | "cuda" | "cpu" | "auto_offload"
 -- | -- | -- | -- | --
