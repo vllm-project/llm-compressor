@@ -28,7 +28,7 @@ Before a model can be sequentially onloaded, it must first be broken up into dis
 *This image depicts some of the operations performed when executing the Llama3.2-Vision model*
 
 ![sequential_onloading](../assets/sequential_decoder_layers.jpg)
-*This image depicts the sequential text decoder layers of the Llama3.2-Vision model. Each of the individual decoder layers*
+*This image depicts the sequential text decoder layers of the Llama3.2-Vision model. Each of the individual decoder layers is onloaded separately*
 
 ## Sequential Targets and Usage ##
 You can use sequential onloading by calling `oneshot` with the `pipeline="sequential"` argument. Note that this pipeline is the default for all oneshot calls which require calibration data. If the sequential pipeline proves to be problematic, you can specify `pipeline="basic"` to use a basic pipeline which does not require sequential onloading, but only works performantly when the model is small enough to fit into the available VRAM.
