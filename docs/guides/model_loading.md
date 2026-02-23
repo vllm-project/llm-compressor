@@ -65,7 +65,7 @@ It is recommended to only use the basic pipeline when your model is small enough
 In these cases, you can load the model directly onto your GPU devices, and call oneshot with the relevant argument.
 
 ```python
-model = AutoModelForCasualLM.from_pretrained(model_stub, device_map="auto")  # model is on devices
+model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="auto")  # model is on devices
 ...
 oneshot(model, ..., pipeline="basic")
 ```
