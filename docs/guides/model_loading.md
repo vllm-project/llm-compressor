@@ -22,7 +22,7 @@ LLM Compressor Examples | This is the recommended load option when using the "ba
 Distributed=True | "auto" | "cuda" | "cpu" | "auto_offload"
 -- | -- | -- | -- | --
 offloaded_model context required? | Yes | Yes | Yes | Yes
-device_map | Try to load model onto device 0, then broadcast replicas to other devices. Fallback to cpu and disk if model is too large | Try to load model onto device 0 only, then broadcast replicas to other devices. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
+Behavior | Try to load model onto device 0, then broadcast replicas to other devices. Fallback to cpu and disk if model is too large | Try to load model onto device 0 only, then broadcast replicas to other devices. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
 LLM Compressor Examples | This is the recommended load option when using the "basic" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 ## Disk Offloading ##
