@@ -8,7 +8,7 @@ Loading your model directly onto CPU is simple using `transformers`:
 
 ```python
 # model is on cpu
-model = AutoModelForCasualLM.from_pretrained(model_stub, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_stub, dtype="auto")
 ```
 
 However, there are some exceptions when it is required to change this logic to handle more advanced loading. The table below shows the behavior of different model loading configurations.
