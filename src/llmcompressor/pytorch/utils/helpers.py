@@ -10,7 +10,7 @@ from typing import Any
 import numpy
 import torch
 from torch import Tensor
-from torch.nn import Linear, Module
+from torch.nn import Module
 
 try:
     quant_err = None
@@ -221,16 +221,6 @@ def tensor_sparsity(
 # pytorch module helper functions
 #
 ##############################
-
-
-def get_linear_layers(module: Module) -> dict[str, Module]:
-    """
-    :param module: the module to grab all linear layers for
-    :return: a list of all linear layers in the module
-    """
-    return {
-        name: mod for name, mod in module.named_modules() if isinstance(mod, Linear)
-    }
 
 
 def get_quantized_layers(module: Module) -> list[tuple[str, Module]]:
