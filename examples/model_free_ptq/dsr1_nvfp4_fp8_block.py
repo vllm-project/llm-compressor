@@ -6,6 +6,7 @@ from compressed_tensors.quantization import (
 from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, NVFP4
 
 from llmcompressor import model_free_ptq
+from llmcompressor.entrypoints.model_free.processors import ModelOptNvfp4Processor
 
 MODEL_ID = "nvidia/DeepSeek-R1-NVFP4"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
@@ -35,6 +36,19 @@ def run_model_free_ptq():
         ignore=["re:.*self_attn.(kv_a_proj_with_mqa|kv_b_proj|q_a_proj)$"],
         max_workers=32,
         device="cuda:0",
+        processors=[
+            # nvidia/DeepSeek-R1-NVFP4's nvfp4-quantized layers, found by inspection
+            # - model.layers.0.mlp.down_proj.weight
+            # - model.layers.0.mlp.gate_proj.weight
+            # - model.layers.0.mlp.up_proj.weight
+            # - model.layers.3.mlp.shared_experts.down_proj.weight
+            # - model.layers.3.mlp.shared_experts.gate_proj.weight
+            # - model.layers.3.mlp.shared_experts.up_proj.weight
+            # - model.layers.3.mlp.experts.0.down_proj.weight
+            # - model.layers.3.mlp.experts.0.gate_proj.weight
+            # - model.layers.3.mlp.experts.0.up_proj.weight
+            ModelOptNvfp4Processor(targets=["re:.*mlp.*\.(gate|up|down)_proj$"])
+        ],
     )
 
 

@@ -129,9 +129,9 @@ def iter_quantizable_tensors(
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
         is_targeted = (
-            True
-            if len(targets) == 0
-            else any(_match_name(module_name, target) for target in targets)
+            any(_match_name(module_name, target) for target in targets)
+            if len(targets) > 0
+            else True
         )
         if (not is_linear_weight) or is_ignored or (not is_targeted):
             continue

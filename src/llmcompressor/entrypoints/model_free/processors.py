@@ -18,22 +18,12 @@ class Processor(Protocol):
 class ModelOptNvfp4Processor(Processor):
     """
     Convert params from modelopt NVFP4 to CT NVFP4 convention
-    nvidia/DeepSeek-R1-NVFP4's nvfp4-quantized layers, found by inspection
-    - model.layers.0.mlp.down_proj.weight
-    - model.layers.0.mlp.gate_proj.weight
-    - model.layers.0.mlp.up_proj.weight
-    - model.layers.3.mlp.shared_experts.down_proj.weight
-    - model.layers.3.mlp.shared_experts.gate_proj.weight
-    - model.layers.3.mlp.shared_experts.up_proj.weight
-    - model.layers.3.mlp.experts.0.down_proj.weight
-    - model.layers.3.mlp.experts.0.gate_proj.weight
-    - model.layers.3.mlp.experts.0.up_proj.weight
     """
 
     def __init__(
         self,
         ignore: Iterable[str] = tuple(),
-        targets: Iterable[str] = tuple("re:.*mlp.*\.(gate|up|down)_proj$"),
+        targets: Iterable[str] = tuple(),
     ):
         self.ignore = ignore
         self.targets = targets
