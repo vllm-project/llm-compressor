@@ -22,14 +22,13 @@ from torch import distributed as dist
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
+from llmcompressor.modifiers.quantization.calibration import calibrate_weights
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils import greedy_bin_packing, wait_for_comms
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -205,12 +204,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self.register_hook(module, self.calibrate_module, "forward")
                     added_hook = True
 
-        # Optionally generate global scales if using TENSOR_GROUP quantization
-        for _, module in named_modules:
-            update_weight_global_scale(module)
-
-        for module in state.model.modules():
-            update_fused_layer_weight_global_scales(module)
+        # Optionally generate global scales if using TENSOR_GROUP quantization;
+        # fuse global scales for attention/MLP. GPTQ does zp_scale in forward hooks.
+        calibrate_weights(
+            state.model,
+            named_modules=named_modules,
+            update_zp_scale=False,
+            desc=None,
+            show_progress=False,
+        )
 
         if not added_hook:
             raise ValueError(

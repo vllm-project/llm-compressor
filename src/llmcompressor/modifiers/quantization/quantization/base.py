@@ -1,14 +1,9 @@
-import tqdm
 from compressed_tensors.utils import match_named_modules
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import (
-    update_weight_global_scale,
-    update_weight_zp_scale,
-)
+from llmcompressor.modifiers.quantization.calibration import calibrate_weights
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
-from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 
 __all__ = ["QuantizationModifier"]
 
@@ -73,22 +68,13 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         named_modules = list(
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
-        # TODO: this step can be combined with update_weight_zp_scale
-        # once update_fused_layer_weight_global_scales is removed
-        # and not required by vLLM
-        for _, module in named_modules:
-            update_weight_global_scale(module)
-
-        # NOTE: update_fused_layer_weight_global_scales operates on Attention
-        # and MLP layers, not quantizable Linear layers. Rather than running
-        # on targeted modules, we need to run on all modules.
-        # Because this call is idempotent, setting all global_scales to the
-        # min value, it is ok to run potentially multiple times for all modules
-        for module in state.model.modules():
-            update_fused_layer_weight_global_scales(module)
-
-        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
+        calibrate_weights(
+            state.model,
+            named_modules=named_modules,
+            update_zp_scale=True,
+            desc="Calibrating weights",
+            show_progress=True,
+        )
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:

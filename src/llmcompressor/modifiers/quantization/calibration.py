@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Iterable, Optional, Set, Tuple
 
 import torch
 from compressed_tensors.quantization import (
@@ -11,14 +11,17 @@ from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import (
     align_module_device,
     getattr_chain,
+    match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
 from torch.nn import Module
 
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.observers import Observer
 
 __all__ = [
+    "calibrate_weights",
     "initialize_observer",
     "update_weight_zp_scale",
     "calibrate_input_hook",
@@ -154,6 +157,91 @@ def update_weight_zp_scale(module: Module):
         )
 
     call_observer(module=module, base_name="weight")
+
+
+def calibrate_weights(
+    model: Module,
+    *,
+    named_modules: Optional[Iterable[Tuple[str, Module]]] = None,
+    targets: Optional[Set[str]] = None,
+    ignore: Optional[Iterable[str]] = None,
+    update_zp_scale: bool = True,
+    desc: Optional[str] = "Calibrating weights",
+    show_progress: bool = True,
+) -> None:
+    """
+    Traverse the model once (DFS) and run weight calibration: global scales for
+    FP4/TENSOR_GROUP, fused layer global scales for Attention/MLP, and weight
+    scale/zero-point. Replaces separate loops over named_modules and
+    model.modules() for better cache locality and fewer CPU–GPU onloads when
+    using offloading.
+
+    Order of operations per module:
+    1. Pre-order: update_weight_global_scale for target (quantizable) modules.
+    2. Post-order: update_fused_layer_weight_global_scales for every module
+       (no-op except for Attention/MLP containers); then update_weight_zp_scale
+       for target modules if update_zp_scale is True.
+
+    :param model: Root module to traverse (e.g. state.model).
+    :param named_modules: Optional list of (name, module) for target modules.
+        If provided, only these modules get global_scale and zp_scale; enables
+        DDP by passing this rank's subset (see #2220). If None, targets and
+        ignore must be provided and match_named_modules(model, targets, ignore)
+        is used.
+    :param targets: Target module name patterns (used when named_modules is None).
+    :param ignore: Ignore patterns (used when named_modules is None).
+    :param update_zp_scale: If True, call update_weight_zp_scale on target
+        modules in post-order. Set False for modifiers that do zp_scale in
+        hooks (e.g. GPTQ).
+    :param desc: Progress bar description; None to disable progress bar.
+    :param show_progress: If True and desc is not None, show a tqdm progress bar.
+    """
+    if named_modules is None:
+        if targets is None or ignore is None:
+            raise ValueError(
+                "calibrate_weights requires either named_modules or both "
+                "targets and ignore"
+            )
+        named_modules = list(match_named_modules(model, targets, ignore))
+    else:
+        named_modules = list(named_modules)
+
+    target_set = {id(m) for _, m in named_modules}
+    total_targets = len(target_set)
+
+    try:
+        import tqdm
+    except ImportError:
+        tqdm = None
+
+    if show_progress and desc is not None and tqdm is not None and total_targets > 0:
+        pbar = tqdm.tqdm(total=total_targets, desc=desc)
+    else:
+        pbar = None
+
+    # Stack-based DFS: (module, children_visited)
+    stack: list[Tuple[Module, bool]] = [(model, False)]
+
+    while stack:
+        module, children_done = stack.pop()
+
+        if not children_done:
+            # Pre-order: global scale for target modules (FP4 / TENSOR_GROUP)
+            if id(module) in target_set:
+                update_weight_global_scale(module)
+            stack.append((module, True))
+            for child in reversed(list(module.children())):
+                stack.append((child, False))
+        else:
+            # Post-order: fused global scales (Attention/MLP), then zp_scale for targets
+            update_fused_layer_weight_global_scales(module)
+            if update_zp_scale and id(module) in target_set:
+                update_weight_zp_scale(module)
+                if pbar is not None:
+                    pbar.update(1)
+
+    if pbar is not None:
+        pbar.close()
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):

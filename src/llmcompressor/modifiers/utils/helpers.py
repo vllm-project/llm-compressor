@@ -8,99 +8,63 @@ strategies like NVFP4.
 """
 
 import torch
-from compressed_tensors.quantization import QuantizationStrategy, is_attention_module
+from compressed_tensors.quantization import QuantizationStrategy
 from compressed_tensors.utils import align_modules, update_parameter_data
-from torch.nn import Linear, Module
+from torch.nn import Linear
+
+from llmcompressor.modifiers.utils.fused_modules import (
+    get_fused_attention_linears,
+    get_fused_mlp_linears,
+)
 
 __all__ = ["update_fused_layer_weight_global_scales"]
 
 
+def _valid_tensor_group_quant(layer_list: list[Linear]) -> bool:
+    """Return True if all linear layers in layer_list are TENSOR_GROUP quantized."""
+    for layer in layer_list:
+        scheme = getattr(layer, "quantization_scheme", None)
+        if scheme is None:
+            return False
+        weight_quant_args = scheme.weights
+        if weight_quant_args is None:
+            return False
+        if weight_quant_args.strategy != QuantizationStrategy.TENSOR_GROUP:
+            return False
+    return True
+
+
 def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
     """
-    When running NVFP4 quantization, update the global scale
-    such that q,k,v layers are treated as one tensor with the same
-    global_scale and gate_proj/up_proj layers are treated as one tensor
-    with the same global scale. This is requirement currently being set
-    by vLLM and may be removed in the future OR potentially make it
-    an optional step.
+    When running NVFP4 quantization, update the global scale so that vLLM
+    fused groups share one global scale: attention (traditional q/k/v or
+    MLA q_a + kv_a) and MLP (gate/up). Uses the centralized fused module
+    definitions; see :mod:`llmcompressor.modifiers.utils.fused_modules`.
 
-    :param model: model to quantize
+    This is a requirement currently set by vLLM and may be removed or
+    made optional in the future.
+
+    :param submodule: Module to process (any module; only fused attention/MLP
+        containers are updated).
     """
-
-    def _is_mlp_module(module: Module):
-        return "mlp" in module.__class__.__name__.lower() and (
-            hasattr(module, "gate_proj") and hasattr(module, "up_proj")
-        )
-
-    def _valid_tensor_group_quant(layer_list: list[Linear]):
-        """
-        Return True if all the linear layers in the layer_list are
-        TENSOR_GROUP quantized.
-        """
-        for layer in layer_list:
-            scheme = getattr(layer, "quantization_scheme", None)
-            if scheme is None:
-                return False
-
-            weight_quant_args = scheme.weights
-
-            if weight_quant_args is None:
-                return False
-
-            if weight_quant_args.strategy != QuantizationStrategy.TENSOR_GROUP:
-                return False
-        return True
-
-    if is_attention_module(submodule):
-        # already fused/treated as one layer
-        if hasattr(submodule, "qkv_proj"):
-            return
-
-        # not traditional attention (TODO: MLA)
-        if not (
-            hasattr(submodule, "q_proj")
-            and hasattr(submodule, "k_proj")
-            and hasattr(submodule, "v_proj")
-        ):
-            return
-
-        if not _valid_tensor_group_quant(
-            [submodule.q_proj, submodule.k_proj, submodule.v_proj]
-        ):
-            return
-
-        with align_modules([submodule.q_proj, submodule.v_proj, submodule.k_proj]):
+    # Fused attention: traditional (q/k/v) or MLA (q_a + kv_a_proj_with_mqa)
+    linears = get_fused_attention_linears(submodule)
+    if linears is not None and _valid_tensor_group_quant(linears):
+        with align_modules(linears):
             global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.q_proj.weight_global_scale.data,
-                        submodule.k_proj.weight_global_scale.data,
-                        submodule.v_proj.weight_global_scale.data,
-                    )
-                )
+                torch.cat([lin.weight_global_scale.data for lin in linears])
             ).reshape([1])
-
-        update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
-        update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
-        update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
-
+        for lin in linears:
+            update_parameter_data(lin, global_scale, "weight_global_scale")
         del global_scale
 
-    if _is_mlp_module(submodule):
-        if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
-            return
-
-        with align_modules([submodule.gate_proj, submodule.up_proj]):
+    # Fused MLP: gate_proj, up_proj
+    linears = get_fused_mlp_linears(submodule)
+    if linears is not None and _valid_tensor_group_quant(linears):
+        with align_modules(linears):
             global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.gate_proj.weight_global_scale.data,
-                        submodule.up_proj.weight_global_scale.data,
-                    )
-                )
+                torch.cat([lin.weight_global_scale.data for lin in linears])
             ).reshape([1])
-
-        update_parameter_data(submodule.gate_proj, global_scale, "weight_global_scale")
-        update_parameter_data(submodule.up_proj, global_scale, "weight_global_scale")
-
+        for lin in linears:
+            update_parameter_data(lin, global_scale, "weight_global_scale")
         del global_scale
