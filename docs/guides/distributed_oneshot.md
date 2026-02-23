@@ -40,7 +40,7 @@ with load_offloaded_model():
 
 ### 3. Modify Dataset Loading ###
 
-In order to prevent separate processes loading the entire dataset and creating excess work/memory usage, we must partition our dataset in disjoint sets. For a dataset of *N* samples and *R* ranks, each rank only loads *N/R* samples.
+In order to prevent separate processes loading the entire dataset and creating excess work/memory usage, we must partition our dataset into disjoint sets. For a dataset of *N* samples and *R* ranks, each rank only loads *N/R* samples.
 
 ```python
 ds = load_dataset(
