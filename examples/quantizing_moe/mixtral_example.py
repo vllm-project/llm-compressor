@@ -1,10 +1,10 @@
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
@@ -73,7 +73,7 @@ oneshot(
 )
 
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 sample = tokenizer("Hello my name is", return_tensors="pt")
 sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=100)

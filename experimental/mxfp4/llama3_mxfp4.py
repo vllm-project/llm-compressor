@@ -2,7 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
+from compressed_tensors.offload import dispatch_model
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
@@ -20,7 +20,7 @@ oneshot(model=model, recipe=recipe)
 
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )
