@@ -2,84 +2,124 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from torch.nn import Linear, Module
+from compressed_tensors.quantization import QuantizationArgs
 
-from llmcompressor.utils.distributed import (
-    _compute_rank_assignments,
-    all_reduce_max,
-    all_reduce_min,
-    get_rank,
-    get_world_size,
-    is_distributed,
-    partition_modules_by_weight_size,
+from llmcompressor.observers.min_max import (
+    MemorylessMinMaxObserver,
+    MinMaxObserver,
+    StaticMinMaxObserver,
 )
 
 
-class TinyModel(Module):
-    def __init__(self):
-        super().__init__()
-        self.small = Linear(16, 32)
-        self.medium = Linear(64, 128)
-        self.large = Linear(128, 256)
-
-
-def _named_modules(model):
-    return [
-        (name, mod) for name, mod in model.named_modules() if isinstance(mod, Linear)
-    ]
+def _make_observer(cls, **kwargs):
+    args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
+    return cls(base_name="input", args=args, **kwargs)
 
 
 @pytest.mark.unit
-def test_not_distributed_by_default():
-    assert not is_distributed()
-    assert get_rank() == 0
-    assert get_world_size() == 1
+def test_memoryless_synchronize_returns_empty():
+    observer = _make_observer(MemorylessMinMaxObserver)
+    assert observer.synchronize() == []
 
 
 @pytest.mark.unit
-def test_partition_returns_all_when_not_distributed():
-    model = TinyModel()
-    named = _named_modules(model)
-    assert len(partition_modules_by_weight_size(named)) == len(named)
+def test_memoryless_recompute_returns_none():
+    observer = _make_observer(MemorylessMinMaxObserver)
+    assert observer.recompute_qparams() is None
+    assert observer.recompute_global_scale() is None
 
 
 @pytest.mark.unit
-def test_assignments_are_balanced_and_complete():
-    model = TinyModel()
-    named = _named_modules(model)
-    assignments = _compute_rank_assignments(named, world_size=2)
-
-    all_assigned = [mod for rank_mods in assignments for _, mod in rank_mods]
-    assert len(all_assigned) == len(named)
-
-    total_per_rank = [
-        sum(m.weight.numel() for _, m in rank_mods) for rank_mods in assignments
-    ]
-    assert all(t > 0 for t in total_per_rank)
-    assert max(total_per_rank) / sum(total_per_rank) < 0.85
+def test_static_synchronize_returns_empty_before_observation():
+    observer = _make_observer(StaticMinMaxObserver)
+    assert observer.synchronize() == []
 
 
 @pytest.mark.unit
-def test_all_reduce_noop_when_not_distributed():
-    t = torch.tensor([1.0, 2.0, 3.0])
-    assert torch.equal(all_reduce_min(t), t)
-    assert torch.equal(all_reduce_max(t), t)
-
-
-@pytest.mark.unit
-@patch("llmcompressor.utils.distributed.dist")
-def test_all_reduce_calls_correct_ops(mock_dist):
-    mock_dist.is_available.return_value = True
-    mock_dist.is_initialized.return_value = True
+@patch("llmcompressor.observers.base.dist")
+def test_static_synchronize_issues_all_reduce(mock_dist):
     mock_dist.ReduceOp.MIN = "MIN"
     mock_dist.ReduceOp.MAX = "MAX"
+    mock_dist.all_reduce.return_value = MagicMock()
 
-    t = MagicMock(wraps=torch.tensor([1.0]))
-    t.device = torch.device("cuda:0")
+    observer = _make_observer(StaticMinMaxObserver)
+    observer.past_min_vals = torch.tensor([-1.0])
+    observer.past_max_vals = torch.tensor([1.0])
 
-    all_reduce_min(t)
-    mock_dist.all_reduce.assert_called_with(t, op="MIN")
+    comms = observer.synchronize()
+    assert len(comms) == 2
+    assert mock_dist.all_reduce.call_count == 2
 
-    mock_dist.all_reduce.reset_mock()
-    all_reduce_max(t)
-    mock_dist.all_reduce.assert_called_with(t, op="MAX")
+    # verify correct ops
+    calls = mock_dist.all_reduce.call_args_list
+    assert calls[0].kwargs["op"] == "MIN"
+    assert calls[1].kwargs["op"] == "MAX"
+
+
+@pytest.mark.unit
+@patch("llmcompressor.observers.base.dist")
+def test_static_synchronize_with_global_state(mock_dist):
+    mock_dist.ReduceOp.MIN = "MIN"
+    mock_dist.ReduceOp.MAX = "MAX"
+    mock_dist.all_reduce.return_value = MagicMock()
+
+    observer = _make_observer(StaticMinMaxObserver)
+    observer.past_min_vals = torch.tensor([-1.0])
+    observer.past_max_vals = torch.tensor([1.0])
+    observer.past_global_min_vals = torch.tensor([-2.0])
+    observer.past_global_max_vals = torch.tensor([2.0])
+
+    comms = observer.synchronize()
+    assert len(comms) == 4
+    assert mock_dist.all_reduce.call_count == 4
+
+
+@pytest.mark.unit
+@patch("llmcompressor.observers.base.dist")
+def test_moving_avg_synchronize_issues_all_reduce(mock_dist):
+    mock_dist.ReduceOp.MIN = "MIN"
+    mock_dist.ReduceOp.MAX = "MAX"
+    mock_dist.all_reduce.return_value = MagicMock()
+
+    observer = _make_observer(MinMaxObserver)
+    observer.past_min_vals = torch.tensor([-1.0])
+    observer.past_max_vals = torch.tensor([1.0])
+
+    comms = observer.synchronize()
+    assert len(comms) == 2
+
+
+@pytest.mark.unit
+def test_recompute_qparams_from_accumulated_state():
+    observer = _make_observer(StaticMinMaxObserver)
+    observer.past_min_vals = torch.tensor([-5.0])
+    observer.past_max_vals = torch.tensor([5.0])
+
+    result = observer.recompute_qparams()
+    assert result is not None
+    scale, zero_point = result
+    assert scale.numel() > 0
+    assert zero_point.numel() > 0
+
+
+@pytest.mark.unit
+def test_recompute_qparams_returns_none_without_state():
+    observer = _make_observer(StaticMinMaxObserver)
+    assert observer.recompute_qparams() is None
+
+
+@pytest.mark.unit
+def test_recompute_global_scale_returns_none_without_state():
+    observer = _make_observer(StaticMinMaxObserver)
+    assert observer.recompute_global_scale() is None
+
+
+@pytest.mark.unit
+def test_recompute_global_scale_from_accumulated_state():
+    observer = _make_observer(StaticMinMaxObserver)
+    observer.past_global_min_vals = torch.tensor([-10.0])
+    observer.past_global_max_vals = torch.tensor([10.0])
+
+    result = observer.recompute_global_scale()
+    assert result is not None
+    assert result.numel() > 0
