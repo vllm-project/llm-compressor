@@ -27,6 +27,9 @@ nav:
       - FP8 Example: key-models/mistral-large-3/fp8-example.md
   - Guides:
     - Compression Schemes: guides/compression_schemes.md
+    - Sequential Onloading: guides/sequential_onloading.md
+    - Model Loading: guides/model_loading.md
+    - Distributed Oneshot: guides/distributed_oneshot.md
     - Saving a Model: guides/saving_a_model.md
     - Observers: guides/observers.md
     - Memory Requirements: guides/memory.md
