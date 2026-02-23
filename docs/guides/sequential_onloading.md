@@ -13,7 +13,7 @@ for i in range(len(activations)):
         activations[i] = layer(activations[i])
 ```
 
-Then sequential offloading is the technique by which the order of the two for loops is swapped.
+Then sequential onloading is the technique by which the order of the two for loops is swapped.
 ```python
 for layer in model.layers:
     for i in range(len(activations)):
