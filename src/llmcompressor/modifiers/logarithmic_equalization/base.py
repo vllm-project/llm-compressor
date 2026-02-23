@@ -1,7 +1,7 @@
 import torch
 from torch.nn import Module
 
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 
 __all__ = ["LogarithmicEqualizationModifier"]
 

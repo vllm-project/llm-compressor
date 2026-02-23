@@ -2,19 +2,19 @@ from unittest.mock import patch
 
 import pytest
 
-from llmcompressor.modifiers.smoothquant.utils import (
+from llmcompressor.modifiers.transform.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
 
-smoothquant_utils = "llmcompressor.modifiers.smoothquant.utils"
+smoothquant_utils = "llmcompressor.modifiers.transform.smoothquant.utils"
 
 
 @pytest.mark.unit
 def test_handle_mapping_resolution_errors():
     README_LOCATION = (
         "https://github.com/vllm-project/llm-compressor/tree/main/"
-        "src/llmcompressor/modifiers/smoothquant"
+        "src/llmcompressor/modifiers/transform/smoothquant"
     )
 
     @handle_mapping_resolution_errors

@@ -13,13 +13,30 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_weight_global_scale,
     update_weight_zp_scale,
 )
+from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = [
     "initialize_quantized_linear",
+    "validate_weight_for_quantization",
     "calibrate_global_scale",
     "calibrate_scale_zp",
     "compress_module",
 ]
+
+
+def validate_weight_for_quantization(
+    weight: torch.Tensor, scheme: QuantizationScheme, tensor_name: str
+):
+    if weight.ndim != 2:
+        raise ValueError(
+            f"Unable to quantize tensor `{tensor_name}`: expected 2D linear weight, "
+            f"but got shape {tuple(weight.shape)}"
+        )
+
+    try:
+        flatten_for_calibration(weight, "weight", scheme.weights)
+    except Exception as exc:
+        raise ValueError(f"Unable to quantize tensor `{tensor_name}`: {exc}") from exc
 
 
 def initialize_quantized_linear(

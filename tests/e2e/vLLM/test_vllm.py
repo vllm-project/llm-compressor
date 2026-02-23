@@ -1,11 +1,14 @@
+import gc
 import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
 import pytest
+import torch
 import yaml
 from huggingface_hub import HfApi
 from loguru import logger
@@ -137,6 +140,16 @@ class TestvLLM:
         with open(recipe_path, "w") as fp:
             fp.write(recipe_yaml_str)
         session.reset()
+
+        # Release GPU memory before running vLLM
+        del self.oneshot_model
+        del self.tokenizer
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        # Give GPU time to fully release memory
+        time.sleep(2)
 
         if SKIP_HF_UPLOAD.lower() != "yes":
             logger.info("================= UPLOADING TO HUB ======================")
