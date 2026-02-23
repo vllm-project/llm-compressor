@@ -57,7 +57,7 @@ ds = load_dataset(
 )
 ```
 
-### 4. Call your script with `torchrun` ####
+### 4. Call your script with `torchrun` ###
 
 Now, your script is ready to run using distributed processes. To start, simply run your script using `python3 -m torchrun --nproc_per_node=2 YOUR_EXAMPLE.py` to run with two GPU devices. For a complete example script, see [llama_ddp_example.py](/examples/quantization_w4a16/llama3_ddp_example.py). The below table shows results and speedups as of LLM Compressor v0.10.0, future changes will bring these numbers closer to linear speedups.
 
