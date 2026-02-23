@@ -71,7 +71,7 @@ class BlockTensorizedLinear(nn.Module):
             shape such that
                 linear.shape[i] % block_size == 0 for any i
             For now, hard-coding num_rows == num_columns,
-            square matrices preferred
+                square matrices preferred
         rank: same as TensorizedLinear.from_linear
         num_cores: same as TensorizedLinear.from_linear
         """
