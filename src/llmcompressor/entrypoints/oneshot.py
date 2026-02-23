@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
 
 
+TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
+
+
 class Oneshot:
     """
     Class responsible for carrying out one-shot calibration on a pretrained model.
@@ -121,6 +124,19 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # Disable tokenizer parallelism to prevent warning when using
+        # multiprocessing for dataset preprocessing. The warning occurs because
+        # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
+        # See: https://github.com/vllm-project/llm-compressor/issues/2007
+        if TOKENIZERS_PARALLELISM_ENV not in os.environ:
+            os.environ[TOKENIZERS_PARALLELISM_ENV] = "false"
+            logger.warning(
+                "Disabling tokenizer parallelism due to threading conflict between "
+                "FastTokenizer and Datasets. Set "
+                f"{TOKENIZERS_PARALLELISM_ENV}=false to "
+                "suppress this warning."
+            )
+
         # Set up file logging (no default files):
         # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
         # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
@@ -213,6 +229,7 @@ class Oneshot:
                 recipe_stage=recipe_stage,
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
+                sequential_targets=self.dataset_args.sequential_targets,
             )
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
@@ -282,6 +299,7 @@ def oneshot(
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
+    sequential_prefetch: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -347,9 +365,10 @@ def oneshot(
     :param streaming: True to stream data from a cloud dataset.
     :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
     :param preprocessing_num_workers: Number of processes for dataset preprocessing.
-    :param dataloader_num_workers: Number of worker processes for data loading. Set to 0
-        to disable multiprocessing. Note: Custom data collators may not work with
-        multiprocessing. Default is 0.
+    :param dataloader_num_workers: Number of worker processes for data loading. Default
+        is 0 (safe for low CPU/GPU memory). Set to 2 or more for faster calibration if
+        you have sufficient RAM. Custom data collators may not work with
+        multiprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
     :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
@@ -371,6 +390,9 @@ def oneshot(
         calibration in the sequential pipeline. When True, quantization is applied
         during forward pass in calibration. When False, quantization is disabled
         during forward pass in calibration. Default is set to True.
+    :param sequential_prefetch: When using the sequential pipeline, prefetch the
+        next batch in a background thread to overlap onload with forward. Default
+        False; set True for faster calibration when GPU memory allows.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.

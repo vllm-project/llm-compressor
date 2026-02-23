@@ -23,12 +23,17 @@ def setup_modifier_factory():
     assert ModifierFactory._loaded, "ModifierFactory not loaded"
 
 
-def _get_files(directory: str, ignore_dirs: List[str] = []) -> List[str]:
+def _get_files(
+    directory: str, ignore_dirs: List[str] = [], ignore_files: List[str] = []
+) -> List[str]:
     list_filepaths = []
     ignore_dirs = tuple(ignore_dirs)  # has to be a tuple for str.startswith
+    ignore_files = tuple(ignore_files)  # has to be a tuple for str.startswith
     for root, dirs, files in os.walk(directory):
         dirs[:] = [dir_ for dir_ in dirs if not str(dir_).startswith(ignore_dirs)]
         for file in files:
+            if ignore_files and file.startswith(ignore_files):
+                continue
             list_filepaths.append(os.path.join(os.path.abspath(root), file))
     return list_filepaths
 
@@ -49,8 +54,11 @@ def _files_size_mb(path_list: List[str]) -> int:
 @pytest.fixture(scope="session", autouse=True)
 def check_for_created_files():
     local_ignore_dirs = ["__pycache__", "sparse_logs"]
+    local_ignore_files = [".coverage"]
     tmp_ignore_dirs = ["pytest-of", "torchinductor"]
-    start_files_root = _get_files(directory=r".", ignore_dirs=local_ignore_dirs)
+    start_files_root = _get_files(
+        directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
+    )
     start_files_temp = _get_files(
         directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
     )
@@ -62,7 +70,9 @@ def check_for_created_files():
         shutil.rmtree(log_dir)
 
     # allow creation of __pycache__ directories
-    end_files_root = _get_files(directory=r".", ignore_dirs=local_ignore_dirs)
+    end_files_root = _get_files(
+        directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
+    )
     # assert no files created in root directory while running
     # the pytest suite
     assert len(start_files_root) >= len(end_files_root), (

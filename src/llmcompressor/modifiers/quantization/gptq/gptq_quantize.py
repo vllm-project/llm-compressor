@@ -34,8 +34,8 @@ def accumulate_hessian(
     inp: torch.Tensor,
     module: torch.nn.Module,
     H: torch.Tensor | None,
-    num_samples: int,
-) -> tuple[torch.Tensor, int]:
+    num_samples: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -58,11 +58,10 @@ def accumulate_hessian(
             inp = inp.permute([1, 0, 2])
             inp = inp.flatten(1)
 
-    H *= num_samples / (num_samples + num_added)
     num_samples += num_added
 
     inp = inp.to(dtype=GPTQ_PRECISION)
-    inp = math.sqrt(2 / num_samples) * inp
+    inp = math.sqrt(2) * inp
     H += inp.matmul(inp.t())
 
     return H, num_samples
@@ -71,7 +70,7 @@ def accumulate_hessian(
 def quantize_weight(
     module: torch.nn.Module,
     quant_args: QuantizationArgs,
-    hessians_dict: dict[torch.nn.Module, torch.Tensor],
+    hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
 ) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
@@ -87,15 +86,15 @@ def quantize_weight(
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
+    global_scale = getattr(module, "weight_global_scale", None)
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
-    H = hessians_dict[module]  # unfortunately python does not have a `move` keyword
-    del hessians_dict[module]  # so we have to delete the original reference manually
+    H = hessian
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        "memoryless_minmax",
+        quant_args.observer if quant_args.observer else "memoryless_minmax",
         base_name="weight",
         args=quant_args,
         module=module,
@@ -111,7 +110,8 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    if strategy == QuantizationStrategy.GROUP:
+    # generate scale, should include tensor group / use global scale
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         # mapping from column index to group index
         g_idx = (
             torch.arange(num_columns, device=W.device, dtype=torch.int)
@@ -195,10 +195,7 @@ def quantize_weight(
             # quantize column
             if strategy == QuantizationStrategy.TENSOR:
                 q = fake_quantize(
-                    q,
-                    scale,
-                    zero_point,
-                    quant_args,
+                    q, scale, zero_point, quant_args, global_scale=global_scale
                 )
             elif strategy == QuantizationStrategy.CHANNEL:
                 q = fake_quantize(
@@ -206,8 +203,13 @@ def quantize_weight(
                     scale[:, 0],
                     zero_point[:, 0],
                     quant_args,
+                    global_scale=global_scale,
                 )
-            elif strategy == QuantizationStrategy.GROUP:
+            # apply global scale to scale quant scale
+            elif strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+            ):
                 # get the group index for the current column
                 column_idx = i1 + i
                 group_index = g_idx[column_idx]
@@ -216,11 +218,13 @@ def quantize_weight(
                 # ends up being a channelwise application
                 altered_qargs = copy(quant_args)
                 altered_qargs.strategy = QuantizationStrategy.CHANNEL
+
                 q = fake_quantize(
                     q,
                     scale[:, group_index],
                     zero_point[:, group_index],
                     altered_qargs,
+                    global_scale=global_scale,
                 )
             else:
                 raise ValueError(
@@ -250,7 +254,7 @@ def quantize_weight(
             W[:, i2:] -= w_err
 
     has_gidx = False
-    if strategy == QuantizationStrategy.GROUP:
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         if actorder == ActivationOrdering.WEIGHT:
             # restore original permutation
             invperm = torch.argsort(perm)
@@ -273,13 +277,14 @@ def quantize_weight(
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
-    return (
-        loss,
-        W,
-        scale.to(dtype=final_dtype),
-        zero_point.to(dtype=quant_args.pytorch_dtype()),
-        g_idx,
-    )
+    q_param_dict = {
+        "weight": W,
+        "weight_scale": scale.to(dtype=final_dtype),
+        "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
+    }
+    if g_idx is not None:
+        q_param_dict["weight_g_idx"] = g_idx
+    return (loss, q_param_dict)
 
 
 def _apply_activation_ordering(

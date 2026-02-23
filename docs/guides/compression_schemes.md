@@ -1,22 +1,89 @@
 # Compression Schemes
 
-## PTQ Compression
+Below is a summary of the most popular schemes supported through LLM Compressor and compressed-tensors.
+A full list of supported schemes can be found [here](https://github.com/vllm-project/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py).
 
-Post-training quantization is performed to reduce the precision of quantizable weights (e.g., linear layers) to a lower bit-width. Supported formats are:
+- [W8A8-FP8](#fp8_dynamic)
+- [W8A8-Block](#fp8_block)
+- [W8A8-INT8](#int8_w8a8)
+- [W4A16 and W8A16](#w4a16-and-w8a16)
+- [NVFP4](#nvfp4)
+- [2:4 Semi-structured Sparsity](#semi-structured)
+- [Unstructured Sparsity](#unstructured)
 
-| Scheme | Description | Data required? | vLLM Hardware Compatibility |
-|--------|-------------|----------------|-----------------------------|
-| **[W8A8-FP8](../../examples/quantization_w8a8_fp8/README.md)** | 8-bit floating point (FP8) quantization for weights and activations, providing ~2X smaller weights with 8-bit arithmetic operations. Uses channel-wise quantization to compress weights to 8 bits, and uses dynamic per-token or static per-tensor quantization to compress activations to 8 bits. Weights scales that are generated on a per-channel basis or generated on a per-tensor basis are also possible. Channel-wise weights quantization with dynamic per-token activations is the the most performant option. W8A8-FP8 does not require a calibration dataset. Activation quantization is carried out during inference on vLLM. Good for general performance and compression, especially for server and batch inference. | No calibration dataset is required, unless you are doing static per-tensor activation quantization. | Latest NVIDIA GPUs (Hopper and later) and latest AMD GPUs. Recommended for NVIDIA GPUs with compute capability >=8.9 (Hopper, Ada Lovelace, Blackwell) |
-| **[W8A8-INT8](../../examples/quantization_w8a8_int8/README.md)** | 8-bit integer (INT8) quantization for weights and activations, providing ~2X smaller weights with 8-bit arithmetic operations. Uses channel-wise quantization to compress weights to 8 bits using GPTQ, and uses dynamic per-token quantization to compress activations to 8 bits. Weight quantization can be both per-tensor or per-channel for INT8. W8A8-INT8 is good for general performance and compression, especially for server and batch inference. Activation quantization is carried out during inference on vLLM. Activations can be static or dynamic. Additionally, INT8 activations can also be asymmetric. W8A8-INT8 helps improve speed in high QPS scenarios or during offline serving with vLLM. W8A8-INT8 is good for general performance and compression, especially for server and batch inference. | Requires calibration dataset for weight quantization and static per-tensor activation quantization. | Supports all NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators. Recommended for NVIDIA GPUs with compute capability <8.9 (Ampere, Turing, Volta, Pascal, or older). |
-| **[W4A16](../../examples/quantization_w4a16/README.md)** | Quantizes only weights to 4-bit integer (INT4) precision, retaining activations in 16-bit floating point (FP16) precision. W4A16 provides ~3.7X smaller weights but requires 16-bit arithmetic operations. W4A16 also supports asymmetric weight quantization. W4A16 provides maximum compression for latency-sensitive applications with limited memory, and useful speed ups in low QPS regimes with more weight compression. The linked example leverages the GPTQ algorithm to decrease quantization loss, but other algorithms like [AWQ](../../examples/awq/llama_example.py) can also be leveraged for W4A16 quantization. Recommended for any GPU types. | Requires a calibration dataset. | All NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators |
-| **W8A16** | Encodes model weights in 8‑bit integers and activations in 16‑bit integers. W8A16 compression delivers smaller model output size than FP32 and is faster at inferencing on hardware with native 8‑bit integer units. Lower power and memory bandwidth compared to floating‑point.| Requires a calibration dataset. | All NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators |
-| **NVFP4** | 4-bit floating point encoding format introduced with the NVIDIA Blackwell GPU architecture. NVFP4 maintains numerical accuracy across a wide dynamic range of tensor values by using high-precision scale encoding and a two-level micro-block scaling strategy. NVFP4 compression generates a global scale for each tensor, along with local quantization scales for groups of 16 elements. Global scale and local quantization scales are generated for weights and activations. You cannot change the group size. | Requires a calibration dataset. | All NVIDIA Blackwell GPUs or later |
-| [**W8A8-FP8_BLOCK**](../../examples/quantization_w8a8_fp8/fp8_block_example.py)| Uses block-wise quantization to compress weights to FP8 in (commonly 128×128 tiles), and dynamic per-token-group (128) quantization for activations. Does not require a calibration dataset. Activation quantization is carried out during inference on vLLM. | Does not require a calibration dataset. | Latest NVIDIA GPUs (Hopper and later) and latest AMD GPUs. Recommended for NVIDIA GPUs with compute capability >=8.9 (Hopper, Ada Lovelace, Blackwell) |
+## PTQ Compression Schemes
 
-## Sparsification Compression
+
+### FP8_DYNAMIC
+| Scheme       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| W8A8-FP8      | 8-bit floating point (FP8) quantization for weights and activations                           |
+| Weights       | Compressed ~2× smaller using channel-wise quantization (per-channel or per-tensor scales)    |
+| Activations   | Quantized to 8-bit using dynamic per-token or static per-tensor methods; most performant with channel-wise weights + dynamic per-token activations |
+| Calibration   | No calibration dataset required if using RTN; activation quantization happens during inference on vLLM    |
+| Use case      | Optimized for performance and compression, especially for server and batch inference         |
+
+### FP8_BLOCK
+| Scheme       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| W8A8-FP8_BLOCK | 8-bit floating point (FP8) quantization using block-wise compression for weights             |
+| Weights       | Compressed in blocks (commonly 128×128 tiles)                                                |
+| Activations   | Quantized using dynamic per-group (128) quantization                                         |
+| Calibration   | No calibration dataset required if using RTN; activation quantization happens during inference on vLLM    |
+| Use case      | Optimized for performance and compression during inference                                   |
+
+
+### INT8_W8A8
+| Scheme       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| W8A8-INT8     | 8-bit integer (INT8) quantization for weights and activations, providing ~2× smaller weights with 8-bit arithmetic operations |
+| Weights       | Compressed using per-channel, per group |
+| Activations   | Quantized to 8-bit using dynamic or static methods; can also be asymmetric        |
+| Calibration   | Requires calibration dataset if using GPTQ/AWQ for weight qwuantization and for static activation quantization |
+| Use case      | Optimized for general performance and compression, especially for server, batch inference, and high-QPS or offline serving with vLLM |
+
+
+### W4A16 and W8A16
+
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| WNA16         | Quantizes weights to 4 or 8-bit integer precision, retaining activations in 16-bit FP16  |
+| Weights       | Typically ~3.7× compressed on a per-group or per-channel basis; supports asymmetric quantization |
+| Activations   | Retained in 16-bit floating point (FP16)                                                    |
+| Calibration   | Optimally compressed using non-RTN algorithms (GPTQ, AWQ) which require a dataset           |                                                 
+| Use case      | Maximum compression for latency-sensitive applications with limited memory; useful speedups in low-QPS regimes; recommended for any GPU |
+
+
+### NVFP4
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| NVFP4         | 4-bit floating point format introduced with NVIDIA Blackwell GPUs; maintains accuracy using high-precision scale encoding and two-level micro-block scaling |
+| Weights       | Compressed using global scale per tensor + local quantization scales per group of 16 elements |
+| Activations   | Quantized dynamically using per-group quantization (group_size=16)                                      |
+| Calibration   | Requires a calibration dataset to calibrate activation global scales                                                            |
+| Use case      | Supported on all NVIDIA Blackwell GPUs or later  
+
+## Sparsification Compression Schemes
+
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
 
-| Scheme | Description | Data required? | vLLM Hardware Compatibility |
-|--------|-------------|----------------|-----------------------------|
-| **[2:4 Semi-structured Sparsity](../../examples/sparse_2of4_quantization_fp8/README.md)** | Uses semi-structured sparsity (SparseGPT), where, for every four contiguous weights in a tensor, two are set to zero. Uses channel-wise quantization to compress weights to 8 bits and dynamic per-token quantization to compress activations to 8 bits. Useful for better inference than W8A8-FP8, with almost no drop in its [evaluation score](https://neuralmagic.com/blog/24-sparse-llama-fp8-sota-performance-for-nvidia-hopper-gpus/). Small models may experience accuracy drops when the remaining non-zero weights are insufficient to recapitulate the original distribution. | Requires a calibration dataset. | Supported on all NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators. Recommended for compute capability >=9.0 (Hopper and Blackwell) |
-| **Unstructured Sparsity** | Unstructured sparsity quantization zeros out individual weights in the model without enforcing a regular pattern. Unlike block or channel pruning, it removes weights wherever they contribute least, yielding a fine‑grained sparse matrix. | Does not require a calibration dataset. | All NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators |
+
+### Semi-Structured
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| 2:4 Semi-structured Sparsity | Uses semi-structured sparsity (SparseGPT), where 2 of every 4 contiguous weights are set to zero. |
+| Weights       | 2:4 sparsity                                                                                |
+| Activations   | N/A                                                                                          |
+| Calibration   | Requires a calibration dataset                                                              |
+| Use case      | Fine-grained sparsity for compression and speedups           |
+
+
+
+### Unstructured
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| Unstructured Sparsity | Zeros out individual weights without a regular pattern, removing weights wherever they contribute least. Produces a fine-grained sparse matrix. |
+| Weights       | Sparsified individually (no structure)                                                     |
+| Activations   | N/A                                                                  |
+| Calibration   | Does not require a calibration dataset                                                    |
+| Use case      | Fine-grained sparsity for compression and speedups                                         |

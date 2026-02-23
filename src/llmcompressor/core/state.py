@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+import torch
 from loguru import logger
 
 from llmcompressor.metrics import BaseLogger, LoggerManager
@@ -111,6 +112,8 @@ class State:
     loggers: LoggerManager | None = None
     model_log_cadence: float | None = None
     _last_log_step: float | int | None = None
+    loss_masks: list[torch.Tensor] | None = None
+    current_batch_idx: int = -1
 
     @property
     def compression_ready(self) -> bool:

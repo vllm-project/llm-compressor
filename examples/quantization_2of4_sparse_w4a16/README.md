@@ -1,5 +1,7 @@
 # `int4` Weight Quantization of a 2:4 Sparse Model
 
+> **DEPRECATION WARNING:** The `marlin_24` compression format is deprecated and will be removed in a future release, as vLLM no longer supports marlin_24 models. See [issue #2267](https://github.com/vllm-project/llm-compressor/issues/2267) for more details.
+
 `llm-compressor` supports quantizing weights while maintaining sparsity patterns for memory savings and inference acceleration with `vLLM`
 
 > `2:4 sparisty + int4/int8` mixed precision computation is supported in vLLM on Nvidia capability > 8.0 (Ampere, Ada Lovelace, Hopper).

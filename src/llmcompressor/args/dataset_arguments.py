@@ -247,12 +247,29 @@ class DatasetArguments(CustomDatasetArguments):
             "Default is set to True."
         },
     )
+    use_loss_mask: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use the 'loss_mask' field from the batch for AWQ "
+            "loss calculation. When True, only tokens where loss_mask=1 contribute "
+            "to the AWQ optimization objective."
+        },
+    )
     dataloader_num_workers: int = field(
         default=0,
         metadata={
-            "help": "Number of worker processes for data loading. Set to 0 to disable "
-            "multiprocessing. Note: Custom data collators may not work with "
-            "multiprocessing. Default is 0."
+            "help": "Number of worker processes for data loading. Default is 0 (safe "
+            "for low CPU/GPU memory). Set to 2 or more for faster calibration if you "
+            "have sufficient RAM. Custom data collators may not work with "
+            "multiprocessing."
+        },
+    )
+    sequential_prefetch: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, prefetch the next batch in a "
+            "background thread to overlap onload with forward. Default False; set True "
+            "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
 

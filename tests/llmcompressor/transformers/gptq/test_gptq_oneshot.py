@@ -76,11 +76,8 @@ def test_oneshot_application(recipe, tmp_path):
     model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
 
     # Check that the model is quantized
-    # for compression_config - decompress() will attach a quantization_config
-    # to the model as we decompress right away
-    # for quantization_config - we have CompressedLinear which will only
-    # decompress on the forward pass and does not call decompress(). Results
-    # in a slightly different parameter tree to access the quant config
+    # decompress() will attach a quantization_config to the model
+    # as we decompress right away
     quantization_config = model_loaded.config.quantization_config.quantization_config
     assert quantization_config is not None
 

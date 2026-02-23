@@ -1,10 +1,10 @@
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 
@@ -84,7 +84,7 @@ oneshot(
 )
 
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))

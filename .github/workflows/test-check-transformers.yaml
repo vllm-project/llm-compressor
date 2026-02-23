@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: gcp-k8s-vllm-util
 
     outputs:
       matched-changes: ${{ steps.changed-files.outputs.all_changed_files }}
@@ -89,38 +89,38 @@ jobs:
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
-      - name: "🔬 Running transformers tests"
+      - name: "🔬 Running compression tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/compression
+          pytest -vra tests/llmcompressor/transformers/compression
       - name: Run Data Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/data
+          pytest -vra tests/llmcompressor/transformers/data
       - name: Running GPTQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/gptq
+          pytest -vra tests/llmcompressor/transformers/gptq
       - name: Running AutoRound Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/autoround
+          pytest -vra tests/llmcompressor/transformers/autoround
       - name: Running ONESHOT Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/oneshot
+          pytest -vra tests/llmcompressor/transformers/oneshot
       - name: Running SparseGPT Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/sparsegpt
+          pytest -vra tests/llmcompressor/transformers/sparsegpt
       - name: Running Tracing Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/tracing
+          pytest -vra tests/llmcompressor/transformers/tracing
       - name: Running KV Cache Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/kv_cache
+          pytest -vra tests/llmcompressor/transformers/kv_cache
       - name: "Upload coverage report"
         if: (success() || failure()) && inputs.code_coverage
         uses: actions/upload-artifact@v4

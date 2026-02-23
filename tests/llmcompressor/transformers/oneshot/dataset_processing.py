@@ -22,7 +22,7 @@ def _fetch_open_platypus_dataset():
 
 
 def _fetch_gsm8k_data():
-    dataset = load_dataset("gsm8k", "main")["train"]
+    dataset = load_dataset("openai/gsm8k", "main")["train"]
     dataset = dataset.shuffle(seed=42).select(range(256))
     return dataset
 

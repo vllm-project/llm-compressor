@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import sys
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Generator
+from weakref import WeakKeyDictionary
 
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
 
@@ -18,11 +22,11 @@ class IntermediateValue:
         otherwise None
     """
 
-    value: Union[torch.Tensor, "IntermediateValue", Any]
-    device: Union[torch.device, None]
+    value: torch.Tensor | "IntermediateValue" | Any
+    device: torch.device | None
 
 
-IntermediateValues = Dict[str, IntermediateValue]
+IntermediateValues = dict[str, IntermediateValue]
 
 
 class IntermediatesCache:
@@ -37,13 +41,17 @@ class IntermediatesCache:
     Construct using `empty` and `from_dataloader` class methods
     """
 
-    batch_intermediates: List[IntermediateValues]
-    offload_device: Optional[torch.device]
+    batch_intermediates: list[IntermediateValues]
+    offload_device: torch.device | None
+
+    # map of onload value -> offload value
+    # used to avoid excess memory usage when shared tensors are offloaded
+    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
 
     def __init__(
         self,
-        batch_intermediates: Optional[List[IntermediateValues]] = None,
-        offload_device: Optional[torch.device] = "cpu",
+        batch_intermediates: list[IntermediateValues] | None = None,
+        offload_device: torch.device | None = "cpu",
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
@@ -64,7 +72,7 @@ class IntermediatesCache:
         cls,
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device = torch.device("cpu"),
-        offload_device: Optional[torch.device] = torch.device("cpu"),
+        offload_device: torch.device | None = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
@@ -72,7 +80,10 @@ class IntermediatesCache:
         This method iterates through all batches in the dataloader and offloads
         them to the specified device. For faster cache preparation, consider:
         - Increasing batch_size to reduce the number of iterations
-        - Using num_workers > 0 in the DataLoader for parallel loading
+        - Using num_workers > 0 in the DataLoader for parallel loading (e.g. the
+          calibration DataLoader from format_calibration_data uses
+          dataloader_num_workers; when > 0, pin_memory and prefetch_factor are
+          also set where applicable, which speeds both cache build and calibration)
         - Ensuring data preprocessing is done before creating the dataloader
 
         :param dataloader: dataloader which generates values to be cached
@@ -90,8 +101,8 @@ class IntermediatesCache:
         return cls(batch_intermediates, offload_device)
 
     def fetch(
-        self, batch_index: int, input_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        self, batch_index: int, input_names: list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Fetch values belonging to a batch
 
@@ -107,7 +118,7 @@ class IntermediatesCache:
             if input_names is None or key in input_names
         }
 
-    def update(self, batch_index: int, values: Dict[str, Any]):
+    def update(self, batch_index: int, values: dict[str, Any]):
         """
         Update/put values belonging to a batch
 
@@ -118,7 +129,7 @@ class IntermediatesCache:
         intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
-    def delete(self, batch_index: int, consumed_names: Optional[List[str]] = None):
+    def delete(self, batch_index: int, consumed_names: list[str] | None = None):
         """
         Delete values from the cache
 
@@ -134,7 +145,7 @@ class IntermediatesCache:
         for name in consumed_names:
             del intermediates[name]
 
-    def append(self, values: Dict[str, Any]):
+    def append(self, values: dict[str, Any]):
         """
         Append new values to the cache. The new values will be assigned the next
         available batch index
@@ -145,20 +156,23 @@ class IntermediatesCache:
         self.batch_intermediates.append({})
         self.update(batch_index, values)
 
-    def size(self) -> Dict[torch.device, int]:
+    def size(self) -> dict[torch.device, int]:
         """
         Returns the memory used by cached values, keyed by device, in bytes
 
         :return: dictionary mapping torch device to number of bytes in cache
         """
         sizes = defaultdict(lambda: 0)
+        memo = set()
 
         def _size_helper(intermediate: IntermediateValue) -> int:
             value = intermediate.value
 
             match value:
                 case torch.Tensor():
-                    sizes[value.device] += value.nbytes
+                    if value not in memo:
+                        sizes[value.device] += value.nbytes
+                    memo.add(value)
                 case list() | tuple():
                     for v in value:
                         _size_helper(v)
@@ -178,9 +192,7 @@ class IntermediatesCache:
 
         return dict(sizes)
 
-    def iter(
-        self, input_names: Optional[List[str]] = None
-    ) -> Generator[Any, None, None]:
+    def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
@@ -225,7 +237,7 @@ class IntermediatesCache:
         cls,
         value: Any,
         offload_device: torch.device | None,
-        onload_device: Optional[torch.device] = None,
+        onload_device: torch.device | None = None,
     ) -> IntermediateValue:
         """
         Offload a value's tensors to the offload device
@@ -239,8 +251,18 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
+                with OverrideEqMode():
+                    # check for cache hit between shared tensors
+                    if value in cls.offload_values:
+                        offloaded = cls.offload_values[value]
+                    else:
+                        # move to offload if no hit
+                        offloaded = value.to(device=offload_device)
+                        if offloaded is not value:  # avoid circular ref
+                            cls.offload_values[value] = offloaded
+
                 return IntermediateValue(
-                    value=value.to(device=offload_device),
+                    value=offloaded,
                     device=(onload_device if onload_device else value.device),
                 )
             case list():
@@ -274,3 +296,34 @@ class IntermediatesCache:
                 ):
                     warnings.warn(f"Offloading not implemented for type {type(value)}.")
                 return IntermediateValue(value=value, device=None)
+
+
+class OverrideEqMode(TorchDispatchMode):
+    """
+    When using a torch.Tensor as a key in a dictionary, the equality
+    check must return a single value instead of a torch.Tensor
+    of bool values.
+    Use this override context for such cases, to swap out the torch.eq
+    equality check for a check on id
+    >>> a = torch.tensor([1,2,3])
+    >>> b = torch.tensor([1,2,3])
+    >>> a == b
+    tensor([True, True, True])
+    >>> with OverrideEqMode():
+    ...     a == b
+    tensor(True)
+    """
+
+    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+
+        # Check if the operation is equality
+        if func is torch.ops.aten.eq.Tensor:
+            # Override to use torch.equal
+            assert len(args) == 2, "Exactly 2 args must be provided"
+
+            # NOTE: Errors out without cast to torch.tensor
+            return torch.tensor(id(args[0]) == id(args[1]))
+
+        # For all other operations, just run them normally
+        return func(*args, **kwargs)

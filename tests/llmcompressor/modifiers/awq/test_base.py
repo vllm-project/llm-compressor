@@ -279,6 +279,199 @@ def test_moe_multiple_balance_layers():
     assert parent_name == "" and parent == model
 
 
+@pytest.mark.unit
+def test_qwen3_next_moe_with_shared_expert():
+    """Test AWQ mapping for Qwen3Next architecture with shared_expert.
+
+    Qwen3Next includes a shared_expert in addition to the MoE experts.
+    This test verifies that the mapping correctly resolves both experts
+    and shared_expert projections.
+    """
+    awq = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*post_attention_layernorm$",
+                [
+                    "re:.*mlp.experts.*.gate_proj$",
+                    "re:.*mlp.experts.*.up_proj$",
+                    "re:.*mlp.shared_expert.gate_proj$",
+                    "re:.*mlp.shared_expert.up_proj$",
+                ],
+            ),
+        ],
+        scheme="W4A16_ASYM",
+    )
+
+    # Create a Qwen3Next-like MoE model structure with shared_expert
+    mlp = torch.nn.ModuleDict(
+        {
+            "experts": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "gate_proj": Linear(4, 4),
+                            "up_proj": Linear(4, 4),
+                            "down_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            ),
+            "shared_expert": torch.nn.ModuleDict(
+                {
+                    "gate_proj": Linear(4, 4),
+                    "up_proj": Linear(4, 4),
+                    "down_proj": Linear(4, 4),
+                }
+            ),
+        }
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "layer": torch.nn.ModuleDict(
+                {
+                    "post_attention_layernorm": torch.nn.LayerNorm(4),
+                    "mlp": mlp,
+                }
+            )
+        }
+    )
+
+    awq._set_resolved_mappings(model)
+
+    # Should have one mapping for post_attention_layernorm
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
+
+    # Should map to all gate_proj and up_proj across experts AND shared_expert
+    expected_balance_names = {
+        "layer.mlp.experts.0.gate_proj",
+        "layer.mlp.experts.0.up_proj",
+        "layer.mlp.experts.1.gate_proj",
+        "layer.mlp.experts.1.up_proj",
+        "layer.mlp.shared_expert.gate_proj",
+        "layer.mlp.shared_expert.up_proj",
+    }
+    assert set(mapping.balance_names) == expected_balance_names
+
+
+@pytest.mark.unit
+def test_qwen3_next_hybrid_attention():
+    """Test AWQ mapping for Qwen3Next hybrid attention architecture.
+
+    Qwen3Next has two attention types:
+    - self_attn: standard attention with q_proj, k_proj, v_proj, o_proj
+    - linear_attn: Gated DeltaNet with in_proj_qkvz, in_proj_ba, norm, out_proj
+
+    This test verifies that the mapping correctly resolves both attention types.
+    Each attention type needs separate mappings for proper layer grouping.
+    """
+    awq = AWQModifier(
+        mappings=[
+            # self_attn mappings (layer 1 has self_attn)
+            # Use layer-specific pattern since each mapping must match exactly one
+            # smooth_layer
+            AWQMapping(
+                "re:.*layers\\.1\\.input_layernorm$",
+                [
+                    "re:.*self_attn.q_proj$",
+                    "re:.*self_attn.k_proj$",
+                    "re:.*self_attn.v_proj$",
+                ],
+            ),
+            AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
+            # linear_attn mappings (layer 0 has linear_attn)
+            AWQMapping(
+                "re:.*layers\\.0\\.input_layernorm$",
+                ["re:.*linear_attn.in_proj_qkvz$", "re:.*linear_attn.in_proj_ba$"],
+            ),
+            AWQMapping("re:.*linear_attn.norm$", ["re:.*linear_attn.out_proj$"]),
+        ],
+        scheme="W4A16_ASYM",
+    )
+
+    # Create a Qwen3Next-like model with both self_attn and linear_attn layers
+    # Layer 0: linear_attn
+    linear_attn_layer = torch.nn.ModuleDict(
+        {
+            "input_layernorm": torch.nn.LayerNorm(4),
+            "linear_attn": torch.nn.ModuleDict(
+                {
+                    "in_proj_qkvz": Linear(4, 16),
+                    "in_proj_ba": Linear(4, 4),
+                    "norm": torch.nn.LayerNorm(4),
+                    "out_proj": Linear(4, 4),
+                }
+            ),
+        }
+    )
+
+    # Layer 1: self_attn
+    self_attn_layer = torch.nn.ModuleDict(
+        {
+            "input_layernorm": torch.nn.LayerNorm(4),
+            "self_attn": torch.nn.ModuleDict(
+                {
+                    "q_proj": Linear(4, 4),
+                    "k_proj": Linear(4, 4),
+                    "v_proj": Linear(4, 4),
+                    "o_proj": Linear(4, 4),
+                }
+            ),
+        }
+    )
+
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList([linear_attn_layer, self_attn_layer]),
+        }
+    )
+
+    awq._set_resolved_mappings(model)
+
+    # Should have 4 mappings:
+    # 1. layer 0 input_layernorm -> linear_attn projections
+    # 2. layer 0 linear_attn.norm -> linear_attn.out_proj
+    # 3. layer 1 input_layernorm -> self_attn projections
+    # 4. layer 1 self_attn.v_proj -> self_attn.o_proj
+    assert len(awq._resolved_mappings) == 4
+
+    # Check linear_attn input mapping
+    linear_input_mapping = next(
+        m for m in awq._resolved_mappings if m.smooth_name == "layers.0.input_layernorm"
+    )
+    assert set(linear_input_mapping.balance_names) == {
+        "layers.0.linear_attn.in_proj_qkvz",
+        "layers.0.linear_attn.in_proj_ba",
+    }
+
+    # Check linear_attn output mapping
+    linear_output_mapping = next(
+        m
+        for m in awq._resolved_mappings
+        if m.smooth_name == "layers.0.linear_attn.norm"
+    )
+    assert linear_output_mapping.balance_names == ["layers.0.linear_attn.out_proj"]
+
+    # Check self_attn input mapping
+    self_input_mapping = next(
+        m for m in awq._resolved_mappings if m.smooth_name == "layers.1.input_layernorm"
+    )
+    assert set(self_input_mapping.balance_names) == {
+        "layers.1.self_attn.q_proj",
+        "layers.1.self_attn.k_proj",
+        "layers.1.self_attn.v_proj",
+    }
+
+    # Check self_attn output mapping
+    self_output_mapping = next(
+        m
+        for m in awq._resolved_mappings
+        if m.smooth_name == "layers.1.self_attn.v_proj"
+    )
+    assert self_output_mapping.balance_names == ["layers.1.self_attn.o_proj"]
+
+
 def _auto_awq_normalize(layers: list[torch.nn.Module], group_size) -> torch.Tensor:
     """
     Original AutoAwq implementation (need to call .mean(0) to get normalized layer

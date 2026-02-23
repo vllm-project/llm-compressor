@@ -113,7 +113,11 @@ class SparsityModifierBase(Modifier):
         dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(model)
+        # Note: only pass sequential_targets from kwargs, not the full kwargs dict
+        # which may contain 'model' and cause duplicate argument errors
+        self.sequential_targets = self._infer_sequential_targets(
+            model, sequential_targets=kwargs.get("sequential_targets")
+        )
         layers = get_layers(self.sequential_targets, model)
         self._target_layers = get_layers(
             self.targets, model
@@ -192,9 +196,27 @@ class SparsityModifierBase(Modifier):
         self.ended_ = True
         self.remove_hooks()
 
-    def _infer_sequential_targets(self, model: torch.nn.Module) -> str | list[str]:
+    def _infer_sequential_targets(
+        self, model: torch.nn.Module, **kwargs
+    ) -> str | list[str]:
+        targets_from_kwargs = kwargs.get("sequential_targets")
+
+        # Validate that sequential_targets is not provided from both sources
+        if self.sequential_targets is not None and targets_from_kwargs is not None:
+            raise ValueError(
+                "sequential_targets was provided both in the modifier config and in "
+                "oneshot() dataset_args. Please provide sequential_targets in only "
+                "one location to avoid conflicts."
+            )
+
         match self.sequential_targets:
             case None:
+                # Check if sequential_targets was passed via kwargs (from dataset_args)
+                if targets_from_kwargs is not None:
+                    if isinstance(targets_from_kwargs, str):
+                        return [targets_from_kwargs]
+                    return targets_from_kwargs
+                # Fall back to auto-inference
                 return get_no_split_params(model)
             case str():
                 return [self.sequential_targets]
