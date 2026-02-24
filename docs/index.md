@@ -17,7 +17,7 @@ Model optimization through quantization and pruning addresses the key challenges
 | Request throughput | Utilizes lower-precision tensor cores for faster computation |
 | Energy consumption | Smaller models consume less power during inference |
 
-For more information, see [Why use LLM Compressor?](./getting-started/why-llmcompressor.md)
+For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md)
 
 ## New in this release
 
