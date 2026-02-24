@@ -23,8 +23,7 @@ Other examples are grouped by algorithm, such as:
 
 ## Where to start if you’re unsure
 
-If you’re unsure which quantization scheme to use, a good starting point is a data-free pathway, such as `w8a8_fp8`, found under `quantization_w8a8_fp8`. For more details on available schemes and when to use them, see the
-[Compression Schemes guide](../docs/guides/compression_schemes.md).
+If you’re unsure which quantization scheme to use, a good starting point is a data-free pathway, such as `w8a8_fp8`, found under `quantization_w8a8_fp8`. For more details on available schemes and when to use them, see the Compression Schemes [guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/compression_schemes/).
 
 ## Need help?
 
