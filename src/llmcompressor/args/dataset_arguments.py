@@ -12,6 +12,8 @@ from typing import Callable
 
 from torch.utils.data import DataLoader
 
+from datasets import Dataset, DatasetDict
+
 
 @dataclass
 class DVCDatasetArguments:
