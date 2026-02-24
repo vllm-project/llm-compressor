@@ -581,6 +581,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                     balance_layer: balance_layer.weight.clone()
                     for balance_layer in mapping.balance_layers
                 }
+                # When smooth_layer_targeted is False we must not add smooth_layer
+                # here; the apply loop only applies scaling to smooth when it is
+                # in orig_layer_weights, so omitting it here keeps smooth unscaled.
                 if smooth_layer_targeted:
                     orig_layer_weights[smooth_layer] = smooth_layer.weight.clone()
 
@@ -595,15 +598,19 @@ class AWQModifier(Modifier, QuantizationMixin):
                 def _smooth(
                     module: Module, orig_layer_weights: dict[Module, torch.Tensor]
                 ):
-                    scales = best_scales.to(
-                        device=module.weight.device, dtype=module.weight.dtype
-                    )
+                    # Match main: compute in float32 then cast to param dtype so
+                    # rounding matches main (main shows small readback diff).
+                    scales = best_scales.to(module.weight.device)
+                    param_dtype = module.weight.dtype
                     if module in balance_layers:
+                        applied = (
+                            orig_layer_weights[module].to(module.weight.device)
+                            * scales.view(1, -1)
+                        )
                         update_offload_parameter(
                             module,
                             "weight",
-                            orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1),
+                            applied.to(param_dtype),
                         )
                     elif module == smooth_layer:
                         # When smooth_layer_quantization is enabled, smooth_layer.weight
@@ -618,7 +625,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                w.to(module.weight.device) / scales,
+                                (w.to(module.weight.device) / scales).to(param_dtype),
                             )
                         else:
                             # NOTE: edge case when smooth layer number of out_features
@@ -629,7 +636,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
                             w = w.to(module.weight.device).clone()
                             w[-scales.size(0) :].div_(scales.view(-1, 1))
-                            update_offload_parameter(module, "weight", w)
+                            update_offload_parameter(module, "weight", w.to(param_dtype))
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
@@ -639,6 +646,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 for layer in balance_layers:
                     _smooth(layer, orig_layer_weights)
+                # Always apply scaling to the smooth layer (smoothing). The optional part
+                # is smooth-layer quantization in the grid (smooth_layer_quantization /
+                # also_quantize_smooth_layers and layers_to_patch at _rescale_and_fake_quantize_layer).
                 _smooth(smooth_layer, orig_layer_weights)
 
                 # remove caches needed to smooth this mapping
@@ -668,22 +678,44 @@ class AWQModifier(Modifier, QuantizationMixin):
         device: torch.device,
         *,
         is_smooth_layer: bool = False,
+        patch_weight_dtype: torch.dtype | None = None,
     ) -> None:
         """
         Rescale layer weights, run observer, quantize. Modifies layer in place.
 
         Pass scales_view = s (1, -1) for balance layers; pass 1/s for smooth layer
         so that rescale is W * (1/s) = W/s.
+        When patch_weight_dtype is set, all assigned weights use that dtype so
+        the model forward never sees mixed dtypes (e.g. bf16 input vs float32 weight).
         """
+        weight_dtype = (
+            patch_weight_dtype if patch_weight_dtype is not None else layer.weight.dtype
+        )
         w_qscheme = layer.quantization_scheme.weights
         orig = orig_layer_weights[layer].to(scales_view.device)
 
         target_weight = layer.weight.data
         if is_smooth_layer and layer.weight.ndim > 1:
-            partial_slice = slice(-scales_view.numel(), None)
-            orig = orig[*partial_slice]
-            target_weight= target_weight[*partial_slice]
-        target_weight.copy_(orig * scales_view)
+            n = scales_view.numel()
+            out_features, in_features = layer.weight.shape
+
+            if n == out_features:
+                scaled = orig * scales_view.view(-1, 1)
+                target_weight.copy_(scaled.to(weight_dtype))
+            elif n == in_features:
+                scaled = orig * scales_view.view(1, -1)
+                target_weight.copy_(scaled.to(weight_dtype))
+            elif n < out_features:
+                orig_part = orig[-n:]
+                target_part = target_weight[-n:]
+                target_part.copy_((orig_part * scales_view.view(-1, 1)).to(weight_dtype))
+            else:
+                raise ValueError(
+                    f"Unexpected smooth scales length {n} for weight shape "
+                    f"{tuple(layer.weight.shape)}"
+                )
+        else:
+            target_weight.copy_((orig * scales_view).to(weight_dtype))
         
         should_calculate_gparam = (
             w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
@@ -701,9 +733,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             w_qscheme,
         )
         if is_smooth_layer:
-            layer.weight.data = quantized
+            layer.weight.data = quantized.to(weight_dtype)
         else:
-            layer.weight.data = quantized / scales_view
+            layer.weight.data = (quantized / scales_view).to(weight_dtype)
 
     def _compute_best_scale(
         self,
@@ -770,11 +802,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             )
             layers_to_patch = layers_to_patch + [mapping.smooth_layer]
 
-        # Get weight dtype from first layer to ensure scales match
-        weight_dtype = (
-            layers_to_patch[0].weight.dtype if layers_to_patch else torch.float32
-        )
-
         with patch_attrs(
             layers_to_patch,
             "weight_observer",
@@ -810,11 +837,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # avoid scaling values that overflow
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                # Ensure scales have correct dtype to avoid float64 promotion
-                scales = scales.to(dtype=weight_dtype)
+                scales = scales.to(dtype=torch.float32)
                 _scalesview = scales.view(1, -1).to(device)
                 _scalesview_inv = _scalesview.reciprocal()
 
+                patch_weight_dtype = layers_to_patch[0].weight.dtype
                 # Q(W * s) for balance layers, Q(W / s) for smooth layer
                 for layer in layers_to_patch:
                     scales_view = (
@@ -828,6 +855,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         scales_view,
                         device,
                         is_smooth_layer=(layer == mapping.smooth_layer),
+                        patch_weight_dtype=patch_weight_dtype,
                     )
 
                 # Applying fused global scales for TENSOR_GROUP in grid search
