@@ -30,7 +30,7 @@ Follow the guides below to get started with LLM Compressor and optimize your mod
 
     ---
 
-    Learn how to apply compress your model using different algorithms and formats with a step-by-step walkthrough
+    Learn how to compress your model using different algorithms and formats with a step-by-step walkthrough
 
     [:octicons-arrow-right-24: Compression Guide](../steps/choosing-model.md)
 
