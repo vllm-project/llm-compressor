@@ -6,14 +6,15 @@ loading, preprocessing, and calibration parameters across different dataset
 sources and processing pipelines. Supports various input formats including
 HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
+
 from __future__ import annotations
-from typing import Callable, TYPE_CHECKING
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from torch.utils.data import DataLoader
     from datasets import Dataset, DatasetDict
+    from torch.utils.data import DataLoader
 
 
 @dataclass
