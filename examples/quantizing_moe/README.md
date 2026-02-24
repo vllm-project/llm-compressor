@@ -1,6 +1,6 @@
 # Quantizing Mixture of Experts (MoE) models
 
-These examples demonstrates how to quantize MoE models using `llm-compressor`. We'll walk through the GLM-4.7 example which applies AWQ quantization to create a W4A16 (4-bit weights, 16-bit activations) model.
+These examples demonstrate how to quantize MoE models using `llm-compressor`. We'll walk through the GLM-4.7 example which applies AWQ quantization to create a W4A16 (4-bit weights, 16-bit activations) model.
 
 ## End-to-End Example: Quantizing GLM-4.7
 
