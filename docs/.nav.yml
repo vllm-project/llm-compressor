@@ -34,6 +34,9 @@ nav:
   - Examples:
     - examples/README.md
     - examples/*
+  - Experimental:
+    - experimental/README.md
+    - experimental/*
   - Developer:
     - developer/index.md
     - developer/*
