@@ -1,4 +1,4 @@
-# Applying 2:4 Sparsity with Optional FP8 Quantization
+# 2:4 Sparsity with FP8 Quantization
 
 This script demonstrates how to apply **2:4 structured sparsity** with and without **FP8 quantization** to the `Meta-Llama-3-8B-Instruct` model using the `llm-compressor` library. The compressed model is optimized for memory efficiency and faster inference on supported GPUs.
 

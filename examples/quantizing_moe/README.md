@@ -1,6 +1,6 @@
-# Quantizing Mixtral-8x7B-Instruct-v0.1 Model with FP8
+# Quantizing MoEs
 
-This directory contains example scripts for quantizing LLMs using the static per-tensor FP8 quantization scheme.
+This directory contains example scripts for quantizing MoEs.
 
 ## Installation
 
@@ -68,8 +68,6 @@ oneshot(
 ```
 
 ### Custom Quantization
-
-NOTE: Only per-tensor quantization is supported in vLLM as of now (`vllm==0.6.1`)
 
 The repository supports multiple quantization techniques configured via a recipe. Supported strategies include `tensor`, `group`, and `channel` quantization.
 
