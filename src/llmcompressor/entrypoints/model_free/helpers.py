@@ -127,19 +127,17 @@ def iter_quantizable_tensors(
 ) -> Iterator[tuple[str, str]]:
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
-        if include_nonquantizable:
-            is_linear_weight = True
-        else:
-            is_linear_weight = (param_name == "weight") and not module_name.endswith(
-                "norm"
-            )
+
+        is_linear_weight = (param_name == "weight") and not module_name.endswith("norm")
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
         is_targeted = (
             any(_match_name(module_name, target) for target in targets)
             if len(targets) > 0
             else True
         )
-        if (not is_linear_weight) or is_ignored or (not is_targeted):
-            continue
-
-        yield module_name, name
+        if all(
+            is_linear_weight or include_nonquantizable,
+            is_targeted,
+            not is_ignored,
+        ):
+            yield module_name, name
