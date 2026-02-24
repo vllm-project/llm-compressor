@@ -6,7 +6,7 @@ Observers are designed to be flexible and support a variety of quantization stra
 
 ## Base Class
 
-### [Observer](../src/llmcompressor/observers/base.py)
+### [Observer](../../src/llmcompressor/observers/base.py)
 Base class for all observers. Subclasses must implement the `calculate_qparams` method to define how quantization parameters are computed.
 
 The base class handles:
@@ -20,14 +20,14 @@ This class is not used directly but provides the scaffolding for all custom obse
 
 ## Implemented Observers
 
-### [MinMax](../src/llmcompressor/observers/min_max.py)
+### [MinMax](../../src/llmcompressor/observers/min_max.py)
 Computes `scale` and `zero_point` by tracking the minimum and maximum of the observed tensor. This is the simplest and most common observer. Works well for symmetric and asymmetric quantization.
 
 Best used for:
 - Int8 or Int4 symmetric quantization
 - Channel-wise or group-wise strategies
 
-### [MSE](../src/llmcompressor/observers/mse.py)
+### [MSE](../../src/llmcompressor/observers/mse.py)
 Computes quantization parameters by minimizing the Mean Squared Error (MSE) between the original and quantized tensor. Optionally maintains a moving average of min/max values for smoother convergence.
 
 Best used when:
