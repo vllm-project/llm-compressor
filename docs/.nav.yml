@@ -32,7 +32,7 @@ nav:
     - Memory Requirements: guides/memory.md
     - Runtime Performance: guides/runtime.md
   - Examples:
-    - examples/index.md
+    - examples/README.md
     - examples/*
   - Developer:
     - developer/index.md
