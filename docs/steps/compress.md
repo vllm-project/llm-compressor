@@ -19,7 +19,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
+from compressed_tensors.offload import dispatch_model
 
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
