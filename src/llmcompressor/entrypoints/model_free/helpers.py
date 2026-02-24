@@ -123,10 +123,16 @@ def iter_quantizable_tensors(
     tensors: Mapping[str, torch.Tensor],
     ignore: Iterable[str],
     targets: Iterable[str] = tuple(),
+    include_nonquantizable: bool = False,
 ) -> Iterator[tuple[str, str]]:
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
-        is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
+        if include_nonquantizable:
+            is_linear_weight = True
+        else:
+            is_linear_weight = (param_name == "weight") and not module_name.endswith(
+                "norm"
+            )
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
         is_targeted = (
             any(_match_name(module_name, target) for target in targets)

@@ -14,6 +14,9 @@ class Processor(Protocol):
     def process(self, tensors: dict[str, torch.Tensor]):
         pass
 
+    def validate(self, tensors: dict[str, torch.Tensor]):
+        pass
+
 
 class ModelOptNvfp4Processor(Processor):
     """
@@ -30,7 +33,7 @@ class ModelOptNvfp4Processor(Processor):
 
     def process(self, tensors: dict[str, torch.Tensor]):
         for module_name, name in iter_quantizable_tensors(
-            tensors, self.ignore, self.targets
+            tensors, self.ignore, self.targets, include_nonquantizable=True
         ):
             param_name = name.rsplit(".", 1)[-1]
 
@@ -59,3 +62,17 @@ class ModelOptNvfp4Processor(Processor):
                     del tensors[name]
                 case _:
                     raise RuntimeError(f"Hit unexpected tensor {name}")
+
+    def validate(self, tensors: dict[str, torch.Tensor]):
+        for _, name in iter_quantizable_tensors(
+            tensors, self.ignore, self.targets, include_nonquantizable=True
+        ):
+            param_name = name.rsplit(".", 1)[-1]
+
+            if param_name not in (
+                "input_scale",
+                "weight",
+                "weight_scale",
+                "weight_scale_2",
+            ):
+                raise RuntimeError(f"Hit unexpected tensor {name}")

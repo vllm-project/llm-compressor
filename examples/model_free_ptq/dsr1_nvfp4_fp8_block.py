@@ -35,7 +35,7 @@ def run_model_free_ptq():
         ),
         # Skipping self_attn.kv_b_proj, already dequantized by MLA
         ignore=["re:.*self_attn.kv_b_proj$"],
-        max_workers=32,
+        max_workers=8,
         device="cuda:0",
         processors=[
             # nvidia/DeepSeek-R1-NVFP4's nvfp4-quantized layers, found by inspection

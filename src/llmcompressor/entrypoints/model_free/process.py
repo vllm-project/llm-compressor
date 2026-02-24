@@ -34,6 +34,7 @@ def validate_file(
     scheme: QuantizationScheme,
     ignore: Iterable[str],
     device: str | torch.device,
+    processors: Iterable[Processor] = tuple(),
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -44,6 +45,9 @@ def validate_file(
         ignored
     """
     tensors = load_file(file_path)
+
+    for processor in processors:
+        processor.validate(tensors)
 
     for _, name in iter_quantizable_tensors(tensors, ignore):
         validate_weight_for_quantization(tensors[name], scheme, name)
@@ -121,6 +125,10 @@ def process_file_microscale_scheme(
     """
     assert is_microscale_scheme(scheme), "Use `_process_file` for non-microscale scheme"
     tensors = load_file(file_path)
+
+    for processor in processors:
+        processor.process(tensors)
+
     fused_sets, unmatched_sets = get_fused_names(tensors)
     assert len(unmatched_sets) <= 0  # should be caught by `validate_safetensors_index`
 
@@ -133,9 +141,6 @@ def process_file_microscale_scheme(
         for name in matched_set.values()
     }
     fused_modules = defaultdict(dict)
-
-    for processor in processors:
-        processor.process(tensors)
 
     for module_name, name in iter_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)

@@ -74,7 +74,9 @@ def model_free_ptq(
         save_path = Path(save_directory) / file_path
 
         if file_path.endswith("safetensors"):
-            jobs.append((job_fn, resolved_path, save_path, scheme, ignore, device))
+            jobs.append(
+                (job_fn, resolved_path, save_path, scheme, ignore, device, processors)
+            )
 
         else:
             if is_weights_file(file_path):
