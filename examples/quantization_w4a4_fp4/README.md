@@ -1,6 +1,6 @@
 # `fp4` Quantization with NVFP4
 
-For weight-only FP4 quantization (e.g MXFP4A16, NVFP4A16) see examples [here](../quantization_w4a16_fp4/).
+For weight-only FP4 quantization (e.g MXFP4A16, NVFP4A16) see examples [here](https://github.com/vllm-project/llm-compressor/tree/main/examples/quantization_w4a16_fp4).
 
 `llm-compressor` supports quantizing weights and activations to `fp4` for memory savings and inference acceleration with `vLLM`. In particular, `nvfp4` is supported - a 4-bit floating point encoding format introduced with the NVIDIA Blackwell GPU architecture.
 

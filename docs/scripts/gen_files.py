@@ -82,6 +82,16 @@ def migrate_examples():
     examples_path = project_root / "examples"
     files = []
 
+    # Add the main examples README.md
+    main_readme = examples_path / "README.md"
+    if main_readme.exists():
+        files.append(
+            ProcessFile(
+                root_path=main_readme.relative_to(project_root),
+                docs_path=Path("examples/README.md"),
+            )
+        )
+
     # Find all README.md files 2 levels down (examples/EXAMPLE_NAME/README.md)
     for example_dir in examples_path.iterdir():
         if (
