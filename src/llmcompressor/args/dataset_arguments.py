@@ -8,11 +8,12 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable
+from __future__ import annotations
+from typing import Callable, TYPE_CHECKING
 
-from torch.utils.data import DataLoader
-
-from datasets import Dataset, DatasetDict
+if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
+    from datasets import Dataset, DatasetDict
 
 
 @dataclass
