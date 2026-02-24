@@ -103,7 +103,7 @@ class DatasetArguments(CustomDatasetArguments):
     arguments to be able to specify them on the command line
     """
 
-    dataset: str | DataLoader | None = field(
+    dataset: str | Dataset | DatasetDict | DataLoader | None = field(
         default=None,
         metadata={
             "help": (
