@@ -1,6 +1,6 @@
 # Getting Started
 
- This section will guide you through the process of installing the library, compressing your first model, and deploying it with vLLM for faster, more efficient inference.
+This section will guide you through the process of installing the library, compressing your first model, and deploying it with vLLM for faster, more efficient inference.
 
 LLM Compressor makes it simple to optimize large language models for deployment, offering various quantization techniques that help you find the perfect balance between model quality, performance, and resource efficiency.
 
