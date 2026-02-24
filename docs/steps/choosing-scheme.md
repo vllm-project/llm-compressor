@@ -91,5 +91,6 @@ config.json while a local format is indicated for each group of targeted layers.
 ## Next steps
 
 - [Choose the right compression algorithm](choosing-algo.md)
+- [Choosing your dataset](./choosing-dataset.md)
 - [Compress the model](compress.md)
 - [Deploy with vLLM](deploy.md)
