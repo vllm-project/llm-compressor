@@ -7,14 +7,11 @@ sources and processing pipelines. Supports various input formats including
 HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
-if TYPE_CHECKING:
-    from datasets import Dataset, DatasetDict
-    from torch.utils.data import DataLoader
+from datasets import Dataset, DatasetDict
+from torch.utils.data import DataLoader
 
 
 @dataclass
