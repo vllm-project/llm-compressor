@@ -182,12 +182,9 @@ class Oneshot:
 
         """
 
-        if isinstance(self.dataset_args.dataset, DataLoader):
-            calibration_dataloader = self.dataset_args.dataset
-        else:
-            calibration_dataloader = get_calibration_dataloader(
-                self.dataset_args, self.processor
-            )
+        calibration_dataloader = get_calibration_dataloader(
+            self.dataset_args, self.processor
+        )
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
             recipe_stage=self.recipe_args.stage,

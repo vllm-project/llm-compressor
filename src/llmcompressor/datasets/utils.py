@@ -100,16 +100,24 @@ def get_processed_dataset(
 def get_calibration_dataloader(
     dataset_args: DatasetArguments,
     processor: Processor,
-) -> torch.utils.data.DataLoader:
+) -> DataLoader | None:
     """
     Get the dataloader used for oneshot calibration.
+
+    If dataset_args.dataset is already a PyTorch DataLoader,
+    it is returned directly, bypassing dataset loading and tokenization.
+
     :param dataset_args: DatasetArguments that contains the dataset parameters.
     :param processor: Processor or the tokenizer of the model.
-    :return: PyTorch dataloader object that contains the calibration dataset.
+    :return: PyTorch dataloader object that contains the calibration
+        dataset, or None for data-free flows.
     """
     if dataset_args.dataset is None:
         # weight-only quantization or dynamic quantization
-        return
+        return None
+
+    if isinstance(dataset_args.dataset, DataLoader):
+        return dataset_args.dataset
 
     datasets = get_processed_dataset(
         dataset_args=dataset_args,
@@ -414,9 +422,9 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     we give each device at least S//D samples and distribute
     the remaining samples as evenly as possible across all devices
     """
-    assert (
-        "[" not in split
-    ), "Split string should not already contain partitioning brackets"
+    assert "[" not in split, (
+        "Split string should not already contain partitioning brackets"
+    )
 
     start, end = _get_partition_start_end(
         num_samples, dist.get_rank(), dist.get_world_size()
