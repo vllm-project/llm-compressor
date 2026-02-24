@@ -16,6 +16,8 @@ from llmcompressor.modifiers.awq.base import (
     get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
+from llmcompressor.recipe.recipe import Recipe, _validate_modifier_ordering
 
 
 @pytest.mark.unit
@@ -675,3 +677,73 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
     assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.unit
+def test_awq_get_resolved_targets():
+    """Test that _get_resolved_targets returns ['Linear'] by default."""
+    awq = AWQModifier()
+    assert awq._get_resolved_targets() == ["Linear"]
+
+
+@pytest.mark.unit
+def test_validate_modifier_ordering_awq_before_quant():
+    """Test that AWQ before quantization modifier is valid."""
+    modifiers = [
+        AWQModifier(),
+        QuantizationModifier(targets="Linear", scheme="W4A16"),
+    ]
+    # Should not raise
+    _validate_modifier_ordering(modifiers)
+
+
+@pytest.mark.unit
+def test_validate_modifier_ordering_awq_after_quant_raises():
+    """Test that AWQ after quantization modifier raises ValueError."""
+    modifiers = [
+        QuantizationModifier(targets="Linear", scheme="W4A16"),
+        AWQModifier(),
+    ]
+    with pytest.raises(ValueError, match="AWQModifier.*appears after"):
+        _validate_modifier_ordering(modifiers)
+
+
+@pytest.mark.unit
+def test_validate_modifier_ordering_awq_standalone_no_error():
+    """Test AWQ without subsequent quantization modifier does not raise error.
+
+    Note: The warning for standalone AWQ is handled by
+    AWQModifier._warn_if_standalone during on_finalize, which has access
+    to the session state.
+    """
+    modifiers = [
+        AWQModifier(),
+    ]
+    # Should not raise - warning is handled during on_finalize
+    _validate_modifier_ordering(modifiers)
+
+
+@pytest.mark.unit
+def test_recipe_from_modifiers_with_awq_and_quant():
+    """Test that Recipe.from_modifiers works with AWQ + QuantizationModifier."""
+    recipe = Recipe.from_modifiers(
+        [
+            AWQModifier(),
+            QuantizationModifier(targets="Linear", scheme="W4A16"),
+        ]
+    )
+    assert len(recipe.modifiers) == 2
+    assert isinstance(recipe.modifiers[0], AWQModifier)
+    assert isinstance(recipe.modifiers[1], QuantizationModifier)
+
+
+@pytest.mark.unit
+def test_recipe_from_modifiers_awq_after_quant_raises():
+    """Test that Recipe.from_modifiers raises when AWQ is after QuantizationModifier."""
+    with pytest.raises(ValueError, match="AWQModifier.*appears after"):
+        Recipe.from_modifiers(
+            [
+                QuantizationModifier(targets="Linear", scheme="W4A16"),
+                AWQModifier(),
+            ]
+        )
