@@ -136,8 +136,10 @@ def iter_quantizable_tensors(
             else True
         )
         if all(
-            is_linear_weight or include_nonquantizable,
-            is_targeted,
-            not is_ignored,
+            [
+                is_linear_weight or include_nonquantizable,
+                is_targeted,
+                not is_ignored,
+            ]
         ):
             yield module_name, name
