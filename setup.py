@@ -112,8 +112,8 @@ setup(
     install_requires=[
         ("loguru>=0.7.2,<=0.7.3" if BUILD_TYPE == "release" else "loguru>=0.7.2"),
         ("pyyaml>=6.0.1,<=6.0.3" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
-        # librosa dependency numba is currently not compatible with numpy>=2.3
-        # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
+        # librosa 0.11.0 supports numpy 2.x
+        # https://librosa.org/doc/0.11.0/changelog.html
         ("numpy>=2.0.0,<=2.4.2" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         (
             "requests>=2.32.2,<=2.32.5"
