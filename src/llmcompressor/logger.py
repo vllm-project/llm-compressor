@@ -41,9 +41,10 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import torch.distributed as dist
 from loguru import logger
 
-__all__ = ["LoggerConfig", "configure_logger", "logger"]
+__all__ = ["LoggerConfig", "configure_logger", "logger", "configure_distributed_logger"]
 
 
 # used by `support_log_once``
@@ -53,14 +54,20 @@ _logged_once = set()
 @dataclass
 class LoggerConfig:
     disabled: bool = False
-    clear_loggers: bool = True
     console_log_level: Optional[str] = "INFO"
     log_file: Optional[str] = None
     log_file_level: Optional[str] = None
     metrics_disabled: bool = False
+    rank: Optional[int] = None
 
 
-def configure_logger(config: Optional[LoggerConfig] = None) -> None:
+# global config
+LOGGER_CONFIG = LoggerConfig()
+
+
+def configure_logger(
+    logger_config: LoggerConfig = LOGGER_CONFIG, clear_loggers: bool = False
+):
     """
     Configure the logger for LLM Compressor.
 
@@ -72,13 +79,10 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
     :param config: The configuration for the logger to use.
     :type config: LoggerConfig
     """
-    logger_config = config or LoggerConfig()
 
     # env vars get priority
     if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
         logger_config.disabled = disabled.lower() == "true"
-    if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
-        logger_config.clear_loggers = clear_loggers.lower() == "true"
     if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
         logger_config.console_log_level = console_log_level.upper()
     if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
@@ -92,15 +96,22 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
 
     logger.enable("llmcompressor")
 
-    if logger_config.clear_loggers:
+    # reset logger configuration
+    if clear_loggers:
         logger.remove()
+
+    # set format (optionally adding rank)
+    format = "{time:YYYY-MM-DDTHH:mm:ss.SSSS} | {function} | {level} - {message}"
+    if logger_config.rank is not None:
+        logger.configure(extra={"rank": dist.get_rank()})
+        format = "[Rank {extra[rank]}] " + format
 
     if logger_config.console_log_level:
         # log as a human readable string with the time, function, level, and message
         logger.add(
             sys.stdout,
             level=logger_config.console_log_level.upper(),
-            format="{time} | {function} | {level} - {message}",
+            format=format,
             filter=support_log_once,
         )
 
@@ -112,6 +123,7 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
             log_file,
             level=log_file_level.upper(),
             serialize=True,
+            format=format,
             filter=support_log_once,
         )
 
@@ -120,6 +132,10 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
 
     # initialize metric logger on loguru
     logger.level("METRIC", no=38, color="<yellow>", icon="📈")
+
+    # set global value for later calls
+    global LOGGER_CONFIG
+    LOGGER_CONFIG = logger_config
 
 
 def support_log_once(record: Dict[str, Any]) -> bool:
@@ -146,14 +162,11 @@ def support_log_once(record: Dict[str, Any]) -> bool:
     return True
 
 
+def configure_distributed_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
+    logger_config.rank = dist.get_rank()
+    configure_logger(logger_config, clear_loggers=True)
+
+
 # invoke logger setup on import with default values enabling console logging with INFO
 # and disabling file logging
-configure_logger(
-    config=LoggerConfig(
-        disabled=False,
-        clear_loggers=True,
-        console_log_level="INFO",
-        log_file=None,
-        log_file_level=None,
-    )
-)
+configure_logger()
