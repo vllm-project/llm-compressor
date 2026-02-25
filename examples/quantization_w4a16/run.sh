@@ -42,6 +42,27 @@ eval_base_model() {
             --output_path $EVAL_OUTPUT_DIR
     fi
 
+    # If vllm without TP failed, try with expert parallel (useful for MoE models)
+    if [ $? -ne 0 ]; then
+        echo "Evaluation without tensor_parallel failed, retrying with expert parallel..."
+        run 4 lm_eval \
+            --model vllm \
+            --model_args pretrained=$model_id,dtype=auto,max_model_len=$max_model_len,add_bos_token=True,enable_expert_parallel=True \
+            --tasks $eval_task \
+            --batch_size auto \
+            --output_path $EVAL_OUTPUT_DIR
+    fi
+
+    if [ $? -ne 0 ]; then
+        echo "Evaluation without tensor_parallel failed, retrying with expert parallel..."
+        run 2 lm_eval \
+            --model vllm \
+            --model_args pretrained=$model_id,dtype=auto,max_model_len=$max_model_len,add_bos_token=True,enable_expert_parallel=True \
+            --tasks $eval_task \
+            --batch_size auto \
+            --output_path $EVAL_OUTPUT_DIR
+    fi
+
     # If vllm failed, try hf
     if [ $? -ne 0 ]; then
         echo "Evaluation with vllm failed, retrying with hf backend..."
@@ -132,7 +153,7 @@ run_and_eval() {
 }
 
 # W4A16
-run_and_eval "llama3_ddp_example.py" 4 "Meta-Llama-3-8B-Instruct-W4A16-G128-DDP4" "gsm8k" 2048  # .7111 .7127
+# run_and_eval "llama3_ddp_example.py" 4 "Meta-Llama-3-8B-Instruct-W4A16-G128-DDP4" "gsm8k" 2048  # .7111 .7127
 # run_and_eval "llama3_ddp_example.py" 1 "Meta-Llama-3-8B-Instruct-W4A16-G128-DDP1" "gsm8k" 2048 # .702 .702
 
 # run_and_eval "qwen3_vl_8b_gptq_int4_ddp_example.py" 4 "Qwen3-VL-8B-Instruct-GPTQ-W4A16-G128-DDP4" "gsm8k" 2048 # .8514 .8476
@@ -150,20 +171,20 @@ run_and_eval "llama3_ddp_example.py" 4 "Meta-Llama-3-8B-Instruct-W4A16-G128-DDP4
 
 
 # NVFP4
-# run_and_eval "llama3_ddp_nvfp4.py" 4 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
-# run_and_eval "llama3_ddp_nvfp4.py" 1 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+run_and_eval "llama3_ddp_nvfp4.py" 4 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
+run_and_eval "llama3_ddp_nvfp4.py" 1 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
-# run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 4 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
-# run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 1 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 4 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
+run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 1 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
-# run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 4 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
-# run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 1 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 4 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
+run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 1 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
-# run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 4 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 8192 
-# run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 1 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 8192
+run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 4 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 8192 
+run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 1 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 8192
 
-# run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP8" "gsm8k" 2048
-# run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP8" "gsm8k" 2048
+run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
 
 # Base model evaluations
@@ -171,10 +192,10 @@ echo "============================================"
 echo "Starting base model evaluations"
 echo "============================================"
 
-# eval_base_model "meta-llama/Meta-Llama-3-8B-Instruct" "gsm8k" 2048
-# eval_base_model "Qwen/Qwen3-VL-8B-Instruct" "gsm8k" 2048
-# eval_base_model "Qwen/Qwen3-30B-A3B" "gsm8k" 2048
-# eval_base_model "meta-llama/Llama-4-Scout-17B-16E-Instruct" "gsm8k" 8192
+# eval_base_model "meta-llama/Meta-Llama-3-8B-Instruct" "gsm8k" 2048 # 0.7513 0.7536
+# eval_base_model "Qwen/Qwen3-VL-8B-Instruct" "gsm8k" 2048 # 0.8560 0.8347
+# eval_base_model "Qwen/Qwen3-30B-A3B" "gsm8k" 2048 # 0.8484 0.8916
+eval_base_model "meta-llama/Llama-4-Scout-17B-16E-Instruct" "gsm8k" 8192
 
 echo "============================================"
 echo "All runs complete!"
