@@ -1,4 +1,3 @@
-from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -70,16 +69,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
-
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-sample = tokenizer("Hello my name is", return_tensors="pt")
-sample = {key: value.to(model.device) for key, value in sample.items()}
-output = model.generate(**sample, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W8A8"
