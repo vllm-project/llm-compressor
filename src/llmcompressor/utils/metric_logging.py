@@ -17,12 +17,7 @@ __all__ = ["CompressionLogger"]
 
 class CompressionLogger:
     """
-    Log metrics related to compression algorithm
-
-    :param start_tick: time when algorithm started
-    :param losses: loss as result of algorithm
-    :param gpu_type: device manufacturer (e.g. Nvidia, AMD)
-    :param visible_ids: list of device ids visible to current process
+    Log metrics related to compression algorithms
     """
 
     def __init__(self, module: torch.nn.Module):
