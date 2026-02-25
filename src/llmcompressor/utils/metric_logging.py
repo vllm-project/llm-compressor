@@ -6,8 +6,10 @@ during module compression (optimization). Supports both NVIDIA and AMD GPU monit
 """
 
 import time
+from typing import Iterable
 
 import torch
+from compressed_tensors.offload import is_distributed
 from loguru import logger
 
 __all__ = ["CompressionLogger"]
@@ -44,7 +46,7 @@ class CompressionLogger:
         if self.loss is not None:
             patch.log("METRIC", f"error {self.loss:.2f}")
 
-        for device_id in range(torch.cuda.device_count()):
+        for device_id in _get_visible_devices():
             max_memory = torch.cuda.max_memory_allocated(device_id)
             used_memory = torch.cuda.get_device_properties(device_id).total_memory
             perc_used = 100 * used_memory / max_memory
@@ -55,3 +57,11 @@ class CompressionLogger:
                     f" | total memory: {max_memory:.1f} GB"
                 ),
             )
+
+
+def _get_visible_devices() -> Iterable:
+    if is_distributed():
+        return [torch.cuda.current_device()]
+
+    else:
+        return range(torch.cuda.device_count())
