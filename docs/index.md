@@ -6,7 +6,7 @@
    <img alt="LLM Compressor Flow" src="assets/llmcompressor-user-flows.png" width="100%" style="max-width: 100%;"/>
 </p>
 
-## What challenges does LLM Compressor address?
+## Which challenges does LLM Compressor address?
 
 Model optimization through quantization and pruning addresses the key challenges of deploying AI at scale:
 

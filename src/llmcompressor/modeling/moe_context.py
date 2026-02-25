@@ -15,6 +15,8 @@ import contextlib
 from abc import ABC
 
 import torch
+import torch.distributed as dist
+from compressed_tensors.offload import is_distributed
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from tqdm import tqdm
@@ -111,6 +113,8 @@ def moe_calibration_context(
             )
             model.set_submodule(name, replacement)
             replaced[name] = (module, replacement)
+            if is_distributed():
+                dist.barrier()
 
     # Log what was replaced
     if replaced:
