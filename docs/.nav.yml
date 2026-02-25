@@ -32,8 +32,11 @@ nav:
     - Memory Requirements: guides/memory.md
     - Runtime Performance: guides/runtime.md
   - Examples:
-    - examples/index.md
+    - examples/README.md
     - examples/*
+  - Experimental:
+    - experimental/README.md
+    - experimental/*
   - Developer:
     - developer/index.md
     - developer/*
