@@ -8,8 +8,6 @@ to configure via environment variables or direct function calls.
 
 - `LLM_COMPRESSOR_LOG_DISABLED`: Disable logging.
     Default: `False`.
-- `LLM_COMPRESSOR_CLEAR_LOGGERS`: Clear existing loggers from loguru.
-    Default: `True`.
 - `LLM_COMPRESSOR_LOG_LEVEL`: Log level for console logging.
     Default: `None`. Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
 - `LLM_COMPRESSOR_LOG_FILE`: Path to the log file for file logging.
@@ -25,7 +23,6 @@ to configure via environment variables or direct function calls.
     configure_logger(
         config=LoggerConfig(
             disabled=False,
-            clear_loggers=True,
             console_log_level="DEBUG",
             log_file=None,
             log_file_level=None,
@@ -65,9 +62,7 @@ class LoggerConfig:
 LOGGER_CONFIG = LoggerConfig()
 
 
-def configure_logger(
-    logger_config: LoggerConfig = LOGGER_CONFIG, clear_loggers: bool = False
-):
+def configure_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
     """
     Configure the logger for LLM Compressor.
 
@@ -97,8 +92,12 @@ def configure_logger(
     logger.enable("llmcompressor")
 
     # reset logger configuration
-    if clear_loggers:
-        logger.remove()
+    logger.remove()
+
+    # initialize metric logger on loguru
+    logger_levels = logger._core.levels.keys()
+    if not logger_config.metrics_disabled and "METRIC" not in logger_levels:
+        logger.level("METRIC", no=38, color="<yellow>", icon="📈")
 
     # set format (optionally adding rank)
     format = "{time:YYYY-MM-DDTHH:mm:ss.SSSS} | {function} | {level} - {message}"
@@ -107,7 +106,6 @@ def configure_logger(
         format = "[Rank {extra[rank]}] " + format
 
     if logger_config.console_log_level:
-        # log as a human readable string with the time, function, level, and message
         logger.add(
             sys.stdout,
             level=logger_config.console_log_level.upper(),
@@ -123,15 +121,8 @@ def configure_logger(
             log_file,
             level=log_file_level.upper(),
             serialize=True,
-            format=format,
             filter=support_log_once,
         )
-
-    if logger_config.metrics_disabled or "METRIC" in logger._core.levels.keys():
-        return
-
-    # initialize metric logger on loguru
-    logger.level("METRIC", no=38, color="<yellow>", icon="📈")
 
     # set global value for later calls
     global LOGGER_CONFIG
@@ -164,7 +155,7 @@ def support_log_once(record: Dict[str, Any]) -> bool:
 
 def configure_distributed_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
     logger_config.rank = dist.get_rank()
-    configure_logger(logger_config, clear_loggers=True)
+    configure_logger(logger_config)
 
 
 # invoke logger setup on import with default values enabling console logging with INFO

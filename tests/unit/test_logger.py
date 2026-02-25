@@ -26,7 +26,7 @@ def test_default_logger_settings(capsys):
 def test_configure_logger_console_settings(capsys):
     # Test configuring the logger to change console log level
     config = LoggerConfig(console_log_level="DEBUG")
-    configure_logger(config=config)
+    configure_logger(config)
     logger.info("Info message")
     logger.debug("Debug message")
 
@@ -39,7 +39,7 @@ def test_configure_logger_file_settings(tmp_path):
     # Test configuring the logger to log to a file
     log_file = tmp_path / "test.log"
     config = LoggerConfig(log_file=str(log_file), log_file_level="DEBUG")
-    configure_logger(config=config)
+    configure_logger(config)
     logger.info("Info message")
     logger.debug("Debug message")
 
@@ -55,7 +55,7 @@ def test_configure_logger_console_and_file(capsys, tmp_path):
     config = LoggerConfig(
         console_log_level="ERROR", log_file=str(log_file), log_file_level="INFO"
     )
-    configure_logger(config=config)
+    configure_logger(config)
     logger.info("Info message")
     logger.error("Error message")
 
@@ -75,7 +75,7 @@ def test_environment_variable_override(monkeypatch, capsys, tmp_path):
     monkeypatch.setenv("LLM_COMPRESSOR_LOG_FILE", str(tmp_path / "env_test.log"))
     monkeypatch.setenv("LLM_COMPRESSOR_LOG_FILE_LEVEL", "DEBUG")
 
-    configure_logger(config=LoggerConfig())
+    configure_logger(LoggerConfig())
     logger.info("Info message")
     logger.error("Error message")
     logger.debug("Debug message")
@@ -96,7 +96,7 @@ def test_environment_variable_disable_logging(monkeypatch, capsys):
     # Test environment variable to disable logging
     monkeypatch.setenv("LLM_COMPRESSOR_LOG_DISABLED", "true")
 
-    configure_logger(config=LoggerConfig())
+    configure_logger(LoggerConfig())
     logger.info("Info message")
     logger.error("Error message")
 
@@ -109,7 +109,7 @@ def test_environment_variable_enable_logging(monkeypatch, capsys):
     # Test environment variable to enable logging
     monkeypatch.setenv("LLM_COMPRESSOR_LOG_DISABLED", "false")
 
-    configure_logger(config=LoggerConfig())
+    configure_logger(LoggerConfig())
     logger.info("Info message")
     logger.error("Error message")
 
