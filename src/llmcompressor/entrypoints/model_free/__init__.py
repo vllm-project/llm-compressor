@@ -2,7 +2,7 @@ import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import torch
 import tqdm
@@ -20,6 +20,7 @@ from llmcompressor.entrypoints.model_free.model_utils import (
 from llmcompressor.entrypoints.model_free.process import (
     process_file,
     process_file_microscale_scheme,
+    validate_file,
 )
 from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
@@ -37,7 +38,7 @@ def model_free_ptq(
     model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
-    ignore: Optional[list[str]] = None,
+    ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
     device: Optional[torch.device | str] = None,
 ):
@@ -78,12 +79,18 @@ def model_free_ptq(
             logger.info(f"Copying {file_path} {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
-    # 1-4. quantize and compress weights
     with ThreadPoolExecutor(max_workers) as executor:
-        futures = [executor.submit(*job) for job in jobs]
+        # 1. validate quantizable tensors fail fast before long-running quantization
+        futures = [executor.submit(validate_file, *job[1:]) for job in jobs]
+        for future in tqdm.tqdm(
+            as_completed(futures), total=len(futures), desc="Validating"
+        ):
+            future.result()
 
+        # 2-5. quantize and compress weights
         total_size = 0
         weight_map = dict()
+        futures = [executor.submit(*job) for job in jobs]
         for future in tqdm.tqdm(
             as_completed(futures), total=len(futures), desc="Quantizing"
         ):
