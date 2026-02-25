@@ -9,10 +9,14 @@ strategies like NVFP4.
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.utils import align_modules, update_parameter_data
+from compressed_tensors.utils import (
+    align_modules,
+    update_offload_parameter,
+    update_parameter_data,
+)
 from torch.nn import Linear
 
-from llmcompressor.modifiers.utils.fused_modules import (
+from llmcompressor.modeling.fused_modules import (
     get_fused_attention_linears,
     get_fused_mlp_linears,
 )
@@ -39,7 +43,12 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
     When running NVFP4 quantization, update the global scale so that vLLM
     fused groups share one global scale: attention (traditional q/k/v or
     MLA q_a + kv_a) and MLP (gate/up). Uses the centralized fused module
-    definitions; see :mod:`llmcompressor.modifiers.utils.fused_modules`.
+    definitions; see :mod:`llmcompressor.modeling.fused_modules`.
+
+    When a linear already has ``weight_scale`` (e.g. after parallel phase-1
+    calibration), per-tensor scale is rescaled so that q = x/(s'*g') is
+    unchanged: s' = s * (g' / g), where g' is the fused global scale and g
+    was the previous per-tensor global scale.
 
     This is a requirement currently set by vLLM and may be removed or
     made optional in the future.
@@ -55,7 +64,7 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 torch.cat([lin.weight_global_scale.data for lin in linears])
             ).reshape([1])
         for lin in linears:
-            update_parameter_data(lin, global_scale, "weight_global_scale")
+            _apply_fused_global_scale(lin, global_scale)
         del global_scale
 
     # Fused MLP: gate_proj, up_proj
@@ -66,5 +75,17 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 torch.cat([lin.weight_global_scale.data for lin in linears])
             ).reshape([1])
         for lin in linears:
-            update_parameter_data(lin, global_scale, "weight_global_scale")
+            _apply_fused_global_scale(lin, global_scale)
         del global_scale
+
+
+def _apply_fused_global_scale(lin: Linear, g_prime: torch.Tensor) -> None:
+    """Set weight_global_scale to g'; rescale weight_scale so q = x/(s*g) unchanged."""
+    old_g = lin.weight_global_scale.data
+    update_parameter_data(lin, g_prime, "weight_global_scale")
+    weight_scale = getattr(lin, "weight_scale", None)
+    if weight_scale is not None:
+        # s' = s * (g' / g) so that x / s' / g' = x / s / g
+        ratio = (g_prime / old_g).to(weight_scale.dtype).to(weight_scale.device)
+        new_scale = weight_scale.data * ratio
+        update_offload_parameter(lin, "weight_scale", new_scale)
