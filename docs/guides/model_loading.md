@@ -13,15 +13,15 @@ model = AutoModelForCausalLM.from_pretrained(model_stub, dtype="auto")
 
 However, there are some exceptions when it is required to change this logic to handle more advanced loading. The table below shows the behavior of different model loading configurations.
 
-Distributed=False | "auto" | "cuda" | "cpu" | "auto_offload"
+Distributed=False | device_map="auto" | device_map="cuda" | device_map="cpu" | device_map="auto_offload"
 -- | -- | -- | -- | --
-offloaded_model context required? | No | No | No | Yes
+`load_offloaded_model` context required? | No | No | No | Yes
 Behavior | Try to load model onto all visible cuda devices. Fallback to cpu and disk if model too large | Try to load model onto first cuda device only. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
 LLM Compressor Examples | This is the recommended load option when using the "basic" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
-Distributed=True | "auto" | "cuda" | "cpu" | "auto_offload"
+Distributed=True | device_map="auto" | device_map="cuda" | device_map="cpu" | device_map="auto_offload"
 -- | -- | -- | -- | --
-offloaded_model context required? | Yes | Yes | Yes | Yes
+`load_offloaded_model` context required? | Yes | Yes | Yes | Yes
 Behavior | Try to load model onto device 0, then broadcast replicas to other devices. Fallback to cpu and disk if model is too large | Try to load model onto device 0 only, then broadcast replicas to other devices. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
 LLM Compressor Examples | This is the recommended load option when using the "basic" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
