@@ -63,6 +63,14 @@ class TestCase(NamedTuple):
 @pytest.mark.parametrize(
     "test_case",
     [
+        pytest.param(
+            TestCase(
+                "quantization_w4a16/llama3_ddp_example.py",
+                compressed_format=CompressionFormat.pack_quantized,
+                prefix="W4A16-G128-DDP",
+            ),
+            marks=(requires_gpu(2), pytest.mark.multi_gpu),
+        ),
         TestCase(
             "awq/llama_example.py",
             compressed_format=CompressionFormat.pack_quantized,
