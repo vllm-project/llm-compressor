@@ -7,7 +7,7 @@ from compressed_tensors.quantization import QuantizationScheme
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
-from llmcompressor.entrypoints.model_free.helpers import iter_quantizable_tensors
+from llmcompressor.entrypoints.model_free.helpers import match_quantizable_tensors
 from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_global_scale,
     calibrate_scale_zp,
@@ -49,7 +49,7 @@ def validate_file(
     for processor in processors:
         processor.validate(tensors)
 
-    for _, name in iter_quantizable_tensors(tensors, ignore):
+    for _, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
 
@@ -79,7 +79,7 @@ def process_file(
     for processor in processors:
         processor.process(tensors)
 
-    for module_name, name in iter_quantizable_tensors(tensors, ignore, scheme.targets):
+    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
         # 1. initialize module with qparams (on device)
@@ -142,7 +142,7 @@ def process_file_microscale_scheme(
     }
     fused_modules = defaultdict(dict)
 
-    for module_name, name in iter_quantizable_tensors(tensors, ignore, scheme.targets):
+    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
         # 1. initialize module with qparams (on device)

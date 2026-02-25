@@ -101,7 +101,10 @@ def _assert_safetensors_equal(a_path: str, b_path: str) -> bool:
     if "lm_head.weight" in a and "lm_head.weight" not in b:
         del a["lm_head.weight"]
 
-    assert a.keys() == b.keys(), (a.keys() - b.keys(), b.keys() - a.keys())
+    assert a.keys() == b.keys(), (
+        sorted(a.keys() - b.keys()),
+        sorted(b.keys() - a.keys()),
+    )
 
     for key in a.keys():
         value_equal = torch.equal(a[key].to(torch.bfloat16), b[key].to(torch.bfloat16))

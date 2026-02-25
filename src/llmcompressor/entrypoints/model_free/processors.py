@@ -2,7 +2,7 @@ from typing import Iterable, Protocol
 
 import torch
 
-from llmcompressor.entrypoints.model_free.helpers import iter_quantizable_tensors
+from llmcompressor.entrypoints.model_free.helpers import match_quantizable_tensors
 
 
 class Processor(Protocol):
@@ -32,8 +32,8 @@ class ModelOptNvfp4Processor(Processor):
         self.targets = targets
 
     def process(self, tensors: dict[str, torch.Tensor]):
-        for module_name, name in iter_quantizable_tensors(
-            tensors, self.ignore, self.targets, include_nonquantizable=True
+        for module_name, name in match_quantizable_tensors(
+            tensors, self.ignore, self.targets, allow_nonquantizable=True
         ):
             param_name = name.rsplit(".", 1)[-1]
 
@@ -64,8 +64,8 @@ class ModelOptNvfp4Processor(Processor):
                     raise RuntimeError(f"Hit unexpected tensor {name}")
 
     def validate(self, tensors: dict[str, torch.Tensor]):
-        for _, name in iter_quantizable_tensors(
-            tensors, self.ignore, self.targets, include_nonquantizable=True
+        for _, name in match_quantizable_tensors(
+            tensors, self.ignore, self.targets, allow_nonquantizable=True
         ):
             param_name = name.rsplit(".", 1)[-1]
 
