@@ -2,7 +2,7 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.offload.dist_utils import is_distributed
+from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -358,7 +358,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 if getattr(module, attr, None) is not None:
                     pending_comms.append(
                         dist.broadcast(
-                            getattr(module, attr), src=src_rank, async_op=True
+                            as_broadcastable(getattr(module, attr)),
+                            src=src_rank,
+                            async_op=True,
                         )
                     )
         wait_for_comms(pending_comms)
