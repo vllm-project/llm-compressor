@@ -13,7 +13,9 @@ from compressed_tensors.config import CompressionFormat
 from tests.testing_utils import requires_gpu, run_cli_command
 
 
-def verify_quantization_config(tmp_path: Path, prefix: str, compressed_format: str):
+def verify_quantization_config(
+    tmp_path: Path, prefix: str, compressed_format: CompressionFormat
+):
     # verify the expected directory was generated
     dirs: List[Path] = [p for p in tmp_path.rglob(f"*-{prefix}") if p.is_dir()]
     assert (len(dirs)) == 1, f"did not find exactly one generated folder: {dirs}"
@@ -21,7 +23,7 @@ def verify_quantization_config(tmp_path: Path, prefix: str, compressed_format: s
     # verify the format in the generated config
     config_json = json.loads((dirs[0] / "config.json").read_text())
     config_format = config_json["quantization_config"]["format"]
-    assert config_format == compressed_format
+    assert config_format == compressed_format.value
 
 
 class TestCase(NamedTuple):
@@ -29,8 +31,10 @@ class TestCase(NamedTuple):
     flags: tuple[str] = ()
     preprocess_fn: None | Callable[[str], str] = None
     # verify_fn(tmp_path, prefix, compressed_format)
-    verify_fn: Callable[[Path, str, str], None] | None = verify_quantization_config
-    compressed_format: str | None = None
+    verify_fn: Callable[[Path, str, CompressionFormat], None] | None = (
+        verify_quantization_config
+    )
+    compressed_format: CompressionFormat | None = None
     prefix: str | None = None
 
     def __repr__(self):
