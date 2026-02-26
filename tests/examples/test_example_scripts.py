@@ -67,7 +67,7 @@ class TestCase(NamedTuple):
             TestCase(
                 "quantization_w4a16/llama3_ddp_example.py",
                 compressed_format=CompressionFormat.pack_quantized,
-                prefix="W4A16-G128-DDP",
+                prefix="W4A16-G128-DDP2",
             ),
             marks=(requires_gpu(2), pytest.mark.multi_gpu),
         ),
