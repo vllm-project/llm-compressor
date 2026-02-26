@@ -79,7 +79,7 @@ class TestCase(NamedTuple):
         TestCase(
             "awq/qwen3_moe_example.py",
             compressed_format=CompressionFormat.pack_quantized,
-            prefix="awq-asym",
+            prefix="30B-A3B-awq-asym",
         ),
         TestCase(
             "big_models_with_sequential_onloading/llama3.3_70b.py",
@@ -114,7 +114,7 @@ class TestCase(NamedTuple):
         TestCase(
             "disk_offloading/qwen3_example.py",
             compressed_format=CompressionFormat.nvfp4_pack_quantized,
-            prefix="NVFP4",
+            prefix="NVFP4-Disk-Offload",
         ),
         TestCase(
             "model_free_ptq/qwen3_fp8_block.py",
@@ -135,7 +135,7 @@ class TestCase(NamedTuple):
             "sparse_2of4_quantization_fp8/llama3_8b_2of4.py",
             flags=["--fp8"],
             compressed_format=CompressionFormat.float_quantized,
-            prefix="2of4-W8A8-FP8-Dynamic-Per-Token",
+            prefix="W8A8-FP8-Dynamic-Per-Token",
         ),
         TestCase(
             "quantization_w4a4_fp4/llama4_example.py",
@@ -145,7 +145,7 @@ class TestCase(NamedTuple):
         TestCase(
             "quantization_w4a4_fp4/qwen_30b_a3b.py",
             compressed_format=CompressionFormat.nvfp4_pack_quantized,
-            prefix="NVFP4",
+            prefix="30B-A3B-NVFP4",
         ),
         TestCase(
             "quantization_w4a4_fp4/llama3_gptq_example.py",

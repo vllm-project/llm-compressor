@@ -184,6 +184,9 @@ setup(
             "mkdocs-gen-files",
             "mkdocs-awesome-nav",
         ],
+        "qwen": [
+            "qwen_vl_utils",
+        ],
     },
     entry_points={
         "console_scripts": [
