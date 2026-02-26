@@ -168,7 +168,7 @@ def test_example_scripts(
     is_multi_gpu = "multi_gpu" in [mark.name for mark in request.node.iter_markers()]
 
     if is_multi_gpu:
-        command = [sys.executable, "-m", "torchrun", "--nproc_per_node=2", filename]
+        command = ["torchrun", "--standalone", "--nproc_per_node=2", filename]
     else:
         command = [sys.executable, filename]
 
