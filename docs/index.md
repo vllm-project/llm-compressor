@@ -27,10 +27,10 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
     Loading transformers models that are offloaded to disk and/or offloaded across distributed process ranks is now supported. Disk offloading allows users to load and compress very large models which normally would not fit in CPU memory. Offloading functionality is no longer supported through accelerate but through model loading utilities added to compressed-tensors. For a full summary of updated loading and offloading functionality, for both single-process and distributed flows, see the [Big Models and Distributed Support guide](guides/big_models_and_distributed/model_loading.md)
 
 !!! info "Distributed GPTQ Support"
-    GPTQ now supports Distributed Data Parallel (DDP) functionality to significantly improve calibration runtime. An example using DDP with GPTQ can be found [here](../examples/quantization_w4a16/llama3_ddp_example.py)
+    GPTQ now supports Distributed Data Parallel (DDP) functionality to significantly improve calibration runtime. An example using DDP with GPTQ can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w4a16/llama3_ddp_example.py)
 
 !!! info "Updated FP4 Microscale Support"
-    GPTQ now supports FP4 quantization schemes, including both [MXFP4](../examples/quantization_w4a16_fp4/mxfp4/llama3_example.py) and [NVFP4](../examples/quantization_w4a4_fp4/llama3_gptq_example.py). MXFP4 support has also been improved with updated weight scale generation. Models with weight-only quantization in the MXFP4 format can now run in vLLM as of vLLM v0.14.0. MXFP4 models with activation quantization are not yet supported in vLLM for compressed-tensors models
+    GPTQ now supports FP4 quantization schemes, including both [MXFP4](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w4a16_fp4/mxfp4/llama3_example.py) and [NVFP4](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w4a4_fp4/llama3_gptq_example.py). MXFP4 support has also been improved with updated weight scale generation. Models with weight-only quantization in the MXFP4 format can now run in vLLM as of vLLM v0.14.0. MXFP4 models with activation quantization are not yet supported in vLLM for compressed-tensors models
 
 
 !!! info "New Model-Free PTQ Pathway"
