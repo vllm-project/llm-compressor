@@ -17,13 +17,13 @@ Distributed=False | device_map="auto" | device_map="cuda" | device_map="cpu" | d
 -- | -- | -- | -- | --
 `load_offloaded_model` context required? | No | No | No | Yes
 Behavior | Try to load model onto all visible cuda devices. Fallback to cpu and disk if model too large | Try to load model onto first cuda device only. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
-LLM Compressor Examples | This is the recommended load option when using the "basic" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
+LLM Compressor Examples | This is the recommended load option when using the "basic" or "data_free" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 Distributed=True | device_map="auto" | device_map="cuda" | device_map="cpu" | device_map="auto_offload"
 -- | -- | -- | -- | --
 `load_offloaded_model` context required? | Yes | Yes | Yes | Yes
 Behavior | Try to load model onto device 0, then broadcast replicas to other devices. Fallback to cpu and disk if model is too large | Try to load model onto device 0 only, then broadcast replicas to other devices. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
-LLM Compressor Examples | This is the recommended load option when using the "basic" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
+LLM Compressor Examples | This is the recommended load option when using the "basic" or "data_free" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 ## Disk Offloading ##
 When compressing models which are larger than the available CPU memory, it is recommended to utilize disk offloading for any weights which cannot fit on the cpu. To enable disk offloading, use the `load_offloaded_model` context from `compressed_tensors` to load your model, along with `device_map="auto_offload"`.
