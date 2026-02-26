@@ -1,5 +1,4 @@
 import torch
-from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 

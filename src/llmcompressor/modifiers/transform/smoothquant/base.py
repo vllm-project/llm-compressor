@@ -4,7 +4,6 @@ from typing import Callable
 import torch
 from compressed_tensors.offload import update_offload_parameter
 from compressed_tensors.utils import (
-    align_module_device,
     match_modules_set,
     match_named_modules,
 )

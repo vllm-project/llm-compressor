@@ -2,12 +2,12 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.offload import (
     disable_offloading,
     get_execution_device,
     update_offload_parameter,
 )
+from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationConfig,
