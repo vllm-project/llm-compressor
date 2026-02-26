@@ -17,8 +17,8 @@ DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = f"train_sft[:{NUM_CALIBRATION_SAMPLES}]"
 
 MODEL_IDS = [
-    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    "microsoft/Phi-3-mini-4k-instruct",
+    "nm-testing/tinysmokeqwen3",
+    "nm-testing/tinysmokellama-3.2",
 ]
 
 
@@ -80,7 +80,7 @@ def kv_cache_fixture():
             symmetric=symmetric,
         )
 
-        model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        model_id = "nm-testing/tinysmokeqwen3"
 
         ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
         ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))

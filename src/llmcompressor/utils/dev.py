@@ -7,7 +7,7 @@ from typing import Type
 
 import torch
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.utils import patch_attr
+from compressed_tensors.utils import deprecated, patch_attr
 from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
@@ -119,15 +119,17 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
 
 
 def get_main_device() -> torch.device:
+    rank = 0 if not torch.distributed.is_initialized() else torch.distributed.get_rank()
     if torch.cuda.is_available():
-        return torch.device("cuda:0")
+        return torch.device(f"cuda:{rank}")
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu:0")
+        return torch.device(f"xpu:{rank}")
     else:
         logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
         return torch.device("cpu")
 
 
+@deprecated("compressed_tensors.offload::dispatch_model")
 @wraps(dispatch_model)
 def dispatch_for_generation(*args, **kwargs) -> PreTrainedModel:
     """

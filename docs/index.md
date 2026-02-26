@@ -6,7 +6,7 @@
    <img alt="LLM Compressor Flow" src="assets/llmcompressor-user-flows.png" width="100%" style="max-width: 100%;"/>
 </p>
 
-## What challenges does LLM Compressor address?
+## Which challenges does LLM Compressor address?
 
 Model optimization through quantization and pruning addresses the key challenges of deploying AI at scale:
 
@@ -17,7 +17,7 @@ Model optimization through quantization and pruning addresses the key challenges
 | Request throughput | Utilizes lower-precision tensor cores for faster computation |
 | Energy consumption | Smaller models consume less power during inference |
 
-For more information, see [Why use LLM Compressor?](./getting-started/why-llmcompressor.md)
+For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md)
 
 ## New in this release
 

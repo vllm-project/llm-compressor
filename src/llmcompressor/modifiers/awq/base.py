@@ -76,6 +76,10 @@ class AWQModifier(Modifier, QuantizationMixin):
           balance_layers: ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]
         - smooth_layer: "re:.*final_layer_norm"
           balance_layers: ["re:.*fc1"]
+        # activation_hook_target specifies which submodule of the parent to hook
+        # for activation caching.
+        # This change is only useful for MoE models with parallel transformer blocks,
+        # and one should use the default value (None) in most cases.
       ignore: ["lm_head"]
       config_groups:
         group_0:
@@ -122,6 +126,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         to smoothed) and the second entry is the layer whose output is scaled to
         achieve the smoothing.
         If regex is used, it matches layers with the largest overlap in module name.
+        Each mapping may also include an ``activation_hook_target``: a dotted
+        attribute path relative to the parent module (lowest common ancestor)
+        specifying which submodule to hook for activation caching. This is useful
+        for parallel transformer blocks where the default (hooking
+        ``balance_layers[0]``) would capture the wrong activations.
     :param ignore: list of layers to ignore during quantization (not smoothed).
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
@@ -163,10 +172,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
-    # Cache FP16 baseline outputs for each parent module, one list of tensors per batch
-    _fp16_baseline_cache: dict[Module, IntermediatesCache] = PrivateAttr(
-        default_factory=dict
-    )
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -389,6 +394,17 @@ class AWQModifier(Modifier, QuantizationMixin):
                     balance_names, model, torch.nn.ModuleList
                 )
 
+                activation_hook_target = None
+                if mapping.activation_hook_target:
+                    activation_hook_target = getattr_chain(
+                        ancestor, mapping.activation_hook_target
+                    )
+                    if activation_hook_target is None:
+                        raise ValueError(
+                            f"activation_hook_target '{mapping.activation_hook_target}'"
+                            f" not found on parent module '{ancestor_name}'"
+                        )
+
                 resolved_mappings.append(
                     ResolvedMapping(
                         smooth_name,
@@ -397,6 +413,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         balance_names=balance_names,
                         parent=ancestor,
                         parent_name=ancestor_name,
+                        activation_hook_target=activation_hook_target,
                     )
                 )
         self._resolved_mappings = resolved_mappings
@@ -468,16 +485,14 @@ class AWQModifier(Modifier, QuantizationMixin):
             # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
-
-            # The line below is useful for models that use parallel transformer block,
-            # such as gemma 3, command A. Need a better way to integrate it to the code.
-            # layer_to_hook = (
-            #     mapping.parent.mlp
-            #     if hasattr(mapping.parent, 'mlp')
-            #     else mapping.balance_layers[0]
-            # )
+            #
+            # For parallel transformer blocks (e.g. Command A, Gemma 3) the first
+            # balance layer may not receive the right activations.  When
+            # activation_hook_target is set on the mapping, hook that module
+            # instead of balance_layers[0].
+            layer_to_hook = mapping.activation_hook_target or mapping.balance_layers[0]
             self.register_hook(
-                mapping.balance_layers[0],
+                layer_to_hook,
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
                 "forward",
             )
@@ -536,8 +551,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                 orig_layer_weights = {
                     balance_layer: balance_layer.weight.clone()
                     for balance_layer in mapping.balance_layers
-                    if hasattr(balance_layer, "quantization_scheme")
-                    and hasattr(balance_layer.quantization_scheme, "weights")
                 }
 
                 best_scales = self._compute_best_scale(
@@ -687,11 +700,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
                 scales = scales / (scales.max() * scales.min()).sqrt()
-                _scalesview = scales.view(1, -1).to(device)
-
-                # avoid scaling values that overflow
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
+                _scalesview = scales.view(1, -1).to(device)
 
                 # Q(W * s)
                 for balance_layer in balance_layers_to_patch:

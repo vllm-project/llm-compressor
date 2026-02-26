@@ -19,4 +19,4 @@ oneshot(
 ```
 
 For advanced usage, you can configure individual modifiers and apply them directly to models.
-See the [Examples](../examples/index.md) section for detailed usage patterns.
+See the [Examples](https://github.com/vllm-project/llm-compressor/tree/main/examples) section for detailed usage patterns.

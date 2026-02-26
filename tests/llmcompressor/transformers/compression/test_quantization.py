@@ -1,5 +1,7 @@
 import pytest
 import torch
+from accelerate.utils import align_module_device
+from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
@@ -8,7 +10,6 @@ from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers.data import TextGenerationDataset
-from llmcompressor.utils.dev import dispatch_for_generation
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
@@ -36,21 +37,22 @@ def _get_quant_info(model):
     quant_info_weights = {}
     quant_info_inputs = {}
     for name, module in model.named_modules():
-        if is_module_quantized(module):
-            if module.quantization_scheme.weights is not None:
-                quant_info_weights[name] = (
-                    module.weight_scale,
-                    module.weight_zero_point,
-                    module.weight,
-                )
-
-            if module.quantization_scheme.input_activations is not None:
-                is_dynamic = module.quantization_scheme.input_activations.dynamic
-                if not is_dynamic:
-                    quant_info_inputs[name] = (
-                        module.input_scale,
-                        module.input_zero_point,
+        with align_module_device(module):
+            if is_module_quantized(module):
+                if module.quantization_scheme.weights is not None:
+                    quant_info_weights[name] = (
+                        module.weight_scale,
+                        module.weight_zero_point,
+                        module.weight,
                     )
+
+                if module.quantization_scheme.input_activations is not None:
+                    is_dynamic = module.quantization_scheme.input_activations.dynamic
+                    if not is_dynamic:
+                        quant_info_inputs[name] = (
+                            module.input_scale,
+                            module.input_zero_point,
+                        )
 
     return quant_info_weights, quant_info_inputs
 
@@ -85,7 +87,7 @@ def setup_model_and_config(request, tmpdir_factory):
         num_calibration_samples=num_calibration_samples,
         recipe=config["new_recipe"],
         pad_to_max_length=pad_to_max_length,
-        splits={"calibration": "train_gen[:1%]"},
+        splits={"calibration": f"train_gen[:{num_calibration_samples}]"},
         save_compressed=False,
     )
 
@@ -140,7 +142,7 @@ def test_perplexity(setup_model_and_config):
         max_seq_length=config["max_seq_length"],
     )
     dataloader = _get_dataloader(dataset_args, tokenizer)
-    dispatch_for_generation(model)
+    dispatch_model(model)
 
     total_ppl = 0.0
     total_samples = 0
