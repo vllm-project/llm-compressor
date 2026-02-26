@@ -155,14 +155,23 @@ class TestCase(NamedTuple):
     ],
     ids=repr,
 )
-def test_example_scripts(test_case: str | TestCase, tmp_path: Path):
+def test_example_scripts(
+    test_case: str | TestCase, tmp_path: Path, request: pytest.FixtureRequest
+):
     if isinstance(test_case, str):
         test_case = TestCase(test_case)
 
     example_subdir, filename = test_case.path.rsplit("/", 1)
     example_dir = f"examples/{example_subdir}"
 
-    command = [sys.executable, filename]
+    # Check if this is a multi-GPU test
+    is_multi_gpu = "multi_gpu" in [mark.name for mark in request.node.iter_markers()]
+
+    if is_multi_gpu:
+        command = [sys.executable, "-m", "torchrun", "--nproc_per_node=2", filename]
+    else:
+        command = [sys.executable, filename]
+
     if test_case.flags:
         command.extend(test_case.flags)
 
