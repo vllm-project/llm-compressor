@@ -331,12 +331,11 @@ class TensorNetworkModifier(Modifier):
         final_avg_cosine_similarity = 0.0  # Track final cosine similarity
 
         pbar = tqdm(
-            range(max_total_num_epochs - total_num_epochs),
+            total=max_total_num_epochs,
+            initial=total_num_epochs,
             desc=f"{name} | ",
         )
-        pbar.update(total_num_epochs)
-        pbar.total = 100
-        for epoch in pbar:
+        for epoch in range(max_total_num_epochs - total_num_epochs):
             total_loss = 0.0
             num_batches = 0
             cosine_similarities = []
