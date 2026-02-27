@@ -92,6 +92,8 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Glm4MoeForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "GlmMoeDsaForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
