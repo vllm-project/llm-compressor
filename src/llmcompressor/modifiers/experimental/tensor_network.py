@@ -401,7 +401,7 @@ class TensorNetworkModifier(Modifier):
             loss_history.append(epoch_loss)
 
             pbar.set_description(
-                f"{name} | # params : "
+                f"{name} | # params: "
                 f"{tensorized_params:.1e} ({compression_pct}) | "
                 f"mse: {sum(mses)/len(mses):.2e} | "
                 f"sqnr: {sum(sqnrs)/len(sqnrs):.2e} | "
