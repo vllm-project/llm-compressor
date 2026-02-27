@@ -340,11 +340,15 @@ class TensorNetworkModifier(Modifier):
             total_loss = 0.0
             num_batches = 0
             cosine_similarities = []
+            sqnrs = []
             mses = []
 
-            for batch_input, dense_output in self.get_batch_inputs_outputs(
-                self._target_args_cache[(name, linear)], self.batch_size
-            ):
+            # for batch_input, dense_output in self.get_batch_inputs_outputs(
+            #     self._target_args_cache[(name, linear)], self.batch_size
+            # ):
+            for batch in self._target_args_cache[(name, linear)].iter():
+                batch_input, dense_output = batch.values()
+
                 # Zero gradients
                 optimizer.zero_grad()
 
@@ -363,6 +367,11 @@ class TensorNetworkModifier(Modifier):
                 optimizer.step()
 
                 cosine_similarities.append(cosine_sim.detach().abs().mean())
+                sqnrs.append(
+                    compute_sqnr(
+                        tensorized_batch_output.detach(), dense_output.detach()
+                    )
+                )
                 mses.append(
                     F.mse_loss(
                         tensorized_batch_output.detach(), dense_output.detach()
@@ -396,6 +405,7 @@ class TensorNetworkModifier(Modifier):
                 f"{name} | # params : "
                 f"{tensorized_params:.1e} ({compression_pct}) | "
                 f"mse: {sum(mses)/len(mses):.2e} | "
+                f"sqnr: {sum(sqnrs)/len(sqnrs):.2e} | "
                 f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
             )
             pbar.update(1)
@@ -518,3 +528,20 @@ def get_parent_of_model_by_name(
     # except AttributeError:
     #     # If any part of the path is invalid, the parent is not found
     #     return None
+
+
+# https://github.com/pytorch/pytorch/blob/v2.10.0/torch/ao/ns/fx/utils.py#L470
+def compute_sqnr(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the SQNR between `x` and `y`.
+
+    Args:
+        x: Tensor or tuple of tensors
+        y: Tensor or tuple of tensors
+
+    Return:
+        float or tuple of floats
+    """
+    Ps = torch.norm(x)
+    Pn = torch.norm(x - y)
+    return 20 * torch.log10(Ps / Pn)

@@ -46,8 +46,8 @@ DATASET_SPLIT = "validation"
 
 # Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 2  # 256
-MAX_SEQUENCE_LENGTH = 16
+NUM_CALIBRATION_SAMPLES = 256
+MAX_SEQUENCE_LENGTH = 512
 
 
 def get_calib_dataset(tokenizer):
