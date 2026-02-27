@@ -48,7 +48,8 @@ def run_model_free_ptq():
             # - model.layers.3.mlp.experts.0.down_proj.weight
             # - model.layers.3.mlp.experts.0.gate_proj.weight
             # - model.layers.3.mlp.experts.0.up_proj.weight
-            ModelOptNvfp4Processor(targets=["re:.*mlp.*\.(gate|up|down)_proj$"])
+            # NOTE: gate_up_proj also needed, when gate/up are fused
+            ModelOptNvfp4Processor(targets=["re:.*mlp.*\.(gate_up|gate|up|down)_proj$"])
         ],
     )
 
