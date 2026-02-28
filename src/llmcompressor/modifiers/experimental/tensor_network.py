@@ -354,13 +354,15 @@ class TensorNetworkModifier(Modifier):
                 # Forward pass through tensorized layer
                 tensorized_batch_output = tensorized_linear(batch_input)
 
-                # Compute cosine similarity loss (1 - cosine_similarity)
-                # This encourages vectors to align in the same direction vs.
-                # loss = F.mse_loss(tensorized_batch_output, dense_output)
+                # Compute hybrid loss: MSE + (1 - cosine_similarity)
+                # MSE forces the model to get the physical scale right
+                # Cosine similarity encourages vectors to align in the same direction
+                mse = F.mse_loss(tensorized_batch_output, dense_output)
                 cosine_sim = F.cosine_similarity(
                     tensorized_batch_output, dense_output, dim=-1
                 )
-                loss = (1 - cosine_sim).mean()
+                cosine_loss = (1 - cosine_sim).mean()
+                loss = mse + cosine_loss
 
                 loss.backward()
                 optimizer.step()
@@ -371,11 +373,7 @@ class TensorNetworkModifier(Modifier):
                         tensorized_batch_output.detach(), dense_output.detach()
                     )
                 )
-                mses.append(
-                    F.mse_loss(
-                        tensorized_batch_output.detach(), dense_output.detach()
-                    ).item()
-                )
+                mses.append(mse.detach().item())
                 total_loss += loss.item()
                 num_batches += 1
 

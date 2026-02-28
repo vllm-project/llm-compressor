@@ -26,6 +26,7 @@ class TensorizedLinear(nn.Module):
         rank: int | tuple[int] | None,
         factors: tuple[torch.Tensor, ...] | None,
         bias: torch.Tensor | None = None,
+        alpha: torch.Tensor | None = None,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
     ):
@@ -46,6 +47,11 @@ class TensorizedLinear(nn.Module):
         self.factors = nn.ParameterList(
             [nn.Parameter(f.to(dtype), requires_grad=True) for f in factors]
         )
+
+        # Learnable scaling parameter initialized to 1.0 to preserve initial behavior
+        if alpha is None:
+            alpha = torch.ones(1, dtype=dtype)
+        self.alpha = nn.Parameter(alpha.to(dtype), requires_grad=True)
 
     @classmethod
     def from_linear(
@@ -212,6 +218,9 @@ class TensorizedLinear(nn.Module):
         out_features = math.prod(output_shape)
         result = result.reshape(batch_total, out_features)
 
+        # Apply learnable scaling
+        result = self.alpha * result
+
         # Add bias if present
         if self.bias is not None:
             result = result + self.bias
@@ -229,7 +238,13 @@ class TensorizedLinear(nn.Module):
         """
         # Form full weight matrix
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
-        return F.linear(x, W, self.bias)
+        result = F.linear(x, W, None)
+        # Apply learnable scaling
+        result = self.alpha * result
+        # Add bias after scaling
+        if self.bias is not None:
+            result = result + self.bias
+        return result
 
     def truncate_ranks(self, rank_reduction_factor: float) -> "TensorizedLinear":
         """
@@ -304,6 +319,7 @@ class TensorizedLinear(nn.Module):
             rank=None,  # rank is now implicit in factors
             factors=factors,
             bias=self.bias.clone() if self.bias is not None else None,
+            alpha=self.alpha.data.clone(),
             dtype=self.dtype,
         )
 
