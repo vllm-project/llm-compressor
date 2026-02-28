@@ -362,7 +362,9 @@ class TensorNetworkModifier(Modifier):
                     tensorized_batch_output, dense_output, dim=-1
                 )
                 cosine_loss = (1 - cosine_sim).mean()
-                loss = mse + cosine_loss
+                # Weight MSE by the ratio of the losses so they contribute equally
+                mse_weight = cosine_loss.detach() / (mse.detach() + 1e-8)
+                loss = mse_weight * mse + cosine_loss
 
                 loss.backward()
                 optimizer.step()
