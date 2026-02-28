@@ -404,8 +404,17 @@ class TensorizedLinear(nn.Module):
 
             # Truncate to new rank
             U_truncated = U[:, :new_rank]
-            S_truncated = S[:new_rank]
+            S_truncated = S[:new_rank].clone()
             Vh_truncated = Vh[:new_rank, :]
+
+            # Singular value renormalization: boost remaining singular values
+            # to compensate for energy lost from removed ones
+            # This preserves the variance distribution better than global scaling alone
+            original_energy = (S ** 2).sum()
+            truncated_energy = (S_truncated ** 2).sum()
+            # Scale factor to preserve total energy in the kept singular values
+            sv_scale_factor = torch.sqrt(original_energy / (truncated_energy + 1e-10))
+            S_truncated = S_truncated * sv_scale_factor
 
             # Reconstruct left and right matrices with reduced bond dimension
             left_matrix_new = U_truncated  # (left_dims, new_rank)
