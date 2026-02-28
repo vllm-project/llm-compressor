@@ -406,42 +406,66 @@ class TensorizedLinear(nn.Module):
             # Combine cores across bond: (left_dims, bond) @ (bond, right_dims)
             combined = left_matrix @ right_matrix
 
-            # Data-aware SVD (V-SVD): weight by input covariance if available
-            # This emphasizes parts of the matrix that actually process data
-            if input_cov_sqrt is not None:
-                # Weight the combined matrix: combined_weighted = combined @ input_cov_sqrt
-                # combined has shape (left_dims, right_dims)
-                # input_cov_sqrt has shape (in_features, in_features)
-                # We need to align dimensions properly
+            # Hessian-weighted truncation (Optimal Brain Surgeon approach):
+            # Instead of truncating by magnitude alone, consider sensitivity
+            # Use Fisher Information Matrix (input covariance) as Hessian proxy
 
-                # Right_dims contains input feature dimensions (m_kp1) and other dimensions
-                # For simplicity, weight if right_dims matches in_features
-                if right_dims == input_cov_sqrt.shape[0]:
-                    combined_weighted = combined @ input_cov_sqrt
-                else:
-                    combined_weighted = combined
+            # Perform SVD on unweighted matrix first to get base singular values
+            U, S, Vh = torch.linalg.svd(combined, full_matrices=False)
+
+            # Compute sensitivity-weighted importance scores
+            if input_cov_sqrt is not None and right_dims == input_cov_sqrt.shape[0]:
+                # Hessian-weighted: weight each singular value by its activation sensitivity
+                # Project right singular vectors through input covariance to get sensitivity
+                # Sensitivity ≈ how much this direction is "pushed" by real data
+
+                # For each singular component, compute activation variance in that direction
+                # Vh has shape (current_rank, right_dims)
+                # input_cov_sqrt has shape (right_dims, right_dims) = (in_features, in_features)
+
+                # Compute importance = σᵢ² · Sensitivityᵢ
+                # Sensitivity = ||√C · vᵢ||² where vᵢ is right singular vector
+                sensitivity_vectors = Vh @ input_cov_sqrt  # (current_rank, in_features)
+                sensitivities = (sensitivity_vectors ** 2).sum(dim=1)  # (current_rank,)
+
+                # Normalize sensitivities to make threshold interpretable
+                sensitivities = sensitivities / (sensitivities.mean() + 1e-10)
+
+                # Importance = σᵢ² · Sensitivityᵢ
+                # This preserves small σᵢ if they have high sensitivity (critical for model)
+                importance_scores = (S ** 2) * sensitivities
             else:
-                combined_weighted = combined
+                # Standard truncation: importance = σᵢ² (raw energy only)
+                importance_scores = S ** 2
 
-            # SVD to find singular values (on weighted matrix if data-aware)
-            U, S, Vh = torch.linalg.svd(combined_weighted, full_matrices=False)
-
-            # Determine new rank based on truncation mode
+            # Determine new rank and which components to keep
             current_rank = r_bond
             if rank_reduction_factor is not None:
-                # Percentage-based truncation: keep top (1 - rank_reduction_factor) of singular values
+                # Percentage-based truncation: keep top (1 - rank_reduction_factor) by magnitude
                 new_rank = max(1, int(current_rank * (1.0 - rank_reduction_factor)))
                 if new_rank >= current_rank:
                     new_rank = current_rank - 1
+                # Keep components by magnitude order (default SVD ordering)
+                keep_indices = torch.arange(new_rank, device=S.device)
             else:
-                # Energy-preserving truncation: keep enough singular values to preserve energy_threshold
-                # Energy is sum of squared singular values
-                total_energy = (S ** 2).sum()
-                target_energy = energy_threshold * total_energy
+                # Importance-preserving truncation (Hessian-weighted)
+                # Keep enough components to preserve importance_threshold
+                # Importance = σᵢ² · Sensitivityᵢ (combines magnitude and activation sensitivity)
+                total_importance = importance_scores.sum()
+                target_importance = energy_threshold * total_importance
 
-                # Find minimum k where sum of top k squared singular values >= target_energy
-                cumulative_energy = torch.cumsum(S ** 2, dim=0)
-                new_rank = (cumulative_energy >= target_energy).nonzero(as_tuple=True)[0][0].item() + 1
+                # Sort by importance (not just magnitude)
+                # This is the key: we might keep a small σᵢ if it has high sensitivity
+                importance_sorted_indices = torch.argsort(importance_scores, descending=True)
+                cumulative_importance = torch.cumsum(importance_scores[importance_sorted_indices], dim=0)
+
+                # Find cutoff - keep components that meet importance threshold
+                meets_threshold = (cumulative_importance >= target_importance).nonzero(as_tuple=True)[0]
+                if len(meets_threshold) > 0:
+                    new_rank = meets_threshold[0].item() + 1
+                else:
+                    new_rank = current_rank
+
                 new_rank = max(1, min(new_rank, current_rank))
 
                 # Limit maximum rank reduction per truncation step to preserve more parameters
@@ -450,10 +474,15 @@ class TensorizedLinear(nn.Module):
                 min_allowed_rank = current_rank - max_rank_reduction
                 new_rank = max(new_rank, min_allowed_rank)
 
-            # Truncate to new rank
-            U_truncated = U[:, :new_rank]
-            S_truncated = S[:new_rank]
-            Vh_truncated = Vh[:new_rank, :]
+                # Keep most important components (may not be largest singular values!)
+                keep_indices = importance_sorted_indices[:new_rank]
+                # Sort kept indices to maintain proper SVD structure for reconstruction
+                keep_indices = torch.sort(keep_indices)[0]
+
+            # Truncate to selected components
+            U_truncated = U[:, keep_indices]
+            S_truncated = S[keep_indices]
+            Vh_truncated = Vh[keep_indices, :]
 
             # Distribute singular values symmetrically (square root trick)
             # This keeps dynamic range balanced and prevents numerical instability
