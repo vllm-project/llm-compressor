@@ -122,7 +122,12 @@ class BlockTensorizedLinear(nn.Module):
             matrix_chunks.append(torch.cat(row_chunks, dim=1))
         return torch.cat(matrix_chunks)
 
-    def truncate_ranks(self, rank_reduction_factor: float | None = None, energy_threshold: float = 0.99) -> "BlockTensorizedLinear":
+    def truncate_ranks(
+        self,
+        rank_reduction_factor: float | None = None,
+        energy_threshold: float = 0.99,
+        input_data: torch.Tensor | None = None
+    ) -> "BlockTensorizedLinear":
         """
         Truncate ranks of all constituent blocks by calling truncate_ranks on each.
 
@@ -131,6 +136,8 @@ class BlockTensorizedLinear(nn.Module):
                                    If None, use energy_threshold instead.
             energy_threshold: Fraction of energy to preserve (default 0.99 = 99%).
                              Only used if rank_reduction_factor is None.
+            input_data: Optional input activations for data-aware truncation (V-SVD).
+                       Shape: (num_samples, in_features).
 
         Returns:
             New BlockTensorizedLinear with all blocks having reduced ranks
@@ -140,9 +147,18 @@ class BlockTensorizedLinear(nn.Module):
         for i in range(self.num_blocks[0]):
             for j in range(self.num_blocks[1]):
                 original_block = self.blocks[i][j]
+
+                # Extract input data for this block (columns j)
+                block_input_data = None
+                if input_data is not None:
+                    start_col = j * self.block_size
+                    end_col = (j + 1) * self.block_size
+                    block_input_data = input_data[..., start_col:end_col]
+
                 truncated_blocks[(i, j)] = original_block.truncate_ranks(
                     rank_reduction_factor=rank_reduction_factor,
-                    energy_threshold=energy_threshold
+                    energy_threshold=energy_threshold,
+                    input_data=block_input_data
                 )
 
         # Create new BlockTensorizedLinear with truncated blocks

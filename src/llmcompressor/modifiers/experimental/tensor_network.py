@@ -274,10 +274,19 @@ class TensorNetworkModifier(Modifier):
             if final_cosine_similarity >= target_cosine_similarity:
                 best_tensorized_linear = tensorized_linear
 
+                # Gather cached input data for data-aware truncation (V-SVD)
+                cached_inputs = []
+                for batch in self._target_args_cache[(name, linear)].iter():
+                    cached_inputs.append(batch["input"])
+                input_data = torch.cat(cached_inputs, dim=0) if cached_inputs else None
+
                 # Preserve learned params -- truncate current layer instead of recreating
                 # Use energy-preserving truncation (rank_reduction_factor=None) to maintain 99% of energy
+                # Use data-aware truncation (V-SVD) with cached inputs
                 tensorized_linear = tensorized_linear.truncate_ranks(
-                    rank_reduction_factor=None, energy_threshold=0.99
+                    rank_reduction_factor=None,
+                    energy_threshold=0.99,
+                    input_data=input_data
                 )
             else:
                 break
