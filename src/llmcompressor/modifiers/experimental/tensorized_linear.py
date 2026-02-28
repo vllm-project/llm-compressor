@@ -412,11 +412,14 @@ class TensorizedLinear(nn.Module):
             sv_scale_factor = torch.sqrt(original_energy / (truncated_energy + 1e-10))
             S_truncated = S_truncated * sv_scale_factor
 
+            # Distribute singular values symmetrically (square root trick)
+            # This keeps dynamic range balanced and prevents numerical instability
+            S_sqrt = torch.sqrt(S_truncated)
+
             # Reconstruct left and right matrices with reduced bond dimension
-            left_matrix_new = U_truncated  # (left_dims, new_rank)
-            right_matrix_new = (
-                torch.diag(S_truncated) @ Vh_truncated
-            )  # (new_rank, right_dims)
+            # U_new = U * sqrt(S), V_new = sqrt(S) * V
+            left_matrix_new = U_truncated @ torch.diag(S_sqrt)  # (left_dims, new_rank)
+            right_matrix_new = torch.diag(S_sqrt) @ Vh_truncated  # (new_rank, right_dims)
 
             # Reshape back to core format
             factors[k] = left_matrix_new.reshape(r_left, n_k, m_k, new_rank)
