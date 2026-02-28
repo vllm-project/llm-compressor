@@ -225,7 +225,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # (no offloading by default)
                 self.offload_device = None
 
-        self._set_resolved_mappings(state.model)
+        # Resolve sequential_targets: prefer oneshot() kwarg, fall back to
+        # modifier field.
+        seq_targets = kwargs.get("sequential_targets") or self.sequential_targets
+        self._set_resolved_mappings(state.model, seq_targets)
 
         return True
 
@@ -320,7 +323,11 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def _set_resolved_mappings(self, model: Module) -> None:
+    def _set_resolved_mappings(
+        self,
+        model: Module,
+        sequential_targets: str | list[str] | None = None,
+    ) -> None:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into ResolvedMapping objects, resolving regular expressions.
@@ -331,9 +338,22 @@ class AWQModifier(Modifier, QuantizationMixin):
         weight is ".*re:.*q_proj" and the activation is "re:.*self_attn_layer_norm" we
         would match model.layer.0.p_proj to model.layer.0.self_attn_layer_norm and
         repeat for model.layer.1 and so on
+
+        :param model: model to resolve mappings for
+        :param sequential_targets: optional list of module class names that define
+            the scope for mapping resolution. When provided, only modules that are
+            children of these targets participate in matching. This prevents vision
+            encoder modules from polluting the mapping resolution in multimodal models.
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+
+        # Build a scoped model view when sequential_targets are available.
+        # This restricts match_modules_set to only consider modules that live
+        # under a sequential target (e.g. decoder layers), preventing vision
+        # encoder modules from breaking the parent-context grouping.
+        match_model = _build_scoped_model(model, sequential_targets)
+
         # Get names of modules targeted for quantization (excludes ignored)
         targeted_names = set(
             name
@@ -346,7 +366,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             # so that we can handle layers that need smoothing but not quantization
             # we only skip if no layers in mapping are targeted for quantization.
             for smooth_layers, *nested_balance_layers in match_modules_set(
-                model, (mapping.smooth_layer, *mapping.balance_layers)
+                match_model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(
@@ -1040,3 +1060,67 @@ def _accumulate_mean(
     new_count = prev_count + num_added
 
     return (prev_sum + sum_added) / new_count, new_count
+
+
+class _ScopedModuleView(Module):
+    """
+    A lightweight wrapper that restricts ``named_modules()`` to only yield
+    modules whose names fall under given scope prefixes.  Everything else
+    (attribute access, ``get_submodule``, etc.) is forwarded to the wrapped
+    model so that ``match_modules_set`` can resolve module identities normally.
+    """
+
+    def __init__(self, model: Module, scope_prefixes: set[str]):
+        # bypass Module.__init__ to avoid registering parameters/buffers
+        object.__setattr__(self, "_model", model)
+        object.__setattr__(self, "_scope_prefixes", scope_prefixes)
+
+    def named_modules(self, *args, **kwargs):
+        for name, mod in self._model.named_modules(*args, **kwargs):
+            if not name:  # root module — always include
+                yield name, mod
+            elif any(
+                name == p or name.startswith(p + ".") for p in self._scope_prefixes
+            ):
+                yield name, mod
+
+    def __getattr__(self, name: str):
+        return getattr(self._model, name)
+
+
+def _build_scoped_model(
+    model: Module,
+    sequential_targets: str | list[str] | None,
+) -> Module:
+    """
+    If *sequential_targets* is provided, return a :class:`_ScopedModuleView`
+    that only exposes modules living under instances of those target classes.
+    Otherwise return *model* unchanged (no-op for text-only models).
+    """
+    if not sequential_targets:
+        return model
+
+    if isinstance(sequential_targets, str):
+        sequential_targets = [sequential_targets]
+
+    target_classes = set(sequential_targets)
+
+    scope_prefixes: set[str] = set()
+    for name, mod in model.named_modules():
+        if type(mod).__name__ in target_classes:
+            scope_prefixes.add(name)
+
+    if not scope_prefixes:
+        logger.warning(
+            "sequential_targets %s did not match any modules, "
+            "falling back to unscoped mapping resolution",
+            sequential_targets,
+        )
+        return model
+
+    logger.info(
+        "Scoping AWQ mapping resolution to %d sequential targets (%s)",
+        len(scope_prefixes),
+        sequential_targets,
+    )
+    return _ScopedModuleView(model, scope_prefixes)
