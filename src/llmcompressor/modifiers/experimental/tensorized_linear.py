@@ -399,7 +399,8 @@ class TensorizedLinear(nn.Module):
             # Reshape right core to matrix: (r_k, n_{k+1} * m_{k+1} * r_right)
             r_bond_check, n_kp1, m_kp1, r_right = right_core.shape
             assert r_bond == r_bond_check, "Bond dimensions must match"
-            right_matrix = right_core.reshape(r_bond, n_kp1 * m_kp1 * r_right)
+            right_dims = n_kp1 * m_kp1 * r_right
+            right_matrix = right_core.reshape(r_bond, right_dims)
 
             # Combine cores across bond: (left_dims, bond) @ (bond, right_dims)
             combined = left_matrix @ right_matrix
