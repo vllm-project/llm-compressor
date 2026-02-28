@@ -433,6 +433,12 @@ class TensorizedLinear(nn.Module):
                 new_rank = (cumulative_energy >= target_energy).nonzero(as_tuple=True)[0][0].item() + 1
                 new_rank = max(1, min(new_rank, current_rank))
 
+                # Limit maximum rank reduction per truncation step to preserve more parameters
+                # Never reduce by more than 5% in a single step
+                max_rank_reduction = int(current_rank * 0.05)
+                min_allowed_rank = current_rank - max_rank_reduction
+                new_rank = max(new_rank, min_allowed_rank)
+
             # Truncate to new rank
             U_truncated = U[:, :new_rank]
             S_truncated = S[:new_rank]
