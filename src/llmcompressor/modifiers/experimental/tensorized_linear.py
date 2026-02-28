@@ -322,7 +322,7 @@ class TensorizedLinear(nn.Module):
         self,
         rank_reduction_factor: float | None = None,
         energy_threshold: float = 0.99,
-        input_data: torch.Tensor | None = None
+        input_cov_sqrt: torch.Tensor | None = None
     ) -> "TensorizedLinear":
         """
         Truncate TT-matrix ranks using either percentage-based or energy-preserving truncation
@@ -331,7 +331,7 @@ class TensorizedLinear(nn.Module):
         For each bond between cores, we:
         1. Move orthogonality center to that bond using QR decompositions
         2. Reshape cores to expose the bond dimension
-        3. Perform data-aware SVD if input data provided (V-SVD), else standard SVD
+        3. Perform data-aware SVD if input covariance provided (V-SVD), else standard SVD
         4. Keep top singular values based on rank_reduction_factor OR energy_threshold
         5. Reconstruct cores with reduced rank
 
@@ -340,9 +340,10 @@ class TensorizedLinear(nn.Module):
                                    If None, use energy_threshold instead.
             energy_threshold: Fraction of energy to preserve (default 0.99 = 99%).
                              Only used if rank_reduction_factor is None.
-            input_data: Optional input activations for data-aware truncation (V-SVD).
-                       Shape: (num_samples, in_features). If provided, SVD is performed on
-                       the weighted matrix W·Σ_X to preserve directions that process actual data.
+            input_cov_sqrt: Optional square root of input covariance matrix for data-aware
+                           truncation (V-SVD). Shape: (in_features, in_features). If provided,
+                           SVD is performed on the weighted matrix W·√Σ_X to preserve directions
+                           that process actual data.
 
         Returns:
             New TensorizedLinear with reduced ranks
@@ -352,20 +353,9 @@ class TensorizedLinear(nn.Module):
         factors = [f.detach().to(torch.float64) for f in self.factors]
         num_cores = len(factors)
 
-        # Compute input covariance matrix for data-aware truncation if data provided
-        input_cov_sqrt = None
-        if input_data is not None:
-            # Flatten batch dimensions and convert to float64
-            input_flat = input_data.reshape(-1, input_data.shape[-1]).to(torch.float64)
-            # Compute covariance matrix: Σ_X = X^T X / n
-            input_cov = (input_flat.T @ input_flat) / input_flat.shape[0]
-            # Use matrix square root for weighting: W·√Σ_X
-            # Eigendecomposition for symmetric positive semidefinite matrix
-            eigenvalues, eigenvectors = torch.linalg.eigh(input_cov)
-            # Clamp negative eigenvalues (from numerical errors) to zero
-            eigenvalues = torch.clamp(eigenvalues, min=0.0)
-            # Compute sqrt(Σ_X) = Q·√Λ·Q^T
-            input_cov_sqrt = eigenvectors @ torch.diag(torch.sqrt(eigenvalues)) @ eigenvectors.T
+        # Convert input_cov_sqrt to float64 if provided
+        if input_cov_sqrt is not None:
+            input_cov_sqrt = input_cov_sqrt.to(torch.float64)
 
         # Compute Frobenius norm of original matrix before truncation
         W_original = tl.tt_matrix.tt_matrix_to_matrix(factors)

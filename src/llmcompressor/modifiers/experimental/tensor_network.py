@@ -274,19 +274,41 @@ class TensorNetworkModifier(Modifier):
             if final_cosine_similarity >= target_cosine_similarity:
                 best_tensorized_linear = tensorized_linear
 
-                # Gather cached input data for data-aware truncation (V-SVD)
-                cached_inputs = []
-                for batch in self._target_args_cache[(name, linear)].iter():
-                    cached_inputs.append(batch["input"])
-                input_data = torch.cat(cached_inputs, dim=0) if cached_inputs else None
+                # Compute input covariance matrix for data-aware truncation (V-SVD)
+                input_cov_sqrt = None
+                try:
+                    # Accumulate covariance matrix across batches to handle variable-sized inputs
+                    cov_accumulator = None
+                    total_samples = 0
+                    for batch in self._target_args_cache[(name, linear)].iter():
+                        batch_input = batch["input"]
+                        # Flatten batch dimensions: (..., in_features) -> (batch_size, in_features)
+                        batch_flat = batch_input.reshape(-1, batch_input.shape[-1]).to(torch.float64)
+                        # Accumulate X^T X
+                        if cov_accumulator is None:
+                            cov_accumulator = batch_flat.T @ batch_flat
+                        else:
+                            cov_accumulator += batch_flat.T @ batch_flat
+                        total_samples += batch_flat.shape[0]
+
+                    if cov_accumulator is not None and total_samples > 0:
+                        # Compute covariance: Σ_X = X^T X / n
+                        input_cov = cov_accumulator / total_samples
+                        # Compute matrix square root: √Σ_X
+                        eigenvalues, eigenvectors = torch.linalg.eigh(input_cov)
+                        eigenvalues = torch.clamp(eigenvalues, min=0.0)
+                        input_cov_sqrt = eigenvectors @ torch.diag(torch.sqrt(eigenvalues)) @ eigenvectors.T
+                except Exception as e:
+                    logger.warning(f"Failed to compute input covariance for {name}: {e}")
+                    input_cov_sqrt = None
 
                 # Preserve learned params -- truncate current layer instead of recreating
                 # Use energy-preserving truncation (rank_reduction_factor=None) to maintain 99% of energy
-                # Use data-aware truncation (V-SVD) with cached inputs
+                # Use data-aware truncation (V-SVD) with input covariance
                 tensorized_linear = tensorized_linear.truncate_ranks(
                     rank_reduction_factor=None,
                     energy_threshold=0.99,
-                    input_data=input_data
+                    input_cov_sqrt=input_cov_sqrt
                 )
             else:
                 break
