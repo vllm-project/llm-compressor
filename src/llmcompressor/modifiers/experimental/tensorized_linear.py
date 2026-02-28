@@ -344,6 +344,10 @@ class TensorizedLinear(nn.Module):
         factors = [f.detach().to(torch.float64) for f in self.factors]
         num_cores = len(factors)
 
+        # Compute Frobenius norm of original matrix before truncation
+        W_original = tl.tt_matrix.tt_matrix_to_matrix(factors)
+        original_norm = torch.linalg.norm(W_original, ord='fro')
+
         # Process each bond (interface between consecutive cores)
         for k in range(num_cores - 1):
             # Step 1: Move orthogonality center to bond k
@@ -400,17 +404,8 @@ class TensorizedLinear(nn.Module):
 
             # Truncate to new rank
             U_truncated = U[:, :new_rank]
-            S_truncated = S[:new_rank].clone()
+            S_truncated = S[:new_rank]
             Vh_truncated = Vh[:new_rank, :]
-
-            # Singular value renormalization: boost remaining singular values
-            # to compensate for energy lost from removed ones
-            # This preserves the variance distribution better than global scaling alone
-            original_energy = (S ** 2).sum()
-            truncated_energy = (S_truncated ** 2).sum()
-            # Scale factor to preserve total energy in the kept singular values
-            sv_scale_factor = torch.sqrt(original_energy / (truncated_energy + 1e-10))
-            S_truncated = S_truncated * sv_scale_factor
 
             # Distribute singular values symmetrically (square root trick)
             # This keeps dynamic range balanced and prevents numerical instability
@@ -424,6 +419,17 @@ class TensorizedLinear(nn.Module):
             # Reshape back to core format
             factors[k] = left_matrix_new.reshape(r_left, n_k, m_k, new_rank)
             factors[k + 1] = right_matrix_new.reshape(new_rank, n_kp1, m_kp1, r_right)
+
+        # Apply global scaling correction to preserve Frobenius norm
+        # This restores signal strength without changing direction (cosine similarity)
+        W_truncated = tl.tt_matrix.tt_matrix_to_matrix(factors)
+        truncated_norm = torch.linalg.norm(W_truncated, ord='fro')
+
+        # Scaling factor: alpha = ||W_original||_F / ||W_truncated||_F
+        scale_factor = original_norm / (truncated_norm + 1e-10)
+
+        # Apply scaling to first factor (simpler and equivalent to scaling all)
+        factors[0] = factors[0] * scale_factor
 
         # Create new TensorizedLinear with truncated factors
         new_tensorized = TensorizedLinear(
