@@ -350,6 +350,10 @@ class TensorizedLinear(nn.Module):
         factors = [f.detach().to(torch.float32) for f in self.factors]
         num_cores = len(factors)
 
+        # Compute Frobenius norm of original matrix before truncation
+        W_original = tl.tt_matrix.tt_matrix_to_matrix(factors)
+        original_norm = torch.linalg.norm(W_original, ord='fro')
+
         # Process each bond (interface between consecutive cores)
         for k in range(num_cores - 1):
             # Step 1: Move orthogonality center to bond k
@@ -418,6 +422,17 @@ class TensorizedLinear(nn.Module):
             # Reshape back to core format
             factors[k] = left_matrix_new.reshape(r_left, n_k, m_k, new_rank)
             factors[k + 1] = right_matrix_new.reshape(new_rank, n_kp1, m_kp1, r_right)
+
+        # Apply global scaling correction to preserve Frobenius norm
+        # This restores signal strength without changing direction (cosine similarity)
+        W_truncated = tl.tt_matrix.tt_matrix_to_matrix(factors)
+        truncated_norm = torch.linalg.norm(W_truncated, ord='fro')
+
+        # Scaling factor: alpha = ||W_original||_F / ||W_truncated||_F
+        scale_factor = original_norm / (truncated_norm + 1e-10)
+
+        # Apply scaling to first factor (simpler and equivalent to scaling all)
+        factors[0] = factors[0] * scale_factor
 
         # Create new TensorizedLinear with truncated factors
         new_tensorized = TensorizedLinear(
