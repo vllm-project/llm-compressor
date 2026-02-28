@@ -234,7 +234,8 @@ class TensorNetworkModifier(Modifier):
         name: str,
         linear: torch.nn.Linear,
         target_cosine_similarity=0.95,  # Reduce if target cosine similarity met
-        rank_reduction_factor=0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
+        rank_reduction_factor=None,  # 0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
+        energy_threshold=0.97,
     ) -> TensorizedLinear | BlockTensorizedLinear:
         """
         Create a tensorized equivalent of the input Linear matrix with adaptive rank pruning.
@@ -365,7 +366,7 @@ class TensorNetworkModifier(Modifier):
                 cosine_loss = (1 - cosine_sim).mean()
                 # Weight MSE by the ratio of the losses so they contribute equally
                 mse_weight = cosine_loss.detach() / (mse.detach() + 1e-8)
-                loss = mse_weight * mse + cosine_loss
+                loss = mse_weight * mse + cosine_loss * 1e-3
 
                 loss.backward()
                 optimizer.step()
