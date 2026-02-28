@@ -262,6 +262,7 @@ class TensorizedLinear(nn.Module):
         2. Perform SVD across the bond
         3. Keep only top (1 - rank_reduction_factor) singular values
         4. Reconstruct cores with reduced rank
+        5. Apply global scaling to preserve Frobenius norm
 
         Args:
             rank_reduction_factor: Fraction to reduce ranks by (0.2 = remove 20% of rank)
@@ -272,6 +273,10 @@ class TensorizedLinear(nn.Module):
         orig_device = self.factors[0].device
         factors = [f.detach().to(torch.float32) for f in self.factors]
         num_cores = len(factors)
+
+        # Compute Frobenius norm of original matrix before truncation
+        W_original = tl.tt_matrix.tt_matrix_to_matrix(factors)
+        original_norm = torch.linalg.norm(W_original, ord='fro')
 
         # Process each bond (interface between consecutive cores)
         for k in range(num_cores - 1):
@@ -319,6 +324,18 @@ class TensorizedLinear(nn.Module):
             # Reshape back to core format
             factors[k] = left_matrix_new.reshape(r_left, n_k, m_k, new_rank)
             factors[k + 1] = right_matrix_new.reshape(new_rank, n_kp1, m_kp1, r_right)
+
+        # Compute Frobenius norm of truncated matrix and apply global scaling correction
+        # This preserves signal strength (reduces MSE) without changing direction (cosine similarity)
+        W_truncated = tl.tt_matrix.tt_matrix_to_matrix(factors)
+        truncated_norm = torch.linalg.norm(W_truncated, ord='fro')
+
+        # Scaling factor: alpha = ||W_original||_F / ||W_truncated||_F
+        scale_factor = original_norm / (truncated_norm + 1e-10)
+
+        # Apply scaling to first factor (could be distributed across all factors)
+        # Scaling the first factor is simpler and equivalent
+        factors[0] = factors[0] * scale_factor
 
         # Create new TensorizedLinear with truncated factors
         new_tensorized = TensorizedLinear(
