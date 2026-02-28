@@ -27,6 +27,7 @@ class TensorizedLinear(nn.Module):
         factors: tuple[torch.Tensor, ...] | None,
         bias: torch.Tensor | None = None,
         alpha: torch.Tensor | None = None,
+        per_dim_scale: torch.Tensor | None = None,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
     ):
@@ -48,10 +49,19 @@ class TensorizedLinear(nn.Module):
             [nn.Parameter(f.to(dtype), requires_grad=True) for f in factors]
         )
 
-        # Learnable scalar scaling parameter initialized to 1.0 to preserve initial behavior
+        # Learnable global scalar scaling parameter initialized to 1.0
         if alpha is None:
             alpha = torch.ones(1, dtype=dtype)
         self.alpha = nn.Parameter(alpha.to(dtype), requires_grad=True)
+
+        # Learnable per-dimension scaling (like LayerNorm's weight)
+        # Initialized to 1.0 to preserve initial behavior
+        num_cores = len(factors)
+        output_shape = shape[:num_cores]
+        out_features = math.prod(output_shape)
+        if per_dim_scale is None:
+            per_dim_scale = torch.ones(out_features, dtype=dtype)
+        self.per_dim_scale = nn.Parameter(per_dim_scale.to(dtype), requires_grad=True)
 
     @classmethod
     def from_linear(
@@ -218,8 +228,9 @@ class TensorizedLinear(nn.Module):
         out_features = math.prod(output_shape)
         result = result.reshape(batch_total, out_features)
 
-        # Apply learnable scalar scaling
-        result = result * self.alpha
+        # Apply learnable scaling: per-dimension first, then global scalar
+        # This preserves direction while correcting magnitude per dimension
+        result = result * self.per_dim_scale * self.alpha
 
         # Add bias if present
         if self.bias is not None:
@@ -239,8 +250,8 @@ class TensorizedLinear(nn.Module):
         # Form full weight matrix
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
         result = F.linear(x, W, None)
-        # Apply learnable scalar scaling
-        result = result * self.alpha
+        # Apply learnable scaling: per-dimension first, then global scalar
+        result = result * self.per_dim_scale * self.alpha
         # Add bias after scaling
         if self.bias is not None:
             result = result + self.bias
@@ -475,6 +486,7 @@ class TensorizedLinear(nn.Module):
             factors=factors,
             bias=self.bias.clone() if self.bias is not None else None,
             alpha=self.alpha.data.clone(),
+            per_dim_scale=self.per_dim_scale.data.clone(),
             dtype=self.dtype,
         )
 
