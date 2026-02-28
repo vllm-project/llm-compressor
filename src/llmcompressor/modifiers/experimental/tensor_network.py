@@ -253,10 +253,10 @@ class TensorNetworkModifier(Modifier):
 
         # Start with full rank for lossless reconstruction
         best_tensorized_linear = tensorized_linear = (
-            TensorizedLinear.from_linear(linear, num_cores=self.num_cores, rank=10.0)
+            TensorizedLinear.from_linear(linear, num_cores=self.num_cores, rank=2.0)
             if self.block_size is None
             else BlockTensorizedLinear.from_linear(
-                linear, self.block_size, num_cores=self.num_cores, rank=10.0
+                linear, self.block_size, num_cores=self.num_cores, rank=2.0
             )
         ).to(linear.weight.device)
 
@@ -348,7 +348,7 @@ class TensorNetworkModifier(Modifier):
         tensorized_params = tensorized_linear.num_params
         compression_pct = (
             f"{compression_pct:.1%}"
-            if (compression_pct := (tensorized_params / original_params)) < 0.99
+            if (compression_pct := (tensorized_params / original_params)) < 100.99
             else "100 %"
         )
 
@@ -386,6 +386,8 @@ class TensorNetworkModifier(Modifier):
             cosine_similarities = []
             sqnrs = []
             mses = []
+            matching_signs = []
+            sign_norms = []
 
             # for batch_input, dense_output in self.get_batch_inputs_outputs(
             #     self._target_args_cache[(name, linear)], self.batch_size
@@ -403,24 +405,32 @@ class TensorNetworkModifier(Modifier):
                 # MSE forces the model to get the physical scale right
                 # Cosine similarity encourages vectors to align in the same direction
                 mse = F.mse_loss(tensorized_batch_output, dense_output)
-                cosine_sim = F.cosine_similarity(
-                    tensorized_batch_output, dense_output, dim=-1
-                )
-                # cosine_loss = (1 - cosine_sim).mean()
-                # Weight MSE by the ratio of the losses so they contribute equally
-                # mse_weight = cosine_loss.detach() / (mse.detach() + 1e-8)
                 loss = mse  # * mse_weight + cosine_loss * 1e-3
 
                 loss.backward()
                 optimizer.step()
 
-                cosine_similarities.append(cosine_sim.detach().abs().mean())
+                cosine_similarities.append(
+                    F.cosine_similarity(
+                        tensorized_batch_output.detach(), dense_output.detach(), dim=-1
+                    ).mean()
+                )
                 sqnrs.append(
                     compute_sqnr(
                         dense_output.detach(), tensorized_batch_output.detach()
                     )
                 )
                 mses.append(mse.detach().item())
+                matching_signs.append(
+                    count_matching_signs(
+                        dense_output.detach(), tensorized_batch_output.detach()
+                    )
+                )
+                sign_norms.append(
+                    compute_sign_norm(
+                        dense_output.detach(), tensorized_batch_output.detach()
+                    )
+                )
                 total_loss += loss.item()
                 num_batches += 1
 
@@ -446,6 +456,8 @@ class TensorNetworkModifier(Modifier):
                 f"{tensorized_params:.1e} ({compression_pct}) | "
                 f"mse: {sum(mses)/len(mses):.2e} | "
                 f"sqnr: {final_avg_sqnr:.2e} | "
+                f"signs: {sum(matching_signs)/len(matching_signs):.3f} | "
+                f"sign norm: {sum(sign_norms)/len(sign_norms):.3f} | "
                 f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
             )
             pbar.update(1)
@@ -612,3 +624,25 @@ def compute_sqnr(original_output: torch.Tensor, tensorized_output: torch.Tensor)
     sqnr_db = 10 * torch.log10(sqnr_linear)
 
     return sqnr_db.item()
+
+
+def count_matching_signs(a: torch.Tensor, b: torch.Tensor):
+    # Get signs: 1 for positive, -1 for negative, 0 for zero
+    sign_a = torch.sign(a)
+    sign_b = torch.sign(b)
+
+    # Compare and sum the boolean matches
+    match_pct = (sign_a == sign_b).sum() / sign_a.numel()
+
+    return match_pct.item()
+
+
+def compute_sign_norm(a: torch.Tensor, b: torch.Tensor):
+    # Identify indices where signs don't match
+    mismatch_mask = torch.sign(a) != torch.sign(b)
+
+    # Calculate how much energy those specific indices hold
+    mismatch_magnitude = torch.norm(a[mismatch_mask])
+    total_magnitude = torch.norm(a)
+
+    return mismatch_magnitude / total_magnitude
