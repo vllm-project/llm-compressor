@@ -321,7 +321,7 @@ class TensorNetworkModifier(Modifier):
         # Training loop with early stopping
         max_total_num_epochs = 100
         # Stop if no improvement for this many epochs
-        patience = 5
+        patience = 3
         # Minimum improvement over previous loss to be considered progress
         min_frac_delta = 1e-2
         loss_history = []
