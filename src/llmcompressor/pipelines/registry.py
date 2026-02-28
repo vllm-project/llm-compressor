@@ -8,6 +8,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform import SpinQuantModifier, QuIPModifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -55,6 +56,10 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _infer_pipeline(modifiers: list[Modifier]) -> str:
+        if len(modifiers) == 1 and isinstance(
+            modifiers[0], (SpinQuantModifier, QuIPModifier)
+        ):
+            return "datafree"
         # only in the case of weight-only qmod quantization can we skip calibration
         if len(modifiers) == 1 and isinstance(modifiers[0], QuantizationModifier):
             config = modifiers[0].resolve_quantization_config()
