@@ -253,18 +253,21 @@ class TensorizedLinear(nn.Module):
             result = result + self.bias
         return result
 
-    def truncate_ranks(self, rank_reduction_factor: float) -> "TensorizedLinear":
+    def truncate_ranks(self, rank_reduction_factor: float | None = None, energy_threshold: float = 0.99) -> "TensorizedLinear":
         """
-        Truncate TT-matrix ranks by removing smallest singular values at each bond.
+        Truncate TT-matrix ranks using either percentage-based or energy-preserving truncation.
 
         For each bond between cores, we:
         1. Reshape cores to expose the bond dimension
         2. Perform SVD across the bond
-        3. Keep only top (1 - rank_reduction_factor) singular values
+        3. Keep top singular values based on rank_reduction_factor OR energy_threshold
         4. Reconstruct cores with reduced rank
 
         Args:
-            rank_reduction_factor: Fraction to reduce ranks by (0.2 = remove 20% of rank)
+            rank_reduction_factor: If provided, fraction to reduce ranks by (0.2 = remove 20% of rank).
+                                   If None, use energy_threshold instead.
+            energy_threshold: Fraction of energy to preserve (default 0.99 = 99%).
+                             Only used if rank_reduction_factor is None.
 
         Returns:
             New TensorizedLinear with reduced ranks
@@ -297,18 +300,28 @@ class TensorizedLinear(nn.Module):
             # SVD to find singular values
             U, S, Vh = torch.linalg.svd(combined, full_matrices=False)
 
-            # Determine new rank: keep top (1 - rank_reduction_factor) of singular values
+            # Determine new rank based on truncation mode
             current_rank = r_bond
-            new_rank = max(1, int(current_rank * (1.0 - rank_reduction_factor)))
-            if new_rank >= current_rank:
-                new_rank = current_rank - 1
+            if rank_reduction_factor is not None:
+                # Percentage-based truncation: keep top (1 - rank_reduction_factor) of singular values
+                new_rank = max(1, int(current_rank * (1.0 - rank_reduction_factor)))
+                if new_rank >= current_rank:
+                    new_rank = current_rank - 1
+            else:
+                # Energy-preserving truncation: keep enough singular values to preserve energy_threshold
+                # Energy is sum of squared singular values
+                total_energy = (S ** 2).sum()
+                target_energy = energy_threshold * total_energy
+
+                # Find minimum k where sum of top k squared singular values >= target_energy
+                cumulative_energy = torch.cumsum(S ** 2, dim=0)
+                new_rank = (cumulative_energy >= target_energy).nonzero(as_tuple=True)[0][0].item() + 1
+                new_rank = max(1, min(new_rank, current_rank))
 
             # Truncate to new rank
             U_truncated = U[:, :new_rank]
             S_truncated = S[:new_rank]
             Vh_truncated = Vh[:new_rank, :]
-
-            # TODO check if re-normalizing S_truncated to have same det is important
 
             # Reconstruct left and right matrices with reduced bond dimension
             left_matrix_new = U_truncated  # (left_dims, new_rank)

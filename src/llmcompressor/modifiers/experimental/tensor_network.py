@@ -273,9 +273,10 @@ class TensorNetworkModifier(Modifier):
             if final_cosine_similarity >= target_cosine_similarity:
                 best_tensorized_linear = tensorized_linear
 
-                # Preseve learned params -- truncate current layer instead of recreating
+                # Preserve learned params -- truncate current layer instead of recreating
+                # Use energy-preserving truncation (rank_reduction_factor=None) to maintain 99% of energy
                 tensorized_linear = tensorized_linear.truncate_ranks(
-                    rank_reduction_factor
+                    rank_reduction_factor=None, energy_threshold=0.99
                 )
             else:
                 break

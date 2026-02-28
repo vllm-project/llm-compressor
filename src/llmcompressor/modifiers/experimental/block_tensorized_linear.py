@@ -122,12 +122,15 @@ class BlockTensorizedLinear(nn.Module):
             matrix_chunks.append(torch.cat(row_chunks, dim=1))
         return torch.cat(matrix_chunks)
 
-    def truncate_ranks(self, rank_reduction_factor: float) -> "BlockTensorizedLinear":
+    def truncate_ranks(self, rank_reduction_factor: float | None = None, energy_threshold: float = 0.99) -> "BlockTensorizedLinear":
         """
         Truncate ranks of all constituent blocks by calling truncate_ranks on each.
 
         Args:
-            rank_reduction_factor: Fraction to reduce ranks by (0.2 = remove 20% of rank)
+            rank_reduction_factor: If provided, fraction to reduce ranks by (0.2 = remove 20% of rank).
+                                   If None, use energy_threshold instead.
+            energy_threshold: Fraction of energy to preserve (default 0.99 = 99%).
+                             Only used if rank_reduction_factor is None.
 
         Returns:
             New BlockTensorizedLinear with all blocks having reduced ranks
@@ -138,7 +141,8 @@ class BlockTensorizedLinear(nn.Module):
             for j in range(self.num_blocks[1]):
                 original_block = self.blocks[i][j]
                 truncated_blocks[(i, j)] = original_block.truncate_ranks(
-                    rank_reduction_factor
+                    rank_reduction_factor=rank_reduction_factor,
+                    energy_threshold=energy_threshold
                 )
 
         # Create new BlockTensorizedLinear with truncated blocks
