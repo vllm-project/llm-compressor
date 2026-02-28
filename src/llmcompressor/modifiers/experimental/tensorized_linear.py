@@ -253,15 +253,89 @@ class TensorizedLinear(nn.Module):
             result = result + self.bias
         return result
 
+    @staticmethod
+    def _left_orthogonalize_core(core_i: torch.Tensor, core_next: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Left-orthogonalize core i and absorb the R matrix into the next core.
+
+        Args:
+            core_i: Current core with shape (r_left, n, m, r_right)
+            core_next: Next core with shape (r_right, n_next, m_next, r_next)
+
+        Returns:
+            (orthogonalized core_i, modified core_next)
+        """
+        r_left, n, m, r_right = core_i.shape
+        r_right_check, n_next, m_next, r_next = core_next.shape
+        assert r_right == r_right_check, "Bond dimensions must match"
+
+        # Reshape to matrix: (r_left * n * m, r_right)
+        core_matrix = core_i.reshape(r_left * n * m, r_right)
+
+        # QR decomposition
+        Q, R = torch.linalg.qr(core_matrix)
+        new_r_right = Q.shape[1]
+
+        # Reshape Q back to core format
+        new_core_i = Q.reshape(r_left, n, m, new_r_right)
+
+        # Absorb R into next core by contracting left bond
+        # core_next: (r_right, n_next, m_next, r_next)
+        # R: (new_r_right, r_right)
+        # Result: (new_r_right, n_next, m_next, r_next)
+        core_next_matrix = core_next.reshape(r_right, n_next * m_next * r_next)
+        new_core_next_matrix = R @ core_next_matrix
+        new_core_next = new_core_next_matrix.reshape(new_r_right, n_next, m_next, r_next)
+
+        return new_core_i, new_core_next
+
+    @staticmethod
+    def _right_orthogonalize_core(core_prev: torch.Tensor, core_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Right-orthogonalize core i and absorb the R matrix into the previous core.
+
+        Args:
+            core_prev: Previous core with shape (r_prev, n_prev, m_prev, r_left)
+            core_i: Current core with shape (r_left, n, m, r_right)
+
+        Returns:
+            (modified core_prev, orthogonalized core_i)
+        """
+        r_prev, n_prev, m_prev, r_left = core_prev.shape
+        r_left_check, n, m, r_right = core_i.shape
+        assert r_left == r_left_check, "Bond dimensions must match"
+
+        # Reshape to matrix: (r_left, n * m * r_right)
+        core_matrix = core_i.reshape(r_left, n * m * r_right)
+
+        # QR decomposition on transposed matrix
+        Q, R = torch.linalg.qr(core_matrix.T)
+        new_r_left = Q.shape[1]
+
+        # Q.T is the orthogonalized core
+        new_core_i = Q.T.reshape(new_r_left, n, m, r_right)
+
+        # Absorb R.T into previous core by contracting right bond
+        # core_prev: (r_prev, n_prev, m_prev, r_left)
+        # R.T: (r_left, new_r_left)
+        # Result: (r_prev, n_prev, m_prev, new_r_left)
+        core_prev_matrix = core_prev.reshape(r_prev * n_prev * m_prev, r_left)
+        new_core_prev_matrix = core_prev_matrix @ R.T
+        new_core_prev = new_core_prev_matrix.reshape(r_prev, n_prev, m_prev, new_r_left)
+
+        return new_core_prev, new_core_i
+
     def truncate_ranks(self, rank_reduction_factor: float | None = None, energy_threshold: float = 0.99) -> "TensorizedLinear":
         """
-        Truncate TT-matrix ranks using either percentage-based or energy-preserving truncation.
+        Truncate TT-matrix ranks using either percentage-based or energy-preserving truncation
+        with proper orthogonality centering.
 
         For each bond between cores, we:
-        1. Reshape cores to expose the bond dimension
-        2. Perform SVD across the bond
-        3. Keep top singular values based on rank_reduction_factor OR energy_threshold
-        4. Reconstruct cores with reduced rank
+        1. Move orthogonality center to that bond using QR decompositions
+        2. Reshape cores to expose the bond dimension
+        3. Perform SVD across the bond
+        4. Keep top singular values based on rank_reduction_factor OR energy_threshold
+        5. Reconstruct cores with reduced rank
 
         Args:
             rank_reduction_factor: If provided, fraction to reduce ranks by (0.2 = remove 20% of rank).
@@ -278,6 +352,18 @@ class TensorizedLinear(nn.Module):
 
         # Process each bond (interface between consecutive cores)
         for k in range(num_cores - 1):
+            # Step 1: Move orthogonality center to bond k
+            # Left-orthogonalize all cores before k (sweep left to right)
+            for i in range(k):
+                factors[i], factors[i + 1] = self._left_orthogonalize_core(
+                    factors[i], factors[i + 1]
+                )
+
+            # Right-orthogonalize all cores after k+1 (sweep right to left)
+            for i in range(num_cores - 1, k + 1, -1):
+                factors[i - 1], factors[i] = self._right_orthogonalize_core(
+                    factors[i - 1], factors[i]
+                )
             # Current core k has shape: (r_{k-1}, n_k, m_k, r_k)
             # Next core k+1 has shape: (r_k, n_{k+1}, m_{k+1}, r_{k+1})
             # Bond dimension is r_k
