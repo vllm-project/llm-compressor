@@ -233,16 +233,16 @@ class TensorNetworkModifier(Modifier):
         self,
         name: str,
         linear: torch.nn.Linear,
-        target_cosine_similarity=0.95,  # Reduce if target cosine similarity met
+        target_sqnr=30.0,  # Reduce if target sqnr met
         rank_reduction_factor=None,  # 0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
-        energy_threshold=0.97,
+        energy_threshold=0.99,
     ) -> TensorizedLinear | BlockTensorizedLinear:
         """
         Create a tensorized equivalent of the input Linear matrix with adaptive rank pruning.
 
         Strategy:
         1. Start with rank=1.0 (full rank, lossless reconstruction)
-        2. Train until cosine similarity >= threshold (0.95)
+        2. Train until sqnr >= threshold target_sqnr
         3. If achieved, re-decompose with reduced rank
         4. Retrain and check if threshold can still be maintained
         5. Repeat until threshold can no longer be met
@@ -253,25 +253,25 @@ class TensorNetworkModifier(Modifier):
 
         # Start with full rank for lossless reconstruction
         best_tensorized_linear = tensorized_linear = (
-            TensorizedLinear.from_linear(linear, num_cores=self.num_cores, rank="same")
+            TensorizedLinear.from_linear(linear, num_cores=self.num_cores, rank=10.0)
             if self.block_size is None
             else BlockTensorizedLinear.from_linear(
-                linear, self.block_size, num_cores=self.num_cores, rank="same"
+                linear, self.block_size, num_cores=self.num_cores, rank=10.0
             )
         ).to(linear.weight.device)
 
         total_num_epochs = 0
         while True:
             # Train this rank level
-            final_cosine_similarity, total_num_epochs = self._train_tensorized_layer(
+            final_sqnr, total_num_epochs = self._train_tensorized_layer(
                 tensorized_linear,
                 name,
                 linear,
-                target_cosine_similarity=target_cosine_similarity,
+                target_sqnr=target_sqnr,
                 total_num_epochs=total_num_epochs,
             )
 
-            if final_cosine_similarity >= target_cosine_similarity:
+            if final_sqnr >= target_sqnr:
                 best_tensorized_linear = tensorized_linear
 
                 # Compute input covariance matrix for data-aware truncation (V-SVD)
@@ -283,7 +283,9 @@ class TensorNetworkModifier(Modifier):
                     for batch in self._target_args_cache[(name, linear)].iter():
                         batch_input = batch["input"]
                         # Flatten batch dimensions: (..., in_features) -> (batch_size, in_features)
-                        batch_flat = batch_input.reshape(-1, batch_input.shape[-1]).to(torch.float64)
+                        batch_flat = batch_input.reshape(-1, batch_input.shape[-1]).to(
+                            torch.float64
+                        )
                         # Accumulate X^T X
                         if cov_accumulator is None:
                             cov_accumulator = batch_flat.T @ batch_flat
@@ -297,9 +299,15 @@ class TensorNetworkModifier(Modifier):
                         # Compute matrix square root: √Σ_X
                         eigenvalues, eigenvectors = torch.linalg.eigh(input_cov)
                         eigenvalues = torch.clamp(eigenvalues, min=0.0)
-                        input_cov_sqrt = eigenvectors @ torch.diag(torch.sqrt(eigenvalues)) @ eigenvectors.T
+                        input_cov_sqrt = (
+                            eigenvectors
+                            @ torch.diag(torch.sqrt(eigenvalues))
+                            @ eigenvectors.T
+                        )
                 except Exception as e:
-                    logger.warning(f"Failed to compute input covariance for {name}: {e}")
+                    logger.warning(
+                        f"Failed to compute input covariance for {name}: {e}"
+                    )
                     input_cov_sqrt = None
 
                 # Preserve learned params -- truncate current layer instead of recreating
@@ -307,9 +315,10 @@ class TensorNetworkModifier(Modifier):
                 # Use data-aware truncation (V-SVD) with input covariance
                 tensorized_linear = tensorized_linear.truncate_ranks(
                     rank_reduction_factor=None,
-                    energy_threshold=0.99,
-                    input_cov_sqrt=input_cov_sqrt
+                    energy_threshold=energy_threshold,
+                    input_cov_sqrt=input_cov_sqrt,
                 )
+
             else:
                 break
 
@@ -323,16 +332,16 @@ class TensorNetworkModifier(Modifier):
         tensorized_linear: TensorizedLinear | BlockTensorizedLinear,
         name: str,
         linear: torch.nn.Linear,
-        target_cosine_similarity=0.99,
+        target_sqnr=30.0,
         total_num_epochs=0,
     ) -> tuple[float, int]:
         """
         Train a tensorized layer and return final average cosine similarity.
 
-        Early exits if target_cosine_similarity achieved.
+        Early exits if target_sqnr achieved.
 
         Returns:
-            Average cosine similarity across all batches after training
+            Average sqnr across all batches after training
             Accumulated total_num_epochs
         """
         original_params = sum(p.numel() for p in linear.parameters())
@@ -345,10 +354,14 @@ class TensorNetworkModifier(Modifier):
 
         # SGD with momentum uses ~2x memory vs SGD
         # Adam uses ~3x memory vs SGD
-        optimizer = torch.optim.SGD(
+        # optimizer = torch.optim.SGD(
+        #     tensorized_linear.parameters(),
+        #     lr=1e-4,  # Higher LR than Adam since SGD needs larger steps
+        #     momentum=0.9,  # Helps convergence with cosine similarity loss
+        # )
+        optimizer = torch.optim.Adam(
             tensorized_linear.parameters(),
-            lr=1e-4,  # Higher LR than Adam since SGD needs larger steps
-            momentum=0.9,  # Helps convergence with cosine similarity loss
+            lr=1e-4,
         )
 
         # Training loop with early stopping
@@ -361,7 +374,6 @@ class TensorNetworkModifier(Modifier):
 
         best_loss = float("inf")
         epochs_without_improvement = 0
-        final_avg_cosine_similarity = 0.0  # Track final cosine similarity
 
         pbar = tqdm(
             total=max_total_num_epochs,
@@ -394,10 +406,10 @@ class TensorNetworkModifier(Modifier):
                 cosine_sim = F.cosine_similarity(
                     tensorized_batch_output, dense_output, dim=-1
                 )
-                cosine_loss = (1 - cosine_sim).mean()
+                # cosine_loss = (1 - cosine_sim).mean()
                 # Weight MSE by the ratio of the losses so they contribute equally
-                mse_weight = cosine_loss.detach() / (mse.detach() + 1e-8)
-                loss = mse_weight * mse + cosine_loss * 1e-3
+                # mse_weight = cosine_loss.detach() / (mse.detach() + 1e-8)
+                loss = mse  # * mse_weight + cosine_loss * 1e-3
 
                 loss.backward()
                 optimizer.step()
@@ -405,7 +417,7 @@ class TensorNetworkModifier(Modifier):
                 cosine_similarities.append(cosine_sim.detach().abs().mean())
                 sqnrs.append(
                     compute_sqnr(
-                        tensorized_batch_output.detach(), dense_output.detach()
+                        dense_output.detach(), tensorized_batch_output.detach()
                     )
                 )
                 mses.append(mse.detach().item())
@@ -415,11 +427,7 @@ class TensorNetworkModifier(Modifier):
             epoch_loss = total_loss / num_batches
 
             # Calculate average cosine similarity for this epoch
-            final_avg_cosine_similarity = (
-                sum(cosine_similarities) / len(cosine_similarities)
-                if cosine_similarities
-                else 0.0
-            )
+            final_avg_sqnr = sum(sqnrs) / len(sqnrs) if sqnrs else 0.0
 
             # Early stopping check
             if len(loss_history) > 0:
@@ -437,7 +445,7 @@ class TensorNetworkModifier(Modifier):
                 f"{name} | # params: "
                 f"{tensorized_params:.1e} ({compression_pct}) | "
                 f"mse: {sum(mses)/len(mses):.2e} | "
-                f"sqnr: {sum(sqnrs)/len(sqnrs):.2e} | "
+                f"sqnr: {final_avg_sqnr:.2e} | "
                 f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
             )
             pbar.update(1)
@@ -445,12 +453,12 @@ class TensorNetworkModifier(Modifier):
 
             # Check early stopping conditions
             if (
-                epoch > 2 and loss < (1 - target_cosine_similarity)
+                epoch > 2 and final_avg_sqnr > target_sqnr
             ) or epochs_without_improvement >= patience:
                 break
 
-        # Return final average cosine similarity achieved
-        return final_avg_cosine_similarity, total_num_epochs
+        # Return final average sqnr
+        return final_avg_sqnr, total_num_epochs
 
     @staticmethod
     def get_batch_inputs_outputs(
@@ -563,17 +571,44 @@ def get_parent_of_model_by_name(
 
 
 # https://github.com/pytorch/pytorch/blob/v2.10.0/torch/ao/ns/fx/utils.py#L470
-def compute_sqnr(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+# def compute_sqnr(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+#     """
+#     Computes the SQNR between `x` and `y`.
+
+#     Args:
+#         x: Tensor or tuple of tensors
+#         y: Tensor or tuple of tensors
+
+#     Return:
+#         float or tuple of floats
+#     """
+#     Ps = torch.norm(x)
+#     Pn = torch.norm(x - y)
+#     return 20 * torch.log10(Ps / Pn)
+
+
+def compute_sqnr(original_output: torch.Tensor, tensorized_output: torch.Tensor):
     """
-    Computes the SQNR between `x` and `y`.
+    Calculates SQNR in dB using activation tensors directly.
 
     Args:
-        x: Tensor or tuple of tensors
-        y: Tensor or tuple of tensors
-
-    Return:
-        float or tuple of floats
+        original_output (torch.Tensor): The output from the original nn.Linear layer.
+        tensorized_output (torch.Tensor): The output from your custom MPO layer.
     """
-    Ps = torch.norm(x)
-    Pn = torch.norm(x - y)
-    return 20 * torch.log10(Ps / Pn)
+    # Ensure we are working with floats for precision
+    y_true = original_output.detach().float()
+    y_pred = tensorized_output.detach().float()
+
+    # Signal Power: The variance of the original activations
+    # Represents the 'strength' of the information signal
+    signal_power = torch.var(y_true)
+
+    # Noise Power: The Mean Squared Error of the approximation
+    mse_noise = torch.mean((y_true - y_pred) ** 2)
+
+    # SQNR calculation (10 * log10 of the power ratio)
+    # 1e-10 added to denominator to prevent division by zero or log(0)
+    sqnr_linear = signal_power / (mse_noise + 1e-10)
+    sqnr_db = 10 * torch.log10(sqnr_linear)
+
+    return sqnr_db.item()

@@ -77,10 +77,10 @@ class BlockTensorizedLinear(nn.Module):
         """
         assert (
             linear.in_features % block_size == 0
-        ), "invalid block size for in_features"
+        ), f"invalid block size {block_size} for in_features {linear.in_features}"
         assert (
             linear.out_features % block_size == 0
-        ), "invalid block size for out_features"
+        ), f"invalid block size {block_size} for out_features {linear.out_features}"
 
         num_rows = linear.out_features // block_size
         num_cols = linear.in_features // block_size
@@ -126,7 +126,7 @@ class BlockTensorizedLinear(nn.Module):
         self,
         rank_reduction_factor: float | None = None,
         energy_threshold: float = 0.99,
-        input_cov_sqrt: torch.Tensor | None = None
+        input_cov_sqrt: torch.Tensor | None = None,
     ) -> "BlockTensorizedLinear":
         """
         Truncate ranks of all constituent blocks by calling truncate_ranks on each.
@@ -154,12 +154,14 @@ class BlockTensorizedLinear(nn.Module):
                     start_col = j * self.block_size
                     end_col = (j + 1) * self.block_size
                     # Extract the block's portion of the covariance matrix
-                    block_input_cov_sqrt = input_cov_sqrt[start_col:end_col, start_col:end_col]
+                    block_input_cov_sqrt = input_cov_sqrt[
+                        start_col:end_col, start_col:end_col
+                    ]
 
                 truncated_blocks[(i, j)] = original_block.truncate_ranks(
                     rank_reduction_factor=rank_reduction_factor,
                     energy_threshold=energy_threshold,
-                    input_cov_sqrt=block_input_cov_sqrt
+                    input_cov_sqrt=block_input_cov_sqrt,
                 )
 
         # Create new BlockTensorizedLinear with truncated blocks
