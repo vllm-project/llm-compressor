@@ -48,9 +48,14 @@ class TensorizedLinear(nn.Module):
             [nn.Parameter(f.to(dtype), requires_grad=True) for f in factors]
         )
 
-        # Learnable scaling parameter initialized to 1.0 to preserve initial behavior
+        # Learnable per-channel scaling parameter initialized to 1.0 to preserve initial behavior
+        # shape = output_shape + input_shape, each has num_cores elements
+        # Output features is the product of the first num_cores elements
+        num_cores = len(factors)
+        output_shape = shape[:num_cores]
+        out_features = math.prod(output_shape)
         if alpha is None:
-            alpha = torch.ones(1, dtype=dtype)
+            alpha = torch.ones(out_features, dtype=dtype)
         self.alpha = nn.Parameter(alpha.to(dtype), requires_grad=True)
 
     @classmethod
@@ -218,8 +223,9 @@ class TensorizedLinear(nn.Module):
         out_features = math.prod(output_shape)
         result = result.reshape(batch_total, out_features)
 
-        # Apply learnable scaling
-        result = self.alpha * result
+        # Apply learnable per-channel scaling
+        # alpha has shape (out_features,), result has shape (..., out_features)
+        result = result * self.alpha
 
         # Add bias if present
         if self.bias is not None:
@@ -239,8 +245,9 @@ class TensorizedLinear(nn.Module):
         # Form full weight matrix
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
         result = F.linear(x, W, None)
-        # Apply learnable scaling
-        result = self.alpha * result
+        # Apply learnable per-channel scaling
+        # alpha has shape (out_features,), result has shape (..., out_features)
+        result = result * self.alpha
         # Add bias after scaling
         if self.bias is not None:
             result = result + self.bias
