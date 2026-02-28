@@ -298,17 +298,10 @@ class TensorizedLinear(nn.Module):
 
             # Truncate to new rank
             U_truncated = U[:, :new_rank]
-            S_truncated = S[:new_rank].clone()
+            S_truncated = S[:new_rank]
             Vh_truncated = Vh[:new_rank, :]
 
-            # Renormalize singular values to preserve determinant
-            # det = product of singular values, so we want:
-            # prod(S_renormalized) = prod(S_original)
-            # This means: scale_factor^new_rank = prod(S_original) / prod(S_truncated)
-            det_original = torch.prod(S)
-            det_truncated = torch.prod(S_truncated)
-            scale_factor = (det_original / (det_truncated + 1e-10)) ** (1.0 / new_rank)
-            S_truncated = S_truncated * scale_factor
+            # TODO check if re-normalizing S_truncated to have same det is important
 
             # Reconstruct left and right matrices with reduced bond dimension
             left_matrix_new = U_truncated  # (left_dims, new_rank)
