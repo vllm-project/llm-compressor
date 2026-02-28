@@ -347,7 +347,8 @@ class TensorizedLinear(nn.Module):
             New TensorizedLinear with reduced ranks
         """
         orig_device = self.factors[0].device
-        factors = [f.detach().to(torch.float32) for f in self.factors]
+        # Upconvert to float64 for high-precision truncation to avoid quantization loss
+        factors = [f.detach().to(torch.float64) for f in self.factors]
         num_cores = len(factors)
 
         # Compute Frobenius norm of original matrix before truncation
