@@ -108,6 +108,13 @@ class TensorNetworkModifier(Modifier):
         default_factory=dict
     )
 
+    # only reduce if this sqnr is reached (in dB)
+    # Gemini:
+    #    > 40 dB	Pristine	Identical to FP16/BF16.
+    # 30 - 40 dB	Safe	Logic and grammar remain intact.
+    # 20 - 30 dB	Risky	Noticeable drop in benchmarks; "stuttering" outputs.
+    target_sqnr: float = (30.0,)
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         :param state: state to run TensorNetworkModifier on
@@ -233,7 +240,6 @@ class TensorNetworkModifier(Modifier):
         self,
         name: str,
         linear: torch.nn.Linear,
-        target_sqnr=20.0,  # Reduce if target sqnr met
         rank_reduction_factor=None,  # 0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
         energy_threshold=0.98,  # Preserve 98% of energy to keep more parameters
     ) -> TensorizedLinear | BlockTensorizedLinear:
@@ -267,11 +273,11 @@ class TensorNetworkModifier(Modifier):
                 tensorized_linear,
                 name,
                 linear,
-                target_sqnr=target_sqnr,
+                target_sqnr=self.target_sqnr,
                 total_num_epochs=total_num_epochs,
             )
 
-            if final_sqnr >= target_sqnr:
+            if final_sqnr >= self.target_sqnr:
                 best_tensorized_linear = tensorized_linear
 
                 # Compute input covariance matrix for data-aware truncation (V-SVD)
@@ -332,7 +338,6 @@ class TensorNetworkModifier(Modifier):
         tensorized_linear: TensorizedLinear | BlockTensorizedLinear,
         name: str,
         linear: torch.nn.Linear,
-        target_sqnr=20.0,
         total_num_epochs=0,
     ) -> tuple[float, int]:
         """
@@ -363,6 +368,13 @@ class TensorNetworkModifier(Modifier):
             tensorized_linear.parameters(),
             lr=1e-4,
         )
+
+        # Compute hybrid loss: MSE + (1 - cosine_similarity)
+        # MSE forces the model to get the physical scale right
+        # loss_criterion = torch.nn.MSELoss()
+        # Cosine similarity encourages vectors to align in the same direction
+        # Use SQNR loss
+        loss_criterion = SQNRLoss()
 
         # Training loop with early stopping
         max_total_num_epochs = 100
@@ -402,35 +414,26 @@ class TensorNetworkModifier(Modifier):
                 # Forward pass through tensorized layer
                 tensorized_batch_output = tensorized_linear(batch_input)
 
-                # Compute hybrid loss: MSE + (1 - cosine_similarity)
-                # MSE forces the model to get the physical scale right
-                # Cosine similarity encourages vectors to align in the same direction
-                mse = F.mse_loss(tensorized_batch_output, dense_output)
-                loss = mse  # * mse_weight + cosine_loss * 1e-3
+                loss = loss_criterion(dense_output, tensorized_batch_output)
 
                 loss.backward()
                 optimizer.step()
 
+                dense_output = dense_output.detach()
+                tensorized_batch_output = tensorized_batch_output.detach()
+
                 cosine_similarities.append(
                     F.cosine_similarity(
-                        tensorized_batch_output.detach(), dense_output.detach(), dim=-1
+                        dense_output, tensorized_batch_output, dim=-1
                     ).mean()
                 )
-                sqnrs.append(
-                    compute_sqnr(
-                        dense_output.detach(), tensorized_batch_output.detach()
-                    )
-                )
-                mses.append(mse.detach().item())
+                sqnrs.append(compute_sqnr(dense_output, tensorized_batch_output))
+                mses.append(F.mse_loss(dense_output, tensorized_batch_output).item())
                 matching_signs.append(
-                    count_matching_signs(
-                        dense_output.detach(), tensorized_batch_output.detach()
-                    )
+                    count_matching_signs(dense_output, tensorized_batch_output)
                 )
                 sign_norms.append(
-                    compute_sign_norm(
-                        dense_output.detach(), tensorized_batch_output.detach()
-                    )
+                    compute_sign_norm(dense_output, tensorized_batch_output)
                 )
                 total_loss += loss.item()
                 num_batches += 1
@@ -466,7 +469,7 @@ class TensorNetworkModifier(Modifier):
 
             # Check early stopping conditions
             if (
-                epoch > 2 and final_avg_sqnr > target_sqnr
+                epoch > 2 and final_avg_sqnr > self.target_sqnr
             ) or epochs_without_improvement >= patience:
                 break
 
@@ -583,6 +586,7 @@ def get_parent_of_model_by_name(
     #     return None
 
 
+# weight-based sqnr
 # https://github.com/pytorch/pytorch/blob/v2.10.0/torch/ao/ns/fx/utils.py#L470
 # def compute_sqnr(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 #     """
@@ -600,6 +604,7 @@ def get_parent_of_model_by_name(
 #     return 20 * torch.log10(Ps / Pn)
 
 
+# activation-based sqnr
 def compute_sqnr(original_output: torch.Tensor, tensorized_output: torch.Tensor):
     """
     Calculates SQNR in dB using activation tensors directly.
@@ -647,3 +652,25 @@ def compute_sign_norm(a: torch.Tensor, b: torch.Tensor):
     total_magnitude = torch.norm(a)
 
     return mismatch_magnitude / total_magnitude
+
+
+class SQNRLoss(nn.Module):
+    def __init__(self, eps=1e-10):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, y_pred, y_true):
+        # Calculate Variance of the signal (The "Target Power")
+        signal_var = torch.var(y_true)
+
+        # Calculate Mean Squared Error (The "Noise Power")
+        mse_noise = torch.mean((y_true - y_pred) ** 2)
+
+        # Linear SQNR
+        sqnr_linear = signal_var / (mse_noise + self.eps)
+
+        # We want to maximize 10 * log10(sqnr_linear),
+        # so we minimize -10 * log10(sqnr_linear)
+        loss_db = -10 * torch.log10(sqnr_linear)
+
+        return loss_db
