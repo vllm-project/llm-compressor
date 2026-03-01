@@ -233,9 +233,9 @@ class TensorNetworkModifier(Modifier):
         self,
         name: str,
         linear: torch.nn.Linear,
-        target_sqnr=30.0,  # Reduce if target sqnr met
+        target_sqnr=20.0,  # Reduce if target sqnr met
         rank_reduction_factor=None,  # 0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
-        energy_threshold=0.98,  # Preserve 99.99% of energy to keep more parameters
+        energy_threshold=0.98,  # Preserve 98% of energy to keep more parameters
     ) -> TensorizedLinear | BlockTensorizedLinear:
         """
         Create a tensorized equivalent of the input Linear matrix with adaptive rank pruning.
@@ -332,7 +332,7 @@ class TensorNetworkModifier(Modifier):
         tensorized_linear: TensorizedLinear | BlockTensorizedLinear,
         name: str,
         linear: torch.nn.Linear,
-        target_sqnr=30.0,
+        target_sqnr=20.0,
         total_num_epochs=0,
     ) -> tuple[float, int]:
         """
@@ -374,6 +374,7 @@ class TensorNetworkModifier(Modifier):
 
         best_loss = float("inf")
         epochs_without_improvement = 0
+        final_avg_sqnr = 0.0
 
         pbar = tqdm(
             total=max_total_num_epochs,
