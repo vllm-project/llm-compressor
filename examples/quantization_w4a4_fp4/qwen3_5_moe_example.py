@@ -1,5 +1,9 @@
+import os
+import shutil
+
 from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
+from huggingface_hub import snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -101,3 +105,14 @@ print("==========================================\n\n")
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
+
+# Hot-fix for Transformers bug where save_pretrained doesn't bring over all required configs
+cache_dir = snapshot_download(MODEL_ID, allow_patterns=["*.json"])
+for filename in [
+    "preprocessor_config.json",
+    "processor_config.json",
+    "video_preprocessor_config.json",
+]:
+    src = os.path.join(cache_dir, filename)
+    if os.path.exists(src):
+        shutil.copyfile(src, os.path.join(SAVE_DIR, filename))
