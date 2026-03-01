@@ -1,6 +1,7 @@
 import json
 import os
 import weakref
+from collections import defaultdict
 from functools import wraps
 
 import torch
@@ -12,7 +13,10 @@ from compressed_tensors import (
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.offload import from_accelerate, is_rank0, to_accelerate
 from loguru import logger
+from safetensors import safe_open
+from safetensors.torch import save_file
 from transformers import PreTrainedModel
+from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
@@ -113,6 +117,10 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                 # copy python files from cache dir to save_path if any
                 copy_python_files_from_model_cache(model, save_directory)
+
+                # graft any extra weights (e.g. MTP) from the source checkpoint
+                # that were dropped by transformers during from_pretrained
+                _graft_extra_weights(model, save_directory)
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
@@ -261,6 +269,189 @@ def _update_config_expanded_ignore(
     logger.info(
         f"Added {len(added)} regex-matched module(s) to config.json ignore list"
     )
+
+
+def _graft_extra_weights(model: PreTrainedModel, save_directory: str) -> None:
+    """
+    Copy any weight keys present in the source checkpoint but missing from the
+    output directory.  This handles weights that transformers' from_pretrained()
+    silently drops (e.g. MTP / multi-token-prediction weights in Qwen3.5 models
+    that are filtered via ``_keys_to_ignore_on_load_unexpected``).
+
+    The function is generic: it discovers *all* keys present in the source but
+    absent from the output whose parent module doesn't exist in the model, so it
+    works for any model architecture that carries extra modules unknown to
+    transformers.  Keys that are merely *renamed* by compression (e.g.
+    ``weight`` → ``weight_packed``) are excluded because their parent module
+    still exists in the model.
+
+    :param model: the model that was loaded and (possibly) quantized
+    :param save_directory: path to the output directory produced by
+        ``save_pretrained``
+    """
+    from transformers.utils.hub import cached_file
+
+    source_name = model.name_or_path
+
+    # ------------------------------------------------------------------
+    # 1. Resolve source weight map  (key -> shard filename)
+    # ------------------------------------------------------------------
+    source_weight_map: dict[str, str] = {}  # key -> shard filename
+    try:
+        index_path = cached_file(source_name, SAFE_WEIGHTS_INDEX_NAME)
+        with open(index_path, "r") as f:
+            source_index = json.load(f)
+        source_weight_map = source_index["weight_map"]
+    except Exception:
+        # Single-shard model – enumerate keys directly
+        try:
+            single_path = cached_file(source_name, SAFE_WEIGHTS_NAME)
+            with safe_open(single_path, framework="pt") as f:
+                source_weight_map = {k: SAFE_WEIGHTS_NAME for k in f.keys()}
+        except Exception:
+            logger.debug(
+                "Could not resolve source safetensors for '{}'; "
+                "skipping extra-weight grafting.",
+                source_name,
+            )
+            return
+
+    if not source_weight_map:
+        return
+
+    # ------------------------------------------------------------------
+    # 2. Enumerate keys already saved in the output directory
+    # ------------------------------------------------------------------
+    output_keys: set[str] = set()
+    output_index_path = _find_safetensors_index(save_directory)
+    if output_index_path is not None:
+        with open(output_index_path, "r") as f:
+            output_index = json.load(f)
+        output_keys = set(output_index["weight_map"].keys())
+    else:
+        single_output = os.path.join(save_directory, SAFE_WEIGHTS_NAME)
+        if os.path.exists(single_output):
+            with safe_open(single_output, framework="pt") as f:
+                output_keys = set(f.keys())
+
+    if not output_keys:
+        # Output has no safetensors (e.g. safe_serialization=False) — skip
+        return
+
+    # ------------------------------------------------------------------
+    # 3. Compute extra keys — only those whose parent module is absent
+    # ------------------------------------------------------------------
+    # Keys missing from the output fall into two categories:
+    #   a) Truly dropped by transformers (e.g. mtp.* keys) — the parent
+    #      module was never created, so it doesn't exist in the model.
+    #   b) Renamed by compression (e.g. weight → weight_packed) — the
+    #      parent module still exists, just with different parameter names.
+    # We only want category (a).
+    candidate_keys = set(source_weight_map.keys()) - output_keys
+    if not candidate_keys:
+        return
+
+    model_module_names = {name for name, _ in model.named_modules()}
+
+    extra_keys = set()
+    for key in candidate_keys:
+        # Extract parent module path: "a.b.c.weight" → "a.b.c"
+        module_path = key.rsplit(".", 1)[0] if "." in key else ""
+        if module_path not in model_module_names:
+            extra_keys.add(key)
+
+    if not extra_keys:
+        return
+
+    logger.info(
+        "Grafting {} extra weight key(s) from source checkpoint "
+        "(e.g. {})",
+        len(extra_keys),
+        next(iter(sorted(extra_keys))),
+    )
+
+    # ------------------------------------------------------------------
+    # 4. Load extra tensors from source (memory-efficient: per-shard)
+    # ------------------------------------------------------------------
+    keys_by_shard: dict[str, list[str]] = defaultdict(list)
+    for key in extra_keys:
+        keys_by_shard[source_weight_map[key]].append(key)
+
+    extra_tensors: dict[str, torch.Tensor] = {}
+    for shard_filename, keys in keys_by_shard.items():
+        shard_path = cached_file(source_name, shard_filename)
+        with safe_open(shard_path, framework="pt") as f:
+            for key in keys:
+                extra_tensors[key] = f.get_tensor(key)
+
+    # ------------------------------------------------------------------
+    # 5. Save extra tensors to a new shard
+    # ------------------------------------------------------------------
+    extra_shard_name = "extra_weights.safetensors"
+    extra_shard_path = os.path.join(save_directory, extra_shard_name)
+    save_file(extra_tensors, extra_shard_path)
+
+    extra_size = sum(
+        t.nelement() * t.element_size() for t in extra_tensors.values()
+    )
+
+    # ------------------------------------------------------------------
+    # 6. Update (or create) the safetensors index
+    # ------------------------------------------------------------------
+    if output_index_path is not None:
+        # Multi-shard output – update existing index
+        with open(output_index_path, "r") as f:
+            index_data = json.load(f)
+
+        for key in sorted(extra_keys):
+            index_data["weight_map"][key] = extra_shard_name
+
+        metadata = index_data.get("metadata", {})
+        old_total = metadata.get("total_size", 0)
+        metadata["total_size"] = old_total + extra_size
+        index_data["metadata"] = metadata
+
+        with open(output_index_path, "w") as f:
+            json.dump(index_data, f, indent=2, sort_keys=False)
+            f.write("\n")
+    else:
+        # Single-shard output – create a new index
+        weight_map: dict[str, str] = {}
+        original_size = 0
+        single_output = os.path.join(save_directory, SAFE_WEIGHTS_NAME)
+        if os.path.exists(single_output):
+            with safe_open(single_output, framework="pt") as f:
+                for key in f.keys():
+                    weight_map[key] = SAFE_WEIGHTS_NAME
+                    t = f.get_tensor(key)
+                    original_size += t.nelement() * t.element_size()
+
+        for key in sorted(extra_keys):
+            weight_map[key] = extra_shard_name
+
+        index_data = {
+            "metadata": {"total_size": original_size + extra_size},
+            "weight_map": weight_map,
+        }
+
+        index_path = os.path.join(save_directory, SAFE_WEIGHTS_INDEX_NAME)
+        with open(index_path, "w") as f:
+            json.dump(index_data, f, indent=2, sort_keys=False)
+            f.write("\n")
+
+    logger.info(
+        "Saved extra weights to {} ({:.1f} MB)",
+        extra_shard_name,
+        extra_size / (1024 * 1024),
+    )
+
+
+def _find_safetensors_index(directory: str) -> str | None:
+    """Return the path to the safetensors index JSON in *directory*, or None."""
+    for name in os.listdir(directory):
+        if name.endswith("safetensors.index.json"):
+            return os.path.join(directory, name)
+    return None
 
 
 def update_and_save_recipe(model_stub: str, save_directory: str):
