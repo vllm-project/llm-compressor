@@ -12,7 +12,10 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
-from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
+try:
+    from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
+except ImportError:
+    from transformers.initialization import TORCH_INIT_FUNCTIONS
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 
 __all__ = [
