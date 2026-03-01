@@ -1,3 +1,4 @@
+import json
 import os
 import weakref
 from functools import wraps
@@ -103,6 +104,9 @@ def modify_save_pretrained(model: PreTrainedModel):
                 # update config to reflect compression
                 if compressor is not None:
                     compressor.update_config(save_directory)
+
+                # ensure regex-matched ignore patterns are in config.json
+                _update_config_expanded_ignore(model, save_directory)
 
                 # update existing recipe
                 update_and_save_recipe(model.name_or_path, save_directory)
@@ -211,6 +215,51 @@ def get_model_compressor(
         model,
         sparsity_config_or_format=sparsity_config,
         quantization_format=quantization_format,
+    )
+
+
+def _update_config_expanded_ignore(
+    model: torch.nn.Module, save_directory: str
+) -> None:
+    """
+    Ensure that modules matched by regex ignore patterns are explicitly listed
+    in config.json's quantization_config.ignore.
+
+    QuantizationConfig.from_pretrained() builds the ignore list by module type,
+    which can miss non-standard module types matched by regex patterns (e.g. MoE
+    router modules that are not nn.Linear). The QuantizationModifier stores the
+    expanded names on model._quantization_expanded_ignore during on_finalize.
+    """
+    expanded_ignore = getattr(model, "_quantization_expanded_ignore", None)
+    if not expanded_ignore:
+        return
+
+    config_path = os.path.join(save_directory, "config.json")
+    if not os.path.exists(config_path):
+        return
+
+    with open(config_path, "r") as f:
+        config_data = json.load(f)
+
+    quant_config = config_data.get("quantization_config")
+    if quant_config is None:
+        return
+
+    ignore_list = quant_config.get("ignore", [])
+    existing = set(ignore_list)
+
+    added = sorted(name for name in expanded_ignore if name not in existing)
+    if not added:
+        return
+
+    ignore_list.extend(added)
+    quant_config["ignore"] = ignore_list
+
+    with open(config_path, "w") as f:
+        json.dump(config_data, f, indent=2, sort_keys=True)
+
+    logger.info(
+        f"Added {len(added)} regex-matched module(s) to config.json ignore list"
     )
 
 

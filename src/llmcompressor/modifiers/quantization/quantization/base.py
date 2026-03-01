@@ -1,5 +1,7 @@
 import tqdm
 from compressed_tensors.utils import match_named_modules
+from compressed_tensors.utils.match import _match_name
+from loguru import logger
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -111,3 +113,25 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     def on_finalize(self, state: State, **kwargs) -> bool:
         if not self.ended_:
             self.on_end(state, None)
+
+        # Expand regex ignore patterns to explicit module names.
+        # QuantizationConfig.from_pretrained() builds the ignore list by
+        # checking module types, which misses non-standard modules matched
+        # by regex (e.g. MoE router modules that aren't nn.Linear).
+        # Store expanded names on the model so the save wrapper can ensure
+        # they appear in config.json.
+        regex_patterns = [p for p in self.ignore if p.startswith("re:")]
+        if regex_patterns:
+            expanded = set()
+            for name, _ in state.model.named_modules():
+                if any(_match_name(name, p) for p in regex_patterns):
+                    expanded.add(name)
+            if expanded:
+                existing = getattr(
+                    state.model, "_quantization_expanded_ignore", set()
+                )
+                state.model._quantization_expanded_ignore = existing | expanded
+                logger.info(
+                    f"Expanded {len(regex_patterns)} regex ignore pattern(s) "
+                    f"to {len(expanded)} explicit module name(s)"
+                )
