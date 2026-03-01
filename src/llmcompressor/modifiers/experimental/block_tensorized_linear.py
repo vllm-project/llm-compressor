@@ -259,6 +259,22 @@ class BlockTensorizedLinear(nn.Module):
         return y
 
     @property
+    def bias(self):
+        """
+        Reconstruct the full bias vector from constituent blocks.
+
+        Bias is stored in the first column blocks (j=0) for each row.
+        Returns None if no blocks have bias.
+        """
+        # Check if any block has bias
+        if self.blocks[0][0].bias is None:
+            return None
+
+        # Concatenate biases from first column blocks
+        bias_parts = [self.blocks[i][0].bias for i in range(self.num_blocks[0])]
+        return torch.cat(bias_parts)
+
+    @property
     def num_params(self):
         return sum(
             [
@@ -268,3 +284,32 @@ class BlockTensorizedLinear(nn.Module):
                 )
             ]
         )
+
+    def to_dense(self) -> nn.Linear:
+        """
+        Convert this BlockTensorizedLinear to a dense nn.Linear layer.
+
+        Returns:
+            nn.Linear with reconstructed weights (including learned scaling parameters)
+        """
+        with torch.no_grad():
+            # to_matrix() returns (out_features, in_features) with scaling applied
+            weight_matrix = self.to_matrix()
+
+            # Get dimensions
+            out_features, in_features = weight_matrix.shape
+            has_bias = self.bias is not None
+
+            # Create dense Linear layer
+            dense_layer = nn.Linear(
+                in_features, out_features, bias=has_bias, dtype=weight_matrix.dtype
+            )
+
+            # Copy reconstructed weights (already includes alpha and per_dim_scale)
+            dense_layer.weight.data.copy_(weight_matrix)
+
+            # Copy bias if present
+            if has_bias:
+                dense_layer.bias.data.copy_(self.bias)
+
+        return dense_layer

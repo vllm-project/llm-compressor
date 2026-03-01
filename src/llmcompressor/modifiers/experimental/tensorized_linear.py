@@ -165,9 +165,14 @@ class TensorizedLinear(nn.Module):
 
     def to_matrix(self) -> torch.Tensor:
         """
-        Return tensorized weights expanded into a single weight matrix
+        Return tensorized weights expanded into a single weight matrix,
+        including learned scaling parameters (alpha and per_dim_scale).
         """
-        return tl.tt_matrix.tt_matrix_to_matrix(self.factors)
+        W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
+        # Apply learned scaling: W_scaled[i, :] = per_dim_scale[i] * alpha * W[i, :]
+        scale = self.per_dim_scale * self.alpha
+        W_scaled = W * scale.view(-1, 1)
+        return W_scaled
 
     def forward(self, x):
         """
@@ -524,6 +529,35 @@ class TensorizedLinear(nn.Module):
     @property
     def num_params(self):
         return sum([p.numel() for p in self.parameters()])
+
+    def to_dense(self) -> nn.Linear:
+        """
+        Convert this TensorizedLinear to a dense nn.Linear layer.
+
+        Returns:
+            nn.Linear with reconstructed weights (including learned scaling parameters)
+        """
+        with torch.no_grad():
+            # to_matrix() returns (out_features, in_features) with scaling applied
+            weight_matrix = self.to_matrix()
+
+            # Get dimensions
+            out_features, in_features = weight_matrix.shape
+            has_bias = self.bias is not None
+
+            # Create dense Linear layer
+            dense_layer = nn.Linear(
+                in_features, out_features, bias=has_bias, dtype=weight_matrix.dtype
+            )
+
+            # Copy reconstructed weights (already includes alpha and per_dim_scale)
+            dense_layer.weight.data.copy_(weight_matrix)
+
+            # Copy bias if present
+            if has_bias:
+                dense_layer.bias.data.copy_(self.bias)
+
+        return dense_layer
 
 
 def get_nearest_power_of_2(n: int):
