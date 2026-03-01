@@ -28,6 +28,8 @@ class TensorizedLinear(nn.Module):
         bias: torch.Tensor | None = None,
         alpha: torch.Tensor | None = None,
         per_dim_scale: torch.Tensor | None = None,
+        input_perm: torch.Tensor | None = None,
+        input_inv_perm: torch.Tensor | None = None,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
     ):
@@ -62,6 +64,16 @@ class TensorizedLinear(nn.Module):
         if per_dim_scale is None:
             per_dim_scale = torch.ones(out_features, dtype=dtype)
         self.per_dim_scale = nn.Parameter(per_dim_scale.to(dtype), requires_grad=True)
+
+        # Channel permutation indices for importance-based ordering
+        # input_perm: permutation to apply to inputs (sort by importance)
+        # input_inv_perm: inverse permutation to apply to outputs (restore original order)
+        if input_perm is not None:
+            self.register_buffer("input_perm", input_perm.long())
+            self.register_buffer("input_inv_perm", input_inv_perm.long())
+        else:
+            self.input_perm = None
+            self.input_inv_perm = None
 
     @classmethod
     def from_linear(
@@ -115,6 +127,19 @@ class TensorizedLinear(nn.Module):
             assert weight.shape[0] == bias.shape[0], "incompatible weight/bias"
             bias = bias.clone(memory_format=torch.contiguous_format)
 
+        # Compute channel importance: norm along output dimension (dim=0)
+        # This gives importance of each input channel
+        channel_importance = torch.norm(weight, dim=0)  # shape: (in_features,)
+
+        # Sort indices by importance (descending order - most important first)
+        input_perm = torch.argsort(channel_importance, descending=True)
+
+        # Compute inverse permutation for output reconstruction
+        input_inv_perm = torch.argsort(input_perm)
+
+        # Apply permutation to weight matrix (permute columns = input channels)
+        weight_permuted = weight[:, input_perm]
+
         output_shape = cls.get_shape(weight.shape[0], num_cores)
         input_shape = cls.get_shape(weight.shape[1], num_cores)
         # NOTE: Order is based on what is shown in reference notebook
@@ -124,9 +149,9 @@ class TensorizedLinear(nn.Module):
 
         # upconvert to float32 before svd, no bfloat16 implementation
         orig_dtype = weight.dtype
-        weight = weight.to(torch.float32)
+        weight_permuted = weight_permuted.to(torch.float32)
         tt_matrix = tl.decomposition.tensor_train_matrix(
-            tl.reshape(weight, shape),
+            tl.reshape(weight_permuted, shape),
             rank=rank,
         )
         return cls(
@@ -134,6 +159,8 @@ class TensorizedLinear(nn.Module):
             rank,
             tt_matrix.factors,
             bias,
+            input_perm=input_perm,
+            input_inv_perm=input_inv_perm,
             dtype=orig_dtype,
         )
 
@@ -167,11 +194,17 @@ class TensorizedLinear(nn.Module):
         """
         Return tensorized weights expanded into a single weight matrix,
         including learned scaling parameters (alpha and per_dim_scale).
+        Returns the matrix in the original channel ordering (applies inverse permutation).
         """
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
         # Apply learned scaling: W_scaled[i, :] = per_dim_scale[i] * alpha * W[i, :]
         scale = self.per_dim_scale * self.alpha
         W_scaled = W * scale.view(-1, 1)
+
+        # Apply inverse permutation to restore original input channel ordering
+        if self.input_inv_perm is not None:
+            W_scaled = W_scaled[:, self.input_inv_perm]
+
         return W_scaled
 
     def forward(self, x):
@@ -190,6 +223,11 @@ class TensorizedLinear(nn.Module):
         # Flatten all batch dimensions: (..., in_features) -> (batch_total, in_features)
         x = x.reshape(-1, in_features)
         batch_total = x.shape[0]
+
+        # Apply input channel permutation if present
+        # This reorders channels by importance before MPO contraction
+        if self.input_perm is not None:
+            x = x[:, self.input_perm]
 
         # Get shapes from factors
         input_shape = [f.shape[2] for f in self.factors]
@@ -252,14 +290,9 @@ class TensorizedLinear(nn.Module):
         This is the original implementation kept for testing purposes.
         Less efficient than forward() but useful for verification.
         """
-        # Form full weight matrix
-        W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
-        result = F.linear(x, W, None)
-        # Apply learnable scaling: per-dimension first, then global scalar
-        result = result * self.per_dim_scale * self.alpha
-        # Add bias after scaling
-        if self.bias is not None:
-            result = result + self.bias
+        # Use to_matrix() which handles scaling and inverse permutation
+        W = self.to_matrix()
+        result = F.linear(x, W, self.bias)
         return result
 
     @staticmethod
@@ -521,6 +554,8 @@ class TensorizedLinear(nn.Module):
             bias=self.bias.clone() if self.bias is not None else None,
             alpha=self.alpha.data.clone(),
             per_dim_scale=self.per_dim_scale.data.clone(),
+            input_perm=self.input_perm.clone() if self.input_perm is not None else None,
+            input_inv_perm=self.input_inv_perm.clone() if self.input_inv_perm is not None else None,
             dtype=self.dtype,
         )
 
