@@ -114,6 +114,8 @@ class TensorNetworkModifier(Modifier):
     # 30 - 40 dB	Safe	Logic and grammar remain intact.
     # 20 - 30 dB	Risky	Noticeable drop in benchmarks; "stuttering" outputs.
     target_sqnr: float = (30.0,)
+    # When truncating, presereve this percentage of the total energy
+    energy_threshold = 0.975  # 97.5%
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -241,7 +243,6 @@ class TensorNetworkModifier(Modifier):
         name: str,
         linear: torch.nn.Linear,
         rank_reduction_factor=None,  # 0.05,  # Reduce rank by 5% each iteration (num_params ~ rank**2)
-        energy_threshold=0.98,  # Preserve 98% of energy to keep more parameters
     ) -> TensorizedLinear | BlockTensorizedLinear:
         """
         Create a tensorized equivalent of the input Linear matrix with adaptive rank pruning.
@@ -273,7 +274,6 @@ class TensorNetworkModifier(Modifier):
                 tensorized_linear,
                 name,
                 linear,
-                target_sqnr=self.target_sqnr,
                 total_num_epochs=total_num_epochs,
             )
 
@@ -321,7 +321,7 @@ class TensorNetworkModifier(Modifier):
                 # Use data-aware truncation (V-SVD) with input covariance
                 tensorized_linear = tensorized_linear.truncate_ranks(
                     rank_reduction_factor=None,
-                    energy_threshold=energy_threshold,
+                    energy_threshold=self.energy_threshold,
                     input_cov_sqrt=input_cov_sqrt,
                 )
 
@@ -381,7 +381,7 @@ class TensorNetworkModifier(Modifier):
         # Stop if no improvement for this many epochs
         patience = 3
         # Minimum improvement over previous loss to be considered progress
-        min_frac_delta = 1e-2
+        min_frac_delta = 5e-3
         loss_history = []
 
         best_loss = float("inf")
@@ -456,7 +456,7 @@ class TensorNetworkModifier(Modifier):
             loss_history.append(epoch_loss)
 
             pbar.set_description(
-                f"{name} | # params: "
+                f"{name} | # : "
                 f"{tensorized_params:.1e} ({compression_pct}) | "
                 f"mse: {sum(mses)/len(mses):.2e} | "
                 f"sqnr: {final_avg_sqnr:.2e} | "
