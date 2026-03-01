@@ -1,30 +1,47 @@
 import os
 import shutil
 
-from compressed_tensors.offload import dispatch_model
-from datasets import load_dataset
+from datasets import concatenate_datasets, load_dataset
 from huggingface_hub import snapshot_download
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForImageTextToText, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "Qwen/Qwen3.5-397B-A17B"
+# Available Qwen3.5 MoE models (pick one):
+#   "Qwen/Qwen3.5-35B-A3B"
+#   "Qwen/Qwen3.5-122B-A10B"
+#   "Qwen/Qwen3.5-397B-A17B"
+MODEL_ID = "Qwen/Qwen3.5-35B-A3B"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
+# Select number of samples. 512 is recommended for production quality;
+# reduce to 256 or lower for faster iteration during development.
+NUM_CALIBRATION_SAMPLES = 256
+MAX_SEQUENCE_LENGTH = 4096
 
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
+# Load datasets and preprocess.
+# Use half from each source for a diverse calibration set.
+samples_per_dataset = NUM_CALIBRATION_SAMPLES // 2
 
-# Select number of samples
-NUM_CALIBRATION_SAMPLES = 20
-MAX_SEQUENCE_LENGTH = 2048
+ds_ultrachat = load_dataset(
+    "HuggingFaceH4/ultrachat_200k",
+    split=f"train_sft[:{samples_per_dataset}]",
+)
+ds_nemotron = load_dataset(
+    "nvidia/Nemotron-Post-Training-Dataset-v2",
+    split=f"chat[:{samples_per_dataset}]",
+)
 
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+# Both datasets share a "messages" column with the same chat format.
+# Keep only that column so we can concatenate them.
+ds_ultrachat = ds_ultrachat.select_columns(["messages"])
+ds_nemotron = ds_nemotron.select_columns(["messages"])
+ds = concatenate_datasets([ds_ultrachat, ds_nemotron])
 ds = ds.shuffle(seed=42)
 
 
@@ -66,6 +83,7 @@ recipe = QuantizationModifier(
         "re:.*mlp.gate$",
         "re:.*mlp.shared_expert_gate$",
         "re:.*linear_attn.*",
+        "re:model\\.visual\\..*",
     ],
 )
 
@@ -92,25 +110,29 @@ oneshot(
 
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
+try:
+    dispatch_for_generation(model)
+    input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+        model.device
+    )
+    output = model.generate(input_ids, max_new_tokens=100)
+    print(tokenizer.decode(output[0]))
+except Exception as e:
+    print(f"Generation failed (non-fatal): {e}")
 print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
+# MTP (multi-token prediction) weights are automatically preserved from
+# the source checkpoint during save, enabling speculative decoding with vLLM.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 
-# Hot-fix for Transformers bug where save_pretrained doesn't bring over all required configs
+# Hot-fix: copy processor configs that save_pretrained doesn't bring over
 cache_dir = snapshot_download(MODEL_ID, allow_patterns=["*.json"])
 for filename in [
     "preprocessor_config.json",
-    "processor_config.json",
     "video_preprocessor_config.json",
 ]:
     src = os.path.join(cache_dir, filename)
