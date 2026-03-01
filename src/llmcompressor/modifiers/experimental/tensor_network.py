@@ -115,7 +115,7 @@ class TensorNetworkModifier(Modifier):
     # 20 - 30 dB	Risky	Noticeable drop in benchmarks; "stuttering" outputs.
     target_sqnr: float = (30.0,)
     # When truncating, presereve this percentage of the total energy
-    energy_threshold = 0.975  # 97.5%
+    energy_threshold: float = 0.975  # 97.5%
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
