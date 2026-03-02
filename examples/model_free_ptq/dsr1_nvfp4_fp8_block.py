@@ -47,7 +47,7 @@ model_free_ptq(
             # - model.layers.3.mlp.experts.0.gate_proj.weight
             # - model.layers.3.mlp.experts.0.up_proj.weight
             # NOTE: gate_up_proj also needs to be targeted, gate/up are fused
-            "re:.*mlp.*\.(gate_up|gate|up|down)_proj$"
+            "re:.*mlp.*(gate_up|gate|up|down)_proj$"
         ]
     ),
 )
