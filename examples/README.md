@@ -10,6 +10,7 @@ Some examples are additionally grouped by model type, such as:
 - `multimodal_audio`
 - `multimodal_vision`
 - `quantizing_moe`
+- `vllm_model_definitions`
 
 Other examples are grouped by algorithm, such as:
 - `awq`
@@ -24,6 +25,12 @@ Other examples are grouped by algorithm, such as:
 ## Where to start if you’re unsure
 
 If you’re unsure which quantization scheme to use, a good starting point is a data-free pathway, such as `w8a8_fp8`, found under `quantization_w8a8_fp8`. For more details on available schemes and when to use them, see the Compression Schemes [guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/compression_schemes/).
+
+## vLLM Model Definitions
+
+If you are migrating to the vLLM-aligned model-definition flow for support checks and loading examples, start with:
+
+- [`vllm_model_definitions/README.md`](vllm_model_definitions/README.md)
 
 ## Need help?
 

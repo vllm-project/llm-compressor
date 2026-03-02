@@ -35,7 +35,6 @@ class ReadMe:
 @pytest.mark.parametrize(
     "subdir",
     [
-        "quantization_kv_cache",
         "quantization_w4a16",
         "quantization_w8a8_fp8",
         "quantization_w8a8_int8",

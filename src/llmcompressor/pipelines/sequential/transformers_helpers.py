@@ -37,34 +37,11 @@ from torch.fx.proxy import ParameterProxy
 
 from transformers import logging, PretrainedConfig, PreTrainedModel
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
-from transformers.models.auto import get_values
-from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_BACKBONE_MAPPING_NAMES,
-    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_CTC_MAPPING_NAMES,
-    MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
-    MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_IMAGE_MAPPING_NAMES,
-    MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
-    MODEL_FOR_MASKED_LM_MAPPING_NAMES,
-    MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
-    MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
-    MODEL_FOR_PRETRAINING_MAPPING_NAMES,
-    MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
-    MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
-    MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-    MODEL_MAPPING_NAMES,
-)
 from transformers.utils.import_utils import (
     ENV_VARS_TRUE_VALUES,
     is_peft_available,
 )
+from vllm.model_executor.models import ModelRegistry
 
 
 if is_peft_available():
@@ -75,138 +52,11 @@ logger = logging.get_logger(__name__)
 _IS_IN_DEBUG_MODE = os.environ.get("FX_DEBUG_MODE", "").upper() in ENV_VARS_TRUE_VALUES
 
 
-def _generate_supported_model_class_names(
-    model_name: type[PretrainedConfig],
-    supported_tasks: str | list[str] | None = None,
-) -> list[str]:
-    task_mapping = {
-        "default": MODEL_MAPPING_NAMES,
-        "pretraining": MODEL_FOR_PRETRAINING_MAPPING_NAMES,
-        "next-sentence-prediction": MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,
-        "masked-lm": MODEL_FOR_MASKED_LM_MAPPING_NAMES,
-        "causal-lm": MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-        "seq2seq-lm": MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-        "speech-seq2seq": MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,
-        "multiple-choice": MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,
-        "document-question-answering": MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,
-        "question-answering": MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,
-        "sequence-classification": MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,
-        "token-classification": MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,
-        "masked-image-modeling": MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,
-        "image-classification": MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-        "zero-shot-image-classification": MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES,
-        "ctc": MODEL_FOR_CTC_MAPPING_NAMES,
-        "audio-classification": MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
-        "semantic-segmentation": MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,
-        "backbone": MODEL_FOR_BACKBONE_MAPPING_NAMES,
-        "image-feature-extraction": MODEL_FOR_IMAGE_MAPPING_NAMES,
-    }
-
-    if supported_tasks is None:
-        supported_tasks = task_mapping.keys()
-    if isinstance(supported_tasks, str):
-        supported_tasks = [supported_tasks]
-
-    model_class_names = []
-    for task in supported_tasks:
-        class_name = task_mapping[task].get(model_name, None)
-        if class_name:
-            model_class_names.append(class_name)
-
-    return model_class_names
+def _get_supported_models_from_vllm() -> tuple[str, ...]:
+    return tuple(sorted(set(ModelRegistry.get_supported_archs())))
 
 
-_REGULAR_SUPPORTED_MODEL_NAMES_AND_TASKS = [
-    "altclip",
-    "albert",
-    "bart",
-    "bert",
-    "bitnet",
-    "blenderbot",
-    "blenderbot-small",
-    "bloom",
-    "clip",
-    "convnext",
-    "deberta",
-    "deberta-v2",
-    "dinov2",
-    "dinov3_convnext",
-    "dinov3_vit",
-    "distilbert",
-    "donut-swin",
-    "electra",
-    "gpt2",
-    "gpt_neo",
-    "gptj",
-    "hiera",
-    "hubert",
-    "ijepa",
-    "layoutlm",
-    "llama",
-    "cohere",
-    "lxmert",
-    "m2m_100",
-    "marian",
-    "mbart",
-    "megatron-bert",
-    "ministral",
-    "mistral",
-    "mixtral",
-    "mobilebert",
-    "mt5",
-    "nezha",
-    "opt",
-    "pegasus",
-    "plbart",
-    "qwen2",
-    "qwen2_moe",
-    "qwen3",
-    "qwen3_next",
-    "qwen3_moe",
-    "resnet",
-    "roberta",
-    "segformer",
-    "speech_to_text",
-    "speech_to_text_2",
-    "swin",
-    "t5",
-    "trocr",
-    "vit",
-    "vjepa2",
-    "xglm",
-    "wav2vec2",
-    #    "xlnet",
-]
-
-_FX_SUPPORTED_MODELS_WITH_KV_CACHE = ["llama", "opt"]
-
-_REGULAR_SUPPORTED_MODELS = []
-for item in _REGULAR_SUPPORTED_MODEL_NAMES_AND_TASKS:
-    if isinstance(item, dict):
-        _REGULAR_SUPPORTED_MODELS.extend(_generate_supported_model_class_names(**item))
-    else:
-        _REGULAR_SUPPORTED_MODELS.extend(_generate_supported_model_class_names(item))
-
-_SPECIAL_SUPPORTED_MODELS = [
-    "CLIPTextModel",
-    "CLIPTextModelWithProjection",
-    "CLIPVisionModel",
-    "CLIPVisionModelWithProjection",
-    "AltCLIPTextModel",
-    "AltCLIPVisionModel",
-    "GitVisionModel",
-    "GPT2DoubleHeadsModel",
-    "Speech2Text2Decoder",
-    "TrOCRDecoder",
-    "PeftModelForCausalLM",
-    "PeftModelForSeq2SeqLM",
-    "VJEPA2ForVideoClassification",
-    # TODO: add support for them as it should be quite easy to do so (small blocking issues).
-    # XLNetForQuestionAnswering,
-]
-_SUPPORTED_MODELS = tuple(
-    sorted(set(_REGULAR_SUPPORTED_MODELS + _SPECIAL_SUPPORTED_MODELS))
-)
+_SUPPORTED_MODELS = _get_supported_models_from_vllm()
 
 _CURRENT_TRACER = None
 
@@ -959,87 +809,20 @@ class HFTracer(Tracer):
         device = model.device
         inputs_dict = {}
 
-        # when tracing a model with KV cache, we simply need to unsure that the KV cache length is larger than one to
-        # rightfully pass certain controlflows (Example: https://github.com/huggingface/transformers/blob/5c8d941d66734811d2ef6f57f15b44f7fb7a98c4/src/transformers/modeling_attn_mask_utils.py#L162).
-        # After tracing, the model can then still be used with arbitrary lengths different than the one used during tracing.
-        kv_cache_length = 5
-
         if input_name in ["labels", "start_positions", "end_positions"]:
-            batch_size = shape[0]
-            if model_class_name in [
-                *get_values(MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES),
-                *get_values(MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES),
-                *get_values(MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES),
-                *get_values(MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING_NAMES),
-                *get_values(MODEL_FOR_BACKBONE_MAPPING_NAMES),
-                *get_values(MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES),
-            ]:
-                inputs_dict["labels"] = torch.zeros(
-                    batch_size, dtype=torch.long, device=device
-                )
-            elif model_class_name in [
-                *get_values(MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES),
-                *get_values(MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES),
-                "XLNetForQuestionAnswering",
-            ]:
-                inputs_dict["start_positions"] = torch.zeros(
-                    batch_size, dtype=torch.long, device=device
-                )
-                inputs_dict["end_positions"] = torch.zeros(
-                    batch_size, dtype=torch.long, device=device
-                )
-            elif model_class_name in get_values(
-                MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES
-            ):
-                if (
-                    not hasattr(model.config, "problem_type")
-                    or model.config.problem_type is None
-                ):
-                    raise ValueError(
-                        "Could not retrieve the problem type for the sequence classification task, please set "
-                        'model.config.problem_type to one of the following values: "regression", '
-                        '"single_label_classification", or "multi_label_classification".'
-                    )
-
-                if model.config.problem_type == "regression":
-                    labels_shape = (batch_size, model.config.num_labels)
-                    labels_dtype = torch.float32
-                elif model.config.problem_type == "single_label_classification":
-                    labels_shape = (batch_size,)
-                    labels_dtype = torch.long
-                elif model.config.problem_type == "multi_label_classification":
-                    labels_shape = (batch_size, model.config.num_labels)
-                    labels_dtype = torch.float32
-                else:
-                    raise ValueError(
-                        'Expected model.config.problem_type to be either: "regression", "single_label_classification"'
-                        f', or "multi_label_classification", but "{model.config.problem_type}" was provided.'
-                    )
-                inputs_dict["labels"] = torch.zeros(
-                    *labels_shape, dtype=labels_dtype, device=device
-                )
-
-            elif model_class_name in [
-                *get_values(MODEL_FOR_PRETRAINING_MAPPING_NAMES),
-                *get_values(MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES),
-                *get_values(MODEL_FOR_CAUSAL_LM_MAPPING_NAMES),
-                *get_values(MODEL_FOR_MASKED_LM_MAPPING_NAMES),
-                *get_values(MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES),
-                *get_values(MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES),
-                "GPT2DoubleHeadsModel",
-                "PeftModelForCausalLM",
-                "PeftModelForSeq2SeqLM",
-            ]:
-                inputs_dict["labels"] = torch.zeros(
-                    shape, dtype=torch.long, device=device
-                )
-            elif model_class_name in [*get_values(MODEL_FOR_CTC_MAPPING_NAMES)]:
-                inputs_dict["labels"] = torch.zeros(
-                    shape, dtype=torch.float32, device=device
+            if input_name in ["start_positions", "end_positions"]:
+                inputs_dict[input_name] = torch.zeros(
+                    shape[0], dtype=torch.long, device=device
                 )
             else:
-                raise NotImplementedError(
-                    f"Generating the dummy input named {input_name} for {model_class_name} is not supported yet."
+                labels_dtype = (
+                    torch.float32
+                    if getattr(model.config, "problem_type", None)
+                    in ("regression", "multi_label_classification")
+                    else torch.long
+                )
+                inputs_dict["labels"] = torch.zeros(
+                    shape, dtype=labels_dtype, device=device
                 )
         elif "pixel_values" in input_name:
             batch_size = shape[0]
@@ -1127,35 +910,13 @@ class HFTracer(Tracer):
                 batch_size, seq_length, dtype=torch.float, device=device
             )
         elif "mask" in input_name:
-            if "past_key_values" in input_names:
-                mask_shape = [shape[0], shape[1] + kv_cache_length]
-            else:
-                mask_shape = shape
-
-            inputs_dict[input_name] = torch.zeros(
-                mask_shape, dtype=torch.long, device=device
-            )
+            inputs_dict[input_name] = torch.zeros(shape, dtype=torch.long, device=device)
         elif "ids" in input_name:
             inputs_dict[input_name] = torch.zeros(
                 shape, dtype=torch.long, device=device
             )
         elif "past_key_values" in input_name:
-            if model.config.model_type not in _FX_SUPPORTED_MODELS_WITH_KV_CACHE:
-                raise NotImplementedError(
-                    f"Symbolic trace with past_key_values input is not supported yet for the model {model.config.model_type}. Please open an issue or a PR in Transformers repository if you would like to see the support added."
-                )
-            num_heads = model.config.num_attention_heads
-            head_dim = model.config.hidden_size // model.config.num_attention_heads
-
-            cache_shape = (shape[0], num_heads, kv_cache_length, head_dim)
-            pkv = tuple(
-                (
-                    torch.rand(cache_shape, dtype=torch.float, device=device),
-                    torch.rand(cache_shape, dtype=torch.float, device=device),
-                )
-                for i in range(model.config.num_hidden_layers)
-            )
-            inputs_dict[input_name] = pkv
+            inputs_dict[input_name] = None
         else:
             shape_with_hidden_size = shape + [model.config.hidden_size]
             inputs_dict[input_name] = torch.zeros(
@@ -1413,9 +1174,7 @@ class HFTracer(Tracer):
         sequence_length = _generate_random_int()
         shape = [batch_size, sequence_length]
 
-        if root.__class__.__name__ in get_values(
-            MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES
-        ):
+        if "num_choices" in sig.parameters:
             num_choices = _generate_random_int(low=2, high=5)
             shape.insert(1, num_choices)
 
@@ -1628,22 +1387,6 @@ def symbolic_trace(
 
     if not disable_check:
         check_if_model_is_supported(model)
-
-    if "past_key_values" in input_names and not getattr(
-        model.config, "use_cache", False
-    ):
-        logger.warning(
-            "`past_key_values` were specified as input names, but model.config.use_cache = False, this might lead to "
-            "unexpected behavior."
-        )
-    if "past_key_values" not in input_names and getattr(
-        model.config, "use_cache", False
-    ):
-        logger.warning(
-            "`past_key_values` were not specified as input names, but model.config.use_cache = True. Setting "
-            "model.config.use_cache = False."
-        )
-        model.config.use_cache = False
 
     # Tracing.
     tracer = tracer_cls()

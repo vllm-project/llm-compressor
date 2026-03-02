@@ -1,10 +1,8 @@
+import warnings
 from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
-from compressed_tensors.modeling import (
-    IMPL_ATTR,
-    KV_CACHE_ATTR,
-)
+from compressed_tensors.modeling import IMPL_ATTR
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -25,10 +23,8 @@ from torch.utils.hooks import RemovableHandle
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
-    calibrate_key_hook,
     calibrate_output_hook,
     calibrate_query_hook,
-    calibrate_value_hook,
     freeze_module_quantization,
     initialize_observer,
     reset_quantization_status,
@@ -82,17 +78,8 @@ class QuantizationMixin(HooksMixin):
         will be set to the targets parameter set at the modifier level. Can also be set
         to a dictionary of the format `preset_scheme_name: targets` for example:
         `W8A8: ['Linear']` for weight and activation 8-bit.
-    :param kv_cache_scheme: optional QuantizationArgs, that specify the
-        quantization of the kv cache. If None, kv cache is not quantized.
-        When applying kv cache quantization to transformer AutoModelForCausalLM,
-        the kv_cache_scheme gets converted into a QuantizationScheme that:
-            - targets the `q_proj` and `k_proj` modules of the model. The outputs
-              of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aforementioned layers, so that
-              keys and values are compressed before storing them in the cache
-        There is an explicit assumption that the model contains modules with
-        `k_proj` and `v_proj` in their names. If this is not the case
-        and kv_cache_scheme != None, the quantization of kv cache will fail
+    :param kv_cache_scheme: deprecated. KV-cache quantization is currently disabled
+        in llmcompressor and this field is ignored.
     :param weight_observer: optional observer name for weight quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
@@ -201,10 +188,6 @@ class QuantizationMixin(HooksMixin):
             for target in config_group.targets:
                 targets.add(target)
 
-        if self.resolved_config.kv_cache_scheme is not None:
-            # TODO: decouple reliance on this regex for matching attention
-            targets.add("re:.*self_attn$")
-
         return targets
 
     def initialize_quantization(self, model: torch.nn.Module):
@@ -266,7 +249,6 @@ class QuantizationMixin(HooksMixin):
             and self.targets == ["Linear"]
             and self.ignore == []
             and self.scheme is None
-            and self.kv_cache_scheme is None
         )
 
     def resolve_quantization_config(self) -> QuantizationConfig:
@@ -276,8 +258,14 @@ class QuantizationMixin(HooksMixin):
         scheme = self.scheme
         targets = self.targets
         config_groups = self.config_groups
-        kv_cache_scheme = self.kv_cache_scheme
         ignore = self.ignore
+
+        if self.kv_cache_scheme is not None:
+            warnings.warn(
+                "`kv_cache_scheme` is currently ignored because KV-cache "
+                "quantization is disabled in llmcompressor.",
+                stacklevel=2,
+            )
 
         if scheme is not None and config_groups is not None:
             raise ValueError("Please specify either `scheme` or `config_groups`")
@@ -317,7 +305,7 @@ class QuantizationMixin(HooksMixin):
 
         return QuantizationConfig(
             config_groups=config_groups,
-            kv_cache_scheme=kv_cache_scheme,
+            kv_cache_scheme=None,
             quantization_status=QuantizationStatus.INITIALIZED,
             ignore=ignore,
         )
@@ -392,9 +380,6 @@ class QuantizationMixin(HooksMixin):
             else:
                 if hasattr(module, IMPL_ATTR):
                     initialize_observer(module, base_name="q")
-                if hasattr(module, KV_CACHE_ATTR):
-                    initialize_observer(module, base_name="k")
-                    initialize_observer(module, base_name="v")
 
         # weight observers (used by `update_weight_zp_scale` or child modifier)
         if weight:
@@ -426,9 +411,6 @@ class QuantizationMixin(HooksMixin):
             else:
                 if hasattr(module, IMPL_ATTR):
                     hooks.add(self.register_hook(module, calibrate_query_hook, "query"))
-                if hasattr(module, KV_CACHE_ATTR):
-                    hooks.add(self.register_hook(module, calibrate_key_hook, "key"))
-                    hooks.add(self.register_hook(module, calibrate_value_hook, "value"))
 
         # output activations
         if output:

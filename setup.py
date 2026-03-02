@@ -150,6 +150,7 @@ setup(
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.14.1a2"
         ),
+        ("vllm>=0.10.0" if BUILD_TYPE == "release" else "vllm>=0.10.0"),
     ],
     extras_require={
         "dev": [

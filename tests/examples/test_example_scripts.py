@@ -87,11 +87,6 @@ class TestCase(NamedTuple):
             prefix="W8A8",
         ),
         TestCase(
-            "quantization_kv_cache/llama3_fp8_kv_example.py",
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="FP8-KV",
-        ),
-        TestCase(
             "quantization_w4a16/llama3_example.py",
             compressed_format=CompressionFormat.pack_quantized,
             prefix="W4A16-G128",

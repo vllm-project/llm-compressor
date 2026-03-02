@@ -104,17 +104,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         will be set to the targets parameter set at the modifier level. Can also be set
         to a dictionary of the format `preset_scheme_name: targets` for example:
         `W8A8: ['Linear']` for weight and activation 8-bit.
-    :param kv_cache_scheme: optional QuantizationArgs, that specify the
-        quantization of the kv cache. If None, kv cache is not quantized.
-        When applying kv cache quantization to transformer AutoModelForCausalLM,
-        the kv_cache_scheme gets converted into a QuantizationScheme that:
-            - targets the `q_proj` and `k_proj` modules of the model. The outputs
-              of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aforementioned layers, so that
-              keys and values are compressed before storing them in the cache
-        There is an explicit assumption that the model contains modules with
-        `k_proj` and `v_proj` in their names. If this is not the case
-        and kv_cache_scheme != None, the quantization of kv cache will fail
+    :param kv_cache_scheme: deprecated and currently ignored. KV-cache
+        quantization is disabled in llmcompressor for now.
     """
 
     # gptq modifier arguments
