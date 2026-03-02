@@ -4,7 +4,7 @@ from PIL import Image
 from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
