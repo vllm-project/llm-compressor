@@ -6,7 +6,7 @@ from PIL import Image
 from transformers import AutoProcessor, Idefics3ForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "HuggingFaceM4/Idefics3-8B-Llama3"  # or "HuggingFaceTB/SmolVLM-Instruct"

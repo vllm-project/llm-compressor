@@ -61,7 +61,7 @@ WHISPER_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 
 DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
-        balance_layers=["re:.*q_proj", "re:.*kv_a_proj_with_mqa"],
+        balance_layers=["re:.*q(_a)?_proj$", "re:.*kv_a_proj_with_mqa"],
         smooth_layers="re:.*input_layernorm",
     ),
 ]
@@ -92,6 +92,8 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Glm4MoeForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "GlmMoeDsaForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
