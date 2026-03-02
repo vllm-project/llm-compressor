@@ -1,10 +1,8 @@
 name: Test Checks (Transformers)
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, release-0.7.1 ]
     types: [ labeled, synchronize ]
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       code_coverage:
@@ -52,7 +50,6 @@ jobs:
   transformers-tests:
     needs: [detect-changes]
     runs-on: gcp-k8s-vllm-l4-solo
-    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.matched-changes != ''
     steps:
       - uses: actions/setup-python@v5
         with:
