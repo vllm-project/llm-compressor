@@ -1,5 +1,6 @@
 cadence: "nightly"
 test_type: "regression"
+test_group: "rhaiis"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 scheme: NVFP4
 num_calibration_samples: 20

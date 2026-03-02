@@ -1,7 +1,0 @@
-fp4_nvfp4.yaml
-fp8_dynamic_per_token.yaml
-kv_cache_gptq_tinyllama.yaml
-sparse2of4_fp8_dynamic.yaml
-w4a16_grouped_quant_asym_awq.yaml
-w4a16_actorder_weight.yaml
-int8_channel_weight_static_per_tensor_act.yaml

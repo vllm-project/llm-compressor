@@ -2,6 +2,16 @@
 
 These examples demonstrate how to quantize MoE models using `llm-compressor`. We'll walk through the GLM-4.7 example which applies AWQ quantization to create a W4A16 (4-bit weights, 16-bit activations) model.
 
+## Installation
+
+To get started, install:
+
+```bash
+git clone https://github.com/vllm-project/llm-compressor.git
+cd llm-compressor
+pip install -e .
+```
+
 ## End-to-End Example: Quantizing GLM-4.7
 
 You can run the complete example with:
