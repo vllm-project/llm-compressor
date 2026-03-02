@@ -14,6 +14,9 @@ Before you begin, ensure that your environment meets the following prerequisites
 LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a recipe, which defines your chosen quantization scheme and quantization algorithm, to your selected model. 
 We'll import the `QuantizationModifier` modifier, which applies the RTN quantization algorithm and create a recipe to apply FP8 Block quantization to our model. The final model is compressed in the compressed-tensors format and ready to deploy in vLLM.
 
+!!! info
+    Note: The following script is for single-process quantization. The model is loaded onto any available GPUs and then offloaded onto the cpu if it is too large. For distributed support or support for very large models (such as certain MoEs, including Kimi-K2), see the [Big Models and Distributed Support guide](../guides/big_models_and_distributed/model_loading.md).
+
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -42,7 +45,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

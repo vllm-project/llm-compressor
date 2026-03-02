@@ -251,6 +251,8 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
+    "Glm4MoeForCausalLM": _default_mappings,
+    "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": _default_mappings,
     "Llama4ForConditionalGeneration": _default_mappings,
     "Mistral3ForConditionalGeneration": _default_mappings,
@@ -264,7 +266,6 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
     "Qwen3NextForCausalLM": _qwen3_next_moe_mappings,
-    "Glm4MoeForCausalLM": _default_mappings,
     "SeedOssForCausalLM": _default_mappings,
     "Ernie4_5_MoeForCausalLM": _default_mappings,
 }

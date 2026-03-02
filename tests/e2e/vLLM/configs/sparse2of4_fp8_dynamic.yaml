@@ -1,5 +1,6 @@
 cadence: "nightly"
 test_type: "regression"
+test_group: "rhaiis"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 recipe: tests/e2e/vLLM/recipes/Sparse_2of4/recipe_sparse_2of4_fp8_dynamic.yaml
 scheme: sparse2of4_fp8_dynamic
