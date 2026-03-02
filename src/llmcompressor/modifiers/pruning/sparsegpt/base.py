@@ -1,8 +1,8 @@
 import contextlib
 
 import torch
-from compressed_tensors.utils import (
-    align_module_device,
+from compressed_tensors.offload import (
+    disable_offloading,
     get_execution_device,
     update_offload_parameter,
 )
@@ -126,11 +126,7 @@ class SparseGPTModifier(SparsityModifierBase):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                CompressionLogger(module) as comp_logger,
-            ):
+            with disable_offloading(), CompressionLogger(module) as comp_logger:
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
                     hessians_dict=self._hessians,
