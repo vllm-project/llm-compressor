@@ -1,5 +1,6 @@
 import json
 import os
+from pydantic import ValidationError
 
 from compressed_tensors import __version__ as ct_version
 from compressed_tensors.base import (
@@ -103,20 +104,33 @@ def create_quant_config(
     3) Otherwise, create from scratch based on scheme
     """
 
+    qconfig = None
     if converter is not None:
         # original checkpoint is not in compressed-tensors format
         # assume quantization_config needs be created from scratch
         qconfig = converter.create_config()
     elif config_file_path is not None:
-        # load up quantization_config, if in compressed-tensors format
-        # append to it instead of creating from scratch
+        # load up quantization_config, if pre-existing compressed-tensors
+        # format exists, append to it instead of creating from scratch
         with open(config_file_path, "r") as file:
             config_data = json.load(file)
 
-            if hasattr(config_data, QUANTIZATION_CONFIG_NAME):
-                qconfig = QuantizationConfig.model_validate_json(
-                    config_data[QUANTIZATION_CONFIG_NAME]
+        if QUANTIZATION_CONFIG_NAME in config_data:
+            qconfigdata = config_data[QUANTIZATION_CONFIG_NAME]
+            # version in json but not allowed in QuantizationConfig
+            qconfigdata.pop(COMPRESSION_VERSION_NAME, None)
+            try:
+                qconfig = QuantizationConfig.model_validate(qconfigdata)
+            except ValidationError as e:
+                logger.warning(
+                    "Unable to parse original checkpoint quantization_config. "
+                    f"The quantization_config will be created from scratch: {e}"
                 )
+        else:
+            logger.info(
+                "No pre-existing quantization_config found. "
+                "The quantization_config will be created from scratch"
+            )
 
     if qconfig is None:
         # construct quantization config from scratch
@@ -129,6 +143,7 @@ def create_quant_config(
             }
         )
     else:
+        # update pre-existing quantization config
         scheme_name = (
             f"config_group_{len(qconfig.config_groups)}"
             if scheme_name in qconfig.config_groups
@@ -137,11 +152,9 @@ def create_quant_config(
         qconfig.config_groups[scheme_name] = scheme
         unique_formats = set(scheme.format for scheme in qconfig.config_groups.values())
         qconfig.format = (
-            (
-                next(iter(unique_formats))
-                if len(unique_formats) == 1
-                else CompressionFormat.mixed_precision.value
-            ),
+            next(iter(unique_formats))
+            if len(unique_formats) == 1
+            else CompressionFormat.mixed_precision.value
         )
         qconfig.quantization_status = QuantizationStatus.COMPRESSED
 
