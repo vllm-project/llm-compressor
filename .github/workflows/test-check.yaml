@@ -30,7 +30,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
+        run: |
+          export BUILD_TYPE=release
+          pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -43,7 +45,7 @@ jobs:
           pip3 uninstall -y compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=release pip3 install .
       - name: "Show installed dependencies"
         run: |
           pip3 freeze
@@ -83,7 +85,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
+        run: |
+          export BUILD_TYPE=release
+          pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -96,7 +100,7 @@ jobs:
           pip3 uninstall -y compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=release pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
@@ -134,7 +138,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
+        run: |
+          export BUILD_TYPE=release
+          pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -147,7 +153,7 @@ jobs:
           pip3 uninstall -y compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=release pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
