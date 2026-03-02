@@ -1,4 +1,5 @@
-# Big Modeling with Sequential Onloading #
+# Big Model Quantization with Sequential Onloading
+
 ## What is Sequential Onloading? ##
 Sequential onloading is a memory-efficient approach for compressing large language models (LLMs) using only a single GPU. Instead of loading the entire model into memory—which can easily require hundreds of gigabytes—this method loads and compresses one layer at a time. The outputs are offloaded before the next layer is processed, dramatically reducing peak memory usage while maintaining high compression fidelity.
 

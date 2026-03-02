@@ -4,6 +4,7 @@ Once you've compressed your model using LLM Compressor, you can deploy it for ef
 
 vLLM is a high-performance inference engine designed for large language models, providing support for various quantization formats and optimized for both single and multi-GPU setups. It also offers an OpenAI-compatible API for easy integration with existing applications.
 
+
 ## Prerequisites
 
 Before deploying your model, ensure you have the following prerequisites:
