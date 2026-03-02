@@ -44,6 +44,9 @@ jobs:
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
           BUILD_TYPE=nightly pip3 install .
+      - name: "Show installed dependencies"
+        run: |
+          pip3 freeze
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
