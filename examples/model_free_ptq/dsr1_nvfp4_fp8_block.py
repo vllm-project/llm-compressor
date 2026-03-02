@@ -1,4 +1,6 @@
-from compressed_tensors.entrypoints.convert_checkpoint import ModelOptNvfp4Converter
+from compressed_tensors.entrypoints.convert_checkpoint import (
+    ModelOptNvfp4Converter,
+)
 from compressed_tensors.quantization import (
     QuantizationScheme,
 )
@@ -31,7 +33,6 @@ model_free_ptq(
             "re:.*self_attn.(o_proj|q_b_proj).*",
         ],
     ),
-    ignore=["re:.*self_attn.kv_b_proj$"],
     max_workers=8,
     device="cuda:0",
     converter=ModelOptNvfp4Converter(

@@ -1,6 +1,5 @@
 import json
 import os
-from pydantic import ValidationError
 
 from compressed_tensors import __version__ as ct_version
 from compressed_tensors.base import (
@@ -18,6 +17,7 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
 )
 from loguru import logger
+from pydantic import ValidationError
 
 from .helpers import find_config_path, find_safetensors_index_path
 
