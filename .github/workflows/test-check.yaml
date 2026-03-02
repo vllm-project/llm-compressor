@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2
+        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -80,7 +80,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2
+        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -131,7 +131,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2
+        run: pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install torch==2.7.1 transformers==4.56.2 torchvision==0.22.1 torchcodec==0.8.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
