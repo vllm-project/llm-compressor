@@ -6,6 +6,7 @@ from typing import Iterable, Optional
 
 import torch
 import tqdm
+from compressed_tensors.entrypoints.convert_checkpoint import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 
@@ -22,7 +23,6 @@ from llmcompressor.entrypoints.model_free.process import (
     process_file_microscale_scheme,
     validate_file,
 )
-from llmcompressor.entrypoints.model_free.processors import Processor
 from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
     update_safetensors_index,
@@ -42,7 +42,7 @@ def model_free_ptq(
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
     device: Optional[torch.device | str] = None,
-    processors: Iterable[Processor] = tuple(),
+    converter: Converter | None = None,
 ):
     """
     Quantize a model without the need for a model definition. This function operates on
@@ -54,8 +54,10 @@ def model_free_ptq(
         ignored
     :param max_workers: number of worker threads to process files with
     :param device: gpu device to accelerate quantization with
-    :param processors: any additional processing we wish to apply to the checkpoint,
-        e.g. conversion of some layers from some format to compressed-tensors
+    :param converter: optional converter to apply to the checkpoint to convert it to
+        compressed-tensors format before running model-free PTQ
+        e.g. conversion of some layers from modelopt format to compressed-tensors
+        See compressed-tensors convert_checkpoint entrypoint for more information
     """
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
@@ -75,7 +77,7 @@ def model_free_ptq(
 
         if file_path.endswith("safetensors"):
             jobs.append(
-                (job_fn, resolved_path, save_path, scheme, ignore, device, processors)
+                (job_fn, resolved_path, save_path, scheme, ignore, device, converter)
             )
 
         else:
@@ -105,5 +107,5 @@ def model_free_ptq(
             weight_map.update(_weight_map)
 
     # 5. update config and safetensors index
-    update_config(save_directory, scheme_name, scheme, ignore)
+    update_config(save_directory, scheme_name, scheme, ignore, converter)
     update_safetensors_index(save_directory, total_size, weight_map)
