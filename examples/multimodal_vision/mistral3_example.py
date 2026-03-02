@@ -12,7 +12,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
