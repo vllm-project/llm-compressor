@@ -31,6 +31,9 @@ from llmcompressor.modifiers.quantization.calibration import (
     freeze_module_quantization,
     initialize_observer,
 )
+from llmcompressor.modifiers.quantization.group_size_validation import (
+    validate_group_size_divisibility,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 
@@ -102,6 +105,9 @@ class QuantizationMixin(HooksMixin):
         names. Example: {"weights": "MSE", "input": "MSE"}. If both individual
         observer parameters (weight_observer, input_observer, output_observer) and
         observer dict are provided, the observer dict takes precedence.
+    :param bypass_divisibility_checks: if True, skip the check that weight columns
+        are divisible by group_size for GROUP/TENSOR_GROUP. Use when your runtime
+        (e.g. vLLM) supports non-divisible dimensions. Defaults to False.
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
@@ -117,6 +123,7 @@ class QuantizationMixin(HooksMixin):
     input_observer: Optional[str] = None
     output_observer: Optional[str] = None
     observer: Optional[Dict[str, str]] = None
+    bypass_divisibility_checks: bool = False
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
@@ -200,10 +207,11 @@ class QuantizationMixin(HooksMixin):
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Untie word embeddings if necessary
+        Validate Untie word embeddings if necessary
 
         :param model: model to initialize
         """
+            
         if targets_embeddings(
             model, match_named_modules(model, self.resolved_targets, self.ignore)
         ):
@@ -222,6 +230,9 @@ class QuantizationMixin(HooksMixin):
         """
         if self.has_config():
             apply_quantization_config(model, self.resolved_config)
+
+        if not self.bypass_divisibility_checks:
+            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)

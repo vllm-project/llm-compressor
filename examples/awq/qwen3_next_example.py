@@ -3,7 +3,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Thinking"
@@ -66,17 +65,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
-
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-sym"

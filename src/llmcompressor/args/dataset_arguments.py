@@ -10,6 +10,9 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 from dataclasses import dataclass, field
 from typing import Callable
 
+from datasets import Dataset, DatasetDict
+from torch.utils.data import DataLoader
+
 
 @dataclass
 class DVCDatasetArguments:
@@ -101,12 +104,13 @@ class DatasetArguments(CustomDatasetArguments):
     arguments to be able to specify them on the command line
     """
 
-    dataset: str | None = field(
+    dataset: str | Dataset | DatasetDict | DataLoader | None = field(
         default=None,
         metadata={
             "help": (
-                "The name of the dataset to use (via the datasets library). "
-                "Supports input as a string or DatasetDict from HF"
+                "The dataset to use for calibration. Supports a dataset name "
+                "(str, via the datasets library), a DatasetDict from HF, or a "
+                "pre-built PyTorch DataLoader."
             )
         },
     )
@@ -258,9 +262,18 @@ class DatasetArguments(CustomDatasetArguments):
     dataloader_num_workers: int = field(
         default=0,
         metadata={
-            "help": "Number of worker processes for data loading. Set to 0 to disable "
-            "multiprocessing. Note: Custom data collators may not work with "
-            "multiprocessing. Default is 0."
+            "help": "Number of worker processes for data loading. Default is 0 (safe "
+            "for low CPU/GPU memory). Set to 2 or more for faster calibration if you "
+            "have sufficient RAM. Custom data collators may not work with "
+            "multiprocessing."
+        },
+    )
+    sequential_prefetch: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, prefetch the next batch in a "
+            "background thread to overlap onload with forward. Default False; set True "
+            "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
 
