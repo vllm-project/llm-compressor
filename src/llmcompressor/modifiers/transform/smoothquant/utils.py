@@ -61,7 +61,7 @@ WHISPER_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 
 DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
-        balance_layers=["re:.*q_proj", "re:.*kv_a_proj_with_mqa"],
+        balance_layers=["re:.*q(_a)?_proj$", "re:.*kv_a_proj_with_mqa"],
         smooth_layers="re:.*input_layernorm",
     ),
 ]
