@@ -17,7 +17,7 @@ Also, larger models, like DeepSeek R1 use a large amount of CPU memory, and mode
 
 2. How text decoder layers and vision tower layers are loaded on to GPU differs significantly. 
     
-    In the case of text decoder layers, LLM Compressor typically loads one layer at a time into the GPU for computation, while the rest remains offloaded in CPU/Disk memory. For more information, see [Sequential Onloading](./sequential_onloading.md).
+    In the case of text decoder layers, LLM Compressor typically loads one layer at a time into the GPU for computation, while the rest remains offloaded in CPU/Disk memory. For more information, see [Sequential Onloading](./big_models_and_distributed/sequential_onloading.md).
 
     However, vision tower layers are loaded onto GPU all at once. Unlike the text model, vision towers are not split up into individual layers before onloading to the GPU. This can create a GPU memory bottleneck for models whose vision towers are larger than their text layers.		
 

@@ -4,7 +4,7 @@
 
 LLM Compressor is capable of compressing models much larger than the amount of memory available as VRAM. This is achieved through a technique called **sequential onloading** whereby only a fraction of the model weights are moved to GPU memory for calibration while the rest of the weights remain offloaded to CPU or disk. When performing calibration, the entire dataset is offloaded to CPU, then onloaded one batch at a time to reduce peak activations memory usage.
 
-![sequential_onloading](../assets/sequential_onloading.jpg)
+![sequential_onloading](../../assets/sequential_onloading.jpg)
 
 If basic calibration/inference is represented with the following pseudo code...
 ```python
@@ -22,12 +22,12 @@ for layer in model.layers:
 
 ## Implementation ##
 
-Before a model can be sequentially onloaded, it must first be broken up into disjoint parts which can be individually onloaded. This is achieved through the [torch.fx.Tracer](https://github.com/pytorch/pytorch/blob/main/torch/fx/README.md#tracing) module, which allows a model to be represented as a graph of operations (nodes) and data inputs (edges). Once the model has been traced into a valid graph representation, the graph is cut (partitioned) into disjoint subgraphs, each of which is onloaded individually as a layer. This implementation can be found [here](/src/llmcompressor/pipelines/sequential/helpers.py).
+Before a model can be sequentially onloaded, it must first be broken up into disjoint parts which can be individually onloaded. This is achieved through the [torch.fx.Tracer](https://github.com/pytorch/pytorch/blob/main/torch/fx/README.md#tracing) module, which allows a model to be represented as a graph of operations (nodes) and data inputs (edges). Once the model has been traced into a valid graph representation, the graph is cut (partitioned) into disjoint subgraphs, each of which is onloaded individually as a layer. This implementation can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/pipelines/sequential/helpers.py).
 
-![sequential_onloading](../assets/model_graph.jpg)
+![sequential_onloading](../../assets/model_graph.jpg)
 *This image depicts some of the operations performed when executing the Llama3.2-Vision model*
 
-![sequential_onloading](../assets/sequential_decoder_layers.jpg)
+![sequential_onloading](../../assets/sequential_decoder_layers.jpg)
 *This image depicts the sequential text decoder layers of the Llama3.2-Vision model. Each of the individual decoder layers is onloaded separately*
 
 ## Sequential Targets and Usage ##
@@ -35,7 +35,7 @@ You can use sequential onloading by calling `oneshot` with the `pipeline="sequen
 
 If you are compressing a model using a GPU with a small amount of memory, you may need to change your sequential targets. Sequential targets control how many weights to onload to the GPU at a time. By default, the sequential targets are decoder layers which may include large MoE layers. In these cases, setting the `sequential_targets="Linear"` argument in `oneshot` will result in lower VRAM usage, but a longer runtime.
 
-![sequential_onloading](../assets/seq_targets.jpg)
+![sequential_onloading](../../assets/seq_targets.jpg)
 
 ## More information ##
 

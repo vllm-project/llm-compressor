@@ -3,10 +3,7 @@ from typing import Callable
 
 import torch
 from compressed_tensors.offload import update_offload_parameter
-from compressed_tensors.utils import (
-    match_modules_set,
-    match_named_modules,
-)
+from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
