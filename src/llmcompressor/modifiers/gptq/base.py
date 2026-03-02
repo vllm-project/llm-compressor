@@ -2,7 +2,7 @@ import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.offload.dist_utils import is_distributed
+from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -22,12 +22,12 @@ from torch import distributed as dist
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
-from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
+from llmcompressor.modifiers.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
 )
+from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
@@ -358,7 +358,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 if getattr(module, attr, None) is not None:
                     pending_comms.append(
                         dist.broadcast(
-                            getattr(module, attr), src=src_rank, async_op=True
+                            as_broadcastable(getattr(module, attr)),
+                            src=src_rank,
+                            async_op=True,
                         )
                     )
         wait_for_comms(pending_comms)

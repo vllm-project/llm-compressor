@@ -1,5 +1,4 @@
 import torch
-from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
@@ -82,14 +81,6 @@ oneshot(
     dataset=ds,
     data_collator=data_collator,
 )
-
-print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(processor.decode(output[0]))
-print("==========================================")
-
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
