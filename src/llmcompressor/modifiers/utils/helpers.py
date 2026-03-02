@@ -8,103 +8,84 @@ strategies like NVFP4.
 """
 
 import torch
-from compressed_tensors.offload import align_modules, update_offload_parameter
-from compressed_tensors.quantization import QuantizationStrategy, is_attention_module
-from torch.nn import Linear, Module
+from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.utils import (
+    align_modules,
+    update_offload_parameter,
+    update_parameter_data,
+)
+from torch.nn import Linear
+
+from llmcompressor.modeling.fused_modules import (
+    get_fused_attention_linears,
+    get_fused_mlp_linears,
+)
 
 __all__ = ["update_fused_layer_weight_global_scales"]
 
 
+def _valid_tensor_group_quant(layer_list: list[Linear]) -> bool:
+    """Return True if all linear layers in layer_list are TENSOR_GROUP quantized."""
+    for layer in layer_list:
+        scheme = getattr(layer, "quantization_scheme", None)
+        if scheme is None:
+            return False
+        weight_quant_args = scheme.weights
+        if weight_quant_args is None:
+            return False
+        if weight_quant_args.strategy != QuantizationStrategy.TENSOR_GROUP:
+            return False
+    return True
+
+
 def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
     """
-    When running NVFP4 quantization, update the global scale
-    such that q,k,v layers are treated as one tensor with the same
-    global_scale and gate_proj/up_proj layers are treated as one tensor
-    with the same global scale. This is requirement currently being set
-    by vLLM and may be removed in the future OR potentially make it
-    an optional step.
+    When running NVFP4 quantization, update the global scale so that vLLM
+    fused groups share one global scale: attention (traditional q/k/v or
+    MLA q_a + kv_a) and MLP (gate/up). Uses the centralized fused module
+    definitions; see :mod:`llmcompressor.modeling.fused_modules`.
 
-    :param model: model to quantize
+    When a linear already has ``weight_scale`` (e.g. after parallel phase-1
+    calibration), per-tensor scale is rescaled so that q = x/(s'*g') is
+    unchanged: s' = s * (g' / g), where g' is the fused global scale and g
+    was the previous per-tensor global scale.
+
+    This is a requirement currently set by vLLM and may be removed or
+    made optional in the future.
+
+    :param submodule: Module to process (any module; only fused attention/MLP
+        containers are updated).
     """
-
-    def _is_mlp_module(module: Module):
-        return "mlp" in module.__class__.__name__.lower() and (
-            hasattr(module, "gate_proj") and hasattr(module, "up_proj")
-        )
-
-    def _valid_tensor_group_quant(layer_list: list[Linear]):
-        """
-        Return True if all the linear layers in the layer_list are
-        TENSOR_GROUP quantized.
-        """
-        for layer in layer_list:
-            scheme = getattr(layer, "quantization_scheme", None)
-            if scheme is None:
-                return False
-
-            weight_quant_args = scheme.weights
-
-            if weight_quant_args is None:
-                return False
-
-            if weight_quant_args.strategy != QuantizationStrategy.TENSOR_GROUP:
-                return False
-        return True
-
-    if is_attention_module(submodule):
-        # already fused/treated as one layer
-        if hasattr(submodule, "qkv_proj"):
-            return
-
-        # not traditional attention (TODO: MLA)
-        if not (
-            hasattr(submodule, "q_proj")
-            and hasattr(submodule, "k_proj")
-            and hasattr(submodule, "v_proj")
-        ):
-            return
-
-        if not _valid_tensor_group_quant(
-            [submodule.q_proj, submodule.k_proj, submodule.v_proj]
-        ):
-            return
-
-        with align_modules([submodule.q_proj, submodule.v_proj, submodule.k_proj]):
+    # Fused attention: traditional (q/k/v) or MLA (q_a + kv_a_proj_with_mqa)
+    linears = get_fused_attention_linears(submodule)
+    if linears is not None and _valid_tensor_group_quant(linears):
+        with align_modules(linears):
             global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.q_proj.weight_global_scale.data,
-                        submodule.k_proj.weight_global_scale.data,
-                        submodule.v_proj.weight_global_scale.data,
-                    )
-                )
+                torch.cat([lin.weight_global_scale.data for lin in linears])
             ).reshape([1])
-
-        update_offload_parameter(submodule.k_proj, "weight_global_scale", global_scale)
-        update_offload_parameter(submodule.q_proj, "weight_global_scale", global_scale)
-        update_offload_parameter(submodule.v_proj, "weight_global_scale", global_scale)
-
+        for lin in linears:
+            _apply_fused_global_scale(lin, global_scale)
         del global_scale
 
-    if _is_mlp_module(submodule):
-        if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
-            return
-
-        with align_modules([submodule.gate_proj, submodule.up_proj]):
+    # Fused MLP: gate_proj, up_proj
+    linears = get_fused_mlp_linears(submodule)
+    if linears is not None and _valid_tensor_group_quant(linears):
+        with align_modules(linears):
             global_scale = torch.min(
-                torch.cat(
-                    (
-                        submodule.gate_proj.weight_global_scale.data,
-                        submodule.up_proj.weight_global_scale.data,
-                    )
-                )
+                torch.cat([lin.weight_global_scale.data for lin in linears])
             ).reshape([1])
-
-        update_offload_parameter(
-            submodule.gate_proj,
-            "weight_global_scale",
-            global_scale,
-        )
-        update_offload_parameter(submodule.up_proj, "weight_global_scale", global_scale)
-
+        for lin in linears:
+            _apply_fused_global_scale(lin, global_scale)
         del global_scale
+
+
+def _apply_fused_global_scale(lin: Linear, g_prime: torch.Tensor) -> None:
+    """Set weight_global_scale to g'; rescale weight_scale so q = x/(s*g) unchanged."""
+    old_g = lin.weight_global_scale.data
+    update_parameter_data(lin, g_prime, "weight_global_scale")
+    weight_scale = getattr(lin, "weight_scale", None)
+    if weight_scale is not None:
+        # s' = s * (g' / g) so that x / s' / g' = x / s / g
+        ratio = (g_prime / old_g).to(weight_scale.dtype).to(weight_scale.device)
+        new_scale = weight_scale.data * ratio
+        update_offload_parameter(lin, "weight_scale", new_scale)
