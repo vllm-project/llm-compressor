@@ -130,7 +130,7 @@ def create_quant_config(
         )
     else:
         scheme_name = (
-            f"group_{len(qconfig.config_groups)}"
+            f"config_group_{len(qconfig.config_groups)}"
             if scheme_name in qconfig.config_groups
             else scheme_name
         )
