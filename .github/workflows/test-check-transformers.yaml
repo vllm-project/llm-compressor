@@ -66,6 +66,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
+          ref: "0.11.0"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true
