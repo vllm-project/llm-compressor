@@ -1,15 +1,19 @@
-from typing import Iterator
+from itertools import product
+from typing import Callable, Iterator
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy, forward_quantize
 from compressed_tensors.utils import (
+    get_execution_device,
     get_lowest_common_ancestor_name,
     getattr_chain,
+    patch_attrs,
     update_offload_parameter,
 )
 from loguru import logger
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
+from tqdm import tqdm
 
 from llmcompressor.core import active_session
 from llmcompressor.modifiers.awq.mappings import AWQMapping, ResolvedMapping
@@ -237,6 +241,100 @@ def apply_tensor_group_fusion_if_needed(
         for layer in balance_layers
     ):
         update_fused_layer_weight_global_scales(parent)
+
+
+def compute_scale_losses(
+    mapping: ResolvedMapping,
+    fp16_outputs: list[torch.Tensor],
+    orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
+    get_grid_search_means: Callable[
+        [ResolvedMapping, torch.device], tuple[torch.Tensor, torch.Tensor | None]
+    ],
+    get_grid_configuration: Callable[[], tuple[int, list[bool]]],
+    run_samples: Callable[[Module], list[torch.Tensor]],
+    compute_loss: Callable[[list[torch.Tensor], list[torch.Tensor]], float],
+) -> list[dict[str, float | bool | torch.Tensor]]:
+    device = get_execution_device(mapping.parent)
+    x_mean, w_mean = get_grid_search_means(mapping, device)
+    n_grid, duo_scalings = get_grid_configuration()
+    balance_layers_to_patch = get_balance_layers_with_weight_quantization(
+        mapping.balance_layers
+    )
+
+    history: list[dict[str, float | bool | torch.Tensor]] = []
+    best_error_so_far = float("inf")
+    with patch_attrs(
+        balance_layers_to_patch,
+        "weight_observer",
+        create_memoryless_weight_observers(balance_layers_to_patch),
+    ):
+        total_iterations = n_grid * len(duo_scalings)
+        pbar = tqdm(
+            product(range(n_grid), duo_scalings),
+            total=total_iterations,
+            desc=f"Grid search for {mapping.smooth_name}",
+            leave=False,
+        )
+        for grid_idx, use_duo_scaling in pbar:
+            ratio = grid_idx / n_grid
+            scales = compute_scales_for_ratio(
+                ratio=ratio,
+                use_duo_scaling=use_duo_scaling,
+                x_mean=x_mean,
+                w_mean=w_mean,
+            )
+            scale_view = scales.view(1, -1).to(device)
+
+            apply_quantized_balance_weights(
+                balance_layers=balance_layers_to_patch,
+                scale_view=scale_view,
+                orig_layer_weights=orig_layer_weights,
+            )
+            apply_tensor_group_fusion_if_needed(
+                mapping.parent, balance_layers_to_patch
+            )
+
+            int_w_outputs = run_samples(mapping.parent)
+            loss = compute_loss(fp16_outputs, int_w_outputs)
+            del int_w_outputs
+
+            history.append(
+                {
+                    "ratio": ratio,
+                    "duo_scaling": use_duo_scaling,
+                    "error": loss,
+                    "scales": scales.clone(),
+                }
+            )
+            if loss < best_error_so_far:
+                best_error_so_far = loss
+            pbar.set_postfix({"best_error": f"{best_error_so_far:.3e}"})
+
+    return history
+
+
+def select_best_scales_from_losses(
+    loss_history: list[dict[str, float | bool | torch.Tensor]],
+) -> tuple[torch.Tensor, float, float, float]:
+    if len(loss_history) == 0:
+        raise Exception("No scales were evaluated during AWQ grid search")
+
+    initial_error = loss_history[0]["error"]
+    best_entry = min(loss_history, key=lambda entry: entry["error"])
+    best_error = best_entry["error"]
+    best_ratio = best_entry["ratio"]
+    best_scales = best_entry["scales"]
+
+    if not torch.isfinite(torch.tensor(best_error)):
+        logger.debug(loss_history)
+        raise Exception(
+            "No finite loss was found in best scalesgrid search. This typically "
+            "means NaN values are appearing in the forward pass of the parent "
+            "module. If you encounter this error, raise an issue at "
+            "https://github.com/vllm-project/llm-compressor/issues"
+        )
+
+    return best_scales, best_ratio, best_error, initial_error
 
 
 def _check_layers_are_compatible(

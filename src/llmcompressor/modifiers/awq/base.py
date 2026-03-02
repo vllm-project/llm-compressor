@@ -1,5 +1,4 @@
 import inspect
-from itertools import product
 from typing import Literal
 
 import torch
@@ -9,11 +8,9 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.utils import (
     align_modules,
-    get_execution_device,
     getattr_chain,
     match_modules_set,
     match_named_modules,
-    patch_attrs,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
@@ -29,17 +26,14 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.awq.helpers import (
     accumulate_mean,
-    apply_quantized_balance_weights,
     apply_scale_to_module,
-    apply_tensor_group_fusion_if_needed,
-    compute_scales_for_ratio,
-    create_memoryless_weight_observers,
+    compute_scale_losses,
     extract_masked_activations,
     flatten_balance_layers,
-    get_balance_layers_with_weight_quantization,
     get_lowest_common_ancestor_with_avoid,
     get_mapping_skip_reason,
     resolve_activation_hook_target,
+    select_best_scales_from_losses,
     should_skip_smoothing_for_outputs,
     validate_and_get_smooth_layer,
 )
@@ -593,73 +587,18 @@ class AWQModifier(Modifier, QuantizationMixin):
             one tensor for each batch.
         :return: tensor of best scales, one for each channel
         """
-        device = get_execution_device(mapping.parent)
-        history: list[dict[str, float | bool]] = []
-        best_ratio = -1.0
-        best_scales = None
-        best_error = float("inf")
-        initial_error = None
-
-        x_mean, w_mean = self._get_grid_search_means(mapping, device)
-        n_grid, duo_scalings = self._get_grid_configuration()
-        balance_layers_to_patch = get_balance_layers_with_weight_quantization(
-            mapping.balance_layers
+        loss_history = compute_scale_losses(
+            mapping=mapping,
+            fp16_outputs=fp16_outputs,
+            orig_layer_weights=orig_layer_weights,
+            get_grid_search_means=self._get_grid_search_means,
+            get_grid_configuration=self._get_grid_configuration,
+            run_samples=self._run_samples,
+            compute_loss=self._compute_loss,
         )
-        with patch_attrs(
-            balance_layers_to_patch,
-            "weight_observer",
-            create_memoryless_weight_observers(balance_layers_to_patch),
-        ):
-            total_iterations = n_grid * len(duo_scalings)
-            pbar = tqdm(
-                product(range(n_grid), duo_scalings),
-                total=total_iterations,
-                desc=f"Grid search for {mapping.smooth_name}",
-                leave=False,
-            )
-            for grid_idx, use_duo_scaling in pbar:
-                ratio = grid_idx / n_grid
-                scales = compute_scales_for_ratio(
-                    ratio=ratio,
-                    use_duo_scaling=use_duo_scaling,
-                    x_mean=x_mean,
-                    w_mean=w_mean,
-                )
-                scale_view = scales.view(1, -1).to(device)
-
-                apply_quantized_balance_weights(
-                    balance_layers=balance_layers_to_patch,
-                    scale_view=scale_view,
-                    orig_layer_weights=orig_layer_weights,
-                )
-                apply_tensor_group_fusion_if_needed(
-                    mapping.parent, balance_layers_to_patch
-                )
-
-                int_w_outputs = self._run_samples(mapping.parent)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                del int_w_outputs
-
-                if initial_error is None:
-                    initial_error = loss
-
-                history.append(
-                    {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
-                )
-                if loss < best_error:
-                    best_error = loss
-                    best_ratio = ratio
-                    best_scales = scales.clone()
-                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
-
-        if best_ratio == -1:
-            logger.debug(history)
-            raise Exception(
-                "No finite loss was found in best scalesgrid search. This typically "
-                "means NaN values are appearing in the forward pass of the parent "
-                "module. If you encounter this error, raise an issue at "
-                "https://github.com/vllm-project/llm-compressor/issues"
-            )
+        best_scales, best_ratio, best_error, initial_error = (
+            select_best_scales_from_losses(loss_history)
+        )
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.debug(
