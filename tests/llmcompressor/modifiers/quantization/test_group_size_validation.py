@@ -104,6 +104,7 @@ def test_initialize_quantization_raises_early_for_indivisible():
         try:
             with pytest.raises(ValueError) as exc_info:
                 modifier.on_initialize(state)
+                modifier.on_start(state)
         except Exception:
             pytest.skip(
                 "no indivisible layers targeted (CT may not attach to simple models)"
