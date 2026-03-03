@@ -15,7 +15,7 @@ _awq_dir = Path(__file__).resolve().parent
 if str(_awq_dir) not in sys.path:
     sys.path.insert(0, str(_awq_dir))
 
-from modal_awq_runners import app, run_with_smooth
+from modal_awq_runners import app, run_with_smooth  # noqa: E402
 
 
 @app.local_entrypoint()

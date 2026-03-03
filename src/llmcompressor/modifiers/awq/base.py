@@ -603,10 +603,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                     scales = best_scales.to(module.weight.device)
                     param_dtype = module.weight.dtype
                     if module in balance_layers:
-                        applied = (
-                            orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1)
-                        )
+                        applied = orig_layer_weights[module].to(
+                            module.weight.device
+                        ) * scales.view(1, -1)
                         update_offload_parameter(
                             module,
                             "weight",
@@ -636,7 +635,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
                             w = w.to(module.weight.device).clone()
                             w[-scales.size(0) :].div_(scales.view(-1, 1))
-                            update_offload_parameter(module, "weight", w.to(param_dtype))
+                            update_offload_parameter(
+                                module, "weight", w.to(param_dtype)
+                            )
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
@@ -646,9 +647,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 for layer in balance_layers:
                     _smooth(layer, orig_layer_weights)
-                # Always apply scaling to the smooth layer (smoothing). The optional part
-                # is smooth-layer quantization in the grid (smooth_layer_quantization /
-                # also_quantize_smooth_layers and layers_to_patch at _rescale_and_fake_quantize_layer).
+                # Always apply scaling to the smooth layer (smoothing). The optional
+                # part is smooth-layer quantization in the grid
+                # (smooth_layer_quantization / also_quantize_smooth_layers and
+                # layers_to_patch in _rescale_and_fake_quantize_layer).
                 _smooth(smooth_layer, orig_layer_weights)
 
                 # remove caches needed to smooth this mapping
@@ -708,7 +710,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             elif n < out_features:
                 orig_part = orig[-n:]
                 target_part = target_weight[-n:]
-                target_part.copy_((orig_part * scales_view.view(-1, 1)).to(weight_dtype))
+                target_part.copy_(
+                    (orig_part * scales_view.view(-1, 1)).to(weight_dtype)
+                )
             else:
                 raise ValueError(
                     f"Unexpected smooth scales length {n} for weight shape "
@@ -716,7 +720,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
         else:
             target_weight.copy_((orig * scales_view).to(weight_dtype))
-        
+
         should_calculate_gparam = (
             w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
         )
@@ -861,7 +865,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # Applying fused global scales for TENSOR_GROUP in grid search
                 # to match inference behavior
                 if (
-                    balance_layers := [
+                    [
                         layer
                         for layer in layers_to_patch
                         if layer in mapping.balance_layers

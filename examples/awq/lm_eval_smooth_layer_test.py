@@ -11,7 +11,7 @@ Usage:
   # With smooth layer quantization
   python lm_eval_smooth_layer_test.py --with-smooth
 
-  # Run both and compare runtime 
+  # Run both and compare runtime
   python lm_eval_smooth_layer_test.py --both
 
 """
