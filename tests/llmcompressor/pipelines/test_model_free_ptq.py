@@ -95,8 +95,8 @@ def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
 )
 def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
     """
-    Test that model_free_ptq can be stacked, will also confirm
-    that a model_free_ptq can be run a pre-existing CT checkpoint
+    Test that model_free_ptq can be stacked, also tests that
+    model_free_ptq can be run on a pre-existing CT checkpoint
     """
 
     model = "Qwen/Qwen3-0.6B"
