@@ -76,29 +76,48 @@ class TensorizedLinear(nn.Module):
             self.input_inv_perm = None
 
     @staticmethod
-    def _spectral_reordering(weight: torch.Tensor) -> torch.Tensor:
+    def _spectral_reordering(
+        weight: torch.Tensor,
+        input_activations: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         Compute optimal channel permutation using Spectral Reordering via Laplacian Eigenmaps.
 
         This finds the permutation that maximizes local coherence for MPO decomposition by:
-        1. Computing correlation matrix between input channels (weight columns)
+        1. Computing correlation matrix between input channels from activations or weights
         2. Building graph Laplacian from correlations
         3. Finding Fiedler vector (eigenvector of 2nd smallest eigenvalue)
         4. Sorting channels by Fiedler vector to group similar channels together
 
         Args:
             weight: Weight matrix of shape (out_features, in_features)
+            input_activations: Optional input activation data of shape (num_samples, in_features).
+                             If provided, computes correlations from activation patterns instead of weights.
 
         Returns:
             Permutation indices that maximize local coherence
         """
-        # Compute correlation matrix between input channels (columns of weight)
-        # Normalize each column to unit norm for cosine similarity
-        weight_normalized = weight / (torch.norm(weight, dim=0, keepdim=True) + 1e-10)
+        if input_activations is not None:
+            # Compute correlation from activation data
+            # Center activations (subtract mean) for proper correlation
+            activations_centered = input_activations - input_activations.mean(dim=0, keepdim=True)
 
-        # Correlation/affinity matrix: C[i,j] = cosine similarity between channels i and j
-        # Shape: (in_features, in_features)
-        correlation = weight_normalized.T @ weight_normalized
+            # Normalize each channel to unit variance for correlation computation
+            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
+            activations_normalized = activations_centered / activations_std
+
+            # Correlation matrix: Corr[i,j] = correlation between channel i and j
+            # Shape: (in_features, in_features)
+            num_samples = activations_normalized.shape[0]
+            correlation = (activations_normalized.T @ activations_normalized) / num_samples
+        else:
+            # Compute correlation matrix between input channels (columns of weight)
+            # Normalize each column to unit norm for cosine similarity
+            weight_normalized = weight / (torch.norm(weight, dim=0, keepdim=True) + 1e-10)
+
+            # Correlation/affinity matrix: C[i,j] = cosine similarity between channels i and j
+            # Shape: (in_features, in_features)
+            correlation = weight_normalized.T @ weight_normalized
 
         # Make affinity matrix non-negative and apply exponential kernel for stronger locality
         # A[i,j] = exp(correlation[i,j]) gives higher weight to similar channels
@@ -130,6 +149,7 @@ class TensorizedLinear(nn.Module):
         linear: nn.Linear,
         rank: str | float | int | tuple[int] = 0.5,
         num_cores: int = 2,
+        input_activations: torch.Tensor | None = None,
     ) -> "TensorizedLinear":
         """
         Build TensorizedLinear from an input torch.nn.Linear layer
@@ -141,12 +161,15 @@ class TensorizedLinear(nn.Module):
                 linear.weight.numel() * rank
             if "same", same number of parameters as original
                 (completely reconstructs the linear mapping)
+        input_activations: Optional input activation data of shape (num_samples, in_features)
+                          for activation-based spectral reordering
         """
         return cls.from_weight_and_bias(
             linear.weight.detach(),
             linear.bias.detach() if linear.bias is not None else None,
             rank,
             num_cores,
+            input_activations,
         )
 
     @classmethod
@@ -156,6 +179,7 @@ class TensorizedLinear(nn.Module):
         bias: torch.Tensor | None,
         rank: str | float | int | tuple[int] = 0.5,
         num_cores: int = 2,
+        input_activations: torch.Tensor | None = None,
     ) -> "TensorizedLinear":
         """
         Build TensorizedLinear from an input torch.nn.Linear layer
@@ -166,6 +190,9 @@ class TensorizedLinear(nn.Module):
                 linear.weight.numel() * rank
             if "same", same number of parameters as original
                 (completely reconstructs the linear mapping)
+        input_activations: Optional input activation data of shape (num_samples, in_features)
+                          for activation-based spectral reordering. If provided, channel
+                          correlations are computed from activation patterns instead of weights.
         """
         assert weight.ndim == 2, "invalid weight"
         # always create fresh
@@ -176,9 +203,16 @@ class TensorizedLinear(nn.Module):
             assert weight.shape[0] == bias.shape[0], "incompatible weight/bias"
             bias = bias.clone(memory_format=torch.contiguous_format)
 
+        if input_activations is not None:
+            assert input_activations.ndim == 2, "invalid input_activations, expected (num_samples, in_features)"
+            assert input_activations.shape[1] == weight.shape[1], (
+                f"input_activations feature dim {input_activations.shape[1]} doesn't match "
+                f"weight in_features {weight.shape[1]}"
+            )
+
         # Use spectral reordering to find optimal channel permutation
         # This maximizes local coherence for MPO decomposition using Laplacian Eigenmaps
-        input_perm = cls._spectral_reordering(weight)
+        input_perm = cls._spectral_reordering(weight, input_activations)
 
         # Compute inverse permutation for output reconstruction
         input_inv_perm = torch.argsort(input_perm)

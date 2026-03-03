@@ -62,6 +62,7 @@ class BlockTensorizedLinear(nn.Module):
         # Args to pass into TensorizedLinear.from_linear
         rank: str | float | int | tuple[int] = 0.5,
         num_cores: int = 2,
+        input_activations: torch.Tensor | None = None,
     ) -> "BlockTensorizedLinear":
         """
         Build BlockTensorizedLinear from an input torch.nn.Linear layer
@@ -74,6 +75,8 @@ class BlockTensorizedLinear(nn.Module):
                 square matrices preferred
         rank: same as TensorizedLinear.from_linear
         num_cores: same as TensorizedLinear.from_linear
+        input_activations: Optional input activation data of shape (num_samples, in_features)
+                          for activation-based spectral reordering. Will be sliced per block.
         """
         assert (
             linear.in_features % block_size == 0
@@ -82,12 +85,26 @@ class BlockTensorizedLinear(nn.Module):
             linear.out_features % block_size == 0
         ), f"invalid block size {block_size} for out_features {linear.out_features}"
 
+        if input_activations is not None:
+            assert input_activations.ndim == 2, "input_activations must be 2D (num_samples, in_features)"
+            assert input_activations.shape[1] == linear.in_features, (
+                f"input_activations feature dim {input_activations.shape[1]} doesn't match "
+                f"linear.in_features {linear.in_features}"
+            )
+
         num_rows = linear.out_features // block_size
         num_cols = linear.in_features // block_size
 
         blocks: dict[tuple[int, int], TensorizedLinear] = {}
         for i in range(num_rows):
             for j in range(num_cols):
+                # Slice input activations for this block's input channels
+                block_input_activations = None
+                if input_activations is not None:
+                    start_col = j * block_size
+                    end_col = (j + 1) * block_size
+                    block_input_activations = input_activations[:, start_col:end_col]
+
                 blocks[(i, j)] = TensorizedLinear.from_weight_and_bias(
                     weight=linear.weight[
                         i * block_size : (i + 1) * block_size,
@@ -101,6 +118,7 @@ class BlockTensorizedLinear(nn.Module):
                     ),
                     rank=rank,
                     num_cores=num_cores,
+                    input_activations=block_input_activations,
                 )
         return cls(
             blocks,
