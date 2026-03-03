@@ -1,5 +1,6 @@
 import json
 
+from compressed_tensors.convert import find_file_path
 from compressed_tensors.quantization import (
     QuantizationScheme,
     preset_name_to_scheme,
@@ -7,7 +8,7 @@ from compressed_tensors.quantization import (
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 
-from .helpers import find_safetensors_index_file, invert_mapping
+from .helpers import invert_mapping
 from .microscale import get_fused_names, is_microscale_scheme
 
 __all__ = ["validate_scheme", "validate_safetensors_index"]
@@ -53,7 +54,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
 
 
 def validate_safetensors_index(model_files: dict[str, str], scheme: QuantizationScheme):
-    index_file_path = find_safetensors_index_file(model_files)
+    index_file_path = find_file_path(model_files, "safetensors.index.json")
     if index_file_path is None:
         return
 
