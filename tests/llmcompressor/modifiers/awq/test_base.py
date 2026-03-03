@@ -675,3 +675,283 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
     assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.unit
+def test_learned_scales_config():
+    """Test that learned scales configuration parameters are properly set"""
+    # Test default values
+    awq_default = AWQModifier(scheme="W4A16_ASYM")
+    assert awq_default.scale_search_method == "grid"
+    assert awq_default.learned_scales_iters == 100
+    assert awq_default.learned_scales_lr == 0.01
+
+    # Test custom values
+    awq_custom = AWQModifier(
+        scheme="W4A16_ASYM",
+        scale_search_method="learned",
+        learned_scales_iters=50,
+        learned_scales_lr=0.02,
+    )
+    assert awq_custom.scale_search_method == "learned"
+    assert awq_custom.learned_scales_iters == 50
+    assert awq_custom.learned_scales_lr == 0.02
+
+
+@pytest.mark.unit
+def test_scale_parameter_attachment_detachment():
+    """Test attaching and detaching learnable scales as nn.Parameter"""
+    from llmcompressor.modifiers.awq.mappings import ResolvedMapping
+
+    awq = AWQModifier(scheme="W4A16_ASYM", scale_search_method="learned")
+
+    # Create a simple parent module
+    parent = torch.nn.ModuleDict({"linear": torch.nn.Linear(4, 4)})
+
+    # Create a resolved mapping
+    mapping = ResolvedMapping(
+        smooth_name="test.smooth_layer",
+        smooth_layer=torch.nn.LayerNorm(4),
+        balance_layers=[parent["linear"]],
+        balance_names=["test.linear"],
+        parent=parent,
+        parent_name="test",
+    )
+
+    # Create initial scales
+    initial_scales = torch.ones(4)
+
+    # Test attachment
+    scales_param = awq._attach_learnable_scales(mapping, initial_scales)
+    assert isinstance(scales_param, torch.nn.Parameter)
+    assert scales_param.requires_grad
+    assert scales_param.shape == initial_scales.shape
+    assert_close(scales_param, initial_scales)
+
+    # Verify parameter is registered on parent
+    param_name = awq._get_scale_param_name(mapping.smooth_name)
+    assert hasattr(parent, param_name)
+    assert getattr(parent, param_name) is scales_param
+
+    # Modify the parameter to simulate learning
+    with torch.no_grad():
+        scales_param.data.fill_(2.0)
+
+    # Test detachment
+    final_scales = awq._detach_learnable_scales(mapping)
+    assert not hasattr(parent, param_name)
+    assert_close(final_scales, torch.full((4,), 2.0))
+    assert not final_scales.requires_grad
+
+
+@pytest.mark.unit
+def test_compute_loss_gradient_flow():
+    """Test that loss computation maintains gradient when return_scalar=False"""
+    awq = AWQModifier(scheme="W4A16_ASYM")
+
+    # Create dummy outputs
+    fp16_outputs = [torch.randn(2, 4, 8, requires_grad=True)]
+    int_w_outputs = [torch.randn(2, 4, 8, requires_grad=True)]
+
+    # Test with return_scalar=True (should break gradient)
+    loss_scalar = awq._compute_loss(fp16_outputs, int_w_outputs, return_scalar=True)
+    assert isinstance(loss_scalar, float)
+
+    # Test with return_scalar=False (should maintain gradient)
+    loss_tensor = awq._compute_loss(fp16_outputs, int_w_outputs, return_scalar=False)
+    assert isinstance(loss_tensor, torch.Tensor)
+    assert loss_tensor.requires_grad
+    assert loss_tensor.numel() == 1
+
+    # Verify backward pass works
+    loss_tensor.backward()
+    assert fp16_outputs[0].grad is not None
+    assert int_w_outputs[0].grad is not None
+
+
+@pytest.mark.unit
+def test_learned_scales_initialization():
+    """Test that learned scales are properly initialized from activation statistics"""
+    from llmcompressor.modifiers.awq.mappings import ResolvedMapping
+
+    awq = AWQModifier(
+        scheme="W4A16_ASYM",
+        scale_search_method="learned",
+        learned_scales_iters=5,
+        learned_scales_lr=0.01,
+        duo_scaling=False,  # Simpler initialization
+    )
+
+    # Create simple modules
+    smooth_layer = torch.nn.LayerNorm(8)
+    balance_layer = torch.nn.Linear(8, 8)
+    parent = torch.nn.ModuleDict({"balance": balance_layer})
+
+    mapping = ResolvedMapping(
+        smooth_name="test.smooth_layer",
+        smooth_layer=smooth_layer,
+        balance_layers=[balance_layer],
+        balance_names=["test.balance"],
+        parent=parent,
+        parent_name="test",
+    )
+
+    # Set up activation means
+    activation_mean = torch.rand(8).abs() + 0.1
+    awq._smooth_activation_means = {"test.smooth_layer": (activation_mean.clone(), 1)}
+
+    # Attach learnable scales
+    # Compute expected initial scales (from the learned method logic)
+    expected_initial = activation_mean.pow(0.5).clamp(min=1e-4).view(-1)
+    expected_initial = expected_initial / (expected_initial.max() * expected_initial.min()).sqrt()
+    expected_initial[torch.isinf(expected_initial)] = 1
+    expected_initial[torch.isnan(expected_initial)] = 1
+
+    scales_param = awq._attach_learnable_scales(mapping, expected_initial)
+
+    # Verify it's a parameter
+    assert isinstance(scales_param, torch.nn.Parameter)
+    assert scales_param.requires_grad
+    assert_close(scales_param, expected_initial)
+
+    # Verify it can be optimized
+    optimizer = torch.optim.Adam([scales_param], lr=0.01)
+    loss = (scales_param - 2.0).pow(2).sum()
+    loss.backward()
+    optimizer.step()
+
+    # Scales should have changed
+    assert not torch.allclose(scales_param, expected_initial)
+
+    # Detach and verify
+    final_scales = awq._detach_learnable_scales(mapping)
+    assert not final_scales.requires_grad
+    assert_close(final_scales, scales_param.data)
+
+
+@pytest.mark.unit
+def test_scale_hook_applies_correctly():
+    """Test that the forward hook correctly applies scales to balance and smooth layers"""
+    from llmcompressor.modifiers.awq.mappings import ResolvedMapping
+
+    awq = AWQModifier(
+        scheme="W4A16_ASYM",
+        scale_search_method="learned",
+    )
+
+    # Create modules
+    smooth_layer = torch.nn.LayerNorm(4)
+    balance_layer = torch.nn.Linear(4, 4)
+    parent = torch.nn.ModuleDict({"balance": balance_layer})
+
+    mapping = ResolvedMapping(
+        smooth_name="test.smooth_layer",
+        smooth_layer=smooth_layer,
+        balance_layers=[balance_layer],
+        balance_names=["test.balance"],
+        parent=parent,
+        parent_name="test",
+    )
+
+    # Save original weights
+    orig_weights = {balance_layer: balance_layer.weight.clone()}
+    smooth_orig_weight = smooth_layer.weight.clone()
+    smooth_orig_bias = smooth_layer.bias.clone()
+
+    # Create and attach scales
+    initial_scales = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    awq._attach_learnable_scales(mapping, initial_scales)
+
+    # Create hook
+    hook_fn = awq._create_scale_application_hook(
+        mapping, orig_weights, smooth_orig_weight, smooth_orig_bias
+    )
+    balance_hook = balance_layer.register_forward_pre_hook(hook_fn)
+    smooth_hook = smooth_layer.register_forward_pre_hook(hook_fn)
+
+    # Run forward pass on balance layer (hook should apply scales)
+    input_tensor = torch.randn(2, 4)
+    _ = balance_layer(input_tensor)
+
+    # Verify scales were applied to balance layer
+    expected_balance_weight = orig_weights[balance_layer] * initial_scales.view(1, -1)
+    assert_close(balance_layer.weight, expected_balance_weight)
+
+    # Run forward pass on smooth layer (hook should apply inverse scales)
+    _ = smooth_layer(input_tensor)
+
+    # Verify inverse scales were applied to smooth layer
+    expected_smooth_weight = smooth_orig_weight / initial_scales
+    expected_smooth_bias = smooth_orig_bias / initial_scales
+    assert_close(smooth_layer.weight, expected_smooth_weight)
+    assert_close(smooth_layer.bias, expected_smooth_bias)
+
+    # Remove hooks
+    balance_hook.remove()
+    smooth_hook.remove()
+
+    # Clean up
+    awq._detach_learnable_scales(mapping)
+
+
+@pytest.mark.unit
+def test_learned_scales_with_duo_scaling():
+    """Test learned scales initialization with duo_scaling enabled"""
+    from llmcompressor.modifiers.awq.mappings import ResolvedMapping
+
+    awq = AWQModifier(
+        scheme="W4A16_ASYM",
+        scale_search_method="learned",
+        duo_scaling=True,
+    )
+
+    # Create modules
+    smooth_layer = torch.nn.LayerNorm(8)
+    balance_layer = torch.nn.Linear(8, 8)
+    parent = torch.nn.ModuleDict({"balance": balance_layer})
+
+    # Add quantization scheme
+    balance_layer.quantization_scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=4,
+            type="int",
+            symmetric=False,
+            strategy=QuantizationStrategy.CHANNEL,
+        ),
+    )
+
+    mapping = ResolvedMapping(
+        smooth_name="test.smooth_layer",
+        smooth_layer=smooth_layer,
+        balance_layers=[balance_layer],
+        balance_names=["test.balance"],
+        parent=parent,
+        parent_name="test",
+    )
+
+    # Set up activation means
+    awq._smooth_activation_means = {"test.smooth_layer": (torch.rand(8).abs() + 0.1, 1)}
+
+    # With duo_scaling=True, initialization uses both activation and weight means
+    # Just verify the parameter can be attached and has valid values
+    # (full optimization would require quantization infrastructure)
+    activation_mean = awq._smooth_activation_means["test.smooth_layer"][0]
+    weight_mean = awq._compute_layer_means(mapping.balance_layers)
+
+    # Expected initial scales with duo_scaling
+    expected = (activation_mean.pow(0.5) / (weight_mean.pow(0.5) + 1e-4)).clamp(min=1e-4)
+    expected = expected / (expected.max() * expected.min()).sqrt()
+    expected[torch.isinf(expected)] = 1
+    expected[torch.isnan(expected)] = 1
+
+    scales_param = awq._attach_learnable_scales(mapping, expected)
+
+    # Verify valid initialization
+    assert scales_param.shape == torch.Size([8])
+    assert torch.all(torch.isfinite(scales_param))
+    assert torch.all(scales_param > 0)
+    assert scales_param.requires_grad
+
+    # Clean up
+    awq._detach_learnable_scales(mapping)

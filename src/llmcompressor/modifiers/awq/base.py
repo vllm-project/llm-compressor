@@ -147,7 +147,17 @@ class AWQModifier(Modifier, QuantizationMixin):
     :param n_grid: when performing the best scales grid search for each mapping,
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
-        Defaults to 20
+        Defaults to 20. Only used when scale_search_method="grid"
+    :param scale_search_method: method for finding optimal scales. Options:
+        - "grid": use grid search (default, existing behavior)
+        - "learned": learn scales via gradient descent
+        Defaults to "grid" for backward compatibility
+    :param learned_scales_iters: number of optimization iterations when using
+        learned scales. Only used when scale_search_method="learned".
+        Defaults to 100
+    :param learned_scales_lr: learning rate for scale optimization when using
+        learned scales. Only used when scale_search_method="learned".
+        Defaults to 0.01
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -159,6 +169,9 @@ class AWQModifier(Modifier, QuantizationMixin):
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
+    scale_search_method: Literal["grid", "learned"] = "grid"
+    learned_scales_iters: int = 100
+    learned_scales_lr: float = 0.01
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -553,9 +566,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                     for balance_layer in mapping.balance_layers
                 }
 
-                best_scales = self._compute_best_scale(
-                    mapping, fp16_outputs, orig_layer_weights
-                )
+                if self.scale_search_method == "learned":
+                    best_scales = self._compute_best_scale_learned(
+                        mapping, fp16_outputs, orig_layer_weights
+                    )
+                else:
+                    best_scales = self._compute_best_scale(
+                        mapping, fp16_outputs, orig_layer_weights
+                    )
 
                 @torch.no_grad()
                 def _smooth(
@@ -798,12 +816,340 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         return best_scales.detach().cpu()
 
-    @torch.no_grad()
+    def _get_scale_param_name(self, smooth_name: str) -> str:
+        """
+        Generate unique parameter name for learnable scales using hash.
+
+        :param smooth_name: name of the smooth layer
+        :return: unique parameter name
+        """
+        import hashlib
+
+        hash_suffix = hashlib.md5(smooth_name.encode()).hexdigest()[:8]
+        return f"_awq_scales_{hash_suffix}"
+
+    def _attach_learnable_scales(
+        self, mapping: ResolvedMapping, initial_scales: torch.Tensor
+    ) -> torch.nn.Parameter:
+        """
+        Attach learnable scales as nn.Parameter to parent module.
+
+        :param mapping: resolved mapping containing parent module
+        :param initial_scales: initial scale values
+        :return: the created parameter
+        """
+        param_name = self._get_scale_param_name(mapping.smooth_name)
+        scales_param = torch.nn.Parameter(
+            initial_scales.clone().detach().requires_grad_(True)
+        )
+
+        # Register parameter on parent module
+        mapping.parent.register_parameter(param_name, scales_param)
+
+        return scales_param
+
+    def _detach_learnable_scales(self, mapping: ResolvedMapping) -> torch.Tensor:
+        """
+        Remove learnable scales parameter and return final values.
+
+        :param mapping: resolved mapping containing parent module
+        :return: final scale values
+        """
+        param_name = self._get_scale_param_name(mapping.smooth_name)
+        scales_param = getattr(mapping.parent, param_name)
+        final_scales = scales_param.data.clone().detach()
+
+        # Remove the parameter
+        delattr(mapping.parent, param_name)
+
+        return final_scales
+
+    def _create_scale_application_hook(
+        self,
+        mapping: ResolvedMapping,
+        orig_weights: dict[torch.nn.Module, torch.Tensor],
+        smooth_layer_orig_weight: torch.Tensor,
+        smooth_layer_orig_bias: torch.Tensor | None,
+    ):
+        """
+        Create forward_pre_hook that applies scales to balance layers and inverse
+        scales to smooth layer dynamically during optimization.
+
+        :param mapping: resolved mapping
+        :param orig_weights: original weights for balance layers
+        :param smooth_layer_orig_weight: original weight for smooth layer
+        :param smooth_layer_orig_bias: original bias for smooth layer (if exists)
+        :return: hook function
+        """
+        param_name = self._get_scale_param_name(mapping.smooth_name)
+
+        def hook(module: torch.nn.Module, inputs):
+            # Get current scale values
+            scales = getattr(mapping.parent, param_name)
+
+            if module in mapping.balance_layers:
+                # Apply scales to balance layer weights
+                module.weight.data = orig_weights[module].to(scales.device) * scales.view(
+                    1, -1
+                )
+            elif module == mapping.smooth_layer:
+                # Apply inverse scales to smooth layer weights
+                if module.weight.ndim == 1:
+                    # LayerNorm or similar
+                    module.weight.data = smooth_layer_orig_weight.to(scales.device) / scales
+                else:
+                    # Linear layer (e.g., v_proj in v_proj -> o_proj mapping)
+                    # Handle edge case where smooth layer out_features != balance layer in_features
+                    weight = smooth_layer_orig_weight.to(scales.device).clone()
+                    weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                    module.weight.data = weight
+
+                # Apply inverse scales to bias if present
+                if smooth_layer_orig_bias is not None:
+                    module.bias.data = smooth_layer_orig_bias.to(scales.device) / scales
+
+        return hook
+
+    def _compute_best_scale_learned(
+        self,
+        mapping: ResolvedMapping,
+        fp16_outputs: list[torch.Tensor],
+        orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
+    ) -> torch.Tensor:
+        """
+        Learn best scales via gradient descent.
+        Best scales are those that minimize MSE loss of quantized weight
+            outputs compared to fp16_outputs.
+
+        L(s) = || Q(W * s) (s^-1 * X) - W * X ||
+        Q: weight quantization function | _pseudo_quantize_tensor(W * s)
+        X: inputs from calib dataset    | X
+        W: original weights in FP16     | layer
+        s: per channel scaling factor   | s^-1 * X (learned via backprop)
+
+        :param mapping: best scales will be found for the ResolvedMapping.
+        :param fp16_outputs: output of mapping.parent in unquantized case,
+            one tensor for each batch.
+        :param orig_layer_weights: original weights for each balance layer
+        :return: tensor of best scales, one for each channel
+        """
+        device = get_execution_device(mapping.parent)
+
+        # Initialize scales from activation statistics (same as grid search)
+        x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
+        if self.duo_scaling:
+            w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
+            # Use ratio=0.5 as starting point (middle of grid search range)
+            initial_scales = (x_mean.pow(0.5) / (w_mean.pow(0.5) + 1e-4)).clamp(min=1e-4)
+        else:
+            initial_scales = x_mean.pow(0.5).clamp(min=1e-4).view(-1)
+
+        # Normalize initial scales
+        initial_scales = initial_scales / (initial_scales.max() * initial_scales.min()).sqrt()
+        initial_scales[torch.isinf(initial_scales)] = 1
+        initial_scales[torch.isnan(initial_scales)] = 1
+
+        # Attach as learnable parameter
+        scales_param = self._attach_learnable_scales(mapping, initial_scales.to(device))
+
+        # Create optimizer
+        optimizer = torch.optim.Adam([scales_param], lr=self.learned_scales_lr)
+
+        # Where appropriate, replace observers with memoryless_minmax
+        balance_layers_to_patch = [
+            balance_layer
+            for balance_layer in mapping.balance_layers
+            if hasattr(balance_layer, "quantization_scheme")
+            and hasattr(balance_layer.quantization_scheme, "weights")
+        ]
+
+        # Track best scales and error
+        best_error = float("inf")
+        best_scales = None
+        initial_error = None
+
+        # Save original smooth layer weight and bias
+        smooth_layer_orig_weight = mapping.smooth_layer.weight.clone()
+        smooth_layer_orig_bias = (
+            mapping.smooth_layer.bias.clone()
+            if hasattr(mapping.smooth_layer, "bias") and mapping.smooth_layer.bias is not None
+            else None
+        )
+
+        # Register forward hooks on balance layers AND smooth layer
+        hooks = []
+        hook_fn = self._create_scale_application_hook(
+            mapping, orig_layer_weights, smooth_layer_orig_weight, smooth_layer_orig_bias
+        )
+        for balance_layer in mapping.balance_layers:
+            hook = balance_layer.register_forward_pre_hook(hook_fn)
+            hooks.append(hook)
+        # Also hook the smooth layer
+        smooth_hook = mapping.smooth_layer.register_forward_pre_hook(hook_fn)
+        hooks.append(smooth_hook)
+
+        with patch_attrs(
+            balance_layers_to_patch,
+            "weight_observer",
+            [
+                Observer.load_from_registry(
+                    "memoryless_minmax",
+                    base_name="weight",
+                    args=balance_layer.quantization_scheme.weights,
+                    module=balance_layer,
+                )
+                for balance_layer in balance_layers_to_patch
+            ],
+        ):
+            pbar = tqdm(
+                range(self.learned_scales_iters),
+                desc=f"Learning scales for {mapping.smooth_name}",
+                leave=False,
+            )
+
+            for iteration in pbar:
+                optimizer.zero_grad()
+
+                # Enable gradients for this iteration
+                with torch.enable_grad():
+                    _scalesview = scales_param.view(1, -1).to(device)
+
+                    # Apply scales and quantize weights (Q(W * s))
+                    # Hooks will apply scales during forward pass, but we need to apply them
+                    # now for the observer and quantization
+                    for balance_layer in balance_layers_to_patch:
+                        if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
+                            balance_layer.quantization_scheme, "weights"
+                        ):
+                            continue
+
+                        w_qscheme = balance_layer.quantization_scheme.weights
+
+                        # Apply scales to weights (for observer)
+                        balance_layer.weight.data.copy_(
+                            orig_layer_weights[balance_layer].to(_scalesview.device)
+                            * _scalesview
+                        )
+
+                        # Call observer with scaled weights
+                        should_calculate_gparam = (
+                            w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                        )
+                        call_observer(
+                            balance_layer,
+                            "weight",
+                            balance_layer.weight,
+                            should_calculate_gparam=should_calculate_gparam,
+                        )
+
+                        # Quantize and apply inverse scales
+                        balance_layer.weight.data = (
+                            forward_quantize(
+                                balance_layer,
+                                balance_layer.weight,
+                                "weight",
+                                w_qscheme,
+                            )
+                            / _scalesview
+                        ).to(balance_layer.weight.dtype)
+
+                    # Apply fused global scales for TENSOR_GROUP
+                    if balance_layers_to_patch and all(
+                        getattr(layer.quantization_scheme.weights, "strategy", None)
+                        == QuantizationStrategy.TENSOR_GROUP
+                        for layer in balance_layers_to_patch
+                    ):
+                        update_fused_layer_weight_global_scales(mapping.parent)
+
+                    # Compute forward pass with quantized weights
+                    int_w_outputs = self._run_samples(mapping.parent)
+
+                    # Compute loss (keep gradients)
+                    loss = self._compute_loss(fp16_outputs, int_w_outputs, return_scalar=False)
+
+                    # Track initial and best error
+                    loss_val = loss.item()
+                    if initial_error is None:
+                        initial_error = loss_val
+                    if loss_val < best_error:
+                        best_error = loss_val
+                        best_scales = scales_param.data.clone().detach()
+
+                    # Backward pass
+                    loss.backward()
+
+                    # Optimizer step
+                    optimizer.step()
+
+                    # Clamp scales to valid range and remove NaN/inf
+                    with torch.no_grad():
+                        scales_param.data.clamp_(min=1e-4)
+                        scales_param.data[torch.isinf(scales_param.data)] = 1
+                        scales_param.data[torch.isnan(scales_param.data)] = 1
+
+                    # Clean up intermediate outputs
+                    del int_w_outputs
+
+                    pbar.set_postfix({"best_error": f"{best_error:.3e}"})
+
+        # Remove hooks
+        for hook in hooks:
+            hook.remove()
+
+        # Restore original weights to balance layers
+        for balance_layer in mapping.balance_layers:
+            balance_layer.weight.data.copy_(
+                orig_layer_weights[balance_layer].to(balance_layer.weight.device)
+            )
+
+        # Restore original weights to smooth layer
+        mapping.smooth_layer.weight.data.copy_(
+            smooth_layer_orig_weight.to(mapping.smooth_layer.weight.device)
+        )
+        if smooth_layer_orig_bias is not None:
+            mapping.smooth_layer.bias.data.copy_(
+                smooth_layer_orig_bias.to(mapping.smooth_layer.bias.device)
+            )
+
+        # Detach and remove learnable parameters
+        final_scales = self._detach_learnable_scales(mapping)
+
+        # Use best scales if they're better than final
+        if best_scales is not None:
+            final_scales = best_scales
+
+        # Log metrics
+        err_reduction = best_error / initial_error if initial_error > 0 else 1.0
+        logger.debug(
+            f"AWQ learned scales for {mapping.smooth_name}: "
+            f"initial error = {initial_error:.3e}, "
+            f"best error = {best_error:.3e}, "
+            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
+        )
+
+        # Store error metrics for this layer
+        self._error_metrics.append(
+            {
+                "layer_name": mapping.smooth_name,
+                "parent_name": mapping.parent_name,
+                "initial_error": initial_error,
+                "best_error": best_error,
+                "reduction": err_reduction,
+            }
+        )
+
+        assert (
+            torch.isnan(final_scales).sum() == 0
+        ), f"NaN found in scales: {final_scales}"
+
+        return final_scales.detach().cpu()
+
     def _compute_loss(
         self,
         fp16_outputs: list[torch.Tensor],
         int_w_outputs: list[torch.Tensor],
-    ) -> float:
+        return_scalar: bool = True,
+    ) -> float | torch.Tensor:
         session = active_session()
         loss_masks = session.state.loss_masks if session.state else None
 
@@ -831,7 +1177,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
-        return (loss / num_elements).item()
+        normalized_loss = loss / num_elements
+        return normalized_loss.item() if return_scalar else normalized_loss
 
     def _log_error_metrics(self):
         """
@@ -839,11 +1186,18 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
 
         # Prepare data for saving
+        quantization_config = {
+            "scale_search_method": self.scale_search_method,
+            "duo_scaling": self.duo_scaling,
+        }
+        if self.scale_search_method == "grid":
+            quantization_config["n_grid"] = self.n_grid
+        else:
+            quantization_config["learned_scales_iters"] = self.learned_scales_iters
+            quantization_config["learned_scales_lr"] = self.learned_scales_lr
+
         metrics_data = {
-            "quantization_config": {
-                "duo_scaling": self.duo_scaling,
-                "n_grid": self.n_grid,
-            },
+            "quantization_config": quantization_config,
             "total_layers": len(self._error_metrics),
             "metrics": self._error_metrics,
         }
