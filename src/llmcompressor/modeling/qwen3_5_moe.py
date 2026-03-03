@@ -107,7 +107,6 @@ class SequentialQwen3_5MoeExperts(torch.nn.ModuleList):
     """
 
     def __init__(self, config, original):
-        from compressed_tensors.offload import disable_onloading
         from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import (
             Qwen3_5MoeMLP,
         )
@@ -123,12 +122,8 @@ class SequentialQwen3_5MoeExperts(torch.nn.ModuleList):
                 ]
             )
 
-        # Access expert weights on CPU to avoid GPU OOM.
-        # disable_onloading() makes OffloadCache return the offloaded (CPU)
-        # values directly instead of onloading to GPU.
-        with disable_onloading():
-            gate_up_data = original.gate_up_proj.data  # [num_experts, 2*inter, hidden]
-            down_data = original.down_proj.data  # [num_experts, hidden, inter]
+        gate_up_data = original.gate_up_proj.data  # [num_experts, 2*inter, hidden]
+        down_data = original.down_proj.data  # [num_experts, hidden, inter]
 
         for i in range(self.num_experts):
             gate_up = gate_up_data[i]  # [2*intermediate, hidden]

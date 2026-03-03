@@ -339,8 +339,10 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
     """
     if hasattr(model, "_get_no_split_modules"):
         no_split_modules = model._get_no_split_modules("auto")
-    else:
+    elif hasattr(model, "_no_split_modules"):
         no_split_modules = model._no_split_modules
+    else:
+        return ALL_TARGET
     if len(no_split_modules) <= 0:
         return ALL_TARGET
 
