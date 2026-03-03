@@ -1,4 +1,3 @@
-import os
 import re
 from collections import defaultdict
 from typing import Mapping, TypeVar
@@ -9,8 +8,6 @@ from loguru import logger
 
 __all__ = [
     "gpu_if_available",
-    "find_safetensors_index_path",
-    "find_safetensors_index_file",
     "match_names_set_eager",
     "MatchedNamesSet",
     "invert_mapping",
@@ -39,22 +36,6 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
             "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
         )
         return torch.device("cpu")
-
-
-def find_safetensors_index_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name.endswith("safetensors.index.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None
-
-
-def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors.index.json"):
-            return resolved_path
-
-    return None
 
 
 def match_names_set_eager(
