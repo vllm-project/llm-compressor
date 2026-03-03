@@ -5,6 +5,7 @@ on:
     branches: [ main, 'release/*' ]
   pull_request:
     branches: [ main, 'release/*' ]
+  merge_group:
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
