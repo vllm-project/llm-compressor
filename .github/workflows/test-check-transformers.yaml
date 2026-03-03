@@ -5,6 +5,7 @@ on:
     types: [ labeled, synchronize ]
   push:
     branches: [ main, 'release/*' ]
+  merge_group:
   workflow_dispatch:
     inputs:
       code_coverage:
