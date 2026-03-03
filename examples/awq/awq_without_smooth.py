@@ -62,7 +62,11 @@ def run_baseline(skip_lm_eval: bool = False) -> dict:
 
     recipe_abs = f"/repo/{RECIPE_PATH}"
     if not os.path.isfile(recipe_abs):
-        return {"error": f"Recipe not found: {recipe_abs}", "awq_time_s": None, "lm_eval": None}
+        return {
+            "error": f"Recipe not found: {recipe_abs}",
+            "awq_time_s": None,
+            "lm_eval": None,
+        }
 
     t0 = time.perf_counter()
     model, processor = run_oneshot_for_e2e_testing(
@@ -81,6 +85,7 @@ def run_baseline(skip_lm_eval: bool = False) -> dict:
     model.save_pretrained(SAVE_DIR)
     processor.save_pretrained(SAVE_DIR)
     from llmcompressor.core import active_session
+
     active_session().reset()
     awq_time_s = time.perf_counter() - t0
 
