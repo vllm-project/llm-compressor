@@ -505,8 +505,10 @@ class TensorNetworkModifier(Modifier):
 
             # Check early stopping conditions
             if (
-                epoch > 2 and final_avg_sqnr > self.target_sqnr
-            ) or epochs_without_improvement >= patience:
+                (epoch > 2 and final_avg_sqnr > self.target_sqnr)
+                or epochs_without_improvement >= patience
+                or epoch > 10
+            ):
                 break
 
         # Return final average sqnr
