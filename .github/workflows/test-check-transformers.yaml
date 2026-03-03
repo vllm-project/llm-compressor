@@ -1,10 +1,8 @@
 name: Test Checks (Transformers)
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, release-0.7.1 ]
     types: [ labeled, synchronize ]
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       code_coverage:
@@ -52,20 +50,22 @@ jobs:
   transformers-tests:
     needs: [detect-changes]
     runs-on: gcp-k8s-vllm-l4-solo
-    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.matched-changes != ''
     steps:
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.12'
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
+        run: |
+          export BUILD_TYPE=release
+          pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 transformers==4.55.2 torchvision==0.22.1 torchcodec==0.5.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
+          ref: "0.11.0"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true
@@ -75,7 +75,10 @@ jobs:
           pip3 uninstall -y compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=release pip3 install .
+      - name: "Show installed dependencies"
+        run: |
+          pip3 freeze
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
