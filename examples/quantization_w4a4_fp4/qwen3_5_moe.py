@@ -5,6 +5,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 import torch
 
 MODEL_ID = "/raid/engine/dsikka/models--Qwen--Qwen3.5-397B-A17B/snapshots/7cad2bae11cb49ca79f7d6a0954de2e2756f4e27"
+MODEL_ID = "Qwen/Qwen3.5-122B-A10B"
 
 # Load model.
 model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
@@ -82,6 +83,6 @@ oneshot(model=model,
     moe_calibrate_all_experts=True)
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = "/raid/engine/dsikka/" + "Qwen3.5-397B-A17B" + "-NVFP4"
+SAVE_DIR = "/mnt/nvme_stripe/playground/dsikka/" + "Qwen3.5-122B-A10B" + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
