@@ -6,17 +6,18 @@ from typing import Iterable, Optional
 
 import torch
 import tqdm
-from compressed_tensors.entrypoints.convert_checkpoint import Converter
+from compressed_tensors.convert import (
+    Converter,
+    get_checkpoint_files,
+    is_weights_file,
+    update_safetensors_index,
+)
 from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 
 from llmcompressor.entrypoints.model_free.helpers import gpu_if_available
 from llmcompressor.entrypoints.model_free.microscale import (
     is_microscale_scheme,
-)
-from llmcompressor.entrypoints.model_free.model_utils import (
-    get_checkpoint_files,
-    is_weights_file,
 )
 from llmcompressor.entrypoints.model_free.process import (
     process_file,
@@ -25,7 +26,6 @@ from llmcompressor.entrypoints.model_free.process import (
 )
 from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
-    update_safetensors_index,
 )
 from llmcompressor.entrypoints.model_free.validate import (
     validate_safetensors_index,

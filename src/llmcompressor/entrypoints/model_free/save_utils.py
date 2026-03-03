@@ -10,7 +10,7 @@ from compressed_tensors.base import (
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.entrypoints.convert_checkpoint import Converter
+from compressed_tensors.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -19,9 +19,9 @@ from compressed_tensors.quantization import (
 from loguru import logger
 from pydantic import ValidationError
 
-from .helpers import find_config_path, find_safetensors_index_path
+from .helpers import find_config_path
 
-__all__ = ["update_config", "update_safetensors_index"]
+__all__ = ["update_config"]
 
 
 def update_config(
@@ -62,29 +62,6 @@ def update_config(
             f"Could not find config file in {save_directory}. Please set "
             "quantization_config to: \n"
             f"{json.dumps(qconfig_data, indent=2, sort_keys=True)}"
-        )
-
-
-def update_safetensors_index(
-    save_directory: str | os.PathLike,
-    total_size: int,
-    weight_map: dict[str, str],
-):
-    file_path = find_safetensors_index_path(save_directory)
-    if file_path is None:
-        return
-
-    with open(file_path, "w") as file:
-        json.dump(
-            {
-                "metadata": {
-                    "total_size": total_size,
-                },
-                "weight_map": weight_map,
-            },
-            file,
-            indent=2,
-            sort_keys=True,
         )
 
 

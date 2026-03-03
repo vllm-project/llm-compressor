@@ -3,11 +3,9 @@ from collections import defaultdict
 from typing import Iterable
 
 import torch
-from compressed_tensors.entrypoints.convert_checkpoint import (
-    Converter,
-    match_quantizable_tensors,
-)
+from compressed_tensors.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.utils import match_quantizable_tensors
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 

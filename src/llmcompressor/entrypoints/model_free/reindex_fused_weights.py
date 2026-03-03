@@ -7,6 +7,10 @@ from pathlib import Path
 
 import torch
 import tqdm
+from compressed_tensors.convert import (
+    get_checkpoint_files,
+    is_weights_file,
+)
 from loguru import logger
 from safetensors.torch import load_file, save_file
 
@@ -15,10 +19,6 @@ from llmcompressor.entrypoints.model_free.helpers import (
     invert_mapping,
 )
 from llmcompressor.entrypoints.model_free.microscale import get_fused_names
-from llmcompressor.entrypoints.model_free.model_utils import (
-    get_checkpoint_files,
-    is_weights_file,
-)
 from llmcompressor.entrypoints.model_free.save_utils import update_safetensors_index
 
 
