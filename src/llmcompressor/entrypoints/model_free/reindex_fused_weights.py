@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 import tqdm
-from compressed_tensors.convert import (
+from compressed_tensors.entrypoints.convert import (
     find_file_path,
     get_checkpoint_files,
     is_weights_file,

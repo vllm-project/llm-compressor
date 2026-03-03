@@ -10,7 +10,7 @@ from compressed_tensors.base import (
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.convert import Converter, find_file_path
+from compressed_tensors.entrypoints.convert import Converter, find_file_path
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,

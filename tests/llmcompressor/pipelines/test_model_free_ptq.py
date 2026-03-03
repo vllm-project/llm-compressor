@@ -195,7 +195,7 @@ def _assert_config_equal(a_path: str, b_path: str):
     # QuantizationModifier updates ignore lists with any non-targeted layers
     # model_free_ptq does not. Rather than asserting sets are equal,
     # confirm none conflict with targets
-    all_ignores = set(a_ignore) + set(b_ignore)
+    all_ignores = set(a_ignore).union(set(b_ignore))
 
     assert len(a_config_groups) == len(b_config_groups)
     a_schemes = list(a_config_groups.values())
@@ -211,5 +211,5 @@ def _assert_config_equal(a_path: str, b_path: str):
         assert a_scheme == b_scheme
 
         for ignore in all_ignores:
-            for target in a_scheme.targets:
+            for target in a_scheme["targets"]:
                 assert not match_name(ignore, target)

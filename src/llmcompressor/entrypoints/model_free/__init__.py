@@ -6,7 +6,7 @@ from typing import Iterable, Optional
 
 import torch
 import tqdm
-from compressed_tensors.convert import (
+from compressed_tensors.entrypoints.convert import (
     Converter,
     get_checkpoint_files,
     is_weights_file,

@@ -1,4 +1,4 @@
-from compressed_tensors.entrypoints.convert_checkpoint import (
+from compressed_tensors.entrypoints.convert import (
     ModelOptNvfp4Converter,
 )
 from compressed_tensors.quantization import (
