@@ -45,7 +45,6 @@ pull_request_rules:
           Signed-off-by: Mergify <noreply@mergify.com>
 
   - name: label-documentation
-  - name: label-documentation
     description: Automatically apply documentation label
     conditions:
       - label != stale
