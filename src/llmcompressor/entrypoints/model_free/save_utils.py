@@ -30,9 +30,15 @@ def update_config(
     ignore: list[str],
     converter: Converter | None = None,
 ):
+    """
+    Update Quantization config for model stub in save_directory,
+    based on the provided scheme and converter.
+    Quantization config will either be created or updated, see
+    create_or_update_quant_config docstring for more info.
+    """
     config_file_path = find_file_path(save_directory, [CONFIG_NAME, "params.json"])
 
-    qconfig = create_quant_config(
+    qconfig = create_or_update_quant_config(
         config_file_path, scheme_name, scheme, ignore, converter
     )
 
@@ -64,7 +70,7 @@ def update_config(
         )
 
 
-def create_quant_config(
+def create_or_update_quant_config(
     config_file_path: str | None,
     scheme_name: str,
     scheme: QuantizationScheme,
@@ -72,7 +78,7 @@ def create_quant_config(
     converter: Converter | None = None,
 ) -> QuantizationConfig:
     """
-    Create quantization_config in 3 possible ways:
+    Create or update quantization_config in 3 possible ways:
     1) If converting from a format that isn't compressed-tensors,
         create new quant config based on converter and append scheme
     2) If checkpoint is in a pre-existing compressed-tensors format,
