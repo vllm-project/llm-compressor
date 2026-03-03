@@ -46,11 +46,7 @@ def _get_tiny_block_quant():
 @requires_gpu
 @pytest.mark.parametrize(
     "scheme",
-    [
-        _get_tiny_w4a16_quant(),
-        "FP8_dynamic",
-        # _get_tiny_block_quant(), "NVFP4A16"
-    ],
+    [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant(), "NVFP4A16"],
 )
 def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
     model = "Qwen/Qwen3-0.6B"
@@ -98,6 +94,11 @@ def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
     [(_get_tiny_w4a16_quant(), _get_tiny_block_quant())],
 )
 def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
+    """
+    Test that model_free_ptq can be stacked, will also confirm
+    that a model_free_ptq can be run a pre-existing CT checkpoint
+    """
+
     model = "Qwen/Qwen3-0.6B"
     ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
