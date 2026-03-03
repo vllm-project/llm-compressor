@@ -2,13 +2,11 @@
 Utility / helper functions
 """
 
-import random
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 import numpy
-import torch
 from torch import Tensor
 from torch.nn import Module
 
@@ -27,7 +25,6 @@ __all__ = [
     "tensors_module_forward",
     "tensor_sparsity",
     "get_quantized_layers",
-    "set_deterministic_seeds",
 ]
 
 
@@ -238,15 +235,3 @@ def get_quantized_layers(module: Module) -> list[tuple[str, Module]]:
                 quantized_layers.append((name, mod))
 
     return quantized_layers
-
-
-def set_deterministic_seeds(seed: int = 0):
-    """
-    Manually seeds the numpy, random, and torch packages.
-    Also sets torch.backends.cudnn.deterministic to True
-    :param seed: the manual seed to use. Default is 0
-    """
-    numpy.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
