@@ -61,7 +61,7 @@ jobs:
       - name: "⚙️ Install dependencies"
         run: |
           export BUILD_TYPE=release
-          pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 transformers==4.55.2 torchvision==0.22.1 torchcodec==0.8.0
+          pip3 install -U pip setuptools && pip3 install .[dev] && pip3 install --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 transformers==4.55.2 torchvision==0.22.1 torchcodec==0.5.0
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
