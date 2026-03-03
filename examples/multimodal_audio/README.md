@@ -1,4 +1,4 @@
-# Quantizing Multimodal Audio Models #
+#  Multimodal Audio Model Quantization
 
 https://github.com/user-attachments/assets/6732c60b-1ebe-4bed-b409-c16c4415dff5
 

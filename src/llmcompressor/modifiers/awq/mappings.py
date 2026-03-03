@@ -192,6 +192,30 @@ _exaone4_mappings = [
     ),
 ]
 
+# AFMOE uses dual normalization: pre_mlp_layernorm feeds the MLP
+# (not post_attention_layernorm) and attention has its own gate_proj
+# for gating mechanism
+_afmoe_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            "re:.*self_attn.q_proj$",
+            "re:.*self_attn.k_proj$",
+            "re:.*self_attn.v_proj$",
+            "re:.*self_attn.gate_proj$",
+        ],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*pre_mlp_layernorm$",
+        ["re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 # Example mapping for MoE models with parallel transformer blocks, where
 # attention and MoE share the same input. This is the only case where
 # activation_hook_target is needed. Without it, the hook lands on
@@ -217,6 +241,7 @@ _example_parallel_transformer_block_mappings = [
 ]
 
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
+    "AfmoeForCausalLM": _afmoe_mappings,
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
@@ -226,6 +251,8 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
+    "Glm4MoeForCausalLM": _default_mappings,
+    "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": _default_mappings,
     "Llama4ForConditionalGeneration": _default_mappings,
     "Mistral3ForConditionalGeneration": _default_mappings,
@@ -239,7 +266,6 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
     "Qwen3NextForCausalLM": _qwen3_next_moe_mappings,
-    "Glm4MoeForCausalLM": _default_mappings,
     "SeedOssForCausalLM": _default_mappings,
     "Ernie4_5_MoeForCausalLM": _default_mappings,
 }
