@@ -75,6 +75,55 @@ class TensorizedLinear(nn.Module):
             self.input_perm = None
             self.input_inv_perm = None
 
+    @staticmethod
+    def _spectral_reordering(weight: torch.Tensor) -> torch.Tensor:
+        """
+        Compute optimal channel permutation using Spectral Reordering via Laplacian Eigenmaps.
+
+        This finds the permutation that maximizes local coherence for MPO decomposition by:
+        1. Computing correlation matrix between input channels (weight columns)
+        2. Building graph Laplacian from correlations
+        3. Finding Fiedler vector (eigenvector of 2nd smallest eigenvalue)
+        4. Sorting channels by Fiedler vector to group similar channels together
+
+        Args:
+            weight: Weight matrix of shape (out_features, in_features)
+
+        Returns:
+            Permutation indices that maximize local coherence
+        """
+        # Compute correlation matrix between input channels (columns of weight)
+        # Normalize each column to unit norm for cosine similarity
+        weight_normalized = weight / (torch.norm(weight, dim=0, keepdim=True) + 1e-10)
+
+        # Correlation/affinity matrix: C[i,j] = cosine similarity between channels i and j
+        # Shape: (in_features, in_features)
+        correlation = weight_normalized.T @ weight_normalized
+
+        # Make affinity matrix non-negative and apply exponential kernel for stronger locality
+        # A[i,j] = exp(correlation[i,j]) gives higher weight to similar channels
+        affinity = torch.exp(correlation - 1.0)  # Subtract 1 so diagonal ≈ 1 after exp
+
+        # Construct graph Laplacian: L = D - A
+        # where D is degree matrix (diagonal with row sums of A)
+        degree = torch.diag(affinity.sum(dim=1))
+        laplacian = degree - affinity
+
+        # Compute eigendecomposition of Laplacian
+        # Use float32 for eigendecomposition (more stable than bfloat16)
+        laplacian_f32 = laplacian.to(torch.float32)
+        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
+
+        # Fiedler vector: eigenvector corresponding to 2nd smallest eigenvalue
+        # This vector provides a 1D embedding that preserves graph structure
+        fiedler_vector = eigenvectors[:, 1]  # Index 1 = second smallest eigenvalue
+
+        # Sort channels by Fiedler vector values
+        # This groups strongly connected channels together, maximizing local coherence
+        input_perm = torch.argsort(fiedler_vector)
+
+        return input_perm.to(weight.device)
+
     @classmethod
     def from_linear(
         cls,
@@ -127,12 +176,9 @@ class TensorizedLinear(nn.Module):
             assert weight.shape[0] == bias.shape[0], "incompatible weight/bias"
             bias = bias.clone(memory_format=torch.contiguous_format)
 
-        # Compute channel importance: norm along output dimension (dim=0)
-        # This gives importance of each input channel
-        channel_importance = torch.norm(weight, dim=0)  # shape: (in_features,)
-
-        # Sort indices by importance (descending order - most important first)
-        input_perm = torch.argsort(channel_importance, descending=True)
+        # Use spectral reordering to find optimal channel permutation
+        # This maximizes local coherence for MPO decomposition using Laplacian Eigenmaps
+        input_perm = cls._spectral_reordering(weight)
 
         # Compute inverse permutation for output reconstruction
         input_inv_perm = torch.argsort(input_perm)
