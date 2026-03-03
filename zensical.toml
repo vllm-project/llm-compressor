@@ -118,7 +118,7 @@ custom_checkbox = true
 
 # Plugins
 # Note: api-autonav, gen-files, awesome-nav, section-index are MkDocs plugins
-# not yet compatible with Zensical. API docs are generated via gen_api_docs.py
+# not yet compatible with Zensical. API docs are generated via zensical_gen_files.py
 # as a pre-build step (see docs/Makefile).
 
 [project.plugins.mkdocstrings]
