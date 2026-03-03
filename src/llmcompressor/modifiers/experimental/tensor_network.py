@@ -238,6 +238,30 @@ class TensorNetworkModifier(Modifier):
 
         self._assert_all_activations_consumed()
 
+    def _collect_input_activations(
+        self, name: str, linear: torch.nn.Linear
+    ) -> torch.Tensor:
+        """
+        Collect and concatenate all input activations from the cache for a given layer.
+
+        Args:
+            name: Name of the layer
+            linear: Linear layer module
+
+        Returns:
+            Tensor of shape (num_samples, in_features) containing all input activations
+        """
+        input_batches = []
+        for batch in self._target_args_cache[(name, linear)].iter():
+            batch_input = batch["input"]
+            # Flatten all batch dimensions: (..., in_features) -> (batch_total, in_features)
+            batch_flat = batch_input.reshape(-1, batch_input.shape[-1])
+            input_batches.append(batch_flat)
+
+        # Concatenate all batches
+        all_inputs = torch.cat(input_batches, dim=0)
+        return all_inputs
+
     def _get_trained_tensorized_layer(
         self,
         name: str,
@@ -258,12 +282,24 @@ class TensorNetworkModifier(Modifier):
         This adaptively finds the minimal rank needed for acceptable reconstruction.
         """
 
+        # Collect input activations for spectral reordering
+        input_activations = self._collect_input_activations(name, linear)
+
         # Start with full rank for lossless reconstruction
         best_tensorized_linear = tensorized_linear = (
-            TensorizedLinear.from_linear(linear, num_cores=self.num_cores, rank=2.0)
+            TensorizedLinear.from_linear(
+                linear,
+                num_cores=self.num_cores,
+                rank=2.0,
+                input_activations=input_activations,
+            )
             if self.block_size is None
             else BlockTensorizedLinear.from_linear(
-                linear, self.block_size, num_cores=self.num_cores, rank=2.0
+                linear,
+                self.block_size,
+                num_cores=self.num_cores,
+                rank=2.0,
+                input_activations=input_activations,
             )
         ).to(linear.weight.device)
 
