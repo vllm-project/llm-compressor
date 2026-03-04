@@ -2,7 +2,7 @@ name: Test Checks (Transformers)
 on:
   pull_request:
     branches: [ main, 'release/*' ]
-    types: [ labeled, synchronize ]
+    types: [ labeled, synchronize, closed ]
   push:
     branches: [ main, 'release/*' ]
   workflow_dispatch:
@@ -55,26 +55,15 @@ jobs:
           echo "all changed files: ${{ steps.changed-files.outputs.all_changed_files }}"
         shell: bash
 
-  check-ready-label:
-    needs: [detect-changes]
-    runs-on: gcp-k8s-vllm-util
-    if: needs.detect-changes.outputs.matched-changes != ''
-    timeout-minutes: 480
-    steps:
-      - name: Wait for ready label
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ready')
-        timeout-minutes: 480
-        run: |
-          echo "::notice::Waiting for 'ready' label to be added to PR before running tests..."
-          sleep infinity
-      - name: Ready label present
-        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ready')
-        run: echo "Ready to run transformers tests"
-
   transformers-tests:
-    needs: [detect-changes, check-ready-label]
+    needs: [detect-changes]
     runs-on: ibm-wdc-k8s-vllm-h100-solo
-    if: needs.detect-changes.outputs.matched-changes != ''
+    # Run if: changes detected AND (not a PR OR (PR is not closed AND PR has ready label))
+    if: |
+      needs.detect-changes.outputs.matched-changes != '' &&
+      (github.event_name != 'pull_request' ||
+       (github.event.action != 'closed' && contains(github.event.pull_request.labels.*.name, 'ready')))
+    timeout-minutes: 120
     steps:
       - uses: actions/setup-python@v5
         with:
