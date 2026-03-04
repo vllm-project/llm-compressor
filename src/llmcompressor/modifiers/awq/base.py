@@ -3,6 +3,7 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
     disable_quantization,
@@ -20,6 +21,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
+from torch import distributed as dist
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
@@ -497,6 +499,41 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "forward",
             )
 
+    def _reduce_activation_means(self) -> None:
+        """All-reduce cached activation means across data-parallel ranks.
+
+        ``_smooth_activation_means`` stores ``(mean, count)`` pairs where
+        ``mean`` is a running average over the local data partition.  To
+        recover a globally-consistent mean we:
+
+        1. Convert each entry back to a sum:  ``sum = mean * count``
+        2. All-reduce the sum and count tensors across ranks.
+        3. Re-derive the global mean:  ``mean = total_sum / total_count``
+
+        After this method returns every rank holds identical activation
+        statistics, which guarantees that the subsequent grid search in
+        ``_compute_best_scale`` produces the same best scales on every
+        rank — eliminating the need for a broadcast step.
+        """
+        world_size = dist.get_world_size()
+        if world_size <= 1:
+            return
+
+        for name, (mean, count) in self._smooth_activation_means.items():
+            device = mean.device
+            # Recover the local sum from the running mean
+            local_sum = mean * count
+            count_tensor = torch.tensor(
+                [count], dtype=torch.int64, device=device
+            )
+
+            dist.all_reduce(local_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(count_tensor, op=dist.ReduceOp.SUM)
+
+            total_count = count_tensor.item()
+            global_mean = local_sum / total_count
+            self._smooth_activation_means[name] = (global_mean, total_count)
+
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
         """
@@ -506,6 +543,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
+        # ── Distributed: all-reduce activation means across DP ranks ──
+        # Each rank has computed activation means from its local data
+        # partition. We average them so that every rank uses identical
+        # statistics (and therefore computes the same best scales).
+        if is_distributed():
+            self._reduce_activation_means()
+
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being updated
         mappings_to_smooth = [
@@ -829,6 +873,20 @@ class AWQModifier(Modifier, QuantizationMixin):
                     fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
                 )
                 num_elements += fp16_batch.numel()
+
+        # ── Distributed: all-reduce MSE loss across DP ranks ──
+        # Each rank has computed loss on its local data partition.
+        # Sum losses and element counts across ranks so every rank
+        # independently arrives at the same best_scales.
+        if is_distributed():
+            device = fp16_outputs[0].device if fp16_outputs else "cpu"
+            loss_t = torch.tensor([loss], dtype=torch.float64, device=device)
+            count_t = torch.tensor(
+                [num_elements], dtype=torch.int64, device=device
+            )
+            dist.all_reduce(loss_t, op=dist.ReduceOp.SUM)
+            dist.all_reduce(count_t, op=dist.ReduceOp.SUM)
+            return (loss_t.item() / count_t.item())
 
         # Normalize the loss by the total number of elements
         return (loss / num_elements).item()
