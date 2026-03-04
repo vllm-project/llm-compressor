@@ -1,6 +1,6 @@
 # Running Tests
 
-All tests in this project require a GPU.
+Nearly all tests in this project require a GPU.
 
 When running tests:
 
