@@ -26,7 +26,7 @@ ALL_PRUNABLE_TARGET = "__ALL_PRUNABLE__"
 ALL_QUANTIZABLE_TARGET = "__ALL_QUANTIZABLE__"
 
 
-def expand_special_targets(targets: Union[str, List[str]]) -> List[str]:
+def expand_special_targets(targets: str | list[str]) -> list[str]:
     """
     Expand special target constants to explicit class names with backward compatibility.
 
@@ -72,9 +72,9 @@ def expand_special_targets(targets: Union[str, List[str]]) -> List[str]:
 
 def build_parameterized_layers(
     model: Module,
-    targets: Union[str, List[str]],
+    targets: str | list[str],
     param_name: str = "weight",
-) -> Dict[str, ModelParameterizedLayer]:
+) -> dict[str, ModelParameterizedLayer]:
     """
     Build ModelParameterizedLayer objects for modules matching the given targets.
 
@@ -128,7 +128,7 @@ def qat_active(module: Module) -> bool:
     return False
 
 
-def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
+def get_no_split_params(model: PreTrainedModel) -> str | list[str]:
     """
     Get list of module classes that shouldn't be split when sharding. For
     Hugging Face Transformer models, this is the decoder layer type. For other

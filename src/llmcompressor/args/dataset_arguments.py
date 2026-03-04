@@ -8,7 +8,7 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
 
 from datasets import Dataset, DatasetDict
 from torch.utils.data import DataLoader

@@ -2,7 +2,7 @@
 Defines type aliases for the llm-compressor library.
 """
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import torch
 from datasets import Dataset, DatasetDict, IterableDataset

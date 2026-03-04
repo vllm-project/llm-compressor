@@ -9,9 +9,9 @@ __all__ = ["get_leaf_operations", "is_quantized", "get_precision_information"]
 
 def get_leaf_operations(
     model: torch.nn.Module,
-    operations_to_skip: Optional[List[torch.nn.Module]] = None,
-    operations_to_unwrap: Optional[List[torch.nn.Module]] = None,
-) -> List[torch.nn.Module]:
+    operations_to_skip: list[torch.nn.Module] | None = None,
+    operations_to_unwrap: list[torch.nn.Module] | None = None,
+) -> list[torch.nn.Module]:
     """
     Get the leaf operations in the model
     (those that do not have operations as children)
@@ -106,4 +106,4 @@ def _get_num_bits(dtype: torch.dtype) -> int:
     elif dtype == torch.int64:
         return 64
     else:
-        raise ValueError("Unknown dtype: {}".format(dtype))
+        raise ValueError(f"Unknown dtype: {dtype}")

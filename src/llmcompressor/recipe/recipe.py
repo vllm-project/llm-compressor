@@ -34,17 +34,17 @@ class Recipe(BaseModel):
     when serializing a recipe, yaml will be used by default.
     """
 
-    args: Dict[str, Any] = Field(default_factory=dict)
+    args: dict[str, Any] = Field(default_factory=dict)
     stage: str = "default"
-    modifiers: List[Modifier] = Field(default_factory=list)
+    modifiers: list[Modifier] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
     def from_modifiers(
         cls,
-        modifiers: Union[Modifier, List[Modifier]],
-        modifier_group_name: Optional[str] = None,
+        modifiers: Modifier | list[Modifier],
+        modifier_group_name: str | None = None,
     ) -> "Recipe":
         """
         Create a recipe instance from a list of modifiers
@@ -84,9 +84,9 @@ class Recipe(BaseModel):
     @classmethod
     def create_instance(
         cls,
-        path_or_modifiers: Union[str, Modifier, List[Modifier], "Recipe"],
-        modifier_group_name: Optional[str] = None,
-        target_stage: Optional[str] = None,
+        path_or_modifiers: Union[str, Modifier, list[Modifier], "Recipe"],
+        modifier_group_name: str | None = None,
+        target_stage: str | None = None,
     ) -> "Recipe":
         """
         Create a recipe instance from a file, string, or RecipeModifier objects
@@ -139,7 +139,7 @@ class Recipe(BaseModel):
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
-        with open(path_or_modifiers, "r") as file:
+        with open(path_or_modifiers) as file:
             content = file.read().strip()
             if path_or_modifiers.lower().endswith(".md"):
                 content = _parse_recipe_from_md(path_or_modifiers, content)
@@ -160,7 +160,7 @@ class Recipe(BaseModel):
             return cls.from_dict(filter_dict(obj, target_stage=target_stage))
 
     @classmethod
-    def from_dict(cls, recipe_dict: Dict[str, Any]) -> "Recipe":
+    def from_dict(cls, recipe_dict: dict[str, Any]) -> "Recipe":
         """
         Parses a dictionary representing a recipe and returns a Recipe instance.
         Ensures all modifier entries are instantiated Modifier objects.
@@ -169,7 +169,7 @@ class Recipe(BaseModel):
         :return: Recipe instance with instantiated Modifier objects.
         """
         args = recipe_dict.get("args", {})
-        modifiers: List[Modifier] = []
+        modifiers: list[Modifier] = []
         stage = "default"
 
         if not ModifierFactory._loaded:
@@ -198,7 +198,7 @@ class Recipe(BaseModel):
             modifiers=modifiers,
         )
 
-    def dict(self, *args, **kwargs) -> Dict[str, Any]:
+    def dict(self, *args, **kwargs) -> dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
         """
@@ -207,8 +207,8 @@ class Recipe(BaseModel):
 
     def yaml(
         self,
-        file_path: Optional[str] = None,
-        existing_recipe_path: Optional[str] = None,
+        file_path: str | None = None,
+        existing_recipe_path: str | None = None,
     ) -> str:
         """
         Return a YAML string representation of the recipe,
@@ -221,7 +221,7 @@ class Recipe(BaseModel):
         # Load the other recipe from file, if given
         existing_dict = {}
         if existing_recipe_path:
-            with open(existing_recipe_path, "r") as f:
+            with open(existing_recipe_path) as f:
                 existing_recipe_str = f.read()
             existing_dict = _load_json_or_yaml_string(existing_recipe_str)
 
@@ -251,6 +251,6 @@ class Recipe(BaseModel):
         return yaml_str
 
 
-RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
-RecipeStageInput = Union[str, List[str], List[List[str]]]
-RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
+RecipeInput = Union[str, list[str], Recipe, list[Recipe], Modifier, list[Modifier]]
+RecipeStageInput = Union[str, list[str], list[list[str]]]
+RecipeArgsInput = Union[dict[str, Any], list[dict[str, Any]]]

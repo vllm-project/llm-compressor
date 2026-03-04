@@ -13,8 +13,8 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple"]
 
-MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
-ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
+MinMaxTuple = tuple[torch.Tensor, torch.Tensor]
+ScaleZpTuple = tuple[torch.Tensor, torch.Tensor]
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -41,7 +41,7 @@ class Observer(InternalModule, RegistryMixin):
         self,
         base_name: str,
         args: QuantizationArgs,
-        module: Optional[torch.nn.Module] = None,
+        module: torch.nn.Module | None = None,
         **observer_kwargs,
     ):
         super().__init__()
@@ -100,7 +100,7 @@ class Observer(InternalModule, RegistryMixin):
 
     def _forward_with_minmax(
         self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         g_idx = self._get_module_param("g_idx")
         global_scale = self._get_module_param("global_scale")
         self._check_has_global_scale(global_scale)
@@ -118,7 +118,7 @@ class Observer(InternalModule, RegistryMixin):
 
     def _get_global_scale_with_minmax(
         self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         observed = observed.reshape((1, 1, -1))  # per tensor reshape
 
         global_min_vals, global_max_vals = self.get_global_min_max(observed)
@@ -126,14 +126,14 @@ class Observer(InternalModule, RegistryMixin):
 
         return global_scale, global_min_vals, global_max_vals
 
-    def _get_module_param(self, name: str) -> Optional[torch.nn.Parameter]:
+    def _get_module_param(self, name: str) -> torch.nn.Parameter | None:
         if self.module is None or (module := self.module()) is None:
             return None
 
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
 
-    def _check_has_global_scale(self, global_scale: Optional[torch.nn.Parameter]):
+    def _check_has_global_scale(self, global_scale: torch.nn.Parameter | None):
         if (
             self.args.strategy == QuantizationStrategy.TENSOR_GROUP
             and global_scale is None

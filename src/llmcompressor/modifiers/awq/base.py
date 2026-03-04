@@ -1,6 +1,8 @@
 import inspect
 from itertools import product
-from typing import Iterator, Literal
+from typing import Literal
+
+from collections.abc import Iterator
 
 import torch
 from compressed_tensors.quantization import (
@@ -335,12 +337,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
         # Get names of modules targeted for quantization (excludes ignored)
-        targeted_names = set(
+        targeted_names = {
             name
             for name, _ in match_named_modules(
                 model, self.resolved_targets, self.ignore
             )
-        )
+        }
         for mapping in self.mappings:
             # we deliberately don't use the ignore list when matching mappings,
             # so that we can handle layers that need smoothing but not quantization

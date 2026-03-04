@@ -1,7 +1,7 @@
 import os
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
-from typing import Iterable
+from collections.abc import Iterable
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme

@@ -54,13 +54,13 @@ _logged_once = set()
 class LoggerConfig:
     disabled: bool = False
     clear_loggers: bool = True
-    console_log_level: Optional[str] = "INFO"
-    log_file: Optional[str] = None
-    log_file_level: Optional[str] = None
+    console_log_level: str | None = "INFO"
+    log_file: str | None = None
+    log_file_level: str | None = None
     metrics_disabled: bool = False
 
 
-def configure_logger(config: Optional[LoggerConfig] = None) -> None:
+def configure_logger(config: LoggerConfig | None = None) -> None:
     """
     Configure the logger for LLM Compressor.
 
@@ -122,7 +122,7 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
     logger.level("METRIC", no=38, color="<yellow>", icon="📈")
 
 
-def support_log_once(record: Dict[str, Any]) -> bool:
+def support_log_once(record: dict[str, Any]) -> bool:
     """
     Support logging only once using `.bind(log_once=True)`
 

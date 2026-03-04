@@ -84,9 +84,9 @@ class Event:
     :type global_batch: int
     """
 
-    type_: Optional[EventType] = None
-    steps_per_epoch: Optional[int] = None
-    batches_per_step: Optional[int] = None
+    type_: EventType | None = None
+    steps_per_epoch: int | None = None
+    batches_per_step: int | None = None
     invocations_per_step: int = 1
     global_step: int = 0
     global_batch: int = 0
@@ -206,7 +206,7 @@ class Event:
             )
 
     def should_update(
-        self, start: Optional[float], end: Optional[float], update: Optional[float]
+        self, start: float | None, end: float | None, update: float | None
     ) -> bool:
         """
         Determines if the event should trigger an update.

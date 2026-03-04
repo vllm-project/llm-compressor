@@ -1,4 +1,6 @@
-from typing import Callable, Hashable, TypeVar
+from typing import TypeVar
+
+from collections.abc import Callable, Hashable
 
 import torch.distributed as dist
 

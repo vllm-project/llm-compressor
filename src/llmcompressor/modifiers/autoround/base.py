@@ -147,17 +147,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         Defaults to None.
     """
 
-    sequential_targets: Union[str, List[str], None] = None
+    sequential_targets: str | list[str] | None = None
     # AutoRound modifier arguments
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
-    lr: Optional[float] = None
-    device_ids: Optional[str] = None
+    lr: float | None = None
+    device_ids: str | None = None
 
     # private variables
-    _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
-    _q_input: Optional[torch.Tensor] = PrivateAttr(default=None)
+    _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
+    _q_input: torch.Tensor | None = PrivateAttr(default=None)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -338,7 +338,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> List[str]:
+    def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
 
         for name, module in wrapped_model.named_modules():

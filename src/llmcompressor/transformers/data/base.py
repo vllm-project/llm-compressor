@@ -10,7 +10,9 @@ for fine-tuning workflows.
 import inspect
 from functools import cached_property
 from inspect import _ParameterKind as Kind
-from typing import Any, Callable
+from typing import Any
+
+from collections.abc import Callable
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
@@ -241,18 +243,18 @@ class TextGenerationDataset(RegistryMixin):
     def filter_tokenizer_args(self, dataset: DatasetType) -> DatasetType:
         # assumes that inputs are not passed via self.processor.__call__ args and kwargs
         signature = inspect.signature(self.processor.__call__)
-        tokenizer_args = set(
+        tokenizer_args = {
             key
             for key, param in signature.parameters.items()
             if param.kind not in (Kind.VAR_POSITIONAL, Kind.VAR_KEYWORD)
-        )
+        }
         logger.debug(
             f"Found processor args `{tokenizer_args}`. Removing all other columns"
         )
 
         column_names = get_columns(dataset)
         return dataset.remove_columns(
-            list(set(column_names) - set(tokenizer_args) - set([self.PROMPT_KEY]))
+            list(set(column_names) - set(tokenizer_args) - {self.PROMPT_KEY})
         )
 
     def tokenize(self, data: LazyRow) -> dict[str, Any]:

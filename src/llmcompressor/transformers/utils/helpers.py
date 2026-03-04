@@ -135,11 +135,9 @@ def recipe_from_huggingface_model_id(
         logger.info(f"Found recipe: {recipe_file_name} for model ID: {hf_stub}.")
     except Exception as e:  # TODO: narrow acceptable exceptions
         logger.debug(
-            (
                 f"Unable to find recipe {recipe_file_name} "
                 f"for model ID: {hf_stub}: {e}."
                 "Skipping recipe resolution."
-            )
         )
         recipe = None
 

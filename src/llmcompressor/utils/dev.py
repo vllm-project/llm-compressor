@@ -24,7 +24,7 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
+def skip_weights_download(model_class: type[PreTrainedModel] = AutoModelForCausalLM):
     """
     Context manager under which models are initialized without having to download
     the model weight files. This differs from `init_empty_weights` in that weights are

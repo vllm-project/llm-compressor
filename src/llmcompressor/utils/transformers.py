@@ -59,7 +59,7 @@ def targets_embeddings(
         )
         return False
 
-    targets = set(module for _, module in targets)
+    targets = {module for _, module in targets}
     return (check_input and input_embed in targets) or (
         check_output and output_embed in targets
     )

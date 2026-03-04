@@ -1,6 +1,8 @@
 import contextlib
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING
+
+from collections.abc import Iterator
 
 import torch
 from compressed_tensors.utils import disable_offloading

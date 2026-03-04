@@ -112,26 +112,26 @@ class QuantizationMixin(HooksMixin):
         (e.g. vLLM) supports non-divisible dimensions. Defaults to False.
     """
 
-    config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    config_groups: dict[str, QuantizationScheme] | None = None
     # NOTE: targets is not the sole source of truth for finding all matching target
     # layers in a model. Additional information can be stored in `config_groups`
     # Use self.resolved_targets as source of truth.
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
-    ignore: List[str] = Field(default_factory=list)
-    scheme: Optional[Union[str, Dict[str, Any]]] = None
-    kv_cache_scheme: Optional[QuantizationArgs] = None
+    targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
+    ignore: list[str] = Field(default_factory=list)
+    scheme: str | dict[str, Any] | None = None
+    kv_cache_scheme: QuantizationArgs | None = None
     # Observer parameters for easy specification
-    weight_observer: Optional[str] = None
-    input_observer: Optional[str] = None
-    output_observer: Optional[str] = None
-    observer: Optional[Dict[str, str]] = None
+    weight_observer: str | None = None
+    input_observer: str | None = None
+    output_observer: str | None = None
+    observer: dict[str, str] | None = None
     bypass_divisibility_checks: bool = False
 
-    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
-    _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
+    _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _resolved_config: QuantizationConfig | None = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
-    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+    def validate_targets(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return [value]
 
@@ -139,8 +139,8 @@ class QuantizationMixin(HooksMixin):
 
     @field_validator("scheme", mode="before")
     def validate_scheme(
-        cls, value: Optional[Union[str, Dict[str, Any]]]
-    ) -> Optional[Union[str, Dict[str, Any]]]:
+        cls, value: str | dict[str, Any] | None
+    ) -> str | dict[str, Any] | None:
         if isinstance(value, str) and not is_preset_scheme(value):
             raise ValueError(
                 "`scheme` must either be a preset scheme name or a dictionary "
@@ -157,7 +157,7 @@ class QuantizationMixin(HooksMixin):
         return value
 
     @field_validator("observer", mode="before")
-    def validate_observer(cls, value: Any) -> Optional[Dict[str, str]]:
+    def validate_observer(cls, value: Any) -> dict[str, str] | None:
         """
         Validate observer dictionary format. Accepts keys: 'weights', 'input', 'output'
         """
@@ -189,7 +189,7 @@ class QuantizationMixin(HooksMixin):
         return self._resolved_config
 
     @property
-    def resolved_targets(self) -> Set[str]:
+    def resolved_targets(self) -> set[str]:
         """
         Set of all resolved targets, i.e. all unique targets listed
         in resolved quantization config.
@@ -404,7 +404,7 @@ class QuantizationMixin(HooksMixin):
         if output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
+    def _initialize_hooks(self, module: torch.nn.Module) -> set[RemovableHandle]:
         hooks = set()
         if not hasattr(module, "quantization_scheme"):
             return hooks

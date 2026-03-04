@@ -98,7 +98,7 @@ class CompressionLogger:
         if self.loss is not None:
             patch.log("METRIC", f"error {self.loss:.2f}")
 
-        gpu_usage: List[GPUMemory] = self.get_GPU_memory_usage()
+        gpu_usage: list[GPUMemory] = self.get_GPU_memory_usage()
         for gpu in gpu_usage:
             perc = gpu.pct_used * 100
             patch.log(
@@ -112,14 +112,14 @@ class CompressionLogger:
         compressed_size = get_layer_size_mb(self.module)
         patch.log("METRIC", f"Compressed module size: {compressed_size} MB")
 
-    def get_GPU_memory_usage(self) -> List[GPUMemory]:
+    def get_GPU_memory_usage(self) -> list[GPUMemory]:
         if self.gpu_type == GPUType.amd:
             return self._get_GPU_usage_amd(self.visible_ids)
         else:
             return self._get_GPU_usage_nv(self.visible_ids)
 
     @staticmethod
-    def _get_GPU_usage_nv(visible_ids: List[int]) -> List[GPUMemory]:
+    def _get_GPU_usage_nv(visible_ids: list[int]) -> list[GPUMemory]:
         """
         get gpu usage for visible Nvidia GPUs using nvml lib
 
@@ -136,7 +136,7 @@ class CompressionLogger:
                 logger.warning(f"Pynml library error:\n {_err}")
                 return []
 
-            usage: List[GPUMemory] = []
+            usage: list[GPUMemory] = []
 
             if len(visible_ids) == 0:
                 visible_ids = range(pynvml.nvmlDeviceGetCount())
@@ -155,14 +155,14 @@ class CompressionLogger:
             return []
 
     @staticmethod
-    def _get_GPU_usage_amd(visible_ids: List[int]) -> List[GPUMemory]:
+    def _get_GPU_usage_amd(visible_ids: list[int]) -> list[GPUMemory]:
         """
         get gpu usage for AMD GPUs using amdsmi lib
 
         :param visible_ids: list of GPUs to monitor.
             If unset or zero length, defaults to all
         """
-        usage: List[GPUMemory] = []
+        usage: list[GPUMemory] = []
         try:
             import amdsmi
 

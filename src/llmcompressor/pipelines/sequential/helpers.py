@@ -4,7 +4,9 @@ from collections import deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+from collections.abc import Callable
 
 import torch
 from accelerate.hooks import remove_hook_from_module
@@ -75,9 +77,9 @@ class Subgraph:
 
     def submodules(self, model: Module, recurse: bool = False) -> set[Module]:
         nodes = self.graph.find_nodes(op="call_module")
-        modules = set(model.get_submodule(node.target) for node in nodes)
+        modules = {model.get_submodule(node.target) for node in nodes}
         if recurse:
-            modules = set(m for module in modules for m in module.modules())
+            modules = {m for module in modules for m in module.modules()}
 
         return modules
 
@@ -101,9 +103,9 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    targets = set(
+    targets = {
         module for _, module in match_named_modules(model, sequential_targets)
-    )
+    }
     ancestors = get_sequential_ancestors(model, targets)
     offloaded = set()  # TODO: cleanup logic
 
@@ -253,11 +255,11 @@ def find_target_nodes(graph: GraphModule, targets: set[Module]) -> set[Node]:
     :param targets: modules whose nodes are being searched for
     :return: set of all nodes which call the target modules
     """
-    return set(
+    return {
         node
         for node in graph.graph.nodes
         if node.op == "call_module" and graph.get_submodule(node.target) in targets
-    )
+    }
 
 
 def topological_partition(graph: GraphModule, targets: set[Module]) -> list[list[Node]]:
@@ -371,7 +373,7 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
 
         # save the subgraph for this partition
         graph.lint()
-        input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
+        input_names = {node.name for node in graph.nodes if node.op == "placeholder"}
         subgraphs.append(
             Subgraph(
                 graph=graph,
@@ -518,8 +520,8 @@ def get_sequential_ancestors(model: Module, targets: set[Module]) -> set[Module]
 
 def dispatch_for_sequential(
     model: PreTrainedModel,
-    onload_device: Optional[torch.device | str] = None,
-    offload_device: Optional[torch.device | str] = None,
+    onload_device: torch.device | str | None = None,
+    offload_device: torch.device | str | None = None,
 ) -> PreTrainedModel:
     """
     Dispatch a model for sequential calibration using a sequential pipeline.

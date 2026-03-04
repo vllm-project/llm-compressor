@@ -4,7 +4,9 @@ import sys
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Generator
+from typing import Any
+
+from collections.abc import Generator
 from weakref import WeakKeyDictionary
 
 import torch
@@ -22,7 +24,7 @@ class IntermediateValue:
         otherwise None
     """
 
-    value: torch.Tensor | "IntermediateValue" | Any
+    value: torch.Tensor | IntermediateValue | Any
     device: torch.device | None
 
 
@@ -162,7 +164,7 @@ class IntermediatesCache:
 
         :return: dictionary mapping torch device to number of bytes in cache
         """
-        sizes = defaultdict(lambda: 0)
+        sizes = defaultdict(int)
         memo = set()
 
         def _size_helper(intermediate: IntermediateValue) -> int:
@@ -192,11 +194,11 @@ class IntermediatesCache:
 
         return dict(sizes)
 
-    def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
+    def iter(self, input_names: list[str] | None = None) -> Generator[Any]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
-    def __iter__(self) -> Generator[Any, None, None]:
+    def __iter__(self) -> Generator[Any]:
         yield from self.iter()
 
     def __len__(self) -> int:

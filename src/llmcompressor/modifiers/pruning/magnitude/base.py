@@ -22,16 +22,16 @@ __all__ = ["MagnitudePruningModifier"]
 
 
 class MagnitudePruningModifier(Modifier, LayerParamMasking):
-    targets: Union[str, List[str]]
+    targets: str | list[str]
     init_sparsity: float
     final_sparsity: float
     update_scheduler: str = "cubic"
-    scheduler_args: Dict[str, Any] = {}
+    scheduler_args: dict[str, Any] = {}
     mask_structure: str = "unstructured"
     leave_enabled: bool = False
     apply_globally: bool = False
 
-    parameterized_layers_: Dict[str, ModelParameterizedLayer] = None
+    parameterized_layers_: dict[str, ModelParameterizedLayer] = None
     _save_masks: bool = False
     _use_hooks: bool = False
     scheduler_function_: SchedulerCalculationType = None

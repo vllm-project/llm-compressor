@@ -2,7 +2,9 @@ import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
+
+from collections.abc import Iterable
 
 import torch
 import tqdm
@@ -40,7 +42,7 @@ def model_free_ptq(
     scheme: QuantizationScheme | str,
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
-    device: Optional[torch.device | str] = None,
+    device: torch.device | str | None = None,
 ):
     """
     Quantize a model without the need for a model definition. This function operates on

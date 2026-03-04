@@ -32,14 +32,14 @@ def parse_args():
 
 def trace(
     model_id: str,
-    model_class: Type[PreTrainedModel],
+    model_class: type[PreTrainedModel],
     sequential_targets: list[str] | str | None = None,
     ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
     trust_remote_code: bool = True,
     skip_weights: bool = True,
     device_map: str | dict = "cpu",
-) -> Tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
+) -> tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
 

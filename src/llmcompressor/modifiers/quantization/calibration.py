@@ -87,7 +87,7 @@ def initialize_observer(
 def call_observer(
     module: Module,
     base_name: str,
-    value: Optional[torch.Tensor] = None,
+    value: torch.Tensor | None = None,
     should_calculate_gparam: bool = False,
     should_calculate_qparams: bool = True,
 ):

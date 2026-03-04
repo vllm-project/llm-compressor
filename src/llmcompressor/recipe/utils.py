@@ -7,7 +7,7 @@ import yaml
 from llmcompressor.modifiers import Modifier
 
 
-def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
+def _load_json_or_yaml_string(content: str) -> dict[str, Any]:
     # try loading as json first, then yaml
     # if both fail, raise a ValueError
     try:
@@ -48,12 +48,12 @@ def _parse_recipe_from_md(file_path, yaml_str):
     else:
         # fail if we know whe should have extracted front matter out
         raise RuntimeError(
-            "Could not extract YAML front matter from recipe card: {}".format(file_path)
+            f"Could not extract YAML front matter from recipe card: {file_path}"
         )
     return yaml_str
 
 
-def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[str, Any]:
+def get_yaml_serializable_dict(modifiers: list[Modifier], stage: str) -> dict[str, Any]:
     """
     This function is used to convert a list of modifiers into a dictionary
     where the keys are the group names and the values are the modifiers
@@ -96,7 +96,7 @@ def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[st
     return stage_dict
 
 
-def filter_dict(obj: dict, target_stage: Optional[str] = None) -> dict:
+def filter_dict(obj: dict, target_stage: str | None = None) -> dict:
     """
     Filter a dictionary to only include keys that match the target stage.
 

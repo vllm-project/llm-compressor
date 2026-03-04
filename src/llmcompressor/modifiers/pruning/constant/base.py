@@ -14,8 +14,8 @@ __all__ = ["ConstantPruningModifier"]
 
 
 class ConstantPruningModifier(Modifier, LayerParamMasking):
-    targets: Union[str, List[str]]
-    parameterized_layers_: Dict[str, ModelParameterizedLayer] = None
+    targets: str | list[str]
+    parameterized_layers_: dict[str, ModelParameterizedLayer] = None
     _epsilon: float = 10e-9
     _save_masks: bool = False
     _use_hooks: bool = False

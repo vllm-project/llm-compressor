@@ -1,5 +1,7 @@
 from enum import Enum
-from typing import Iterable, List, Literal, Optional
+from typing import List, Literal, Optional
+
+from collections.abc import Iterable
 
 import torch
 from compressed_tensors import match_modules_set, match_named_modules
@@ -86,23 +88,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     :param transform_config: Optional transform config for overriding provided arguments
     """
 
-    rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
+    rotations: list[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="hadamard"
     )
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
     precision: TorchDtype = Field(default=torch.float64)
-    transform_block_size: Optional[int] = Field(default=None)
+    transform_block_size: int | None = Field(default=None)
 
     # norm mappings separate from spinquant mappings to allow users to
     # override spinquant mappings with transform_config without overriding norms
-    mappings: Optional[SpinQuantMapping] = Field(
+    mappings: SpinQuantMapping | None = Field(
         default=None,
         repr=False,
         exclude=True,
     )
-    norm_mappings: Optional[List[NormMapping]] = Field(
+    norm_mappings: list[NormMapping] | None = Field(
         default=None,
         repr=False,
         exclude=True,
@@ -110,7 +112,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     # optional override for more fine-grained control
     # also included in recipe serialization
-    transform_config: Optional[TransformConfig] = Field(default=None, repr=False)
+    transform_config: TransformConfig | None = Field(default=None, repr=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):

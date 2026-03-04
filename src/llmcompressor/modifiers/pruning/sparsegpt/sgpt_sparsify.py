@@ -9,7 +9,7 @@ SGPT_PRECISION = torch.float32
 
 
 def make_empty_hessian(
-    module: torch.nn.Module, device: Optional[torch.device] = None
+    module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
     weight = module.weight
     num_columns = weight.shape[1]
@@ -22,7 +22,7 @@ def accumulate_hessian(
     module: torch.nn.Module,
     H: torch.Tensor,
     num_samples: int,
-) -> Tuple[torch.Tensor, int]:
+) -> tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -58,7 +58,7 @@ def accumulate_hessian(
 
 def sparsify_weight(
     module: torch.nn.Module,
-    hessians_dict: Dict[torch.nn.Module, torch.Tensor],
+    hessians_dict: dict[torch.nn.Module, torch.Tensor],
     sparsity: float,
     prune_n: int,
     prune_m: int,

@@ -18,7 +18,7 @@ class DataFreePipeline(CalibrationPipeline):
     @staticmethod
     def __call__(
         model: torch.nn.Module,
-        dataloader: Optional[DataLoader],
+        dataloader: DataLoader | None,
         dataset_args: "DatasetArguments",
     ):
         """

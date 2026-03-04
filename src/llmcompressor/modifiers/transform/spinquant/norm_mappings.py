@@ -20,7 +20,7 @@ class NormMapping(BaseModel):
     """
 
     norm: str
-    linears: List[str]
+    linears: list[str]
 
     @field_validator("linears", mode="before")
     def cast_to_list(cls, value):
@@ -45,12 +45,12 @@ _default_mappings = [
     ),
 ]
 
-NORM_MAPPING_REGISTRY: Dict[str, NormMapping] = {
+NORM_MAPPING_REGISTRY: dict[str, NormMapping] = {
     "LlamaForCausalLM": _default_mappings,
 }
 
 
-def infer_norm_mapping_from_model(model: PreTrainedModel) -> List[NormMapping]:
+def infer_norm_mapping_from_model(model: PreTrainedModel) -> list[NormMapping]:
     architecture = model.__class__.__name__
     if architecture not in NORM_MAPPING_REGISTRY:
         logger.info(

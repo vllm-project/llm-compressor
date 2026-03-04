@@ -24,7 +24,7 @@ class MovingAverageObserverBase(Observer):
         self,
         base_name: str,
         args: QuantizationArgs,
-        module: Optional[torch.nn.Module] = None,
+        module: torch.nn.Module | None = None,
         **observer_kwargs,
     ):
         super().__init__(base_name, args, module, **observer_kwargs)

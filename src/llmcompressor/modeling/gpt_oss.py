@@ -109,10 +109,10 @@ class LinearExperts(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,  # [B, T, H]
-        router_indices: Optional[
+        router_indices: None | (
             torch.Tensor
-        ] = None,  # [B, T, top_k] or [tokens, top_k]
-        routing_weights: Optional[torch.Tensor] = None,  # [B, T, E] or [tokens, E]
+        ) = None,  # [B, T, top_k] or [tokens, top_k]
+        routing_weights: torch.Tensor | None = None,  # [B, T, E] or [tokens, E]
     ) -> torch.Tensor:
         """
         Implements the MoE computation using the router outputs.
@@ -192,11 +192,11 @@ def set_module_by_path(root: nn.Module, dotpath: str, new_module: nn.Module) -> 
     setattr(parent, parts[-1], new_module)
 
 
-def find_experts(model: nn.Module) -> List[ExpertMeta]:
+def find_experts(model: nn.Module) -> list[ExpertMeta]:
     """
     Locate GPT-OSS MoE expert modules under model.model.layers[*].mlp.experts.
     """
-    metas: List[ExpertMeta] = []
+    metas: list[ExpertMeta] = []
     for li, layer in enumerate(model.model.layers):
         experts = layer.mlp.experts
         device = next(experts.parameters(), torch.zeros(())).device

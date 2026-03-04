@@ -46,7 +46,7 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
         self.shared_expert = original.shared_expert
         self.calibrate_all_experts = calibrate_all_experts
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
         router_scores, router_logits = self.router(hidden_states)
         out = self.shared_expert(hidden_states)

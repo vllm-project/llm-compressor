@@ -118,17 +118,17 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     # gptq modifier arguments
-    sequential_targets: Union[str, List[str], None] = None
+    sequential_targets: str | list[str] | None = None
     block_size: int = 128
-    dampening_frac: Optional[float] = 0.01
+    dampening_frac: float | None = 0.01
     # TODO: this does not serialize / will be incorrectly written
-    actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
+    actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
     offload_hessians: bool = False
 
     # private variables
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _num_samples: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+    _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
 
@@ -235,7 +235,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         """

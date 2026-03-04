@@ -57,7 +57,7 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
         return
 
     if is_microscale_scheme(scheme):
-        with open(index_file_path, "r") as file:
+        with open(index_file_path) as file:
             weight_map: dict[str, str] = json.load(file)["weight_map"]
 
         file_map = invert_mapping(weight_map)

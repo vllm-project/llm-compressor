@@ -66,20 +66,20 @@ class QuIPModifier(Modifier):
     :param transform_config: Optional transform config for overriding provided arguments
     """  # noqa: E501
 
-    rotations: List[Literal["v", "u"]] = Field(default_factory=lambda: ["v", "u"])
+    rotations: list[Literal["v", "u"]] = Field(default_factory=lambda: ["v", "u"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
     )
-    targets: Union[List[str], str] = Field(default="Linear")
+    targets: list[str] | str = Field(default="Linear")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
     precision: TorchDtype = Field(default=torch.float64)
-    transform_block_size: Optional[int] = Field(default=None)
-    ignore: Union[str, List[str]] = Field(default="lm_head")
+    transform_block_size: int | None = Field(default=None)
+    ignore: str | list[str] = Field(default="lm_head")
 
     # optional override for more fine-grained control
     # also included in recipe serialization
-    transform_config: Optional[TransformConfig] = Field(default=None, repr=False)
+    transform_config: TransformConfig | None = Field(default=None, repr=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):

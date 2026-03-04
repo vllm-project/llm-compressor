@@ -77,7 +77,7 @@ def reindex_fused_weights(
             shutil.copyfile(resolved_path, save_path)
 
     # read index file
-    with open(index_file, "r") as file:
+    with open(index_file) as file:
         index_file_data = json.load(file)
 
     weight_map: dict[str, str] = index_file_data["weight_map"]

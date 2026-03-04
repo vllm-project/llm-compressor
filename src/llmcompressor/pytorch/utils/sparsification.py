@@ -29,7 +29,7 @@ class ModuleSparsificationInfo:
     """
 
     def __init__(
-        self, module: Module, state_dict: Optional[Dict[str, torch.Tensor]] = None
+        self, module: Module, state_dict: dict[str, torch.Tensor] | None = None
     ):
         self.module = module
 

@@ -12,7 +12,9 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
+
+from collections.abc import Callable
 
 from loguru import logger
 from torch.utils.data import DataLoader

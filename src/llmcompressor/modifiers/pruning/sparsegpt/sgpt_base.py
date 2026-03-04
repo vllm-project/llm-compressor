@@ -280,11 +280,11 @@ class SparsityModifierBase(Modifier):
                 input = input[0]
             acts[name] += 1.0 / nsamples * input.pow(2).sum(dim=(0, 1)).sqrt()
 
-        hooks = set(
+        hooks = {
             self.register_hook(mod, partial(save_acts, name=name), "forward_pre")
             for name, mod in model.named_modules()
             if isinstance(mod, torch.nn.Linear) and "lm_head" not in name
-        )
+        }
         with HooksMixin.disable_hooks(keep=hooks):
             run_calibration(model, dataloader)
         self.remove_hooks(hooks)

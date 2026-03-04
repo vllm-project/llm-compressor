@@ -1,7 +1,9 @@
 import os
 import re
 from collections import defaultdict
-from typing import Mapping, TypeVar
+from typing import TypeVar
+
+from collections.abc import Mapping
 
 import torch
 from compressed_tensors.utils.match import _match_name
@@ -95,11 +97,11 @@ def match_names_set_eager(
                     )
 
         # once we have a full set, yield and reset
-        if all((matches[target] is not None for target in targets)):
+        if all(matches[target] is not None for target in targets):
             matched_sets.append(matches)
             matches = dict.fromkeys(targets, None)
 
-    unmatched_set = matches if any((v is not None for v in matches.values())) else None
+    unmatched_set = matches if any(v is not None for v in matches.values()) else None
 
     if return_unmatched:
         return matched_sets, unmatched_set

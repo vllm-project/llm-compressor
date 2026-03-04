@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Callable
 
 import torch
 from compressed_tensors.offload import update_offload_parameter
@@ -204,9 +204,9 @@ class SmoothQuantModifier(Modifier):
         # Get names of modules that are not ignored
         ignored_names = set()
         if self.ignore:
-            ignored_names = set(
+            ignored_names = {
                 name for name, _ in match_named_modules(model, self.ignore)
-            )
+            }
 
         for mapping in self.mappings:
             # we deliberately don't use the ignore list when matching mappings

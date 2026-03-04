@@ -50,7 +50,7 @@ def update_config(
     # write results to config.json file
     config_file_path = find_config_path(save_directory)
     if config_file_path is not None:
-        with open(config_file_path, "r") as file:
+        with open(config_file_path) as file:
             config_data = json.load(file)
 
         config_data[QUANTIZATION_CONFIG_NAME] = qconfig_data
