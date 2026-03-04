@@ -1,5 +1,5 @@
 """
-AWQ Quantization Example with Token Masking
+AWQ Quantization Example with Token Masking (DDP)
 
 This example demonstrates AWQ quantization with token masking to focus the
 optimization on assistant responses only. The loss_mask feature allows AWQ
@@ -10,18 +10,25 @@ This is particularly useful for instruction-tuned models where you want the
 quantization to preserve the quality of generated responses.
 """
 
+import time
+
 import torch
-from compressed_tensors.offload import dispatch_model
+from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+init_dist()
+with load_offloaded_model():
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID, dtype="auto", device_map="auto_offload"
+    )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Get special token IDs for masking logic.
@@ -42,7 +49,9 @@ NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = load_dataset(
+    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
+)
 ds = ds.shuffle(seed=42)
 
 
@@ -111,6 +120,9 @@ recipe = [
     ),
 ]
 
+torch.cuda.reset_peak_memory_stats()
+start_time = time.time()
+
 # Apply algorithms with token masking enabled.
 # use_loss_mask=True tells AWQ to use the loss_mask field from the dataset
 # to focus optimization on assistant responses only.
@@ -122,6 +134,12 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     use_loss_mask=True,
 )
+
+elapsed_time = time.time() - start_time
+peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
+print("Quantization Complete")
+print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
+print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
@@ -135,6 +153,12 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym-masked"
+SAVE_DIR = (
+    MODEL_ID.rstrip("/").split("/")[-1]
+    + "-awq-asym-masked-DDP"
+    + str(torch.distributed.get_world_size())
+)
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
+
+torch.distributed.destroy_process_group()

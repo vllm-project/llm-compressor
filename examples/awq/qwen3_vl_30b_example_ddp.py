@@ -1,0 +1,141 @@
+import time
+
+import torch
+from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from datasets import load_dataset
+from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
+
+from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
+from llmcompressor.modifiers.awq import AWQModifier
+
+MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+
+# Load model.
+init_dist()
+with load_offloaded_model():
+    model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
+        MODEL_ID,
+        dtype=torch.bfloat16,
+        device_map="auto_offload",
+        trust_remote_code=True,
+    )
+processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+
+DATASET_ID = "neuralmagic/calibration"
+NUM_CALIBRATION_SAMPLES = 256
+MAX_SEQUENCE_LENGTH = 8192
+
+ds = load_dataset(
+    DATASET_ID, name="LLM", split=get_rank_partition("train", NUM_CALIBRATION_SAMPLES)
+)
+ds = ds.shuffle(seed=42)
+
+
+def preprocess_function(example):
+    messages = []
+    for message in example["messages"]:
+        messages.append(
+            {
+                "role": message["role"],
+                "content": [{"type": "text", "text": message["content"]}],
+            }
+        )
+
+    return processor.apply_chat_template(
+        messages,
+        return_tensors="pt",
+        padding=False,
+        truncation=True,
+        max_length=MAX_SEQUENCE_LENGTH,
+        tokenize=True,
+        add_special_tokens=False,
+        return_dict=True,
+        add_generation_prompt=False,
+    )
+
+
+ds = ds.map(preprocess_function, batched=False, remove_columns=ds.column_names)
+
+
+def data_collator(batch):
+    assert len(batch) == 1
+    return {
+        key: (
+            torch.tensor(value)
+            if key != "pixel_values"
+            else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+        )
+        for key, value in batch[0].items()
+    }
+
+
+# Configure AWQ quantization with smoothing and balancing
+# NOTE: This recipe uses W4A16 quantization with group_size=32
+recipe = AWQModifier(
+    ignore=[
+        "re:.*embed_tokens",
+        "re:.*input_layernorm$",
+        "re:.*mlp[.]gate$",
+        "re:.*post_attention_layernorm$",
+        "re:.*norm$",
+        "re:model[.]visual.*",
+        "re:visual.*",
+        "lm_head",
+    ],
+    duo_scaling=True,
+    config_groups={
+        "group_0": {
+            "targets": ["Linear"],
+            "weights": {
+                "num_bits": 4,
+                "type": "int",
+                "symmetric": True,
+                "group_size": 32,
+                "strategy": "group",
+                "dynamic": False,
+                "actorder": None,
+                "observer": "mse",
+            },
+        }
+    },
+)
+
+torch.cuda.reset_peak_memory_stats()
+start_time = time.time()
+
+print("starting quantization")
+# Apply AWQ quantization.
+oneshot(
+    model=model,
+    processor=processor,
+    recipe=recipe,
+    dataset=ds,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    data_collator=data_collator,
+)
+
+elapsed_time = time.time() - start_time
+peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
+print("Quantization Complete")
+print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
+print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
+
+print("========== SAMPLE GENERATION ==============")
+dispatch_model(model)
+input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
+output = model.generate(input_ids, max_new_tokens=20)
+print(processor.decode(output[0]))
+print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = (
+    MODEL_ID.rstrip("/").split("/")[-1]
+    + "-AWQ-W4A16-g32-DDP"
+    + str(torch.distributed.get_world_size())
+)
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)
+
+torch.distributed.destroy_process_group()
