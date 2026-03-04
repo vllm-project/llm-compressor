@@ -1,13 +1,12 @@
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, Optional
 
 import torch
-import tqdm
 from compressed_tensors.entrypoints.convert import (
     Converter,
+    exec_jobs,
     get_checkpoint_files,
     is_weights_file,
     update_safetensors_index,
@@ -87,24 +86,18 @@ def model_free_ptq(
             logger.info(f"Copying {file_path} {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
-    with ThreadPoolExecutor(max_workers) as executor:
-        # 1. validate quantizable tensors fail fast before long-running quantization
-        futures = [executor.submit(validate_file, *job[1:]) for job in jobs]
-        for future in tqdm.tqdm(
-            as_completed(futures), total=len(futures), desc="Validating"
-        ):
-            future.result()
+    # 1. validate quantizable tensors fail fast before long-running quantization
+    exec_jobs(
+        [(validate_file, *job[1:]) for job in jobs], max_workers, desc="Validating"
+    )
 
-        # 2-5. quantize and compress weights
-        total_size = 0
-        weight_map = dict()
-        futures = [executor.submit(*job) for job in jobs]
-        for future in tqdm.tqdm(
-            as_completed(futures), total=len(futures), desc="Quantizing"
-        ):
-            _total_size, _weight_map = future.result()
-            total_size += _total_size
-            weight_map.update(_weight_map)
+    # 2-5. quantize and compress weights
+    total_size = 0
+    weight_map = dict()
+    quantize_results = exec_jobs(jobs, max_workers, desc="Quantizing")
+    for _total_size, _weight_map in quantize_results:
+        total_size += _total_size
+        weight_map.update(_weight_map)
 
     # 5. update config and safetensors index
     update_config(save_directory, scheme_name, scheme, ignore, converter)

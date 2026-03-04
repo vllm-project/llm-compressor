@@ -10,7 +10,7 @@ from compressed_tensors.base import (
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.entrypoints.convert import Converter, find_file_path
+from compressed_tensors.entrypoints.convert import Converter, find_config_path
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -18,7 +18,6 @@ from compressed_tensors.quantization import (
 )
 from loguru import logger
 from pydantic import ValidationError
-from transformers.file_utils import CONFIG_NAME
 
 __all__ = ["update_config"]
 
@@ -36,7 +35,7 @@ def update_config(
     Quantization config will either be created or updated, see
     create_or_update_quant_config docstring for more info.
     """
-    config_file_path = find_file_path(save_directory, [CONFIG_NAME, "params.json"])
+    config_file_path = find_config_path(save_directory)
 
     qconfig = create_or_update_quant_config(
         config_file_path, scheme_name, scheme, ignore, converter

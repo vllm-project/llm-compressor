@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 import tqdm
 from compressed_tensors.entrypoints.convert import (
-    find_file_path,
+    find_safetensors_index_path,
     get_checkpoint_files,
     is_weights_file,
 )
@@ -56,7 +56,7 @@ def reindex_fused_weights(
 
     # read files
     model_files = get_checkpoint_files(model_stub)
-    index_file = find_file_path(model_files, ["safetensors.index.json"])
+    index_file = find_safetensors_index_path(model_files, ["safetensors.index.json"])
     if index_file is None:
         raise ValueError(
             "This script is used to modify safetensor file shards, but was "
