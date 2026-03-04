@@ -1,8 +1,13 @@
 import pytest
 import torch
+from compressed_tensors.utils import getattr_chain
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.modifiers.transform.smoothquant.base import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant.base import (
+    SmoothQuantModifier,
+)
 
 
 @pytest.mark.unit
@@ -224,3 +229,54 @@ def test_ignore_behavior():
     resolved_mappings2 = sq2._resolve_mappings(model)
     # Mapping should be skipped because all layers are ignored
     assert len(resolved_mappings2) == 0
+
+
+@pytest.mark.smoke
+@pytest.mark.integration
+def test_smoothquant_e2e():
+    """
+    Test that SmoothQuant applied via oneshot actually transforms weights correctly.
+
+    Runs oneshot with SmoothQuantModifier on a small model and verifies:
+        1. Weights actually changed (smoothing was applied)
+        2. The model output is approximately preserved (the SmoothQuant invariant)
+    """
+    model_id = "nm-testing/tinysmokellama-3.2"
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    # Record original weights for layers that should be smoothed
+    orig_weights = {
+        name: param.clone()
+        for name, param in model.named_parameters()
+        if "input_layernorm" in name or "q_proj.weight" in name
+    }
+
+    # Get original model output
+    sample_input = tokenizer("Hello world", return_tensors="pt")
+    with torch.no_grad():
+        before_smooth = model(**sample_input).logits
+
+    oneshot(
+        model=model,
+        dataset="open_platypus",
+        splits={"calibration": "train[:10%]"},
+        recipe=SmoothQuantModifier(smoothing_strength=0.5),
+        num_calibration_samples=4,
+        max_seq_length=128,
+    )
+
+    # 1. Verify weights actually changed
+    for name, orig_param in orig_weights.items():
+        current_param = getattr_chain(model, name)
+        assert not torch.equal(
+            orig_param, current_param.to(orig_param.device)
+        ), f"Weight {name} was not modified by SmoothQuant"
+
+    # 2. Verify model output is approximately preserved (SmoothQuant invariant)
+    with torch.no_grad():
+        after_smooth = model(**sample_input).logits
+
+    torch.testing.assert_close(
+        before_smooth, after_smooth.to(before_smooth.device), atol=0.1, rtol=0.1
+    )

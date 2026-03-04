@@ -4,7 +4,7 @@ from PIL import Image
 from transformers import AutoProcessor, Gemma3ForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "google/medgemma-27b-it"

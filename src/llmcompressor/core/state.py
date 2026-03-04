@@ -12,8 +12,6 @@ from typing import Any
 import torch
 from loguru import logger
 
-from llmcompressor.metrics import BaseLogger, LoggerManager
-
 __all__ = ["State", "Data", "Hardware", "ModifiedState"]
 
 
@@ -94,11 +92,6 @@ class State:
     :type data: Data
     :param hardware: Hardware instance holding info about the target hardware being used
     :type hardware: Hardware
-    :param loggers: LoggerManager instance holding all the loggers to log
-    :type loggers: Optional[LoggerManager]
-    :param model_log_cadence: The cadence to log model information w.r.t epochs.
-        If 1, logs every epoch. If 2, logs every other epoch, etc. Default is 1.
-    :type model_log_cadence: Optional[float]
     """
 
     model: Any = None
@@ -109,9 +102,6 @@ class State:
     batch_data: Any = None
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
-    loggers: LoggerManager | None = None
-    model_log_cadence: float | None = None
-    _last_log_step: float | int | None = None
     loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
 
@@ -141,8 +131,6 @@ class State:
         start: float = None,
         steps_per_epoch: int = None,
         batches_per_step: int = None,
-        loggers: LoggerManager | list[BaseLogger] | None = None,
-        model_log_cadence: float | None = None,
         **kwargs,
     ) -> dict:
         """
@@ -172,12 +160,6 @@ class State:
         :type steps_per_epoch: int
         :param batches_per_step: The batches per step to update the state with
         :type batches_per_step: int
-        :param loggers: The metrics manager to setup logging important info and
-            milestones to, also accepts a list of BaseLogger(s)
-        :type loggers: Union[None, LoggerManager, List[BaseLogger]]
-        :param model_log_cadence: The cadence to log model information w.r.t epochs.
-            If 1, logs every epoch. If 2, logs every other epoch, etc. Default is 1.
-        :type model_log_cadence: Optional[float]
         :param kwargs: Additional keyword arguments to update the state with
         :return: The updated state as a dictionary
         :rtype: Dict
@@ -197,8 +179,6 @@ class State:
                 "start": start,
                 "steps_per_epoch": steps_per_epoch,
                 "batches_per_step": batches_per_step,
-                "loggers": loggers,
-                "model_log_cadence": model_log_cadence,
                 "kwargs": kwargs,
             },
         )
@@ -221,14 +201,6 @@ class State:
 
         if "device" in kwargs:
             self.hardware.device = kwargs["device"]
-
-        loggers = loggers or []
-        if isinstance(loggers, list):
-            loggers = LoggerManager(loggers)
-        self.loggers = loggers
-
-        if model_log_cadence is not None:
-            self.model_log_cadence = model_log_cadence
 
         return kwargs
 
