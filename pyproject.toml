@@ -1,6 +1,127 @@
 [build-system]
-requires = ["setuptools", "wheel", "setuptools_scm==8.2.0"]
+requires = ["setuptools>=75.0", "wheel", "setuptools_scm==8.2.0"]
 build-backend = "setuptools.build_meta"
+
+
+# ---------------------------------------------------------------------------
+# PEP 621 – project metadata
+# ---------------------------------------------------------------------------
+[project]
+name = "llmcompressor"
+dynamic = ["version"]
+description = """\
+  A library for compressing large language models utilizing the latest \
+  techniques and research in the field for both training aware and post \
+  training techniques.  The library is designed to be flexible and easy \
+  to use on top of PyTorch and HuggingFace Transformers, allowing for \
+  quick experimentation.\
+"""
+readme = { file = "README.md", content-type = "text/markdown" }
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Neuralmagic, Inc.", email = "support@neuralmagic.com" },
+]
+keywords = [
+    "llmcompressor", "llms", "large language models", "transformers",
+    "pytorch", "huggingface", "compressors", "compression",
+    "quantization", "pruning", "sparsity", "optimization",
+    "model optimization", "model compression",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "loguru>=0.7.2",
+    "pyyaml>=6.0.1",
+    "numpy>=2.0.0",
+    "requests>=2.32.2",
+    "tqdm>=4.66.3",
+    "torch>=2.9.0",
+    "transformers>=4.56.1,<=4.57.6",
+    "datasets>=4.0.0",
+    "auto-round>=0.9.6",
+    "accelerate>=1.6.0",
+    "nvidia-ml-py>=12.560.30",
+    "pillow>=10.4.0",
+    "compressed-tensors>=0.14.1a2",
+]
+
+[project.optional-dependencies]
+dev = [
+    # testing framework
+    "pytest>=6.0.0",
+    "pytest-mock>=3.6.0",
+    "pytest-rerunfailures>=13.0",
+    "lm_eval==0.4.9.2",
+    # test dependencies
+    "beautifulsoup4~=4.12.3",
+    "cmarkgfm>=2024.1.14",
+    "trl>=0.10.1",
+    "pandas<2.3.0",
+    "torchvision",
+    "librosa==0.11.0",
+    "soundfile",
+    "torchcodec",
+    # linting, formatting, and type checking
+    "mypy~=1.10.0",
+    "ruff~=0.4.8",
+    # pre commit hooks
+    "pre-commit",
+    # docs
+    "mkdocs",
+    "mkdocs-material[imaging]",
+    "markdown",
+    "pymdown-extensions",
+    "mkdocs-section-index",
+    "mkdocs-minify-plugin",
+    "mkdocs-api-autonav",
+    "mkdocstrings-python",
+    "mkdocs-gen-files",
+    "mkdocs-awesome-nav",
+]
+qwen = [
+    "qwen_vl_utils",
+]
+
+[project.urls]
+Homepage = "https://github.com/vllm-project/llm-compressor"
+Repository = "https://github.com/vllm-project/llm-compressor"
+Issues = "https://github.com/vllm-project/llm-compressor/issues"
+Documentation = "https://llm-compressor.github.io/llm-compressor/"
+
+[project.scripts]
+"llmcompressor.trace" = "llmcompressor.transformers.tracing.debug:main"
+"llmcompressor.reindex_fused_weights" = "llmcompressor.entrypoints.model_free.reindex_fused_weights:main"
+
+
+# ---------------------------------------------------------------------------
+# setuptools
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["llmcompressor", "llmcompressor.*"]
+exclude = ["*.__pycache__.*"]
+
+[tool.setuptools_scm]
+version_file = "src/llmcompressor/version.py"
+
+
+# ---------------------------------------------------------------------------
+# Tool configuration
+# ---------------------------------------------------------------------------
 
 [tool.mypy]
 files = "src/guidellm"
