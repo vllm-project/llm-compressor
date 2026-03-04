@@ -129,7 +129,6 @@ setup(
         ),
         ("datasets>=4.0.0,<=4.6.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
-            # auto-round 0.10.2 renamed fp_layers to ignore_layers
             "auto-round>=0.10.2,<=0.10.2"
             if BUILD_TYPE == "release"
             else "auto-round>=0.10.2"
