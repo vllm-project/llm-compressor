@@ -1,6 +1,5 @@
 import json
 
-from compressed_tensors.entrypoints.convert import find_safetensors_index_path
 from compressed_tensors.quantization import (
     QuantizationScheme,
     preset_name_to_scheme,
@@ -54,7 +53,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
 
 
 def validate_safetensors_index(model_files: dict[str, str], scheme: QuantizationScheme):
-    index_file_path = find_safetensors_index_path(model_files)
+    index_file_path = _find_safetensors_index_file(model_files)
     if index_file_path is None:
         return
 
@@ -76,3 +75,11 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
                     "Please use `reindex_fused_weights.py` to reindex your safetensors "
                     "before running `model_free_ptq` again."
                 )
+
+
+def _find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
+    for file_path, resolved_path in model_files.items():
+        if file_path.endswith("safetensors.index.json"):
+            return resolved_path
+
+    return None
