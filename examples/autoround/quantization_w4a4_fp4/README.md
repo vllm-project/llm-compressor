@@ -16,7 +16,9 @@ pip install -e .
 
 ## Quickstart
 
-The example includes an end-to-end script for applying the AutoRound quantization algorithm.
+The example includes end-to-end scripts for applying the AutoRound quantization algorithm.
+
+### Llama 3.1 Example
 
 ```bash
 python3 llama3.1_example.py
@@ -24,7 +26,7 @@ python3 llama3.1_example.py
 
 The resulting model `Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound` is ready to be loaded into vLLM.
 
-### Evaluate Accuracy
+#### Evaluate Accuracy
 
 With the model created, we can now load and run in vLLM (after installing).
 
@@ -33,7 +35,6 @@ from vllm import LLM
 model = LLM("./Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound")
 ```
 
-We can evaluate accuracy with `lm_eval` (`pip install lm-eval==0.4.9.1`):
 > Note: quantized models can be sensitive to the presence of the `bos` token. `lm_eval` does not add a `bos` token by default, so make sure to include the `add_bos_token=True` argument when running your evaluations.
 
 Run the following to test accuracy on GSM-8K:
@@ -46,30 +47,83 @@ lm_eval --model vllm \
   --batch_size 'auto'
 ```
 
-#### meta-llama/Meta-Llama-3.1-8B-Instruct
+##### meta-llama/Meta-Llama-3.1-8B-Instruct
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7710|±  |0.0116|
 |     |       |strict-match    |     5|exact_match|↑  |0.7043|±  |0.0126|
 
-#### Meta-Llama-3.1-8B-Instruct-NVFP4 (QuantizationModifier)
+##### Meta-Llama-3.1-8B-Instruct-NVFP4 (QuantizationModifier)
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7248|±  |0.0123|
 |     |       |strict-match    |     5|exact_match|↑  |0.6611|±  |0.0130|
 
 
-#### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=0)
+##### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=0)
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7362|±  |0.0121|
 |     |       |strict-match    |     5|exact_match|↑  |0.6702|±  |0.0129|
 
-#### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=200)
+##### Meta-Llama-3.1-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=200)
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7210|±  |0.0124|
 |     |       |strict-match    |     5|exact_match|↑  |0.6945|±  |0.0127|
+
+> Note: quantized model accuracy may vary slightly due to nondeterminism.
+
+### Qwen3-VL Example
+
+```bash
+python3 qwen3_vl_example.py
+```
+
+The resulting model `Qwen3-VL-8B-Instruct-NVFP4-AutoRound` is ready to be loaded into vLLM.
+
+#### Evaluate Accuracy
+
+Run the following to test accuracy on GSM-8K and ChartQA:
+
+```bash
+lm_eval --model vllm-vlm \
+  --model_args pretrained="./Qwen3-VL-8B-Instruct-NVFP4-AutoRound",add_bos_token=true \
+  --tasks gsm8k \
+  --num_fewshot 5 \
+  --batch_size 'auto'
+
+lm_eval --model vllm-vlm \
+  --model_args pretrained="./Qwen3-VL-8B-Instruct-NVFP4-AutoRound",add_bos_token=true \
+  --tasks chartqa \
+  --batch_size 'auto' \
+  --apply_chat_template
+```
+
+##### Qwen/Qwen3-VL-8B-Instruct (Baseline)
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.8628|±  |0.0095|
+|     |       |strict-match    |     5|exact_match|↑  |0.8453|±  |0.0100|
+
+| Tasks |Version|Filter|n-shot|     Metric      |   |Value |   |Stderr|
+|-------|------:|------|-----:|-----------------|---|-----:|---|-----:|
+|chartqa|      0|none  |     0|anywhere_accuracy|↑  |0.7908|±  |0.0081|
+|       |       |none  |     0|exact_match      |↑  |0.5592|±  |0.0099|
+|       |       |none  |     0|relaxed_accuracy |↑  |0.7696|±  |0.0084|
+
+
+##### Qwen3-VL-8B-Instruct-NVFP4-AutoRound (AutoRoundModifier, iters=200)
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.8415|±  |0.0101|
+|     |       |strict-match    |     5|exact_match|↑  |0.8408|±  |0.0101|
+
+| Tasks |Version|Filter|n-shot|     Metric      |   |Value |   |Stderr|
+|-------|------:|------|-----:|-----------------|---|-----:|---|-----:|
+|chartqa|      0|none  |     0|anywhere_accuracy|↑  |0.8220|±  |0.0077|
+|       |       |none  |     0|exact_match      |↑  |0.5748|±  |0.0099|
+|       |       |none  |     0|relaxed_accuracy |↑  |0.8044|±  |0.0079|
 
 > Note: quantized model accuracy may vary slightly due to nondeterminism.
 

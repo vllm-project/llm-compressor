@@ -3,11 +3,10 @@ from collections import defaultdict
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors.quantization.utils import module_type
-from compressed_tensors.utils import align_module_device
+from compressed_tensors.utils import align_module_device, match_named_modules
 from tqdm import tqdm
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 __ALL__ = [
@@ -75,7 +74,7 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> str | None:
     # check for the common sparsity structures
     structures = {"2:4"}
     for sparsity_structure in structures:
-        linear_modules = get_linear_layers(model)
+        linear_modules = dict(match_named_modules(model, ["Linear"]))
         offloaded_params = get_state_dict_offloaded_model(model)
 
         linear_modules_with_sparsity_structure = [

@@ -1,4 +1,5 @@
 import pytest
+from compressed_tensors.utils.match import match_named_modules
 from transformers import (
     AutoModelForCausalLM,
     Gemma3ForConditionalGeneration,
@@ -13,7 +14,6 @@ from transformers import (
     WhisperForConditionalGeneration,
 )
 
-from llmcompressor.pipelines.sequential.helpers import match_modules
 from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from tests.testing_utils import requires_hf_token
@@ -160,7 +160,7 @@ def get_target_modules(model, sequential_targets):
     if isinstance(sequential_targets, str):
         sequential_targets = [sequential_targets]
 
-    return match_modules(model, sequential_targets)
+    return set(module for _, module in match_named_modules(model, sequential_targets))
 
 
 def run_subgraphs(model, subgraphs, inputs):
