@@ -6,7 +6,6 @@ import torch
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
-from compressed_tensors.utils.match import match_name
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
