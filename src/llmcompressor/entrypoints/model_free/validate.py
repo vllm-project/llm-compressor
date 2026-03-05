@@ -7,7 +7,7 @@ from compressed_tensors.quantization import (
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 
-from .helpers import invert_mapping
+from .helpers import find_safetensors_index_file, invert_mapping
 from .microscale import get_fused_names, is_microscale_scheme
 
 __all__ = ["validate_scheme", "validate_safetensors_index"]
@@ -53,7 +53,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
 
 
 def validate_safetensors_index(model_files: dict[str, str], scheme: QuantizationScheme):
-    index_file_path = _find_safetensors_index_file(model_files)
+    index_file_path = find_safetensors_index_file(model_files)
     if index_file_path is None:
         return
 
@@ -75,11 +75,3 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
                     "Please use `reindex_fused_weights.py` to reindex your safetensors "
                     "before running `model_free_ptq` again."
                 )
-
-
-def _find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors.index.json"):
-            return resolved_path
-
-    return None
