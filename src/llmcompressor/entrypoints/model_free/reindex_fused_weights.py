@@ -8,7 +8,6 @@ from pathlib import Path
 import torch
 import tqdm
 from compressed_tensors.entrypoints.convert import (
-    find_safetensors_index_path,
     get_checkpoint_files,
     is_weights_file,
 )
@@ -16,6 +15,7 @@ from loguru import logger
 from safetensors.torch import load_file, save_file
 
 from llmcompressor.entrypoints.model_free.helpers import (
+    find_safetensors_index_file,
     invert_mapping,
 )
 from llmcompressor.entrypoints.model_free.microscale import get_fused_names
@@ -56,7 +56,7 @@ def reindex_fused_weights(
 
     # read files
     model_files = get_checkpoint_files(model_stub)
-    index_file = find_safetensors_index_path(model_files)
+    index_file = find_safetensors_index_file(model_files)
     if index_file is None:
         raise ValueError(
             "This script is used to modify safetensor file shards, but was "
