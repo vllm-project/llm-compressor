@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Mapping, TypeVar
 
 import torch
-from compressed_tensors.utils.match import _match_name
+from compressed_tensors.utils.match import match_name
 from loguru import logger
 from transformers.file_utils import CONFIG_NAME
 
@@ -84,7 +84,7 @@ def match_names_set_eager(
     for name in names:
         # match until we get a full set
         for target in targets:
-            if _match_name(name, target):
+            if match_name(name, target):
                 if matches[target] is None:
                     matches[target] = name
                 else:
