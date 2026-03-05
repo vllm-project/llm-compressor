@@ -7,7 +7,8 @@ from loguru import logger
 from transformers import AutoProcessor, DefaultDataCollator
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 

@@ -4,10 +4,8 @@ Common functions for interfacing with python primitives and directories/files.
 """
 
 import contextlib
-import importlib.metadata
-import importlib.util
+import importlib
 import re
-from typing import Tuple, Union
 
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
@@ -18,7 +16,6 @@ from transformers import PreTrainedModel
 from llmcompressor.utils import get_embeddings
 
 __all__ = [
-    "is_package_available",
     "import_from_path",
     "disable_cache",
     "DisableQuantization",
@@ -28,41 +25,6 @@ __all__ = [
     "disable_lm_head",
     "DISABLE_QAC_MODIFIERS",
 ]
-
-
-def is_package_available(
-    package_name: str,
-    return_version: bool = False,
-) -> Union[Tuple[bool, str], bool]:
-    """
-    A helper function to check if a package is available
-    and optionally return its version. This function enforces
-    a check that the package is available and is not
-    just a directory/file with the same name as the package.
-
-    inspired from:
-    https://github.com/huggingface/transformers/blob/965cf677695dd363285831afca8cf479cf0c600c/src/transformers/utils/import_utils.py#L41
-
-    :param package_name: The package name to check for
-    :param return_version: True to return the version of
-        the package if available
-    :return: True if the package is available, False otherwise or a tuple of
-        (bool, version) if return_version is True
-    """
-
-    package_exists = importlib.util.find_spec(package_name) is not None
-    package_version = "N/A"
-    if package_exists:
-        try:
-            package_version = importlib.metadata.version(package_name)
-            package_exists = True
-        except importlib.metadata.PackageNotFoundError:
-            package_exists = False
-        logger.debug(f"Detected {package_name} version {package_version}")
-    if return_version:
-        return package_exists, package_version
-    else:
-        return package_exists
 
 
 def import_from_path(path: str) -> str:

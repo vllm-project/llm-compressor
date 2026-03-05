@@ -82,6 +82,16 @@ def migrate_examples():
     examples_path = project_root / "examples"
     files = []
 
+    # Add the main examples README.md
+    main_readme = examples_path / "README.md"
+    if main_readme.exists():
+        files.append(
+            ProcessFile(
+                root_path=main_readme.relative_to(project_root),
+                docs_path=Path("examples/README.md"),
+            )
+        )
+
     # Find all README.md files 2 levels down (examples/EXAMPLE_NAME/README.md)
     for example_dir in examples_path.iterdir():
         if (
@@ -95,6 +105,40 @@ def migrate_examples():
             ProcessFile(
                 root_path=readme_path.relative_to(project_root),
                 docs_path=Path(f"examples/{example_name}.md"),
+            )
+        )
+
+    process_files(files, project_root)
+
+
+def migrate_experimental():
+    project_root = find_project_root()
+    experimental_path = project_root / "experimental"
+    files = []
+
+    # Add the main experimental README.md
+    main_readme = experimental_path / "README.md"
+    if main_readme.exists():
+        files.append(
+            ProcessFile(
+                root_path=main_readme.relative_to(project_root),
+                docs_path=Path("experimental/README.md"),
+            )
+        )
+
+    # Find all README.md files 2 levels down (experimental/EXPERIMENTAL_NAME/README.md)
+    for experimental_dir in experimental_path.iterdir():
+        if (
+            not experimental_dir.is_dir()
+            or not (readme_path := experimental_dir / "README.md").exists()
+        ):
+            continue
+
+        experimental_name = experimental_dir.name
+        files.append(
+            ProcessFile(
+                root_path=readme_path.relative_to(project_root),
+                docs_path=Path(f"experimental/{experimental_name}.md"),
             )
         )
 
@@ -127,4 +171,5 @@ def migrate_readme_to_index():
 
 migrate_developer_docs()
 migrate_examples()
+migrate_experimental()
 migrate_readme_to_index()
