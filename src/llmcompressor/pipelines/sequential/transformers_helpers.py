@@ -1478,6 +1478,8 @@ class HFTracer(Tracer):
                     to_delete = collections.OrderedDict()
                     while to_visit:
                         n = to_visit.pop(0)
+                        if n in to_delete:
+                            to_delete.move_to_end(n)
                         to_delete[n] = None
                         to_visit += list(n.users.keys())
 
