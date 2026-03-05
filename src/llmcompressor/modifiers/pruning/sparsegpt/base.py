@@ -141,7 +141,7 @@ class SparseGPTModifier(SparsityModifierBase):
                     dampening_frac=self.dampening_frac,
                     preserve_sparsity_mask=self.preserve_sparsity_mask,
                 )
-                comp_logger.set_loss(loss)
+                comp_logger.set_results(name="SGPT", loss=loss)
 
             update_offload_parameter(module, "weight", sparsified_weight)
 
