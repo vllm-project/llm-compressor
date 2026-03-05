@@ -318,6 +318,7 @@ def _grid_search_mse(
     return best_min_val, best_max_val
 
 
+@torch.compile(dynamic=True)
 def _grid_search_mse_compiled(
     observed: torch.Tensor,
     args: QuantizationArgs,
