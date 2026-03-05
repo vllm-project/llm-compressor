@@ -5,7 +5,7 @@ from typing import Iterable
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme
-from compressed_tensors.utils.match import _match_name
+from compressed_tensors.utils.match import match_name
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
@@ -31,7 +31,7 @@ def iter_quantizable_tensors(
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
         is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
-        is_ignored = any(_match_name(module_name, ign) for ign in ignore)
+        is_ignored = any(match_name(module_name, ign) for ign in ignore)
         if not is_linear_weight or is_ignored:
             continue
 
