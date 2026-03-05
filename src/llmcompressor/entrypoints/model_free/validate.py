@@ -1,6 +1,6 @@
 import json
 
-from compressed_tensors.entrypoints.convert import find_safetensors_index_file
+from compressed_tensors.entrypoints.convert import find_safetensors_index_path
 from compressed_tensors.quantization import (
     QuantizationScheme,
     preset_name_to_scheme,
@@ -54,7 +54,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
 
 
 def validate_safetensors_index(model_files: dict[str, str], scheme: QuantizationScheme):
-    index_file_path = find_safetensors_index_file(model_files)
+    index_file_path = find_safetensors_index_path(model_files)
     if index_file_path is None:
         return
 
