@@ -19,7 +19,7 @@ from safetensors.torch import load_file
 
 from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import requires_gpu, requires_cadence
 
 
 def _get_tiny_w4a16_quant():
@@ -50,6 +50,7 @@ def _get_tiny_block_quant():
     )
 
 
+@requires_cadence("nightly")
 def test_convert_checkpoint(tmp_path):
     """
     Test that compressed-tensors convert_checkpoint entrypoint
