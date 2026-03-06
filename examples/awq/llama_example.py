@@ -4,6 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -49,9 +50,19 @@ def tokenize(sample):
 
 
 # Configure the quantization algorithm to run.
+# AWQModifier performs smoothing and must be followed by a QuantizationModifier
+# which applies the actual quantization.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+        ignore=["lm_head"],
+        scheme="W4A16_ASYM",
+        targets=["Linear"],
+        duo_scaling="both",
+    ),
+    QuantizationModifier(
+        targets="Linear",
+        scheme="W4A16_ASYM",
+        ignore=["lm_head"],
     ),
 ]
 
