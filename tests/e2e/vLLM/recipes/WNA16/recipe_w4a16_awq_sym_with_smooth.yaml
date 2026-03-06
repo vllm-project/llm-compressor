@@ -1,0 +1,14 @@
+quant_stage:
+  quant_modifiers:
+    AWQModifier:
+      ignore: ["lm_head"]
+      smooth_layer_quantization: true
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 4
+            type: "int"
+            symmetric: true
+            strategy: "group"
+            group_size: 128
+          targets: ["Linear"]
