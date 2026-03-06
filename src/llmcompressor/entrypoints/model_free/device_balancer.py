@@ -1,7 +1,8 @@
 import functools
 import inspect
-from threading import Lock
+import multiprocessing.context
 from typing import List, Optional, Union
+import multiprocessing
 
 import torch
 from loguru import logger
@@ -21,7 +22,8 @@ class DeviceLoadBalancer:
         self,
         device: Optional[
             Union[torch.device, str, List[Union[torch.device, str]]]
-        ] = None,
+        ],
+        mp_context: multiprocessing.context.BaseContext,
     ):
         """
         Initialize the load balancer with device(s).
@@ -39,9 +41,10 @@ class DeviceLoadBalancer:
             # Single device: create list with single device
             device_list = [gpu_if_available(device)]
 
+        manager = mp_context.Manager()
         self.devices: list[str | int] = device_list
-        self.device_usage = {device: 0 for device in self.devices}
-        self.lock = Lock()
+        self.device_usage = manager.dict({device: 0 for device in self.devices})
+        self.lock = manager.Lock()
 
     def get_device(self) -> torch.device:
         """
