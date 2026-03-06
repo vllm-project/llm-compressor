@@ -105,7 +105,7 @@ def moe_calibration_context(
         world_size = dist.get_world_size()
 
         # Verify all ranks have same number of modules
-        num_modules = torch.tensor([len(modules_to_replace)], dtype=torch.long)
+        num_modules = torch.tensor([len(modules_to_replace)], dtype=torch.long, device=next(model.parameters()).device)
         all_counts = [torch.zeros_like(num_modules) for _ in range(world_size)]
         dist.all_gather(all_counts, num_modules)
 
