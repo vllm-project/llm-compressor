@@ -1,42 +1,38 @@
-#############################################################################
-# This script is adapted to use DDP functionality with AutoRound.
-# run this with `torchrun --nproc_per_node=2 ddp_qwen3_example.py`
-# or change nproc_per_node to your desired configuration
-#
-# Example usage:
-# torchrun --nproc_per_node=2 ddp_qwen3_example.py \
-#     --model Qwen/Qwen3-8B \
-#     --nsamples 128 \
-#     --iters 200 \
-#     --disable_torch_compile \
-#     --deterministic
-#############################################################################
+"""
+This script is adapted to use DDP functionality with AutoRound.
+run this with `torchrun --nproc_per_node=2 ddp_qwen3_example.py`
+or change nproc_per_node to your desired configuration
 
+Example usage:
+torchrun --nproc_per_node=2 ddp_qwen3_example.py \
+    --model Qwen/Qwen3-8B \
+    --nsamples 128 \
+    --iters 100 \
+    --disable_torch_compile \
+    --deterministic
+"""
 import argparse
 import os
-import time
 
 import torch
 import torch.distributed as dist
 from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
-from datasets import load_dataset
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch.distributed as dist
+
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 
 def fix_everything(seed=42):
     import random
+
     import numpy as np
 
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    
+
 
 def config_deterministic():
     torch.use_deterministic_algorithms(True, warn_only=False)
@@ -87,13 +83,21 @@ with load_offloaded_model():
     )
 ##################################
 
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = args.nsamples
 MAX_SEQUENCE_LENGTH = 2048
 ITERS = args.iters
+
+
 # Get aligned calibration dataset.
+from auto_round.calib_dataset import get_dataset  # noqa: E402
+
+# Note: Make sure model are loaded before importing auto-round related code.
+# This requirement will be lifted once switching to new release of auto-round which
+# includes below fix:
+from llmcompressor.modifiers.autoround import AutoRoundModifier  # noqa: E402
 
 ds = get_dataset(
     tokenizer=tokenizer,
