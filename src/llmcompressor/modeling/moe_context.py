@@ -15,10 +15,10 @@ import contextlib
 from abc import ABC
 
 import torch
-import torch.distributed as dist
-from compressed_tensors.offload import is_distributed
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
+from torch import distributed as dist
 from tqdm import tqdm
 from transformers import PreTrainedModel
 
@@ -99,11 +99,33 @@ def moe_calibration_context(
         if _is_registered(class_name, MoECalibrationModule):
             modules_to_replace.append((name, module, class_name))
 
+    # Step 1.5: Verify all ranks have same number of modules (distributed mode)
+    if is_distributed():
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+
+        # Verify all ranks have same number of modules
+        num_modules = torch.tensor([len(modules_to_replace)], dtype=torch.long)
+        all_counts = [torch.zeros_like(num_modules) for _ in range(world_size)]
+        dist.all_gather(all_counts, num_modules)
+
+        if not all(count.item() == num_modules.item() for count in all_counts):
+            raise RuntimeError(
+                f"Rank {rank} found {num_modules.item()} MoE modules, but other "
+                f"ranks found different counts: {[c.item() for c in all_counts]}. "
+                "All ranks must have identical model structures."
+            )
+
     # Step 2: Replace modules with progress bar
     if modules_to_replace:
-        logger.info(f"Found {len(modules_to_replace)} MoE modules to replace")
+        # Only rank 0 shows progress bar and logs
+        show_progress = not is_distributed() or dist.get_rank() == 0
+        if show_progress:
+            logger.info(f"Found {len(modules_to_replace)} MoE modules to replace")
         for name, module, class_name in tqdm(
-            modules_to_replace, desc="Replacing MoE modules for calibration"
+            modules_to_replace,
+            desc="Replacing MoE modules for calibration",
+            disable=not show_progress,
         ):
             replacement = MoECalibrationModule.load_from_registry(
                 class_name,
@@ -113,34 +135,44 @@ def moe_calibration_context(
             )
             model.set_submodule(name, replacement)
             replaced[name] = (module, replacement)
-            if is_distributed():
-                dist.barrier()
 
-    # Log what was replaced
+    # Synchronization barrier: all ranks complete replacement before calib
+    if is_distributed():
+        dist.barrier()
+        logger.debug(f"Rank {dist.get_rank()}: Completed MoE module replacement")
+
+    # Log what was replaced (only rank 0 in distributed mode)
     if replaced:
-        logger.info(f"Replaced {len(replaced)} MoE modules for calibration")
-        permanent_count = sum(
-            1 for _, (_, repl) in replaced.items() if repl.is_permanent
-        )
-        if permanent_count > 0:
-            logger.info(
-                f"{permanent_count}/{len(replaced)} modules will remain in "
-                "calibration form (permanent)"
+        show_logs = not is_distributed() or dist.get_rank() == 0
+        if show_logs:
+            logger.info(f"Replaced {len(replaced)} MoE modules for calibration")
+            permanent_count = sum(
+                1 for _, (_, repl) in replaced.items() if repl.is_permanent
             )
-        if permanent_count < len(replaced):
-            logger.info(
-                f"{len(replaced) - permanent_count}/{len(replaced)} modules will "
-                "be restored after calibration"
-            )
+            if permanent_count > 0:
+                logger.info(
+                    f"{permanent_count}/{len(replaced)} modules will remain in "
+                    "calibration form (permanent)"
+                )
+            if permanent_count < len(replaced):
+                logger.info(
+                    f"{len(replaced) - permanent_count}/{len(replaced)} modules will "
+                    "be restored after calibration"
+                )
 
     try:
         yield
     finally:
-        # Step 2: Restore non-permanent modules
+        # Step 3: Restore non-permanent modules
         for name, (original, replacement) in replaced.items():
             if not replacement.is_permanent:
                 restored = replacement.restore(original)
                 model.set_submodule(name, restored)
+
+        # Synchronization barrier: ensure all ranks complete restoration
+        if is_distributed():
+            dist.barrier()
+            logger.debug(f"Rank {dist.get_rank()}: Completed MoE module restoration")
 
 
 def _is_registered(name: str, subclass: RegistryMixin):
