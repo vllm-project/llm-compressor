@@ -138,6 +138,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
         to torch.device("cpu") if you are encountering OOM errors
+    :param prefetch: when offloading, prefetch the next batch in a background thread
+        to overlap CPU-to-device onload with the forward pass, reducing wall-clock
+        time. Default False; set True when offload_device is set and GPU memory
+        allows two batches on device simultaneously
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor. Defaults to True
         If True, both activations and weights are used.
@@ -157,6 +161,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
+    prefetch: bool = False
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
 
@@ -607,9 +612,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
-        outputs = [
-            module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
-        ]
+        cache = self._parent_args_cache[module]
+        # Prefetch overlaps CPU->device onload with forward pass when offloading.
+        batch_iter = cache.iter_prefetch() if self.prefetch else cache
+        outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
         return [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
