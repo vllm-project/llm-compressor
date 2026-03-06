@@ -86,8 +86,8 @@ setup(
         "local_scheme": localversion_func,
         "version_file": "src/llmcompressor/version.py",
     },
-    author="Neuralmagic, Inc.",
-    author_email="support@neuralmagic.com",
+    author="The vLLM Project",
+    author_email="vllm-questions@lists.berkeley.edu",
     description=(
         "A library for compressing large language models utilizing the "
         "latest techniques and research in the field for both "
@@ -102,7 +102,7 @@ setup(
         "huggingface, compressors, compression, quantization, pruning, "
         "sparsity, optimization, model optimization, model compression, "
     ),
-    license="Apache",
+    license="Apache 2.0",
     url="https://github.com/vllm-project/llm-compressor",
     include_package_data=True,
     package_dir={"": "src"},
