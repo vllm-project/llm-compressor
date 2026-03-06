@@ -1,7 +1,7 @@
 import os
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme
@@ -9,6 +9,7 @@ from compressed_tensors.utils.match import match_name
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
+from llmcompressor.entrypoints.model_free.device_balancer import DeviceLoadBalancer
 from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_global_scale,
     calibrate_scale_zp,
@@ -20,6 +21,9 @@ from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
 )
+
+if TYPE_CHECKING:
+    pass
 
 __all__ = ["validate_file", "process_file", "process_file_microscale_scheme"]
 
@@ -43,7 +47,7 @@ def validate_file(
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
-    device: str | torch.device,
+    load_balancer: DeviceLoadBalancer,
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -52,6 +56,7 @@ def validate_file(
     :param scheme: quantization scheme to apply to tensors
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
+    :param load_balancer: device load balancer (unused, kept signature consistency)
     """
     tensors = load_file(file_path)
 
@@ -59,6 +64,7 @@ def validate_file(
         validate_weight_for_quantization(tensors[name], scheme, name)
 
 
+@DeviceLoadBalancer.inject_device
 def process_file(
     file_path: str | os.PathLike,
     save_path: str | os.PathLike,
@@ -103,6 +109,7 @@ def process_file(
     return total_size, weight_map
 
 
+@DeviceLoadBalancer.inject_device
 def process_file_microscale_scheme(
     file_path: str | os.PathLike,
     save_path: str | os.PathLike,
