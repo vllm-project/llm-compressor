@@ -45,7 +45,7 @@ def test_moe_context_ddp(ddp_environment, model_stub):
         assert replaced_count > 0, f"Rank {rank}: No modules replaced"
 
         # Verify consistency across ranks
-        count_tensor = torch.tensor([replaced_count], dtype=torch.long)
+        count_tensor = torch.tensor([replaced_count], dtype=torch.long, device=next(model.parameters()).device)
         all_counts = [torch.zeros_like(count_tensor) for _ in range(world_size)]
         dist.all_gather(all_counts, count_tensor)
         assert all(
