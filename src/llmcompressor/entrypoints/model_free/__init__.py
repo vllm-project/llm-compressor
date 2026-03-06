@@ -1,15 +1,15 @@
+import multiprocessing
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, Optional
 
-import torch
 import tqdm
 from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 
-from llmcompressor.entrypoints.model_free.helpers import gpu_if_available
+from llmcompressor.entrypoints.model_free.device_balancer import DeviceLoadBalancer
 from llmcompressor.entrypoints.model_free.microscale import (
     is_microscale_scheme,
 )
@@ -31,7 +31,7 @@ from llmcompressor.entrypoints.model_free.validate import (
     validate_scheme,
 )
 
-__all__ = ["model_free_ptq"]
+__all__ = ["model_free_ptq", "DeviceLoadBalancer"]
 
 
 def model_free_ptq(
@@ -39,8 +39,8 @@ def model_free_ptq(
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
     ignore: Iterable[str] = tuple(),
-    max_workers: int = 1,
-    device: Optional[torch.device | str] = None,
+    max_workers: Optional[int] = None,
+    device: Optional[str | int | list[str | int]] = None,
 ):
     """
     Quantize a model without the need for a model definition. This function operates on
@@ -51,12 +51,12 @@ def model_free_ptq(
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
     :param max_workers: number of worker threads to process files with
-    :param device: gpu device to accelerate quantization with
+    :param device: gpu device to accelerate quantization with. Can be a single device
+        or a list of devices for multi-GPU support
     """
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
     scheme_name, scheme = validate_scheme(scheme)
-    device = gpu_if_available(device)
     validate_safetensors_index(model_files, scheme)
 
     # 0. collect safetensors files, copy files
@@ -70,7 +70,9 @@ def model_free_ptq(
         save_path = Path(save_directory) / file_path
 
         if file_path.endswith("safetensors"):
-            jobs.append((job_fn, resolved_path, save_path, scheme, ignore, device))
+            jobs.append(
+                (job_fn, resolved_path, save_path, scheme, ignore)
+            )
 
         else:
             if is_weights_file(file_path):
@@ -79,9 +81,11 @@ def model_free_ptq(
             logger.info(f"Copying {file_path} {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
-    with ThreadPoolExecutor(max_workers) as executor:
+    mp_context = multiprocessing.get_context("spawn")
+    balancer = DeviceLoadBalancer(device, mp_context)
+    with ProcessPoolExecutor(max_workers, mp_context) as executor:
         # 1. validate quantizable tensors fail fast before long-running quantization
-        futures = [executor.submit(validate_file, *job[1:]) for job in jobs]
+        futures = [executor.submit(validate_file, *job[1:], balancer) for job in jobs]
         for future in tqdm.tqdm(
             as_completed(futures), total=len(futures), desc="Validating"
         ):
@@ -90,7 +94,7 @@ def model_free_ptq(
         # 2-5. quantize and compress weights
         total_size = 0
         weight_map = dict()
-        futures = [executor.submit(*job) for job in jobs]
+        futures = [executor.submit(*job, balancer) for job in jobs]
         for future in tqdm.tqdm(
             as_completed(futures), total=len(futures), desc="Quantizing"
         ):
