@@ -2,9 +2,8 @@ import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import Iterable, Optional
 
-import torch
 import tqdm
 from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
@@ -40,7 +39,7 @@ def model_free_ptq(
     scheme: QuantizationScheme | str,
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
-    device: Optional[Union[torch.device, str, List[Union[torch.device, str]]]] = None,
+    device: Optional[str | int | list[str | int]] = None,
 ):
     """
     Quantize a model without the need for a model definition. This function operates on

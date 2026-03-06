@@ -39,7 +39,7 @@ class DeviceLoadBalancer:
             # Single device: create list with single device
             device_list = [gpu_if_available(device)]
 
-        self.devices = device_list
+        self.devices: list[str | int] = device_list
         self.device_usage = {device: 0 for device in self.devices}
         self.lock = Lock()
 
