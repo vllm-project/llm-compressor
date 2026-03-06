@@ -58,7 +58,7 @@ def validate_file(
         ignored
     :param load_balancer: device load balancer (unused, kept signature consistency)
     """
-    tensors = load_file(file_path)
+    tensors = load_file(file_path, device="meta")
 
     for _, name in iter_quantizable_tensors(tensors, ignore):
         validate_weight_for_quantization(tensors[name], scheme, name)
