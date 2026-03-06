@@ -73,8 +73,9 @@ def reindex_fused_weights(
             if is_weights_file(file_path):
                 logger.warning(f"Skip processing for weights file {file_path}")
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Copying {file_path} {save_path}")
-            shutil.copyfile(resolved_path, save_path)
+            if str(save_path) != str(resolved_path):
+                logger.debug(f"Copying {file_path} {save_path}")
+                shutil.copyfile(resolved_path, save_path)
 
     # read index file
     with open(index_file, "r") as file:

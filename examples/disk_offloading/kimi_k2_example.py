@@ -4,9 +4,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
+model_id = "/mnt/nvme_stripe/playground/brian-dellabetta/DeepSeek-V3.2-bf16"
+SAVE_DIR = "DeepSeek-V3.2-NVFP4"
+
 # Select model and load it in the `load_offloaded_model` context
 with load_offloaded_model():
-    model_id = "unsloth/Kimi-K2-Instruct-0905-BF16"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         dtype="auto",
@@ -45,6 +47,5 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
