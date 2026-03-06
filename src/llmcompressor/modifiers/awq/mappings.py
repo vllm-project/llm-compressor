@@ -234,7 +234,7 @@ _afmoe_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_mlp_layernorm$",
-        ["re.*mlp.router$", "re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
+        ["re:.*mlp.router$", "re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
     ),
     AWQMapping(
         "re:.*up_proj$",
