@@ -310,7 +310,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._q_input = q_input
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
-            check_device(decoding_layer, "decoding_layer device after AutoRound")
 
         decoding_layer.eval()
         # Update offload parameters and remove temporary attributes
