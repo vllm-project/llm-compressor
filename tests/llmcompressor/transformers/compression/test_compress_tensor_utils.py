@@ -5,10 +5,8 @@ import pytest
 import torch
 from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import (
-    QUANTIZATION_CONFIG_NAME,
-    infer_set_module_formats,
-)
+from compressed_tensors import QUANTIZATION_CONFIG_NAME
+from compressed_tensors.compressors.format import infer_model_format
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
@@ -276,4 +274,4 @@ def test_correct_compressor_inferred(
     model.linear.quantization_scheme = quantization_config.config_groups["group_0"]
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
-    assert infer_set_module_formats(model)[0] == expected_format
+    assert infer_model_format(model) == expected_format
