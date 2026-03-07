@@ -35,31 +35,65 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
 
     def to_3d_expert(self) -> None:
         """Convert weights and quantization parameters from 2D to 3D shape."""
-        dim0_mul = self.num_experts * self.output_size
-        assert (
-            self.weight.shape == torch.Size((dim0_mul, self.input_size))
-            and hasattr(self, "weight_scale")
-            and self.weight_scale.shape == torch.Size((dim0_mul, 1))
-        ), "Shape mismatch, please check."
+        # Calculate all shapes up front
+        packed_input_size = self.weight.shape[1]
+        pack_factor = self.input_size // packed_input_size
 
+        assert hasattr(self, "weight_scale"), "weight_scale not found"
+        grouped_output = self.weight_scale.shape[0] // self.num_experts
+        grouped_input = self.weight_scale.shape[1]
+
+        expected_packed_weight_shape = torch.Size(
+            (self.num_experts * self.output_size, packed_input_size)
+        )
+        final_packed_weight_shape = torch.Size(
+            (self.num_experts, self.output_size, packed_input_size)
+        )
+
+        expected_packed_weight_scale_shape = torch.Size(
+            (self.num_experts * grouped_output, grouped_input)
+        )
+        final_packed_weight_scale_shape = torch.Size(
+            (self.num_experts, grouped_output, grouped_input)
+        )
+
+        # Assert shapes match expectations
+        assert self.weight.shape == expected_packed_weight_shape, (
+            f"weight shape {self.weight.shape} != "
+            f"expected {expected_packed_weight_shape}"
+        )
+
+        assert self.weight_scale.shape == expected_packed_weight_scale_shape, (
+            f"weight_scale shape {self.weight_scale.shape} != "
+            f"expected {expected_packed_weight_scale_shape}"
+        )
+
+        # Reshape to 3D
         self.weight = torch.nn.Parameter(
-            self.weight.view(
-                self.num_experts, self.output_size, self.input_size
-            ).clone(),
+            self.weight.view(final_packed_weight_shape).clone(),
             requires_grad=False,
         )
         self.weight_scale = torch.nn.Parameter(
-            self.weight_scale.view(self.num_experts, self.output_size, 1).clone(),
+            self.weight_scale.view(final_packed_weight_scale_shape).clone(),
             requires_grad=False,
         )
+
         if hasattr(self, "weight_zero_point"):
-            assert self.weight_zero_point.shape == torch.Size((dim0_mul, 1))
+            expected_packed_zp_shape = torch.Size(
+                (self.num_experts * grouped_output // pack_factor, grouped_input)
+            )
+            final_packed_zp_shape = torch.Size(
+                (self.num_experts, grouped_output // pack_factor, grouped_input)
+            )
+            assert self.weight_zero_point.shape == expected_packed_zp_shape, (
+                f"weight_zero_point shape {self.weight_zero_point.shape} != "
+                f"expected {expected_packed_zp_shape}"
+            )
             self.weight_zero_point = torch.nn.Parameter(
-                self.weight_zero_point.view(
-                    self.num_experts, self.output_size, 1
-                ).clone(),
+                self.weight_zero_point.view(final_packed_zp_shape).clone(),
                 requires_grad=False,
             )
+
         self.is_2d = False
 
     def forward(self, inputs, expert_size):

@@ -61,8 +61,24 @@ WHISPER_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 
 DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
-        balance_layers=["re:.*q_proj", "re:.*kv_a_proj_with_mqa"],
+        balance_layers=["re:.*q(_a)?_proj$", "re:.*kv_a_proj_with_mqa"],
         smooth_layers="re:.*input_layernorm",
+    ),
+]
+
+AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+    LayerMap(
+        balance_layers=[
+            "re:.*self_attn\\.q_proj",
+            "re:.*self_attn\\.k_proj",
+            "re:.*self_attn\\.v_proj",
+            "re:.*self_attn\\.gate_proj",
+        ],
+        smooth_layers="re:.*input_layernorm",
+    ),
+    LayerMap(
+        balance_layers=["re:.*mlp.*gate_proj", "re:.*mlp.*up_proj"],
+        smooth_layers="re:.*pre_mlp_layernorm",
     ),
 ]
 
@@ -76,6 +92,8 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Glm4MoeForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "GlmMoeDsaForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
@@ -85,6 +103,7 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
+    "AfmoeForCausalLM": AFMOE_SMOOTHQUANT_MAPPINGS,
 }
 
 
