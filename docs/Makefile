@@ -1,14 +1,14 @@
-# Minimal mkdocs makefile
+# Minimal zensical makefile
 
-PYTHON      := python3
-MKDOCS_CMD  := mkdocs
-MKDOCS_CONF := ../mkdocs.yml
+ZENSICAL_CMD := zensical
+ZENSICAL_CONF := ../zensical.toml
 
-.PHONY: help install serve build clean
+.PHONY: help install gen serve build clean
 
 help:
 	@echo "Available targets:"
 	@echo "  install  Install dependencies globally"
+	@echo "  gen      Generate docs content (files + API + nav)"
 	@echo "  serve    Serve docs locally"
 	@echo "  build    Build static site"
 	@echo "  clean    Remove build artifacts"
@@ -16,11 +16,17 @@ help:
 install:
 	pip install -e "../[dev]"
 
-serve:
-	$(MKDOCS_CMD) serve --livereload -f $(MKDOCS_CONF)
+gen:
+	cd .. && python docs/scripts/zensical_gen_files.py
 
-build:
-	$(MKDOCS_CMD) build -f $(MKDOCS_CONF)
+serve: gen
+	cd .. && $(ZENSICAL_CMD) serve
+
+build: gen
+	cd .. && $(ZENSICAL_CMD) build
 
 clean:
-	rm -rf site/ .cache/ 
+	rm -rf site/ .cache/ api/llmcompressor/
+	rm -rf examples/ experimental/
+	rm -f developer/code-of-conduct.md developer/contributing.md
+	cd .. && python3 docs/scripts/zensical_gen_files.py --clean

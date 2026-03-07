@@ -171,17 +171,11 @@ setup(
             "ruff~=0.4.8",
             # pre commit hooks
             "pre-commit",
-            # docs
-            "mkdocs",
-            "mkdocs-material[imaging]",
+            # docs - zensical
+            "mkdocstrings-python",
+            "zensical",
             "markdown",
             "pymdown-extensions",
-            "mkdocs-section-index",
-            "mkdocs-minify-plugin",
-            "mkdocs-api-autonav",
-            "mkdocstrings-python",
-            "mkdocs-gen-files",
-            "mkdocs-awesome-nav",
         ],
         "qwen": [
             "qwen_vl_utils",
