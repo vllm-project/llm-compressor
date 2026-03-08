@@ -5,6 +5,7 @@ from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
 )
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -18,7 +19,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
-from compressed_tensors.utils import match_named_modules
+from compressed_tensors.utils import match_named_modules, update_offload_parameter
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -37,7 +38,11 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils import (
+    targets_embeddings,
+    untie_word_embeddings,
+    wait_for_comms,
+)
 
 __all__ = ["QuantizationMixin"]
 
@@ -256,6 +261,48 @@ class QuantizationMixin(HooksMixin):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
+
+    def sync_activation_observers(self, model: torch.nn.Module):
+        """
+        All-reduce activation observer min/max values across DDP ranks,
+        then recompute scale/zp from the global statistics. No-op when
+        not distributed.
+
+        :param model: model containing quantized modules
+        """
+        if not is_distributed():
+            return
+
+        pending_comms = []
+        modules_to_update = []
+
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            for base_name in ("input", "output", "q", "k", "v"):
+                observer = getattr(module, f"{base_name}_observer", None)
+                if observer is None:
+                    continue
+                pending_comms.extend(observer.synchronize())
+                modules_to_update.append((module, base_name, observer))
+
+        wait_for_comms(pending_comms)
+
+        # recompute qparams from synchronized statistics
+        for module, base_name, observer in modules_to_update:
+            # recompute global scale if using TENSOR_GROUP strategy
+            global_scale = observer.recompute_global_scale()
+            if global_scale is not None:
+                update_offload_parameter(
+                    module, f"{base_name}_global_scale", global_scale
+                )
+
+            result = observer.recompute_qparams()
+            if result is not None:
+                scale, zero_point = result
+                update_offload_parameter(module, f"{base_name}_scale", scale)
+                if hasattr(module, f"{base_name}_zero_point"):
+                    update_offload_parameter(
+                        module, f"{base_name}_zero_point", zero_point
+                    )
 
     def has_config(self) -> bool:
         """
