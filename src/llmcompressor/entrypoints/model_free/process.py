@@ -4,6 +4,7 @@ from collections.abc import Iterator, Mapping
 from typing import Iterable
 
 import torch
+from compressed_tensors.compressors import compress_module
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils.match import match_name
 from safetensors.torch import load_file, save_file
@@ -12,7 +13,6 @@ from torch.nn import Module
 from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_global_scale,
     calibrate_scale_zp,
-    compress_module,
     initialize_quantized_linear,
     validate_weight_for_quantization,
 )
