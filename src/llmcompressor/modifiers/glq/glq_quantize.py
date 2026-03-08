@@ -39,6 +39,12 @@ def glq_quantize_weight(
     W = W.to(dtype=GLQ_PRECISION)
     H = H.to(dtype=GLQ_PRECISION, device=device)
 
+    # Dampen Hessian diagonal for numerical stability
+    if dampening_frac > 0.0:
+        damp = dampening_frac * torch.mean(torch.diag(H))
+        diag = torch.arange(H.shape[-1], device=H.device)
+        H[diag, diag] += damp
+
     # Apply RHT incoherence transform
     rht = RHT(m, n, device=device)
     W_pad = rht.transform_weights(W)
