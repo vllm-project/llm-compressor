@@ -183,6 +183,9 @@ setup(
             "mkdocs-gen-files",
             "mkdocs-awesome-nav",
         ],
+        "glq": [
+            "glq",
+        ],
         "qwen": [
             "qwen_vl_utils",
         ],
