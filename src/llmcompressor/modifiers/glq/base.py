@@ -201,7 +201,7 @@ class GLQModifier(Modifier):
                     dampening_frac=self.dampening_frac,
                     tune_iters=self.tune_iters,
                 )
-                comp_logger.set_loss(proxy_loss)
+                comp_logger.set_results(loss=proxy_loss)
 
             update_offload_parameter(module, "weight", W_hat)
 
