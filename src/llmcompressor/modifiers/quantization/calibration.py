@@ -17,6 +17,7 @@ from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.observers import Observer
+from llmcompressor.observers.base import calibrate_module_from_observer
 
 __all__ = [
     "initialize_observer",
@@ -30,6 +31,7 @@ __all__ = [
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
+    "flush_activation_qparams",
 ]
 
 
@@ -156,7 +158,9 @@ def update_weight_zp_scale(module: Module):
     call_observer(module=module, base_name="weight")
 
 
-def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
+def calibrate_activations(
+    module: Module, value: torch.Tensor, base_name: str, stats_only: bool = False
+):
     """
     Calibrate input or output activations by calling the a module's attached
     observer.
@@ -164,7 +168,10 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer
-
+    :param stats_only: if True, only update running statistics in the observer
+        (accumulate min/max) without computing or writing scale/zero_point.
+        Used during deferred qparam calibration — qparams are computed once
+        at epoch end via flush_activation_qparams instead of per batch.
     """
     # If empty tensor, can't update zp/scale
     # Case for MoEs
@@ -184,6 +191,12 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
         if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
             calculate_gparam = True
 
+    # In deferred (stats_only) mode, only accumulate running min/max in the
+    # observer — skip writing scale/zero_point until epoch end.
+    if stats_only:
+        calculate_qparams = False
+        calculate_gparam = False
+
     call_observer(
         module=module,
         base_name=base_name,
@@ -196,43 +209,40 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
 def calibrate_input_hook(module: Module, args: Any):
     """
     Hook to calibrate input activations.
-    Will call the observers to update the scales/zp before applying
-    input QDQ in the module's forward pass.
+    Accumulates running min/max statistics in the observer without computing
+    scale/zero_point. Qparams are computed once at epoch end via
+    flush_activation_qparams (deferred mode).
     """
     args = args[0] if isinstance(args, tuple) else args
-    calibrate_activations(module, value=args, base_name="input")
+    calibrate_activations(module, value=args, base_name="input", stats_only=True)
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
     Hook to calibrate output activations.
-    Will call the observers to update the scales/zp before applying
-    output QDQ.
+    Accumulates running min/max statistics only (deferred qparam mode).
+    Qparams are computed at epoch end; forward_quantize is skipped during
+    calibration batches since quantization is disabled in the sequential pipeline.
     """
     calibrate_activations(
         module,
         value=output,
         base_name="output",
-    )
-    output = forward_quantize(
-        module=module,
-        value=output,
-        base_name="output",
-        args=module.quantization_scheme.output_activations,
+        stats_only=True,
     )
     return output
 
 
 def calibrate_query_hook(module: Module, query_states: torch.Tensor):
-    calibrate_activations(module, query_states, base_name="q")
+    calibrate_activations(module, query_states, base_name="q", stats_only=True)
 
 
 def calibrate_key_hook(module: Module, key_states: torch.Tensor):
-    calibrate_activations(module, key_states, base_name="k")
+    calibrate_activations(module, key_states, base_name="k", stats_only=True)
 
 
 def calibrate_value_hook(module: Module, value_states: torch.Tensor):
-    calibrate_activations(module, value_states, base_name="v")
+    calibrate_activations(module, value_states, base_name="v", stats_only=True)
 
 
 def apply_calibration_status(module: Module):
@@ -273,3 +283,29 @@ def reset_quantization_status(model: Module):
     for module in model.modules():
         if hasattr(module, "quantization_status"):
             delattr(module, "quantization_status")
+
+
+def flush_activation_qparams(module: Module):
+    """
+    Compute and write final activation qparams from each observer's accumulated
+    running statistics, then free those statistics to reduce memory.
+
+    This is called once at SEQUENTIAL_EPOCH_END for each subgraph, replacing the
+    per-batch qparam updates that were previously triggered by calibration hooks.
+    It is a no-op for modules with no quantization scheme or no activation observers.
+
+    Note: weight observers are not touched here — weight qparams are always computed
+    up-front in ``on_start`` via ``update_weight_zp_scale``.
+
+    apply to targeted modules with:
+        for _, module in match_named_modules(...):
+            flush_activation_qparams(module)
+
+    :param module: module to flush activation qparams for
+    """
+    scheme = getattr(module, "quantization_scheme", None)
+    if scheme is None:
+        return
+
+    for base_name in ("input", "output", "q", "k", "v"):
+        calibrate_module_from_observer(module, base_name)

@@ -4,6 +4,7 @@ from compressed_tensors.utils import match_named_modules
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
+    flush_activation_qparams,
     update_weight_global_scale,
     update_weight_zp_scale,
 )
@@ -65,7 +66,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
-        Begin calibrating activations and weights. Calibrate weights only once on start
+        Begin calibrating activations and weights. Calibrate weights only once on start.
+        Quantization is kept DISABLED during calibration batches so that forward passes
+        run in fp32. Activation qparams are computed once per subgraph at
+        SEQUENTIAL_EPOCH_END via flush_activation_qparams (deferred mode).
         """
         self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
@@ -90,10 +94,25 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
+        # Disable quantization during calibration batches so that fp32 activations
+        # flow through the model unmodified while hooks accumulate running stats.
+        # Re-enable once after epoch end when qparams have been flushed.
+        from compressed_tensors.quantization import disable_quantization
+
+        state.model.apply(disable_quantization)
+
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
                 self.on_start(state, None)
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            # Deferred qparam flush: compute scale/zero_point from accumulated
+            # running statistics, then free those stats to reduce memory.
+            for _, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            ):
+                flush_activation_qparams(module)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:

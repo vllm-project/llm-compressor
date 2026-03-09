@@ -11,7 +11,7 @@ from compressed_tensors.utils import align_module_device
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple"]
+__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple", "calibrate_module_from_observer"]
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
@@ -73,6 +73,39 @@ class Observer(InternalModule, RegistryMixin):
         :return: minimum value and maximum value whose shapes are (1, )
         """
         raise NotImplementedError()
+
+    def get_accumulated_min_max(self) -> Optional[MinMaxTuple]:
+        """
+        Return the accumulated running min/max statistics stored by this observer,
+        without performing any new observation. Returns None if no statistics have
+        been accumulated yet (i.e. no batches have been seen).
+
+        Subclasses which accumulate state (StaticMinMax, MovingAverage) naturally
+        expose this through their ``past_min_vals`` / ``past_max_vals`` attributes.
+        Memoryless observers have no running state, so this always returns None.
+
+        :return: (min_vals, max_vals) tensors or None
+        """
+        min_vals = getattr(self, "past_min_vals", None)
+        max_vals = getattr(self, "past_max_vals", None)
+        if min_vals is None or max_vals is None:
+            return None
+        return min_vals, max_vals
+
+    def clear_accumulated_stats(self):
+        """
+        Delete accumulated running statistics to free memory after qparams have been
+        computed and written to the parent module. Only clears attributes that exist
+        on the observer (memoryless observers are unaffected).
+        """
+        for attr in (
+            "past_min_vals",
+            "past_max_vals",
+            "past_global_min_vals",
+            "past_global_max_vals",
+        ):
+            if hasattr(self, attr):
+                delattr(self, attr)
 
     @torch.no_grad
     def forward(self, observed: torch.Tensor) -> ScaleZpTuple:
@@ -142,3 +175,50 @@ class Observer(InternalModule, RegistryMixin):
                 "Cannot compute scale and zero points "
                 "without first computing global scale"
             )
+
+
+@torch.no_grad()
+def calibrate_module_from_observer(
+    module: torch.nn.Module,
+    base_name: str,
+) -> bool:
+    """
+    Flush an observer's accumulated running statistics into the parent module's
+    quantization parameters (scale / zero_point), then free the running stats.
+
+    This is the deferred counterpart to ``call_observer``. Instead of accepting a
+    fresh activation tensor, it reads the min/max values that the observer has
+    already accumulated across all calibration batches and computes qparams from
+    those final statistics.
+
+    :param module: module whose ``{base_name}_observer`` attribute holds the observer
+    :param base_name: one of "input", "output", "q", "k", "v"
+    :return: True if qparams were updated, False if observer had no accumulated stats
+    """
+    from compressed_tensors.utils import align_module_device, update_offload_parameter
+
+    observer: Optional[Observer] = getattr(module, f"{base_name}_observer", None)
+    if observer is None:
+        return False
+
+    accumulated = observer.get_accumulated_min_max()
+    if accumulated is None:
+        return False
+
+    min_vals, max_vals = accumulated
+    global_scale = getattr(module, f"{base_name}_global_scale", None)
+
+    with align_module_device(module):
+        scales, zero_points = calculate_qparams(
+            min_vals=min_vals,
+            max_vals=max_vals,
+            quantization_args=observer.args,
+            global_scale=global_scale,
+        )
+        update_offload_parameter(module, f"{base_name}_scale", scales)
+        if hasattr(module, f"{base_name}_zero_point"):
+            update_offload_parameter(module, f"{base_name}_zero_point", zero_points)
+
+    # Free memory — running stats no longer needed
+    observer.clear_accumulated_stats()
+    return True
