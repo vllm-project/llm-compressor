@@ -11,26 +11,17 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-# Select calibration dataset
+# Select calibration dataset.
+# Use long, high-quality text for better Hessian estimates.
+# Filter short texts (<100 chars) to avoid padding-heavy samples.
 DATASET_ID = "HuggingFaceFW/fineweb-edu-score-2"
 DATASET_SPLIT = "train"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = ds.filter(lambda x: len(x["text"]) > 100)
 ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            [{"role": "user", "content": example["text"]}],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
 
 # Configure GLQ quantization
 # bits=2: 16-bit index per 8 weights (2 bpw)
