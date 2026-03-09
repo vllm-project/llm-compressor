@@ -74,20 +74,37 @@ class Observer(InternalModule, RegistryMixin):
         """
         raise NotImplementedError()
 
+    def update_deferred_stats(self, observed: torch.Tensor):
+        """
+        Accumulate global min/max from an observed tensor into ``_deferred_min``
+        and ``_deferred_max`` on this observer.
+
+        Called by ``calibrate_activations`` in ``stats_only`` mode for ALL observer
+        types including ``MemorylessMinMaxObserver`` which has no ``past_min_vals``.
+
+        :param observed: activation tensor for this batch
+        """
+        batch_min = observed.float().min()
+        batch_max = observed.float().max()
+
+        if not hasattr(self, "_deferred_min") or self._deferred_min is None:
+            self._deferred_min = batch_min
+            self._deferred_max = batch_max
+        else:
+            self._deferred_min = torch.min(self._deferred_min, batch_min)
+            self._deferred_max = torch.max(self._deferred_max, batch_max)
+
     def get_accumulated_min_max(self) -> Optional[MinMaxTuple]:
         """
-        Return the accumulated running min/max statistics stored by this observer,
-        without performing any new observation. Returns None if no statistics have
-        been accumulated yet (i.e. no batches have been seen).
+        Return accumulated min/max populated by ``update_deferred_stats``.
+        Returns None if no batches have been seen yet.
 
-        Subclasses which accumulate state (StaticMinMax, MovingAverage) naturally
-        expose this through their ``past_min_vals`` / ``past_max_vals`` attributes.
-        Memoryless observers have no running state, so this always returns None.
+        Works for all observer types including ``MemorylessMinMaxObserver``.
 
         :return: (min_vals, max_vals) tensors or None
         """
-        min_vals = getattr(self, "past_min_vals", None)
-        max_vals = getattr(self, "past_max_vals", None)
+        min_vals = getattr(self, "_deferred_min", None)
+        max_vals = getattr(self, "_deferred_max", None)
         if min_vals is None or max_vals is None:
             return None
         return min_vals, max_vals
@@ -95,10 +112,11 @@ class Observer(InternalModule, RegistryMixin):
     def clear_accumulated_stats(self):
         """
         Delete accumulated running statistics to free memory after qparams have been
-        computed and written to the parent module. Only clears attributes that exist
-        on the observer (memoryless observers are unaffected).
+        computed and written to the parent module.
         """
         for attr in (
+            "_deferred_min",
+            "_deferred_max",
             "past_min_vals",
             "past_max_vals",
             "past_global_min_vals",

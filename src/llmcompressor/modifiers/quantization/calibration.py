@@ -191,11 +191,18 @@ def calibrate_activations(
         if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
             calculate_gparam = True
 
-    # In deferred (stats_only) mode, only accumulate running min/max in the
-    # observer — skip writing scale/zero_point until epoch end.
+    # In deferred (stats_only) mode: call the observer to accumulate running
+    # min/max stats but do NOT write scale/zero_point yet.
+    # Qparams are written once at epoch end via flush_activation_qparams.
     if stats_only:
-        calculate_qparams = False
-        calculate_gparam = False
+        # Deferred mode: accumulate global min/max into the observer's
+        # _deferred_min / _deferred_max. Works for ALL observer types,
+        # including MemorylessMinMaxObserver which has no past_min_vals.
+        # Qparams are written once at epoch end via flush_activation_qparams.
+        observer = getattr(module, f"{base_name}_observer", None)
+        if observer is not None:
+            observer.update_deferred_stats(value)
+        return
 
     call_observer(
         module=module,
