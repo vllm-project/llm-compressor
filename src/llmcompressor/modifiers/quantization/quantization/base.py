@@ -76,7 +76,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         # TODO: this step can be combined with update_weight_zp_scale
         # once update_fused_layer_weight_global_scales is removed
         # and not required by vLLM
-        for _, module in named_modules:
+        for name, module in named_modules:
+            print("UPDATEING SCALE", name)
             update_weight_global_scale(module)
 
         # NOTE: update_fused_layer_weight_global_scales operates on Attention
