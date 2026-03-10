@@ -71,12 +71,12 @@ def test_calib_deepseekv3_module():
     hidden_dim = config.hidden_size
     batch, seq_len = 4, 32
 
-    # Stochastic input sample causing NaN outputs
-    torch.manual_seed(42)
-    sample = torch.randn(batch, seq_len, hidden_dim, device="cuda") / 10
+    sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
     with calibration_forward_context(original):
         true_output = original(sample)
+
+    assert not torch.isnan(true_output).any(), "true_output contains NaN values"
 
     module = CalibrationDeepseekV3MoE(original, config, calibrate_all_experts=True)
     with calibration_forward_context(module):
