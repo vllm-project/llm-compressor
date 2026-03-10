@@ -32,7 +32,7 @@ import torch.utils._pytree as pytree
 from torch import nn
 from torch.fx import Graph, GraphModule, Node, Proxy, Tracer
 from torch.fx._compatibility import compatibility
-from torch.fx._symbolic_trace import is_fx_tracing
+from torch.fx._symbolic_trace import is_fx_tracing_symbolic_tracing
 from torch.fx.proxy import ParameterProxy
 
 from transformers import logging, PretrainedConfig, PreTrainedModel
@@ -775,7 +775,7 @@ def create_wrapper(
 ) -> Callable:
     @functools.wraps(function)
     def wrapper(*args, **kwargs):
-        if not is_fx_tracing():
+        if not is_fx_tracing_symbolic_tracing():
             return function(*args, **kwargs)
 
         found_proxies = []
