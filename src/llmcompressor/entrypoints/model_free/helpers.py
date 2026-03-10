@@ -23,24 +23,22 @@ ValueType = TypeVar("V")
 MatchedNamesSet = dict[str, str | None]
 
 
-def gpu_if_available(device: torch.device | str | None) -> torch.device:
+def gpu_if_available(device: str | int | None) -> str | int:
     if device is not None:
-        return torch.device(device)
+        return device
 
-    elif torch.cuda.is_available():
-        return torch.device("cuda:0")
-
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu:0")
-
-    elif hasattr(torch, "npu") and torch.npu.is_available():
-        return torch.device("npu:0")
+    elif (
+        torch.cuda.is_available()
+        or hasattr(torch, "xpu")
+        and torch.xpu.is_available()
+        or hasattr(torch, "npu")
+        and torch.npu.is_available()
+    ):
+        return 0
 
     else:
-        logger.warning(
-            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
-        )
-        return torch.device("cpu")
+        logger.warning("CUDA/XPU/NPU is not available! Compressing model on CPU")
+        return "cpu"
 
 
 def find_safetensors_index_path(save_directory: str | os.PathLike) -> str | None:
