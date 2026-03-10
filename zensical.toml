@@ -126,6 +126,7 @@ default_handler = "python"
 
 [project.plugins.mkdocstrings.handlers.python]
 paths = ["src"]
+load_external_modules = false
 
 [project.plugins.mkdocstrings.handlers.python.options]
 docstring_section_style = "list"
