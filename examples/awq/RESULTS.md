@@ -17,8 +17,6 @@ This PR adds `RESULTS.md` with reproducible workflow for evaluating AWQ+FP8 quan
 | **FP8_DYNAMIC** | **76.42%** | **76.19%** |
 | **FP8_BLOCK** | 75.21% | 74.98% |
 
-FP8_DYNAMIC wins by ~1.2% on strict matching. Both achieve similar performance on flexible extraction.
-
 **Evaluation details:**
 - 1,319 test samples
 - Batch size: 16
