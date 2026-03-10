@@ -70,6 +70,8 @@ def test_calib_deepseekv3_module():
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
     batch, seq_len = 4, 32
+
+    # torch.manual_seed(42)
     sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
     with calibration_forward_context(original):
@@ -78,7 +80,7 @@ def test_calib_deepseekv3_module():
     module = CalibrationDeepseekV3MoE(original, config, calibrate_all_experts=True)
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output, output, atol=1e-6)
+        assert torch.allclose(true_output, output, atol=1e-6), "Samples not close"
 
     module = CalibrationDeepseekV3MoE(original, config, calibrate_all_experts=False)
     with calibration_forward_context(module):
