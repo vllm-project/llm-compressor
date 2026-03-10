@@ -1,4 +1,3 @@
-import os
 import re
 from collections import defaultdict
 from typing import Mapping, TypeVar
@@ -6,12 +5,9 @@ from typing import Mapping, TypeVar
 import torch
 from compressed_tensors.utils.match import match_name
 from loguru import logger
-from transformers.file_utils import CONFIG_NAME
 
 __all__ = [
     "gpu_if_available",
-    "find_safetensors_index_path",
-    "find_config_path",
     "find_safetensors_index_file",
     "match_names_set_eager",
     "MatchedNamesSet",
@@ -41,22 +37,6 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
             "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
         )
         return torch.device("cpu")
-
-
-def find_safetensors_index_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name.endswith("safetensors.index.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None
-
-
-def find_config_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name in (CONFIG_NAME, "params.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None
 
 
 def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
