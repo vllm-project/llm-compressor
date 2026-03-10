@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -52,12 +52,13 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 # AWQModifier is a smoothing pre-pass: it computes and applies per-channel
 # activation scales but does NOT quantize weights itself.
-# QuantizationModifier performs the actual weight quantization using those scales.
+# GPTQModifier performs Hessian-based weight quantization on the smoothed model,
+# yielding higher accuracy than RTN at the cost of longer calibration time.
 recipe = [
     AWQModifier(
         ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
     ),
-    QuantizationModifier(
+    GPTQModifier(
         scheme="W4A16_ASYM", targets=["Linear"], ignore=["lm_head"]
     ),
 ]
@@ -83,6 +84,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-gptq-asym"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
