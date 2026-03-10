@@ -34,7 +34,7 @@ def _get_batches(
     num_batches: int,
     input_names: list[str],
     desc: str,
-    use_prefetch: bool = False,
+    sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched in a
@@ -44,7 +44,7 @@ def _get_batches(
     """
     batch_source = (
         activations.iter_prefetch(input_names)
-        if use_prefetch
+        if sequential_prefetch
         else activations.iter(input_names)
     )
     for batch_idx, inputs in tqdm(
@@ -131,6 +131,9 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
+            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
+            session.state.sequential_prefetch = sequential_prefetch
+
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
@@ -138,7 +141,6 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
@@ -146,7 +148,7 @@ class SequentialPipeline(CalibrationPipeline):
                         num_batches,
                         subgraph.input_names,
                         calib_desc,
-                        use_prefetch,
+                        sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
                         subgraph.forward(model, **inputs)
@@ -161,7 +163,7 @@ class SequentialPipeline(CalibrationPipeline):
                             num_batches,
                             subgraph.input_names,
                             prop_desc,
-                            use_prefetch,
+                            sequential_prefetch,
                         ):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
