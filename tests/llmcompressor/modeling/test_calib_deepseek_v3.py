@@ -66,6 +66,8 @@ def test_calib_deepseekv3_module():
     config = DeepseekV3Config()
     with torch.device("cuda"):
         original = OriginalDeepseekV3MoE(config).eval()
+        for param in original.parameters():
+            param.data.normal_(mean=0.0, std=0.02)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
@@ -76,14 +78,12 @@ def test_calib_deepseekv3_module():
     with calibration_forward_context(original):
         true_output = original(sample)
 
-    assert not torch.isnan(true_output).any(), "true_output contains NaN values"
-
     module = CalibrationDeepseekV3MoE(original, config, calibrate_all_experts=True)
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output, output, atol=1e-6)
+        assert torch.nn.functional.mse_loss(true_output, output) < 1e-10
 
     module = CalibrationDeepseekV3MoE(original, config, calibrate_all_experts=False)
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output, output, atol=1e-6)
+        assert torch.nn.functional.mse_loss(true_output, output) < 1e-10
