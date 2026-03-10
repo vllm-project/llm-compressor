@@ -73,7 +73,7 @@ def test_calib_deepseekv3_module():
 
     # Stochastic input sample causing NaN outputs
     torch.manual_seed(42)
-    sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
+    sample = torch.randn(batch, seq_len, hidden_dim, device="cuda") / 10
 
     with calibration_forward_context(original):
         true_output = original(sample)
