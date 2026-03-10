@@ -4,6 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -49,9 +50,19 @@ def tokenize(sample):
 
 
 # Configure the quantization algorithm to run.
+# AWQModifier performs smoothing and must be followed by a QuantizationModifier
+# which applies the actual quantization.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"], scheme="FP8_BLOCK", targets=["Linear"], duo_scaling="both"
+        ignore=["lm_head"],
+        scheme="FP8_BLOCK",
+        targets=["Linear"],
+        duo_scaling="both",
+    ),
+    QuantizationModifier(
+        targets="Linear",
+        scheme="FP8_BLOCK",
+        ignore=["lm_head"],
     ),
 ]
 
@@ -76,6 +87,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-fp8-block"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

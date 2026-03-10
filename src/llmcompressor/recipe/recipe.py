@@ -23,6 +23,144 @@ __all__ = [
 ]
 
 
+def _validate_modifier_ordering(modifiers: List[Modifier]) -> None:
+    """
+    Validate modifier ordering for AWQModifier.
+
+    This function validates that:
+    1. AWQModifier does not appear after a quantization modifier
+    2. AWQModifier config_groups matches subsequent quantization modifier's config
+
+    Note: Warning for standalone AWQ is handled by AWQModifier._warn_if_standalone
+    during on_finalize, which has access to the session state.
+
+    :param modifiers: list of modifiers to validate
+    :raises ValueError: if AWQModifier appears after a quantization modifier
+    :raises ValueError: if AWQModifier config_groups mismatch with subsequent modifier
+    """
+    from llmcompressor.modifiers.awq import AWQModifier
+    from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+    from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
+
+    # Explicit type checking for quantization modifiers
+    quant_modifier_types = (QuantizationModifier, GPTQModifier)
+
+    # Find all AWQ modifiers and quantization modifiers
+    awq_indices = []
+    quant_indices = []
+
+    for idx, modifier in enumerate(modifiers):
+        if isinstance(modifier, AWQModifier):
+            awq_indices.append(idx)
+        elif isinstance(modifier, quant_modifier_types):
+            quant_indices.append(idx)
+
+    for awq_idx in awq_indices:
+        # Check if AWQ appears after any quantization modifier
+        for quant_idx in quant_indices:
+            if quant_idx < awq_idx:
+                raise ValueError(
+                    f"AWQModifier at position {awq_idx} appears after quantization "
+                    f"modifier at position {quant_idx}. AWQModifier must come before "
+                    "quantization modifiers in the recipe. "
+                    "Example: [AWQModifier(...), QuantizationModifier(...)]"
+                )
+
+        # Validate config_groups match if there's a subsequent quantization modifier
+        subsequent_quants = [q for q in quant_indices if q > awq_idx]
+        if subsequent_quants:
+            awq_modifier = modifiers[awq_idx]
+            next_quant_idx = min(subsequent_quants)
+            quant_modifier = modifiers[next_quant_idx]
+
+            _validate_awq_config_match(
+                awq_modifier, quant_modifier, awq_idx, next_quant_idx
+            )
+
+
+def _validate_awq_config_match(
+    awq_modifier, quant_modifier, awq_idx: int, quant_idx: int
+) -> None:
+    """
+    Validate that AWQModifier config_groups matches the subsequent quantization
+    modifier's config_groups for weight quantization parameters.
+
+    :param awq_modifier: AWQModifier instance
+    :param quant_modifier: subsequent quantization modifier
+    :param awq_idx: index of AWQModifier in recipe
+    :param quant_idx: index of quantization modifier in recipe
+    :raises ValueError: if config_groups mismatch
+    """
+    awq_config = awq_modifier.config_groups
+    quant_config = getattr(quant_modifier, "config_groups", None)
+
+    if awq_config is None or quant_config is None:
+        return  # Nothing to validate
+
+    # Extract weight parameters from each config for comparison
+    awq_weight_params = _extract_weight_params(awq_config)
+    quant_weight_params = _extract_weight_params(quant_config)
+
+    if awq_weight_params and quant_weight_params:
+        mismatches = _compare_weight_params(awq_weight_params, quant_weight_params)
+        if mismatches:
+            raise ValueError(
+                f"AWQModifier at position {awq_idx} has config_groups that do not "
+                f"match the subsequent quantization modifier at position {quant_idx}. "
+                f"Mismatching weight parameters: {mismatches}. "
+                "AWQModifier's config_groups must match the quantization modifier's "
+                "config_groups to ensure consistent quantization during grid search."
+            )
+
+
+def _extract_weight_params(config_groups: dict) -> dict:
+    """
+    Extract weight parameters from config_groups.
+
+    :param config_groups: config_groups dictionary
+    :return: dictionary of weight parameters
+    """
+    weight_params = {}
+    for group_name, group_config in config_groups.items():
+        if isinstance(group_config, dict) and "weights" in group_config:
+            weights = group_config["weights"]
+            if isinstance(weights, dict):
+                weight_params[group_name] = {
+                    k: v
+                    for k, v in weights.items()
+                    if k in ["num_bits", "type", "symmetric", "strategy", "group_size"]
+                }
+    return weight_params
+
+
+def _compare_weight_params(awq_params: dict, quant_params: dict) -> List[str]:
+    """
+    Compare weight parameters between AWQ and quantization modifier configs.
+
+    :param awq_params: AWQ weight parameters
+    :param quant_params: quantization modifier weight parameters
+    :return: list of mismatching parameter names
+    """
+    mismatches = []
+
+    # Compare all matching groups by name
+    for group_name in awq_params:
+        if group_name not in quant_params:
+            continue
+
+        awq_weights = awq_params[group_name]
+        quant_weights = quant_params[group_name]
+
+        all_keys = set(awq_weights.keys()) | set(quant_weights.keys())
+        for key in all_keys:
+            awq_val = awq_weights.get(key)
+            quant_val = quant_weights.get(key)
+            if awq_val is not None and quant_val is not None and awq_val != quant_val:
+                mismatches.append(f"group {group_name}: {key}: AWQ={awq_val}, quant={quant_val}")
+
+    return mismatches
+
+
 class Recipe(BaseModel):
     """
     A class to represent a recipe for a model.
@@ -72,6 +210,9 @@ class Recipe(BaseModel):
 
         if any(not isinstance(modifier, Modifier) for modifier in modifiers):
             raise ValueError("modifiers must be a list of Modifier instances")
+
+        # Validate modifier ordering (e.g., AWQ before quantization)
+        _validate_modifier_ordering(modifiers)
 
         group_name = modifier_group_name or "default"
 
@@ -191,6 +332,9 @@ class Recipe(BaseModel):
                                 **mod_args,
                             )
                             modifiers.append(modifier)
+
+        # Validate modifier ordering (e.g., AWQ before quantization)
+        _validate_modifier_ordering(modifiers)
 
         return Recipe(
             args=args,
