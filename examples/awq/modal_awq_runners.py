@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -78,7 +79,7 @@ def run_baseline(skip_lm_eval: bool = False) -> dict:
     },
 )
 def run_with_smooth(skip_lm_eval: bool = False) -> dict:
-    """Run AWQ with smooth_layer_quantization. Returns awq_time_s and lm_eval."""
+    """Run AWQ compression (with smooth_layer_quantization). Returns {'awq_time_s': ...}."""
     return _run_one(
         recipe_path=RECIPE_WITH_SMOOTH,
         save_dir="llama3-8b-w4a16-awq-with-smooth",
@@ -87,17 +88,13 @@ def run_with_smooth(skip_lm_eval: bool = False) -> dict:
 
 
 def _run_one(recipe_path: str, save_dir: str, skip_lm_eval: bool) -> dict:
-    """Compress; optionally run lm_eval in same container so save_dir is on disk."""
+    """Run compression; optionally run lm_eval in same container (so save_dir is on disk)."""
     os.chdir("/repo")
     from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 
     recipe_abs = f"/repo/{recipe_path}"
     if not os.path.isfile(recipe_abs):
-        return {
-            "error": f"Recipe not found: {recipe_abs}",
-            "awq_time_s": None,
-            "lm_eval": None,
-        }
+        return {"error": f"Recipe not found: {recipe_abs}", "awq_time_s": None, "lm_eval": None}
 
     # Compression
     t0 = time.perf_counter()
@@ -117,7 +114,6 @@ def _run_one(recipe_path: str, save_dir: str, skip_lm_eval: bool) -> dict:
     model.save_pretrained(save_dir)
     processor.save_pretrained(save_dir)
     from llmcompressor.core import active_session
-
     active_session().reset()
     awq_time_s = time.perf_counter() - t0
 
@@ -134,7 +130,6 @@ def _run_one(recipe_path: str, save_dir: str, skip_lm_eval: bool) -> dict:
         return out
 
     from transformers import AutoTokenizer
-
     from tests.e2e.e2e_utils import load_model
 
     lm_eval_cls = lm_eval.api.registry.get_model("hf")
@@ -198,7 +193,6 @@ def run_lm_eval(model_dir: str) -> dict:
         return {}
 
     from transformers import AutoTokenizer
-
     from tests.e2e.e2e_utils import load_model
 
     lm_eval_cls = lm_eval.api.registry.get_model("hf")
@@ -256,7 +250,7 @@ def main_with_smooth(skip_lm_eval: bool = False):
 
 @app.local_entrypoint()
 def main_both(skip_lm_eval: bool = False):
-    """Run baseline and with-smooth AWQ; eval in same container when not skipped."""
+    """Run baseline and with-smooth AWQ; each run does eval in same container if not skipped."""
     print("Running baseline (no smooth_layer_quantization) on Modal...")
     baseline = run_baseline.remote(skip_lm_eval=skip_lm_eval)
     print("Baseline result:", baseline)

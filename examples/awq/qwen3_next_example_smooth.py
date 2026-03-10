@@ -3,7 +3,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.modifiers.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Thinking"
@@ -55,6 +55,7 @@ recipe = [
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
+        smooth_layer_fake_quant=True,
     ),
 ]
 
@@ -79,6 +80,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-w4a16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-w4a16-smooth"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

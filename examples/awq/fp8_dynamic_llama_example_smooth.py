@@ -3,10 +3,10 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.modifiers.awq import AWQModifier
 
 # Select model and load it.
-MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Thinking"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -49,12 +49,9 @@ def tokenize(sample):
 
 
 # Configure the quantization algorithm to run.
-# NOTE: vllm currently does not support asym MoE, using symmetric here
 recipe = [
     AWQModifier(
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
-        scheme="W4A16",
-        targets=["Linear"],
+        ignore=["lm_head"], scheme="FP8_DYNAMIC", targets=["Linear"], duo_scaling="both", smooth_layer_fake_quant=True
     ),
 ]
 
@@ -79,6 +76,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-w4a16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-fp8-dynamic-smooth"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

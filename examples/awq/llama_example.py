@@ -80,6 +80,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-asym"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-w4a16-asym"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
