@@ -36,15 +36,22 @@ def preprocess(example):
 
 ds = ds.map(preprocess)
 
+
+# Tokenize inputs.
+def tokenize(sample):
+    return tokenizer(
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
+
 # Configure the quantization algorithm to run.
-# W4AFP8 scheme: 4-bit integer weights (group 128) + FP8 dynamic per-token activations
-# AWQ smooths the weights before quantization to reduce quantization error.
 recipe = [
     AWQModifier(
-        ignore=["lm_head"],
-        scheme="W4AFP8",
-        targets=["Linear"],
-        duo_scaling=True,
+        ignore=["lm_head"], scheme="FP8_DYNAMIC", targets=["Linear"], duo_scaling="both", smooth_layer_fake_quant=True
     ),
 ]
 
@@ -69,9 +76,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-# Use quantization_format="pack-quantized" for vLLM compatibility
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-w4afp8"
-model.save_pretrained(
-    SAVE_DIR, save_compressed=True, quantization_format="pack-quantized"
-)
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-awq-fp8-dynamic-smooth"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
