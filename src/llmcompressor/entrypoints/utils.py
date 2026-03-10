@@ -10,7 +10,7 @@ workflows.
 import os
 from pathlib import PosixPath
 
-from compressed_tensors.offload import from_accelerate
+from compressed_tensors.offload import from_accelerate, is_distributed
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -26,6 +26,7 @@ from llmcompressor.args import (
     RecipeArguments,
 )
 from llmcompressor.core import reset_session
+from llmcompressor.logger import configure_distributed_logger
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -52,6 +53,9 @@ def pre_process(
     Raises:
         FileNotFoundError: If the model or processor path is invalid.
     """
+    # Detect distributed, update logger
+    if is_distributed():
+        configure_distributed_logger()
 
     # Initialize model
     if isinstance(model_args.model, (str, PosixPath)):
