@@ -10,6 +10,9 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 from dataclasses import dataclass, field
 from typing import Callable
 
+from datasets import Dataset, DatasetDict
+from torch.utils.data import DataLoader
+
 
 @dataclass
 class DVCDatasetArguments:
@@ -101,12 +104,13 @@ class DatasetArguments(CustomDatasetArguments):
     arguments to be able to specify them on the command line
     """
 
-    dataset: str | None = field(
+    dataset: str | Dataset | DatasetDict | DataLoader | None = field(
         default=None,
         metadata={
             "help": (
-                "The name of the dataset to use (via the datasets library). "
-                "Supports input as a string or DatasetDict from HF"
+                "The dataset to use for calibration. Supports a dataset name "
+                "(str, via the datasets library), a DatasetDict from HF, or a "
+                "pre-built PyTorch DataLoader."
             )
         },
     )

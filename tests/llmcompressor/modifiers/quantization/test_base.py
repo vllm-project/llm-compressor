@@ -3,7 +3,7 @@ from contextlib import nullcontext
 import pytest
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 
 @pytest.fixture

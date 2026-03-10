@@ -4,7 +4,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 recipe_str = """
 quant_stage:

@@ -1,4 +1,4 @@
-# Quantizing Models with Activation-Aware Quantization (AWQ) #
+# AWQ Quantization #
 
 Activation Aware Quantization (AWQ) is a state-of-the-art technique to quantize the weights of large language models which involves using a small calibration dataset to calibrate the model. The AWQ algorithm utilizes calibration data to derive scaling factors which reduce the dynamic range of weights while minimizing accuracy loss to the most salient weight values.
 

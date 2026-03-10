@@ -4,11 +4,14 @@ from io import BytesIO
 import torch
 from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
+
+# Note: this is an optional utility for processing vision inputs for qwen.
+# This can be installed via the "qwen" extra
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"

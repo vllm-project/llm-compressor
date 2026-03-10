@@ -262,7 +262,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         # Build kwargs for AutoRound initialization
         ar_quant_scheme = self._mapping_config_to_autoround()
-        fp_layers = self.get_unquantized_layer_names(decoding_layer)
+        ignore_layers = self.get_unquantized_layer_names(decoding_layer)
         kwargs = {
             "tokenizer": "",  # A placeholder
             "scheme": ar_quant_scheme,
@@ -271,7 +271,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "enable_torch_compile": self.enable_torch_compile,
             "batch_size": self.batch_size,
             "device_map": self.device_ids,
-            "fp_layers": ",".join(fp_layers) if fp_layers else "",
+            "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
         }
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
@@ -280,6 +280,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_offloading(wrapped_model),
         ):
+            self._update_device_map_for_dp(kwargs)
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
@@ -348,6 +349,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ):
                 unquantized_layers.append(name)
         return unquantized_layers
+
+    def _update_device_map_for_dp(self, ar_kwargs):
+        if torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            ar_kwargs["device_map"] = (
+                f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
+            )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
