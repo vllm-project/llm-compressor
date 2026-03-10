@@ -22,6 +22,7 @@ from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    _graft_extra_weights,
     get_model_compressor,
     modify_save_pretrained,
 )
@@ -624,3 +625,315 @@ def test_correct_compressor_inferred(
         )
     else:
         assert compressor.sparsity_config.format == expected_sparsity_compressor
+
+
+class _MockModel:
+    """Minimal stand-in for a PreTrainedModel, providing the attributes
+    that _graft_extra_weights inspects: ``name_or_path`` and ``named_modules``.
+
+    *module_names* should be the set of dotted module paths that exist in the
+    model (e.g. ``{"", "model", "model.layer"}``).  The empty string represents
+    the root module and is always included.
+    """
+
+    def __init__(self, name_or_path: str, module_names: set[str]):
+        self.name_or_path = name_or_path
+        self._module_names = module_names | {""}
+
+    def named_modules(self):
+        for name in self._module_names:
+            yield name, None
+
+
+class TestGraftExtraWeights:
+    """Tests for _graft_extra_weights() — the function that copies weights
+    present in the source checkpoint but missing from the output directory."""
+
+    def _make_source_checkpoint(self, tmp_path, keys, multi_shard=False):
+        """Create a fake source checkpoint (local path) with the given keys."""
+        import json
+
+        from safetensors.torch import save_file
+
+        source_dir = tmp_path / "source"
+        source_dir.mkdir()
+
+        tensors = {k: torch.randn(4, 4) for k in keys}
+
+        if multi_shard:
+            # Split into two shards
+            half = len(keys) // 2 or 1
+            shard1_keys = keys[:half]
+            shard2_keys = keys[half:]
+
+            shard1 = {k: tensors[k] for k in shard1_keys}
+            shard2 = {k: tensors[k] for k in shard2_keys}
+
+            save_file(shard1, str(source_dir / "model-00001-of-00002.safetensors"))
+            save_file(shard2, str(source_dir / "model-00002-of-00002.safetensors"))
+
+            weight_map = {}
+            for k in shard1_keys:
+                weight_map[k] = "model-00001-of-00002.safetensors"
+            for k in shard2_keys:
+                weight_map[k] = "model-00002-of-00002.safetensors"
+
+            total_size = sum(
+                t.nelement() * t.element_size() for t in tensors.values()
+            )
+            index = {
+                "metadata": {"total_size": total_size},
+                "weight_map": weight_map,
+            }
+            with open(source_dir / "model.safetensors.index.json", "w") as f:
+                json.dump(index, f)
+        else:
+            save_file(tensors, str(source_dir / "model.safetensors"))
+
+        return str(source_dir), tensors
+
+    def _make_output_dir(self, tmp_path, keys, tensors, multi_shard=False):
+        """Create a fake output directory with a subset of keys."""
+        import json
+
+        from safetensors.torch import save_file
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+
+        subset = {k: tensors[k] for k in keys}
+
+        if multi_shard:
+            save_file(subset, str(out_dir / "model-00001-of-00001.safetensors"))
+            weight_map = {
+                k: "model-00001-of-00001.safetensors" for k in keys
+            }
+            total_size = sum(
+                t.nelement() * t.element_size() for t in subset.values()
+            )
+            index = {
+                "metadata": {"total_size": total_size},
+                "weight_map": weight_map,
+            }
+            with open(out_dir / "model.safetensors.index.json", "w") as f:
+                json.dump(index, f)
+        else:
+            save_file(subset, str(out_dir / "model.safetensors"))
+
+        return str(out_dir)
+
+    def _mock_model(self, source_dir, module_names):
+        """Create a _MockModel pointing at source_dir with the given modules."""
+        return _MockModel(source_dir, set(module_names))
+
+    def test_noop_when_all_keys_present(self, tmp_path):
+        """No extra file should be created when source and output match."""
+        all_keys = ["model.layer.weight", "model.layer.bias"]
+        source_dir, tensors = self._make_source_checkpoint(tmp_path, all_keys)
+        out_dir = self._make_output_dir(tmp_path, all_keys, tensors)
+
+        mock = self._mock_model(source_dir, ["model", "model.layer"])
+        _graft_extra_weights(mock, out_dir)
+
+        assert not os.path.exists(os.path.join(out_dir, "extra_weights.safetensors"))
+        assert not os.path.exists(
+            os.path.join(out_dir, "model.safetensors.index.json")
+        )
+
+    def test_grafts_missing_keys_single_shard(self, tmp_path):
+        """Extra keys from a single-shard source should be grafted."""
+        from safetensors import safe_open
+
+        all_keys = ["model.layer.weight", "mtp.0.layer.weight", "mtp.1.layer.weight"]
+        output_keys = ["model.layer.weight"]
+
+        source_dir, tensors = self._make_source_checkpoint(tmp_path, all_keys)
+        out_dir = self._make_output_dir(tmp_path, output_keys, tensors)
+
+        # Model has "model.layer" but NOT "mtp.0.layer" or "mtp.1.layer"
+        mock = self._mock_model(source_dir, ["model", "model.layer"])
+        _graft_extra_weights(mock, out_dir)
+
+        # extra_weights.safetensors should exist
+        extra_path = os.path.join(out_dir, "extra_weights.safetensors")
+        assert os.path.exists(extra_path)
+
+        with safe_open(extra_path, framework="pt") as f:
+            extra_keys = set(f.keys())
+        assert extra_keys == {"mtp.0.layer.weight", "mtp.1.layer.weight"}
+
+        # An index should have been created (single-shard output + new shard)
+        index_path = os.path.join(out_dir, "model.safetensors.index.json")
+        assert os.path.exists(index_path)
+
+        import json
+
+        with open(index_path) as f:
+            index = json.load(f)
+        wm = index["weight_map"]
+        assert wm["model.layer.weight"] == "model.safetensors"
+        assert wm["mtp.0.layer.weight"] == "extra_weights.safetensors"
+        assert wm["mtp.1.layer.weight"] == "extra_weights.safetensors"
+
+    def test_grafts_missing_keys_multi_shard(self, tmp_path):
+        """Extra keys from a multi-shard source with multi-shard output."""
+        import json
+
+        from safetensors import safe_open
+
+        all_keys = [
+            "model.layer0.weight",
+            "model.layer1.weight",
+            "mtp.0.layer.weight",
+            "mtp.1.layer.weight",
+        ]
+        output_keys = ["model.layer0.weight", "model.layer1.weight"]
+
+        source_dir, tensors = self._make_source_checkpoint(
+            tmp_path, all_keys, multi_shard=True
+        )
+        out_dir = self._make_output_dir(
+            tmp_path, output_keys, tensors, multi_shard=True
+        )
+
+        mock = self._mock_model(
+            source_dir, ["model", "model.layer0", "model.layer1"]
+        )
+        _graft_extra_weights(mock, out_dir)
+
+        extra_path = os.path.join(out_dir, "extra_weights.safetensors")
+        assert os.path.exists(extra_path)
+
+        with safe_open(extra_path, framework="pt") as f:
+            extra_keys = set(f.keys())
+        assert extra_keys == {"mtp.0.layer.weight", "mtp.1.layer.weight"}
+
+        # Index should be updated (not created fresh)
+        index_path = os.path.join(out_dir, "model.safetensors.index.json")
+        with open(index_path) as f:
+            index = json.load(f)
+
+        wm = index["weight_map"]
+        assert wm["mtp.0.layer.weight"] == "extra_weights.safetensors"
+        assert wm["mtp.1.layer.weight"] == "extra_weights.safetensors"
+        # Original keys still map to original shard
+        assert wm["model.layer0.weight"] == "model-00001-of-00001.safetensors"
+
+    def test_tensors_are_identical(self, tmp_path):
+        """Grafted tensors should be bit-identical to source tensors."""
+        from safetensors import safe_open
+
+        all_keys = ["model.w", "extra.w"]
+        output_keys = ["model.w"]
+
+        source_dir, tensors = self._make_source_checkpoint(tmp_path, all_keys)
+        out_dir = self._make_output_dir(tmp_path, output_keys, tensors)
+
+        # "extra" module doesn't exist in the model
+        mock = self._mock_model(source_dir, ["model"])
+        _graft_extra_weights(mock, out_dir)
+
+        extra_path = os.path.join(out_dir, "extra_weights.safetensors")
+        with safe_open(extra_path, framework="pt") as f:
+            grafted = f.get_tensor("extra.w")
+
+        assert torch.equal(grafted, tensors["extra.w"])
+
+    def test_total_size_correct_single_shard(self, tmp_path):
+        """total_size in the created index should equal tensor byte counts,
+        not file sizes on disk."""
+        import json
+
+        all_keys = ["model.w", "extra.w"]
+        output_keys = ["model.w"]
+
+        source_dir, tensors = self._make_source_checkpoint(tmp_path, all_keys)
+        out_dir = self._make_output_dir(tmp_path, output_keys, tensors)
+
+        mock = self._mock_model(source_dir, ["model"])
+        _graft_extra_weights(mock, out_dir)
+
+        index_path = os.path.join(out_dir, "model.safetensors.index.json")
+        with open(index_path) as f:
+            index = json.load(f)
+
+        expected_total = sum(
+            t.nelement() * t.element_size() for t in tensors.values()
+        )
+        assert index["metadata"]["total_size"] == expected_total
+
+    def test_skips_renamed_keys_from_compression(self, tmp_path):
+        """Keys renamed by compression (weight → weight_packed) must NOT be
+        grafted back, even though they appear in source but not in output.
+        The parent module still exists in the model, so we know the key was
+        renamed rather than dropped."""
+        # Source has original weight
+        all_keys = [
+            "model.layer.weight",
+            "mtp.0.layer.weight",
+        ]
+        # Output has compressed variant (weight_packed) plus MTP is missing
+        output_keys_on_disk = ["model.layer.weight_packed"]
+
+        source_dir, tensors = self._make_source_checkpoint(tmp_path, all_keys)
+
+        # Manually create output with the compressed key name
+        from safetensors.torch import save_file
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+        save_file(
+            {"model.layer.weight_packed": torch.randn(4, 4)},
+            str(out_dir / "model.safetensors"),
+        )
+
+        # Model has "model.layer" (the module exists!) but NOT "mtp.0.layer"
+        mock = self._mock_model(source_dir, ["model", "model.layer"])
+        _graft_extra_weights(mock, str(out_dir))
+
+        extra_path = os.path.join(str(out_dir), "extra_weights.safetensors")
+        assert os.path.exists(extra_path)
+
+        from safetensors import safe_open
+
+        with safe_open(extra_path, framework="pt") as f:
+            grafted_keys = set(f.keys())
+
+        # Only MTP should be grafted, NOT the renamed model.layer.weight
+        assert grafted_keys == {"mtp.0.layer.weight"}
+
+    def test_noop_when_output_has_no_safetensors(self, tmp_path):
+        """Must not graft when the output is in .bin format
+        (safe_serialization=False).  Grafting here would silently replace the
+        quantized weights with uncompressed originals."""
+        all_keys = ["model.w", "mtp.w"]
+        source_dir, tensors = self._make_source_checkpoint(tmp_path, all_keys)
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+        # Simulate safe_serialization=False: only .bin files
+        torch.save(
+            {"model.w": tensors["model.w"]},
+            str(out_dir / "pytorch_model.bin"),
+        )
+
+        mock = self._mock_model(source_dir, ["model"])
+        _graft_extra_weights(mock, str(out_dir))
+
+        assert not os.path.exists(os.path.join(str(out_dir), "extra_weights.safetensors"))
+        assert not os.path.exists(
+            os.path.join(str(out_dir), "model.safetensors.index.json")
+        )
+
+    def test_noop_for_nonexistent_source(self, tmp_path):
+        """Should silently skip when source can't be resolved."""
+        from safetensors.torch import save_file
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+        save_file(
+            {"model.w": torch.randn(4, 4)}, str(out_dir / "model.safetensors")
+        )
+
+        mock = _MockModel("/nonexistent/path/to/model", {"model"})
+        _graft_extra_weights(mock, str(out_dir))
