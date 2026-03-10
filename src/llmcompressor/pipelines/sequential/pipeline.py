@@ -131,6 +131,9 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
+            use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
+            session.state.sequential_prefetch = use_prefetch
+
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
@@ -138,7 +141,6 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(

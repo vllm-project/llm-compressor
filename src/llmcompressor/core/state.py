@@ -114,6 +114,7 @@ class State:
     _last_log_step: float | int | None = None
     loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
+    sequential_prefetch: bool = False
 
     @property
     def compression_ready(self) -> bool:
