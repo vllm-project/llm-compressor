@@ -1,18 +1,17 @@
 """
-AWQ + QuantizationModifier: Stacked Recipe Example
-===================================================
-AWQ is a pre-quantization smoothing pass. The AWQModifier finds and applies
-optimal per-channel activation scales; the downstream QuantizationModifier
-performs the actual weight quantization using those scales.
-
-This is the canonical stacked recipe pattern:
+AWQ + GPTQModifier: Stacked Recipe Example
+==========================================
+Stacking AWQModifier with GPTQModifier combines AWQ's activation-aware
+smoothing with GPTQ's second-order weight quantization for higher accuracy
+at W4A16.
 
     recipe = [
-        AWQModifier(mappings=..., ignore=["lm_head"]),
-        QuantizationModifier(scheme="W4A16_ASYM", targets="Linear", ignore=["lm_head"]),
+        AWQModifier(...),
+        GPTQModifier(...),
     ]
 
-See README.md for details on providing custom mappings for non-Llama architectures.
+AWQModifier runs first and re-scales weights so that quantization-sensitive
+channels become easier for GPTQ to handle.
 """
 
 from datasets import load_dataset
@@ -20,7 +19,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 
 # ---------------------------------------------------------------------------
 # 1. Model
@@ -54,33 +53,31 @@ def preprocess(example):
 ds = ds.map(preprocess, remove_columns=ds.column_names)
 
 # ---------------------------------------------------------------------------
-# 3. Recipe: AWQ smoothing pass → RTN weight quantization
+# 3. Recipe: AWQ smoothing pass → GPTQ weight quantization
 #
-#   AWQModifier  : computes and applies per-channel activation scales.
-#                  It needs quant args (via scheme/targets) only to search
-#                  for optimal smoothing scales — it does NOT apply weights.
-#   QuantizationModifier: applies the final weight quantization using
-#                  the scales produced by AWQModifier.
+#   AWQModifier  : activation-aware smoothing (scale search uses scheme args).
+#   GPTQModifier : Hessian-based weight quantization on the smoothed model.
+#
+#   Both modifiers must agree on scheme / targets / ignore.
 # ---------------------------------------------------------------------------
 recipe = [
     AWQModifier(
         ignore=["lm_head"],
-        # AWQ needs these args internally for scale search; they must match
-        # the QuantizationModifier below.
         scheme="W4A16_ASYM",
         targets=["Linear"],
     ),
-    QuantizationModifier(
+    GPTQModifier(
         scheme="W4A16_ASYM",
         targets=["Linear"],
         ignore=["lm_head"],
+        dampening_frac=0.01,
     ),
 ]
 
 # ---------------------------------------------------------------------------
 # 4. Apply
 # ---------------------------------------------------------------------------
-OUTPUT_DIR = MODEL_ID.split("/")[-1] + "-AWQ-W4A16"
+OUTPUT_DIR = MODEL_ID.split("/")[-1] + "-AWQ-GPTQ-W4A16"
 
 oneshot(
     model=model,
