@@ -66,7 +66,6 @@ recipe = QuantizationModifier(
                 r"re:model.*self_attn.indexer.(wk|wq_b)$",
                 r"re:model.*self_attn.kv_a_proj_with_mqa$",
                 r"re:model.*self_attn.(kv_b|o|q_a|q_b)_proj$",
-                r"re:model.*self_attn.*(gate|up|down|gate_up)_proj$",
             ],
             **FP8_BLOCK,
         ),
