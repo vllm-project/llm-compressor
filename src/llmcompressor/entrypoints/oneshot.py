@@ -22,6 +22,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.observers.compile_config import set_observer_compile
 from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
@@ -300,6 +301,7 @@ def oneshot(
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     sequential_prefetch: bool = False,
+    enable_observer_compile: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -406,9 +408,10 @@ def oneshot(
 
     # pass all args directly into Oneshot
     local_args = {
-        k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
+        k: v for k, v in locals().items() if k not in ("local_args", "kwargs", "enable_observer_compile")
     }
     one_shot = Oneshot(**local_args, **kwargs)
+    set_observer_compile(enable_observer_compile)
     one_shot()
 
     return one_shot.model
