@@ -146,7 +146,7 @@ setup(
         ),
         ("pillow>=10.4.0,<=12.1.1" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.14.0"
+            "compressed-tensors==0.14.0.1"
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.14.1a2"
         ),
