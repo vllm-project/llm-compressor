@@ -7,7 +7,7 @@ from typing import Type
 
 import torch
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.utils import patch_attr
+from compressed_tensors.utils import deprecated, patch_attr
 from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
@@ -129,6 +129,7 @@ def get_main_device() -> torch.device:
         return torch.device("cpu")
 
 
+@deprecated("compressed_tensors.offload::dispatch_model")
 @wraps(dispatch_model)
 def dispatch_for_generation(*args, **kwargs) -> PreTrainedModel:
     """

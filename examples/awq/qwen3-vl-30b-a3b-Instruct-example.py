@@ -1,10 +1,10 @@
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
@@ -104,13 +104,13 @@ oneshot(
 )
 
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-AWQ-W8A16-mse-seq"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-AWQ-W4A16-mse-seq"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

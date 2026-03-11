@@ -172,10 +172,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
-    # Cache FP16 baseline outputs for each parent module, one list of tensors per batch
-    _fp16_baseline_cache: dict[Module, IntermediatesCache] = PrivateAttr(
-        default_factory=dict
-    )
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
