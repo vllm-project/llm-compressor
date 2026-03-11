@@ -137,7 +137,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
-            config_groups["R2"] = self._create_r2_scheme(head_dim)
+            v_head_dim = (
+                getattr(state.model.config, "v_head_dim", head_dim)
+                if getattr(self.mappings, "attn_v_is_kv_combined", False)
+                else head_dim
+            )
+            config_groups["R2"] = self._create_r2_scheme(v_head_dim)
 
         if SpinquantRotation.R3 in self.rotations:
             config_groups["R3"] = self._create_r3_scheme(head_dim)
@@ -161,6 +166,13 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         # otherwise we're applying weight transforms on CPU
         self._center_embeddings(model)
         self._fuse_norms(model)
+        if getattr(self.mappings, "attn_v_is_kv_combined", False):
+            from .partial_hadamard import PartialHadamardFactory
+
+            PartialHadamardFactory.qk_nope_head_dim = (
+                state.model.config.qk_nope_head_dim
+            )
+            PartialHadamardFactory.v_head_dim = state.model.config.v_head_dim
         apply_transform_config(model, self.transform_config)
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -207,39 +219,55 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 assert len(norm) == 1
                 fuse_norm_linears(norm[0], tree_leaves(linears))
 
-    def _create_r1_scheme(self) -> TransformScheme:
+    def _create_r1_scheme(self) -> TransformScheme:     
+        apply_list = []
+        apply_list.append(TransformArgs(
+            targets=[
+                self.mappings.embedding,
+                self.mappings.attn_o,
+                *self.mappings.mlp_out,
+            ],
+            location="weight_output",
+        ))
+        if getattr(self.mappings, "attn_v_is_kv_combined", False):
+            apply_list.append(TransformArgs(
+                targets=[
+                    self.mappings.attn_q,
+                    self.mappings.attn_k,
+                    *self.mappings.mlp_in,
+                    self.mappings.lm_head,
+                ],
+                location="weight_input",
+                inverse=True,
+            ))
+        else:
+            apply_list.append(TransformArgs(
+                targets=[
+                    self.mappings.attn_q,
+                    self.mappings.attn_k,
+                    self.mappings.attn_v,
+                    *self.mappings.mlp_in,
+                    self.mappings.lm_head,
+                ],
+                location="weight_input",
+                inverse=True,
+            ))
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
             head_dim=self.transform_block_size,
-            apply=[
-                TransformArgs(
-                    targets=[
-                        self.mappings.embedding,
-                        self.mappings.attn_o,
-                        *self.mappings.mlp_out,
-                    ],
-                    location="weight_output",
-                ),
-                TransformArgs(
-                    targets=[
-                        self.mappings.attn_q,
-                        self.mappings.attn_k,
-                        self.mappings.attn_v,
-                        *self.mappings.mlp_in,
-                        self.mappings.lm_head,
-                    ],
-                    location="weight_input",
-                    inverse=True,
-                ),
-            ],
+            apply=apply_list,
         )
 
     def _create_r2_scheme(self, head_dim: int) -> TransformScheme:
+        transform_type = self.transform_type
+        if getattr(self.mappings, "attn_v_is_kv_combined", False):
+            assert self.transform_type == "hadamard"
+            transform_type = f"partial_{self.transform_type}"        
         return TransformScheme(
-            type=self.transform_type,
+            type=transform_type,
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
