@@ -1,6 +1,11 @@
 from compressed_tensors.offload import get_device_map, load_offloaded_model
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
+from compressed_tensors.quantization.quant_scheme import (
+    NVFP4,
+    FP8_BLOCK,
+    QuantizationScheme,
+)
+from transformers import AutoTokenizer
+import torch
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
@@ -9,35 +14,27 @@ from compressed_tensors.modeling.deepseekv32.config import (
 )
 from compressed_tensors.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 
-# from transformers.models.deepseek_v3 import (
-#     DeepseekV3Config as DeepseekV32Config,
-#     DeepseekV3ForCausalLM as DeepseekV32ForCausalLM,
-# )
-
-
-from transformers import AutoConfig, AutoModelForCausalLM
-
-AutoConfig.register("deepseek_v32", DeepseekV32Config)
-AutoModelForCausalLM.register(DeepseekV32Config, DeepseekV32ForCausalLM)
+# from transformers import AutoConfig, AutoModelForCausalLM
+# AutoConfig.register("deepseek_v32", DeepseekV32Config)
+# AutoModelForCausalLM.register(DeepseekV32Config, DeepseekV32ForCausalLM)
 
 
 model_id = "/mnt/nvme_stripe/playground/brian-dellabetta/DeepSeek-V3.2-bf16"
 # model_id = "nvidia/DeepSeek-R1-NVFP4"
 
-SAVE_DIR = "DeepSeek-V3.2-NVFP4"
+SAVE_DIR = "DeepSeek-V3.2-NVFP4-FP8-BLOCK"
 
 # Select model and load it in the `load_offloaded_model` context
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
+with load_offloaded_model(), torch.no_grad():
+    model = DeepseekV32ForCausalLM.from_pretrained(
         model_id,
         dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
         trust_remote_code=True,
         offload_folder="./offload_folder",
-        # max_memory={"cpu": 500e9},  # don't exceed 500GB RAM
+        max_memory={"cpu": 500e9},  # don't exceed 500GB RAM
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-print("LOADED")
 
 # Confirm that model is dispatched correctly
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
@@ -53,13 +50,27 @@ NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 
 # Configure the quantization algorithm to run.
-#   * quantize the weights to NVFP4
+#   * quantize mlp weights to NVFP4
+#   * quantize self_attn weights to FP8_BLOCK
 recipe = QuantizationModifier(
-    targets=[
-        # "Linear",
-        r"re:model.layers.1\..*proj.*",
-    ],
-    scheme="NVFP4",
+    config_groups={
+        "config_group_0": QuantizationScheme(
+            targets=[
+                r"re:model.*mlp.*(gate|up|down|gate_up)_proj$",
+            ],
+            **NVFP4,
+        ),
+        "config_group_1": QuantizationScheme(
+            targets=[
+                # NOTE: leaving weights_proj in bf16
+                r"re:model.*self_attn.indexer.(wk|wq_b)$",
+                r"re:model.*self_attn.kv_a_proj_with_mqa$",
+                r"re:model.*self_attn.(kv_b|o|q_a|q_b)_proj$",
+                r"re:model.*self_attn.*(gate|up|down|gate_up)_proj$",
+            ],
+            **FP8_BLOCK,
+        ),
+    },
     ignore=["lm_head"],
 )
 
