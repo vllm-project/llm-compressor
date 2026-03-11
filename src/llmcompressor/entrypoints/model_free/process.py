@@ -21,6 +21,7 @@ from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
 )
+from loguru import logger
 
 __all__ = [
     "validate_file",
@@ -82,6 +83,8 @@ def process_file(
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
 
     tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    # we will probably clean this up a bit more in future
+    tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
         converter.process(tensors)
@@ -253,3 +256,72 @@ def _load_tensors_from_inverse_weights_map(
                     )
                 tensors[tensor_name] = f.get_tensor(tensor_name)
     return tensors
+
+
+def split_fused_moe_experts(
+    tensors: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """
+    Find fused MoE experts (with gate_up_proj/down_proj).
+    Split them from 3D tensors into individual 2D expert tensors.
+
+    Args:
+        tensors: Dictionary of loaded tensors from safetensors file
+
+    Returns:
+        split_tensors: New dictionary with split expert weights
+    """
+    split_tensors = {}
+
+    for name, tensor in tensors.items():
+        # Check if this is a MoE expert weight (3D tensor for experts)
+        if tensor.ndim == 3 and (
+            "experts.gate_up_proj" in name or "experts.down_proj" in name
+        ):
+            # Get number of experts
+            num_experts = tensor.shape[0]
+
+            if "gate_up_proj" in name:
+                # gate_up_proj is typically [num_experts, 2*intermediate, hidden]
+                if tensor.shape[1] % 2 != 0:
+                    raise ValueError(
+                        f"gate_up_proj '{name}' expects an even second dimension, "
+                        f"but got {tensor.shape[1]}. Full shape: {tensor.shape}"
+                    )
+
+                # Split into individual experts
+                intermediate_size = tensor.shape[1] // 2
+                for expert_idx in range(num_experts):
+                    expert_tensor = tensor[expert_idx]  # [2*intermediate, hidden]
+                    # Split gate and up projections
+                    gate_proj, up_proj = expert_tensor.split(intermediate_size, dim=0)
+                    # Create new key names
+                    base_key = name.replace(
+                        "mlp.experts.gate_up_proj", f"mlp.experts.{expert_idx}"
+                    )
+                    split_tensors[base_key + ".gate_proj.weight"] = gate_proj
+                    split_tensors[base_key + ".up_proj.weight"] = up_proj
+
+                logger.info(f"Split {name} into {num_experts} experts")
+
+            elif "down_proj" in name:
+                # down_proj is typically [num_experts, hidden, intermediate]
+                # Split into individual experts
+                for expert_idx in range(num_experts):
+                    down_proj = tensor[expert_idx]  # [hidden, intermediate]
+
+                    # Create new key name
+                    new_key = (
+                        name.replace(
+                            "mlp.experts.down_proj", f"mlp.experts.{expert_idx}"
+                        )
+                        + ".down_proj.weight"
+                    )
+                    split_tensors[new_key] = down_proj
+
+                logger.info(f"Split {name} into {num_experts} experts")
+        else:
+            # Non-MoE or non-3D tensors, keep as is
+            split_tensors[name] = tensor
+
+    return split_tensors
