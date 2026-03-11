@@ -87,3 +87,36 @@ def test_mse_fp4():
         module.weight, scale, zero_point, weights, global_scale=global_scale
     )
     assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.0015  # 0.0013
+
+
+def test_mse_observer_torch_compile():
+    """Test that MSE observer produces correct results with compiled inner loop"""
+    from llmcompressor.observers.compile_config import set_observer_compile
+
+    args = QuantizationArgs(
+        num_bits=8,
+        type="int",
+        symmetric=True,
+        strategy="tensor",
+        observer="memoryless_mse",
+    )
+    observer = Observer.load_from_registry(
+        "memoryless_mse", base_name="weight", args=args
+    )
+    x = torch.randn(1, 1, 128)
+
+    # eager baseline
+    set_observer_compile(False)
+    eager_scale, eager_zp = observer(x)
+
+    # compiled inner loop
+    set_observer_compile(True)
+    compiled_scale, compiled_zp = observer(x)
+
+    torch.testing.assert_close(eager_scale, compiled_scale)
+    torch.testing.assert_close(eager_zp, compiled_zp)
+
+    # cleanup
+    set_observer_compile(False)
+    torch.testing.assert_close(eager_scale, compiled_scale)
+    torch.testing.assert_close(eager_zp, compiled_zp)
