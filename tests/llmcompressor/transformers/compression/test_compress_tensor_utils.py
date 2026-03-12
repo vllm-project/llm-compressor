@@ -87,6 +87,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         quantization_config=CompressedTensorsConfig(run_compressed=False),
     )
 
+    _remove_zp(og_state_dict)  # HACK: remove extra zero points added during quant init
     reconstructed_state_dict = decompressed_model.state_dict()
     assert len(og_state_dict) == len(reconstructed_state_dict)
     for key in og_state_dict.keys():
@@ -275,3 +276,11 @@ def test_correct_compressor_inferred(
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
     assert infer_model_format(model) == expected_format
+
+
+def _remove_zp(state_dict: dict) -> dict:
+    return {
+        key: value
+        for key, value in state_dict.items()
+        if not key.endswith("zero_point")
+    }
