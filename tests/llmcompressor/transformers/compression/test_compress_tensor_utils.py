@@ -238,7 +238,7 @@ def _quantization_config_from_string(config_str, q_type):
 
 
 @pytest.mark.parametrize(
-    "quant_style,quant_type,is_24,expected_format",
+    "quant_style,quant_type,expected_format",
     [
         ("W8A8", "int", False, "int-quantized"),
         ("W4A16", "int", False, "pack-quantized"),
@@ -251,7 +251,6 @@ def _quantization_config_from_string(config_str, q_type):
 def test_correct_compressor_inferred(
     quant_style,
     quant_type,
-    is_24,
     expected_format,
 ):
     """Test if the correct compressor is inferred based on quantization"""
