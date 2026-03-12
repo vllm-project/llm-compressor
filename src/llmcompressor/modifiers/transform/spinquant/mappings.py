@@ -22,6 +22,9 @@ class SpinQuantMapping(BaseModel):
     :param attn_head_dim: head_dim of the attention module, needed
         because R2 needs to be applied "head-wisely" to v_proj and
         o_proj
+    :param attn_v_is_kv_combined: if True, attn_v matches a combined K+V
+        linear (e.g. kv_b_proj); R2 will be applied only to the V
+        rows (using config qk_nope_head_dim/v_head_dim when available).
     :param mlp_in: list of names or regexes for the mlp blocks that
         receive the input to the MLP block, usually up_proj and gate_proj
     :param mlp_out: list of names or regexes for the mlp blocks that
@@ -32,10 +35,14 @@ class SpinQuantMapping(BaseModel):
 
     attn: str
     attn_q: str
-    attn_k: str
-    attn_v: str
+    attn_k: Optional[str] = Field(default=None)
+    attn_v: Optional[str] = Field(default=None)
     attn_o: str
     attn_head_dim: Optional[int] = Field(default=None)
+    attn_v_is_kv_combined: bool = Field(
+        default=False,
+        description="When True, R2 is applied only to the V rows of attn_v weight.",
+    )
 
     mlp_in: List[str]  # up_proj, gate_proj
     mlp_out: List[str]  # down_proj
@@ -62,9 +69,26 @@ _default_mappings = SpinQuantMapping(
     lm_head="lm_head",
 )
 
+_deepseek_mapping = SpinQuantMapping(
+    embedding="re:.*embed_tokens$",
+    attn="re:.*self_attn$",
+    attn_q="re:.*q(_a)?_proj$",
+    attn_k="re:.*kv_a_proj_with_mqa$",
+    attn_v="re:.*kv_b_proj$",
+    attn_o="re:.*o_proj$",
+    attn_v_is_kv_combined=True,
+    mlp_in=[
+        "re:.*up_proj$",
+        "re:.*gate_proj$",
+        "re:.*gate$",
+    ],
+    mlp_out="re:.*down_proj$",
+    lm_head="lm_head",
+)
 
 SPINQUANT_MAPPING_REGISTRY: Dict[str, SpinQuantMapping] = {
     "LlamaForCausalLM": _default_mappings,
+    "DeepseekV3ForCausalLM": _deepseek_mapping,
 }
 
 
