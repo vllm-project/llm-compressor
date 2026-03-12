@@ -96,14 +96,8 @@ class PartialHadamardTransform(HadamardTransform):
         v_head_dim: int = 0,
     ):
         super().__init__(weight, perm, scheme, args, module_type)
-        self.weight = weight
-        self.perm = perm
-        self.scheme = scheme
-        self.args = args
-        self.module_type = module_type
         self.qk_nope_head_dim = qk_nope_head_dim
         self.v_head_dim = v_head_dim
-        self._scale = torch.tensor(weight.size(0), dtype=torch.float64).sqrt()
 
     def forward(self, value: Tensor) -> Tensor:
         weight = self.weight
@@ -154,6 +148,7 @@ def apply_partial_transform_weight(
     :return: value after transform_weight has been applied
     """
     assert transform_weight.shape[0] == transform_weight.shape[1]
+    assert qk_nope_head_dim > 0 and v_head_dim > 0
     if TransformLocation(location).is_online():
         return _multihead_matmul(value, transform_weight)
 

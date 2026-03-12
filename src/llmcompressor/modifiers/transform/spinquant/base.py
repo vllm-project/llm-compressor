@@ -266,33 +266,21 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 location="weight_output",
             )
         )
-        if getattr(self.mappings, "attn_v_is_kv_combined", False):
-            apply_list.append(
-                TransformArgs(
-                    targets=[
-                        self.mappings.attn_q,
-                        self.mappings.attn_k,
-                        *self.mappings.mlp_in,
-                        self.mappings.lm_head,
-                    ],
-                    location="weight_input",
-                    inverse=True,
-                )
+        r1_input_targets = [
+            self.mappings.attn_q,
+            self.mappings.attn_k,
+            *self.mappings.mlp_in,
+            self.mappings.lm_head,
+        ]
+        if not getattr(self.mappings, "attn_v_is_kv_combined", False):
+            r1_input_targets.append(self.mappings.attn_v)
+        apply_list.append(
+            TransformArgs(
+                targets=r1_input_targets,
+                location="weight_input",
+                inverse=True,
             )
-        else:
-            apply_list.append(
-                TransformArgs(
-                    targets=[
-                        self.mappings.attn_q,
-                        self.mappings.attn_k,
-                        self.mappings.attn_v,
-                        *self.mappings.mlp_in,
-                        self.mappings.lm_head,
-                    ],
-                    location="weight_input",
-                    inverse=True,
-                )
-            )
+        )
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
