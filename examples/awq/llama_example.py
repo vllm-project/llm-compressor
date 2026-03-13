@@ -1,6 +1,3 @@
-import time
-
-import torch
 from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -58,9 +55,6 @@ recipe = [
     ),
 ]
 
-torch.cuda.reset_peak_memory_stats()
-start_time = time.time()
-
 # Apply algorithms.
 oneshot(
     model=model,
@@ -69,12 +63,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
-
-elapsed_time = time.time() - start_time
-peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
-print("Quantization Complete")
-print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
-print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")

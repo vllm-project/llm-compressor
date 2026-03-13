@@ -1,5 +1,3 @@
-import time
-
 import torch
 from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
@@ -94,9 +92,6 @@ recipe = AWQModifier(
     },
 )
 
-torch.cuda.reset_peak_memory_stats()
-start_time = time.time()
-
 # Apply AWQ quantization.
 oneshot(
     model=model,
@@ -107,12 +102,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     data_collator=data_collator,
 )
-
-elapsed_time = time.time() - start_time
-peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
-print("Quantization Complete")
-print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
-print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
 
 print("========== SAMPLE GENERATION ==============")
 dispatch_model(model)
