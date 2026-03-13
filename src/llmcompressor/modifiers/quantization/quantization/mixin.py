@@ -37,7 +37,10 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils import (
+    targets_embeddings,
+    untie_word_embeddings,
+)
 
 __all__ = ["QuantizationMixin"]
 
@@ -223,7 +226,7 @@ class QuantizationMixin(HooksMixin):
         if not self.bypass_divisibility_checks:
             validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
 
-        # disable quantization until calibration
+        # disable quantization until start_calibration
         model.apply(disable_quantization)
 
     def start_calibration(self, model: torch.nn.Module):

@@ -27,7 +27,10 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
+from llmcompressor.modifiers.quantization.calibration import (
+    update_activation_qparams,
+    update_weight_global_scale,
+)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
@@ -225,6 +228,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self.compress_modules()
+            modules = kwargs["modules"]
+            update_activation_qparams(modules)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             self.compress_modules()
@@ -372,6 +377,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
         self.remove_hooks()  # remove gptq hooks
+
+        for module in state.model.named_modules(remove_duplicate=True):
+            update_fused_layer_weight_global_scales(module)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

@@ -1,20 +1,22 @@
 from abc import abstractmethod
 from typing import Optional, Tuple
-from weakref import ref
 
 import torch
 from compressed_tensors import InternalModule
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
+from compressed_tensors.offload import update_offload_parameter
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
-from compressed_tensors.utils import align_module_device
+from torch import distributed as dist
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple"]
+__all__ = ["Observer", "MinMaxTuple"]
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
-ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -37,17 +39,21 @@ class Observer(InternalModule, RegistryMixin):
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
+    min_vals: torch.Tensor | None
+    max_vals: torch.Tensor | None
+
     def __init__(
         self,
         base_name: str,
         args: QuantizationArgs,
-        module: Optional[torch.nn.Module] = None,
         **observer_kwargs,
     ):
         super().__init__()
-        self.module = ref(module) if module is not None else None
         self.base_name = base_name
         self.args = args
+
+        self.min_vals = None
+        self.max_vals = None
 
         # populate observer kwargs
         self.args.observer_kwargs = self.args.observer_kwargs or {}
@@ -63,19 +69,7 @@ class Observer(InternalModule, RegistryMixin):
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate min and max values from observed value for the purposes of
-        global scale calculation
-
-        :param observed: value of shape (num_observations, 1, group_size)
-        :return: minimum value and maximum value whose shapes are (1, )
-        """
-        raise NotImplementedError()
-
-    @torch.no_grad
-    def forward(self, observed: torch.Tensor) -> ScaleZpTuple:
+    def forward(self, observed: torch.Tensor, g_idx: Optional[torch.Tensor] = None):
         """
         Calculate updated scales and zero points from observed value
         (weight, activation, or attention state).
@@ -83,62 +77,51 @@ class Observer(InternalModule, RegistryMixin):
         :param observed: value being observed
         :return: calibrated scale and zero point
         """
-        scales, zero_points, _min, _max = self._forward_with_minmax(observed)
-        return (scales, zero_points)
-
-    @torch.no_grad
-    def get_global_scale(self, observed: torch.Tensor) -> torch.Tensor:
-        """
-        Calculate updated global scale from observed value
-        (weight, activation, or attention state).
-
-        :param observed: value being observed
-        :return: calibrated global parameter
-        """
-        global_scale, _min, _max = self._get_global_scale_with_minmax(observed)
-        return global_scale
-
-    def _forward_with_minmax(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        g_idx = self._get_module_param("g_idx")
-        global_scale = self._get_module_param("global_scale")
-        self._check_has_global_scale(global_scale)
-
         observed = flatten_for_calibration(observed, self.base_name, self.args, g_idx)
-        min_vals, max_vals = self.get_min_max(observed)
+        self.min_vals, self.max_vals = self.get_min_max(observed)
 
-        scales, zero_points = calculate_qparams(
-            min_vals=min_vals,
-            max_vals=max_vals,
-            quantization_args=self.args,
-            global_scale=global_scale,
-        )
-        return scales, zero_points, min_vals, max_vals
+    def calibrate_module(self, module: torch.nn.Module):
+        for name, value in self.calculate_qparams().items():
+            update_offload_parameter(module, name, value)
 
-    def _get_global_scale_with_minmax(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        observed = observed.reshape((1, 1, -1))  # per tensor reshape
+    def calculate_qparams(self) -> dict[str, torch.Tensor]:
+        """
+        Calculate min and max values from observed value
 
-        global_min_vals, global_max_vals = self.get_global_min_max(observed)
-        global_scale = generate_gparam(global_min_vals, global_max_vals)
+        :param observed: value of shape (num_observations, *qparam_shape, group_size)
+        :return: minimum value and maximum value whose shapes are (*qparam_shape, )
+        """
+        if self.min_vals is None or self.max_vals is None:
+            raise ValueError()
 
-        return global_scale, global_min_vals, global_max_vals
+        qparams = dict()
 
-    def _get_module_param(self, name: str) -> Optional[torch.nn.Parameter]:
-        if self.module is None or (module := self.module()) is None:
-            return None
+        global_scale = None
+        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            global_scale = generate_gparam(self.min_vals.min(), self.max_vals.max())
+            qparams[self.base_name + "_global_scale"] = global_scale
 
-        with align_module_device(module):
-            return getattr(module, f"{self.base_name}_{name}", None)
-
-    def _check_has_global_scale(self, global_scale: Optional[torch.nn.Parameter]):
-        if (
-            self.args.strategy == QuantizationStrategy.TENSOR_GROUP
-            and global_scale is None
-        ):
-            raise ValueError(
-                "Cannot compute scale and zero points "
-                "without first computing global scale"
+        if self.args.dynamic == False:
+            scale, zero_point = calculate_qparams(
+                min_vals=self.min_vals,
+                max_vals=self.max_vals,
+                quantization_args=self.args,
+                global_scale=global_scale,
             )
+            qparams[self.base_name + "_scale"] = scale
+            qparams[self.base_name + "_zero_point"] = zero_point
+
+        return qparams
+
+    def synchronize(self, dst) -> list[dist.Work]:
+        comms = []
+        if self.min_vals is not None:
+            comms.append(
+                dist.reduce(self.min_vals, dst=dst, op=dist.ReduceOp.MIN, async_op=True)
+            )
+        if self.max_vals is not None:
+            comms.append(
+                dist.reduce(self.max_vals, dst=dst, op=dist.ReduceOp.MAX, async_op=True)
+            )
+
+        return comms

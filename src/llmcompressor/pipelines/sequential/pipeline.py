@@ -19,7 +19,6 @@ from llmcompressor.pipelines.sequential.helpers import (
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import (
-    DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
 )
@@ -111,18 +110,8 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        # TODO: remove this to enable quantization aware calibration
-        # for GPTQ, AWQ and AutoRound.
-        disable_qac = any(
-            type(mod).__name__ in DISABLE_QAC_MODIFIERS
-            for mod in session.lifecycle.recipe.modifiers
-        )
-
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-            # Optionally disable quantization
-            if not dataset_args.quantization_aware_calibration or disable_qac:
-                stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
@@ -149,17 +138,18 @@ class SequentialPipeline(CalibrationPipeline):
                 use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    for batch_idx, inputs in _get_batches(
-                        activations,
-                        num_batches,
-                        subgraph.input_names,
-                        calib_desc,
-                        use_prefetch,
-                    ):
-                        session.state.current_batch_idx = batch_idx
-                        subgraph.forward(model, **inputs)
+                    with DisableQuantization(model):
+                        for batch_idx, inputs in _get_batches(
+                            activations,
+                            num_batches,
+                            subgraph.input_names,
+                            calib_desc,
+                            use_prefetch,
+                        ):
+                            session.state.current_batch_idx = batch_idx
+                            subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph)
+                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules

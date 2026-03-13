@@ -1,11 +1,9 @@
-import tqdm
-from compressed_tensors.utils import match_named_modules
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
-    update_weight_global_scale,
-    update_weight_zp_scale,
+    update_activation_qparams,
+    update_weight_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
@@ -19,6 +17,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     given module or its submodules. After calibration (PTQ) or the start epoch (QAT),
     the specified module(s) forward pass will emulate quantized execution and the
     modifier will be enabled until training is completed.
+
+    In DDP mode, activation observer statistics are all-reduced across ranks at
+    sequential layer boundaries so all ranks share identical quantization parameters.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -65,35 +66,21 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
-        Begin calibrating activations and weights. Calibrate weights only once on start
+        Begin calibrating activations and weights. Calibrate weights only once
+        on start. Each rank calibrates weights independently.
         """
         self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
-
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-        # TODO: this step can be combined with update_weight_zp_scale
-        # once update_fused_layer_weight_global_scales is removed
-        # and not required by vLLM
-        for _, module in named_modules:
-            update_weight_global_scale(module)
-
-        # NOTE: update_fused_layer_weight_global_scales operates on Attention
-        # and MLP layers, not quantizable Linear layers. Rather than running
-        # on targeted modules, we need to run on all modules.
-        # Because this call is idempotent, setting all global_scales to the
-        # min value, it is ok to run potentially multiple times for all modules
-        for module in state.model.modules():
-            update_fused_layer_weight_global_scales(module)
-
-        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
                 self.on_start(state, None)
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            modules = kwargs["modules"]
+            update_weight_qparams(modules)
+            update_activation_qparams(modules)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
@@ -104,9 +91,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Finish calibrating by removing observers and calibration hooks
         """
         self.ended_ = True
-        QuantizationMixin.end_calibration(
-            self, state.model
-        )  # keep quantization enabled
+        QuantizationMixin.end_calibration(self, state.model)
+
+        for module in state.model.named_modules(remove_duplicate=True):
+            update_fused_layer_weight_global_scales(module)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         if not self.ended_:
