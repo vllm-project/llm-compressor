@@ -3,6 +3,7 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
     disable_quantization,
@@ -43,6 +44,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.utils import all_reduce_mean
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_module_to_name_dict,
@@ -459,11 +461,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     masked_activations = activations.flatten(0, -2)
 
-                act_mean, count = _accumulate_mean(
+                act_sum, count = _accumulate_sum(
                     masked_activations,
                     self._smooth_activation_means.get(smooth_name, None),
                 )
-                self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
+                self._smooth_activation_means[smooth_name] = (act_sum.cpu(), count)
 
             return cache_smooth_activations_hook
 
@@ -646,7 +648,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
+        x_sum, count = self._smooth_activation_means[mapping.smooth_name]
+        if is_distributed():
+            x_mean = all_reduce_mean(x_sum, count)
+        else:
+            x_mean = x_sum / count
+        x_mean = x_mean.to(device)
+
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
@@ -807,8 +815,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         session = active_session()
         loss_masks = session.state.loss_masks if session.state else None
 
-        loss = 0.0
-        num_elements = 0
+        device = fp16_outputs[0].device
+        loss = torch.tensor(0.0, device=device)
+        num_elements = torch.tensor(0, device=device)
 
         # Compute the MSE loss for each batch
         for batch_idx, (fp16_batch, int_w_batch) in enumerate(
@@ -830,8 +839,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
                 num_elements += fp16_batch.numel()
 
-        # Normalize the loss by the total number of elements
-        return (loss / num_elements).item()
+        if is_distributed():
+            avg_loss = all_reduce_mean(loss, num_elements)
+        else:
+            avg_loss = loss / num_elements
+        return avg_loss.item()
 
     def _log_error_metrics(self):
         """
@@ -1024,19 +1036,17 @@ def get_lowest_common_ancestor_with_avoid(
         ancestor_name = ".".join(ancestor_name.split(".")[:-1])
 
 
-def _accumulate_mean(
+def _accumulate_sum(
     inp: torch.Tensor,
-    prev_mean_and_count: tuple[torch.FloatTensor, int] | None,
-) -> tuple[torch.FloatTensor, int]:
-    sum_added = inp.sum(dim=0)
-    num_added = inp.size(0)
-    if prev_mean_and_count is None:
-        return sum_added / num_added, num_added
+    prev_sum_and_count: tuple[torch.FloatTensor, torch.Tensor] | None,
+) -> tuple[torch.FloatTensor, torch.Tensor]:
+    sum_added = inp.sum(dim=0).float()
+    num_added = torch.tensor(inp.size(0), device=inp.device)
+    if prev_sum_and_count is None:
+        return sum_added, num_added
 
-    prev_mean, prev_count = prev_mean_and_count
-    prev_mean = prev_mean.to(inp.device)
-
-    prev_sum = prev_mean * prev_count
+    prev_sum, prev_count = prev_sum_and_count
+    prev_sum = prev_sum.to(inp.device)
     new_count = prev_count + num_added
 
-    return (prev_sum + sum_added) / new_count, new_count
+    return prev_sum + sum_added, new_count

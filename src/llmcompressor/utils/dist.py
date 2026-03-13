@@ -1,6 +1,8 @@
 from typing import Callable, Hashable, TypeVar
 
+import torch
 import torch.distributed as dist
+from compressed_tensors.offload.dist_utils import as_broadcastable
 
 T = TypeVar("T", bound=Hashable)
 
@@ -52,3 +54,24 @@ def wait_for_comms(pending_comms: list[dist.Work]) -> None:
     for comm in list(pending_comms):
         comm.wait()
     pending_comms.clear()
+
+
+def all_reduce_mean(total: torch.Tensor, count: torch.Tensor):
+    device = torch.device(f"cuda:{torch.cuda.current_device()}")
+    pending_comms = []
+    pending_comms.append(
+        dist.all_reduce(
+            as_broadcastable(total.to(device)),
+            op=dist.ReduceOp.SUM,
+            async_op=True,
+        )
+    )
+    pending_comms.append(
+        dist.all_reduce(
+            as_broadcastable(count.to(device)),
+            op=dist.ReduceOp.SUM,
+            async_op=True,
+        )
+    )
+    wait_for_comms(pending_comms)
+    return total / count
