@@ -39,15 +39,18 @@ def _run_observer_test(
     weights.observer = observer_name
 
     observer = Observer.load_from_registry(
-        observer_name, base_name="weight", args=weights, module=module
+        observer_name, base_name="weight", args=weights
     )
 
-    global_scale = None
-    if strategy == "tensor_group" and module is not None:
-        global_scale = observer.get_global_scale(tensor)
-        module.weight_global_scale = global_scale
+    # Observe the tensor to accumulate min/max
+    observer(tensor)
 
-    scale, zero_point = observer(tensor)
+    # Calculate quantization parameters
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
+    global_scale = qparams.get("weight_global_scale", None)
+
     assert (scale >= 0).all(), "Scale values should be non-negative"
 
     weights_clean = _create_base_quantization_args(

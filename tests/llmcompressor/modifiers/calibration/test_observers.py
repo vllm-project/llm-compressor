@@ -50,7 +50,10 @@ def test_observers_update(shape, group_size, actorder):
         ("output", output),
     ):
         observer = getattr(module, f"{location}_observer")
-        updated_scale, updated_zero_point = observer(value)
+        observer(value)
+        qparams = observer.calculate_qparams()
+        updated_scale = qparams[f"{location}_scale"]
+        updated_zero_point = qparams[f"{location}_zero_point"]
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
         assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))
@@ -112,12 +115,14 @@ def test_observer_min_max_vals(
     min_vals, max_vals = [], []
     for _observed in observed:
         if not is_global:
-            _, _, _min_vals, _max_vals = observer._forward_with_minmax(_observed)
+            # For non-global, observe the value directly
+            observer(_observed)
         else:
-            _, _min_vals, _max_vals = observer._get_global_scale_with_minmax(_observed)
+            # For global, reshape to per-tensor (1, 1, -1) as done in old API
+            observer(_observed.reshape((1, 1, -1)))
 
-        min_vals.append(_min_vals)
-        max_vals.append(_max_vals)
+        min_vals.append(observer.min_vals.clone())
+        max_vals.append(observer.max_vals.clone())
 
     min_vals = torch.stack(min_vals)
     max_vals = torch.stack(max_vals)

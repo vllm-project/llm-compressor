@@ -125,8 +125,6 @@ def quantize_weight(
             qparams = observer.calculate_qparams(global_scale=global_scale)
             scale = qparams["weight_scale"]
             zero_point = qparams["weight_zero_point"]
-            if global_scale is None and "weight_global_scale" in qparams:
-                global_scale = qparams["weight_global_scale"]
 
             # use identity g_idx (invert permutation later)
 
@@ -136,8 +134,6 @@ def quantize_weight(
             qparams = observer.calculate_qparams(global_scale=global_scale)
             scale = qparams["weight_scale"]
             zero_point = qparams["weight_zero_point"]
-            if global_scale is None and "weight_global_scale" in qparams:
-                global_scale = qparams["weight_global_scale"]
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
@@ -148,15 +144,11 @@ def quantize_weight(
             qparams = observer.calculate_qparams(global_scale=global_scale)
             scale = qparams["weight_scale"]
             zero_point = qparams["weight_zero_point"]
-            if global_scale is None and "weight_global_scale" in qparams:
-                global_scale = qparams["weight_global_scale"]
     else:
         observer(W)
         qparams = observer.calculate_qparams(global_scale=global_scale)
         scale = qparams["weight_scale"]
         zero_point = qparams["weight_zero_point"]
-        if global_scale is None and "weight_global_scale" in qparams:
-            global_scale = qparams["weight_global_scale"]
 
     # sparsity mask
     sparsity = tensor_sparsity(W)

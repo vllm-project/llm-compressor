@@ -676,7 +676,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                     "memoryless_minmax",
                     base_name="weight",
                     args=balance_layer.quantization_scheme.weights,
-                    module=balance_layer,
                 )
                 for balance_layer in balance_layers_to_patch
             ],

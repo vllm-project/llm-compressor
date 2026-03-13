@@ -90,28 +90,35 @@ def call_observer(
     should_calculate_qparams: bool = True,
 ):
     """
-    Call a module's attached input/weight/output observer using a provided value.
-    Update the module's scale and zp using the observer's return values.
+    Call a module's attached input/weight/output observer to accumulate min/max values,
+    then calculate and update the module's quantization parameters.
 
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
-    :param should_calculate_gparam: deprecated, ignored (global params calculated automatically)
-    :param should_calculate_qparams: whether to calculate quantization parameters
+    :param should_calculate_gparam: whether to calculate and update global scale parameters
+    :param should_calculate_qparams: whether to calculate and update quantization parameters
     """
     with align_module_device(module):
         if value is None and base_name == "weight":
             value = module.weight
         observer: Observer = getattr(module, f"{base_name}_observer")
 
+        # get auxillary qparams
+        g_idx = getattr(module, "weight_g_idx", None)
+        global_scale = getattr(module, base_name + "_global_scale", None)
+
         # Call observer forward to accumulate min/max values
-        observer(value)
+        observer(value, g_idx=g_idx)
 
         # Calculate quantization parameters from accumulated min/max
-        if should_calculate_qparams or should_calculate_gparam:
-            qparams = observer.calculate_qparams()
-            for param_name, param_value in qparams.items():
+        qparams = observer.calculate_qparams(global_scale=global_scale)
+        for param_name, param_value in qparams.items():
+            is_gparam = param_name.endswith("global_scale")
+            if (is_gparam and should_calculate_gparam) or (
+                not is_gparam and should_calculate_qparams
+            ):
                 update_offload_parameter(module, param_name, param_value)
 
 

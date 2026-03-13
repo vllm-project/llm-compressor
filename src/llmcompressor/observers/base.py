@@ -35,8 +35,6 @@ class Observer(InternalModule, RegistryMixin):
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
@@ -72,33 +70,47 @@ class Observer(InternalModule, RegistryMixin):
 
     def forward(self, observed: torch.Tensor, g_idx: Optional[torch.Tensor] = None):
         """
-        Calculate updated scales and zero points from observed value
+        Accumulate min and max values from observed value
         (weight, activation, or attention state).
 
         :param observed: value being observed
-        :return: calibrated scale and zero point
+        :param g_idx: optional group index tensor for group quantization
         """
         observed = flatten_for_calibration(observed, self.base_name, self.args, g_idx)
         self.min_vals, self.max_vals = self.get_min_max(observed)
 
     def calibrate_module(self, module: torch.nn.Module):
+        """
+        Calculate quantization parameters and update the module with them.
+
+        :param module: module to update with quantization parameters
+        """
         for name, value in self.calculate_qparams().items():
             update_offload_parameter(module, name, value)
 
-    def calculate_qparams(self) -> dict[str, torch.Tensor]:
+    def calculate_qparams(
+        self, global_scale: Optional[torch.Tensor] = None
+    ) -> dict[str, torch.Tensor]:
         """
-        Calculate min and max values from observed value
+        Calculate quantization parameters from accumulated min/max values.
 
-        :param observed: value of shape (num_observations, *qparam_shape, group_size)
-        :return: minimum value and maximum value whose shapes are (*qparam_shape, )
+        Calculates and returns global_scale if the quantization strategy requires it
+        and no global_scale argument is provided. Otherwise, the global_scale argument
+        is used.
+
+        :param global_scale: optional pre-computed global scale for tensor-group quantization
+        :return: dictionary mapping parameter names to their computed values
+            (e.g., "weight_scale", "weight_zero_point", "weight_global_scale")
         """
         if self.min_vals is None or self.max_vals is None:
             raise ValueError()
 
         qparams = dict()
 
-        global_scale = None
-        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
+        if (
+            global_scale is None
+            and self.args.strategy == QuantizationStrategy.TENSOR_GROUP
+        ):
             global_scale = generate_gparam(self.min_vals.min(), self.max_vals.max())
             qparams[self.base_name + "_global_scale"] = global_scale
 

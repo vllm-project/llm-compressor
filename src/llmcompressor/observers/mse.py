@@ -23,26 +23,20 @@ class MemorylessMSEObserver(Observer):
 
     ```psuedocode
     mse_quant_error := mean((x - fake_quant(x))**2)
-    global_scale <- min[min_vals, max_vals, global_scale](mse_quant_error(x))
+    global_scale <- min[min_vals, max_vals, global_scale](mse_quant_error(x))  # if tensor_group
     scale, zp <- min[min_vals, max_vals](mse_quant_error(x, global_scale))
     ```
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
-    :param **observer_kwargs: keyword arguments for observer initialization\n
-        maxshrink: maximum shrink amount (in “grid steps”). The number of
-            search steps is int(maxshrink * grid)\n
+    :param **observer_kwargs: keyword arguments for observer initialization
+        maxshrink: maximum shrink amount (in "grid steps"). The number of
+            search steps is int(maxshrink * grid)
         patience: number of consecutive search steps without improvement before
-            early stopping\n
+            early stopping
         grid: resolution of the shrink search. Larger values give finer granularity
-            in shrink factors\n
-        norm: exponent used when computing the error. norm = 2 approximates MSE\n
-        global_scale: precomputed global scale to use for quantization. Ignored if
-            `optimize_global_scale` is True\n
-        optimize_global_scale: If True, recompute ``global_scale`` from the
-            candidate min/max during each step of the search
+            in shrink factors
+        norm: exponent used when computing the error. norm = 2 approximates MSE
     """
 
     def __init__(self, *args, **kwargs):
@@ -55,6 +49,8 @@ class MemorylessMSEObserver(Observer):
 
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals](mse_quant_error)
+        # Always optimize global_scale when strategy is tensor_group
+        optimize_global_scale = self.args.strategy == QuantizationStrategy.TENSOR_GROUP
         return _grid_search_mse(
             observed,
             self.args,
@@ -63,7 +59,7 @@ class MemorylessMSEObserver(Observer):
             self.grid,
             self.norm,
             global_scale=None,
-            optimize_global_scale=True,
+            optimize_global_scale=optimize_global_scale,
         )
 
 
@@ -71,30 +67,24 @@ class MemorylessMSEObserver(Observer):
 class MovingAverageMSEObserver(MovingAverageObserverBase):
     """
     Compute quantization parameters by finding the optimal min/max values which minimize
-    the mean of quantization error squared.
+@Observer.register("mse")
 
     ```psuedocode
     mse_quant_error := mean((x - fake_quant(x))**2)
-    global_scale <- min[min_vals, max_vals, global_scale](mse_quant_error(x))
+    global_scale <- min[min_vals, max_vals, global_scale](mse_quant_error(x))  # if tensor_group
     scale, zp <- min[min_vals, max_vals](mse_quant_error(x, global_scale))
     ```
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
-    :param **observer_kwargs: keyword arguments for observer initialization\n
-        maxshrink: maximum shrink amount (in “grid steps”). The number of
-            search steps is int(maxshrink * grid)\n
+    :param **observer_kwargs: keyword arguments for observer initialization
+        maxshrink: maximum shrink amount (in "grid steps"). The number of
+            search steps is int(maxshrink * grid)
         patience: number of consecutive search steps without improvement before
-            early stopping\n
+            early stopping
         grid: resolution of the shrink search. Larger values give finer granularity
-            in shrink factors\n
-        norm: exponent used when computing the error. norm = 2 approximates MSE\n
-        global_scale: precomputed global scale to use for quantization. Ignored if
-            `optimize_global_scale` is True\n
-        optimize_global_scale: If True, recompute ``global_scale`` from the
-            candidate min/max during each step of the search
+            in shrink factors
+        norm: exponent used when computing the error. norm = 2 approximates MSE
     """
 
     def __init__(self, *args, **kwargs):
@@ -107,6 +97,8 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
 
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals](mse_quant_error)
+        # Always optimize global_scale when strategy is tensor_group
+        optimize_global_scale = self.args.strategy == QuantizationStrategy.TENSOR_GROUP
         return _grid_search_mse(
             observed,
             self.args,
@@ -115,7 +107,7 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
             self.grid,
             self.norm,
             global_scale=None,
-            optimize_global_scale=True,
+            optimize_global_scale=optimize_global_scale,
         )
 
 
@@ -133,13 +125,13 @@ def _grid_search_mse(
     Perform a 1-D grid search to find per-channel min/max ranges that minimize
     mean-squared quantization error.
 
-    This routine progressively “shrinks” the absolute min/max ranges of the
+    This routine progressively "shrinks" the absolute min/max ranges of the
     observed tensor and evaluates the quantization error at each candidate
     range. For each shrink factor ``p = 1 - i/grid`` up to ``maxshrink``.
 
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
     :param args: quantization args used for computing qparams and fake quant
-    :param maxshrink: maximum shrink amount (in “grid steps”). The number of
+    :param maxshrink: maximum shrink amount (in "grid steps"). The number of
         search steps is int(maxshrink * grid)
     :param patience: number of consecutive search steps without improvement before
         early stopping
@@ -167,7 +159,8 @@ def _grid_search_mse(
         shrinked_max_val = p * max_val
 
         if optimize_global_scale:
-            global_scale = generate_gparam(shrinked_min_val, shrinked_max_val)
+            # For tensor_group, generate_gparam expects scalar min/max across all groups
+            global_scale = generate_gparam(shrinked_min_val.min(), shrinked_max_val.max())
 
         candidate_scales, candidate_zero_points = calculate_qparams(
             min_vals=shrinked_min_val,

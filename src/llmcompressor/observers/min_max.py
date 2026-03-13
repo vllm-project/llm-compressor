@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
@@ -13,16 +15,22 @@ class MemorylessMinMaxObserver(Observer):
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         return _get_min_max(observed)
 
-    def calculate_qparams(self) -> dict[str, torch.Tensor]:
-        ret = super().calculate_qparams()
+    def calculate_qparams(
+        self, global_scale: Optional[torch.Tensor] = None
+    ) -> dict[str, torch.Tensor]:
+        """
+        Calculate quantization parameters and clear accumulated min/max values.
+
+        :param global_scale: optional pre-computed global scale for tensor-group quantization
+        :return: dictionary mapping parameter names to their computed values
+        """
+        ret = super().calculate_qparams(global_scale)
         self.min_vals = None
         self.max_vals = None
 
@@ -36,8 +44,6 @@ class StaticMinMaxObserver(Observer):
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
@@ -59,8 +65,6 @@ class MinMaxObserver(MovingAverageObserverBase):
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 

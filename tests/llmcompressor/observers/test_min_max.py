@@ -27,7 +27,10 @@ def test_min_max_observer(symmetric, expected_scale, expected_zero_point):
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    observer(tensor)
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
 
     assert round(scale.item(), 4) == expected_scale
     assert round(zero_point.item(), 4) == expected_zero_point
@@ -42,7 +45,10 @@ def test_min_max_observer_symmetric_scale_range():
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    observer(tensor)
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
 
     # if symmetric, max symmetric_range = abs(-128) / 255
     assert round(scale.item(), 4) <= 1.0039
@@ -75,7 +81,9 @@ def test_min_max_observer_value_update():
     curr_max = 1
     curr_min = 1
     for i, tensor in enumerate(tensors):
-        _, _, min_vals, max_vals = observer._forward_with_minmax(tensor)
+        observer(tensor)
+        min_vals = observer.min_vals
+        max_vals = observer.max_vals
         curr_max = max(max_vals[0], curr_max)
         curr_min = min(min_vals[0], curr_min)
 
@@ -96,20 +104,23 @@ def test_g_idx():
     tensor = torch.rand(input_shape)
     weights = QuantizationArgs(num_bits=8, group_size=group_size, observer="minmax")
 
-    module = torch.nn.Linear(512, 1)
     g_idx = make_dummy_g_idx(tensor.shape[1], group_size)
-    module.weight_g_idx = g_idx
 
     observer = Observer.load_from_registry(
-        weights.observer, base_name="weight", args=weights, module=module
+        weights.observer, base_name="weight", args=weights
     )
-    scale_g_idx, zero_point_g_idx = observer(tensor)
+    observer(tensor, g_idx=g_idx)
+    qparams_g_idx = observer.calculate_qparams()
+    scale_g_idx = qparams_g_idx["weight_scale"]
+    zero_point_g_idx = qparams_g_idx["weight_zero_point"]
 
     observer = Observer.load_from_registry(
-        weights.observer, base_name="weight", args=weights, module=module
+        weights.observer, base_name="weight", args=weights
     )
-    del module.weight_g_idx
-    scale, zero_point = observer(tensor[:, torch.argsort(g_idx)])
+    observer(tensor[:, torch.argsort(g_idx)])
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
 
     assert scale_g_idx == pytest.approx(scale)
     assert zero_point_g_idx == pytest.approx(zero_point)

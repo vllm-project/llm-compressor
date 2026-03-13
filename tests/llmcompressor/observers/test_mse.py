@@ -35,7 +35,10 @@ def test_mse_observer(strategy, symmetric, exp_loss):
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
     assert isinstance(observer, MovingAverageMSEObserver)
 
-    scale, zero_point = observer(tensor)
+    observer(tensor)
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
     q_tensor = fake_quantize(tensor, scale, zero_point, weights)
     mse_loss = torch.sum((tensor - q_tensor).abs_().pow_(2)) / tensor.numel()
     assert mse_loss == pytest.approx(exp_loss, abs=1e-10)
@@ -50,7 +53,10 @@ def test_mse_observer_symmetric_scale_range():
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    observer(tensor)
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
 
     # if symmetric, max symmetric_range = abs(-128) / 255
     assert round(scale.item(), 4) <= 1.0039
@@ -70,17 +76,16 @@ def test_mse_fp4():
     )
 
     observer = Observer.load_from_registry(
-        "mse", base_name="weight", args=weights, module=module
+        "mse", base_name="weight", args=weights
     )
 
-    # must compute global scale first
-    with pytest.raises(ValueError):
-        scale, zero_point = observer(module.weight)
-
-    # compute qparams
-    global_scale = observer.get_global_scale(module.weight)
-    module.weight_global_scale = global_scale
-    scale, zero_point = observer(module.weight)
+    # compute qparams - global_scale is calculated and optimized automatically
+    # during the MSE grid search for tensor_group strategy
+    observer(module.weight)
+    qparams = observer.calculate_qparams()
+    scale = qparams["weight_scale"]
+    zero_point = qparams["weight_zero_point"]
+    global_scale = qparams["weight_global_scale"]
 
     # check mse loss
     qdq_tensor = fake_quantize(
