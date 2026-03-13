@@ -3,7 +3,6 @@ import weakref
 from functools import wraps
 
 import torch
-from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
     ModelCompressor,
     SparsityCompressionConfig,
@@ -15,9 +14,6 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.transformers.compression.sparsity_metadata_config import (
-    SparsityConfigMetadata,
-)
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
@@ -143,59 +139,14 @@ def get_model_compressor(
     :param disable_sparse_compression: bool to skip sparse compression
     """
 
-    if sparsity_config is None:
-        """
-        Case 1: No sparsity config is provided
-            1. Will either skip sparsity compression
-            2. Or we will infer sparsity from the model directly
-
-        Check recipe for applied sparsity:
-            - Set skip_sparsity_compression_stats to False if don't find a
-                sparsity structure from the recipe
-            - If we identify sparsity based on the recipe or the user
-                set skip_sparsity_compression_stats to False, generate config
-        """
-        sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
-            model, check_only_modifiers=True
+    if (
+        sparsity_config is not None
+        or not skip_sparsity_compression_stats
+        or disable_sparse_compression
+    ):
+        logger.warning(
+            "Sparse compression is no longer supported by compressed-tensors"
         )
-        if sparsity_structure is not None:
-            skip_sparsity_compression_stats = False
-
-        if skip_sparsity_compression_stats:
-            logger.info(
-                "skip_sparsity_compression_stats set to True. Skipping sparsity "
-                "compression statistic calculations. No sparsity compressor will "
-                "be applied."
-            )
-            sparsity_config = None
-        else:
-            state_dict = get_state_dict_offloaded_model(model)
-
-            sparsity_config = SparsityConfigMetadata.from_pretrained(
-                model,
-                state_dict=state_dict,
-                compress=save_compressed,
-                quantization_format=quantization_format,
-                disable_sparse_compression=disable_sparse_compression,
-                sparsity_structure=sparsity_structure,
-            )
-    else:
-        """
-        # Case 2: User provides a Sparsity Config
-            - This is the case when there is existing sparsity in the
-                model that we'd like to account for while compressing
-            - Users should provide a SparsityConfig, conveying the model's
-                sparsity structure when saving the model
-        """
-        if sparsity_config.sparsity_structure is None:
-            logger.info(
-                "SparsityConfigMetadata provided without indicating ",
-                "the sparsity structure. Sparisty will be inferred from the model. "
-                "Consider providing the structure to skip this step ",
-            )
-            sparsity_config.sparsity_structure = (
-                SparsityConfigMetadata.infer_sparsity_structure(model)
-            )
 
     if not save_compressed:
         if quantization_format not in (None, CompressionFormat.dense.value):
@@ -209,7 +160,6 @@ def get_model_compressor(
 
     return ModelCompressor.from_pretrained_model(
         model,
-        sparsity_config_or_format=sparsity_config,
         quantization_format=quantization_format,
     )
 
