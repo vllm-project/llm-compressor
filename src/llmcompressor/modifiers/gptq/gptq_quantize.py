@@ -97,7 +97,6 @@ def quantize_weight(
         quant_args.observer if quant_args.observer else "memoryless_minmax",
         base_name="weight",
         args=quant_args,
-        module=module,
     )
 
     # standardize shape and dtype
@@ -122,22 +121,42 @@ def quantize_weight(
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
             update_offload_parameter(module, "weight_g_idx", g_idx)
-            scale, zero_point = observer(W)
+            observer(W)
+            qparams = observer.calculate_qparams(global_scale=global_scale)
+            scale = qparams["weight_scale"]
+            zero_point = qparams["weight_zero_point"]
+            if global_scale is None and "weight_global_scale" in qparams:
+                global_scale = qparams["weight_global_scale"]
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = observer(W)
+            observer(W)
+            qparams = observer.calculate_qparams(global_scale=global_scale)
+            scale = qparams["weight_scale"]
+            zero_point = qparams["weight_zero_point"]
+            if global_scale is None and "weight_global_scale" in qparams:
+                global_scale = qparams["weight_global_scale"]
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
 
         else:
-            scale, zero_point = observer(W)
+            observer(W)
+            qparams = observer.calculate_qparams(global_scale=global_scale)
+            scale = qparams["weight_scale"]
+            zero_point = qparams["weight_zero_point"]
+            if global_scale is None and "weight_global_scale" in qparams:
+                global_scale = qparams["weight_global_scale"]
     else:
-        scale, zero_point = observer(W)
+        observer(W)
+        qparams = observer.calculate_qparams(global_scale=global_scale)
+        scale = qparams["weight_scale"]
+        zero_point = qparams["weight_zero_point"]
+        if global_scale is None and "weight_global_scale" in qparams:
+            global_scale = qparams["weight_global_scale"]
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
