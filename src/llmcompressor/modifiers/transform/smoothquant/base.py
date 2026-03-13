@@ -212,11 +212,8 @@ class SmoothQuantModifier(Modifier):
             )
 
         for mapping in self.mappings:
-            # we deliberately don't use the ignore list when matching mappings
-            # so that we can handle layers that need smoothing but not all operations
-            # we only skip if no layers in mapping would be smoothed.
             for *nested_balance_layers, smooth_layers in match_modules_set(
-                model, tree_leaves(mapping)
+                model, tree_leaves(mapping), ignore=self.ignore
             ):
                 if len(smooth_layers) > 1:
                     raise ValueError(

@@ -93,6 +93,16 @@ def modify_save_pretrained(model: PreTrainedModel):
                 # convert to accelerate offloaded for optimal saving with transformers
                 to_accelerate(model)
 
+                # Remove hf_device_map before saving to avoid a bug where
+                # transformers builds module_map with HF model keys but then applies
+                # revert_weight_conversion (which renames keys to checkpoint format)
+                # causing a KeyError when looking up renamed keys in module_map.
+                # After to_accelerate(), all parameters are real tensors (not meta,
+                # because init_hook is skipped), so model.state_dict() can be used
+                # directly without the module_map offload path.
+                if hasattr(model, "hf_device_map"):
+                    delattr(model, "hf_device_map")
+
                 # save (compressed) model structure
                 original_save_pretrained.__get__(model, model_class)(
                     save_directory,
