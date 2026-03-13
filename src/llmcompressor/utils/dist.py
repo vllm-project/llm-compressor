@@ -57,17 +57,18 @@ def wait_for_comms(pending_comms: list[dist.Work]) -> None:
 
 
 def all_reduce_mean(total: torch.Tensor, count: torch.Tensor):
+    device = torch.device(f"cuda:{torch.cuda.current_device()}")
     pending_comms = []
     pending_comms.append(
         dist.all_reduce(
-            as_broadcastable(total),
+            as_broadcastable(total.to(device)),
             op=dist.ReduceOp.SUM,
             async_op=True,
         )
     )
     pending_comms.append(
         dist.all_reduce(
-            as_broadcastable(count),
+            as_broadcastable(count.to(device)),
             op=dist.ReduceOp.SUM,
             async_op=True,
         )

@@ -648,12 +648,12 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_sum = self._smooth_activation_means[mapping.smooth_name][0].to(device).clone()
-        count = self._smooth_activation_means[mapping.smooth_name][1].to(device).clone()
+        x_sum, count = self._smooth_activation_means[mapping.smooth_name]
         if is_distributed():
             x_mean = all_reduce_mean(x_sum, count)
         else:
             x_mean = x_sum / count
+        x_mean = x_mean.to(device)
 
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)

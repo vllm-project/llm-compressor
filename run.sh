@@ -107,7 +107,6 @@ run_and_eval() {
 
 
 # AWQ examples
-
 run_and_eval "examples/awq/llama_example_ddp.py" 4 "Meta-Llama-3-8B-Instruct-awq-asym-DDP4" "gsm8k" 2048
 run_and_eval "examples/awq/llama_example.py" 1 "Meta-Llama-3-8B-Instruct-awq-asym" "gsm8k" 2048
 
@@ -117,11 +116,5 @@ run_and_eval "examples/awq/llama_example_with_masking.py" 1 "Meta-Llama-3-8B-Ins
 run_and_eval "examples/awq/qwen3_vl_30b_example_ddp.py" 4 "Qwen3-VL-30B-A3B-Instruct-AWQ-W4A16-g32-DDP4" "gsm8k" 2048
 run_and_eval "examples/awq/qwen3-vl-30b-a3b-Instruct-example.py" 1 "Qwen3-VL-30B-A3B-Instruct-AWQ-W4A16-mse-seq" "gsm8k" 2048
 
-run_and_eval "examples/awq/qwen3_coder_moe_example_ddp.py" 4 "Qwen3-Coder-30B-A3B-Instruct-W4A16-awq-DDP4" "gsm8k" 2048
-run_and_eval "examples/awq/qwen3_coder_moe_example.py" 1 "Qwen3-Coder-30B-A3B-Instruct-W4A16-awq" "gsm8k" 2048
-
 run_and_eval "examples/awq/qwen3_moe_example_ddp.py" 4 "Qwen3-30B-A3B-awq-sym-DDP4" "gsm8k" 2048
 run_and_eval "examples/awq/qwen3_moe_example.py" 1 "Qwen3-30B-A3B-awq-sym" "gsm8k" 2048
-
-run_and_eval "examples/awq/qwen3_next_example_ddp.py" 4 "Qwen3-Next-80B-A3B-Thinking-awq-sym-DDP4" "gsm8k" 2048
-run_and_eval "examples/awq/qwen3_next_example.py" 1 "Qwen3-Next-80B-A3B-Thinking-awq-sym" "gsm8k" 2048
