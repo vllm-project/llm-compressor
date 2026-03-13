@@ -19,7 +19,7 @@ from compressed_tensors.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 # AutoModelForCausalLM.register(DeepseekV32Config, DeepseekV32ForCausalLM)
 
 
-model_id = "/mnt/nvme_stripe/playground/brian-dellabetta/DeepSeek-V3.2-bf16"
+model_id = "/mnt/data/brian-dellabetta/DeepSeek-V3.2-bf16"
 # model_id = "nvidia/DeepSeek-R1-NVFP4"
 
 SAVE_DIR = "DeepSeek-V3.2-NVFP4-FP8-BLOCK"

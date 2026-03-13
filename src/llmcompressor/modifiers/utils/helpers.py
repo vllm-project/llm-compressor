@@ -51,6 +51,31 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 return False
         return True
 
+    def _is_mla(submodule):
+        return hasattr(submodule, "q_a_proj") and hasattr(
+            submodule, "kv_a_proj_with_mqa"
+        )
+
+    if _is_mla(submodule):
+        with align_modules([submodule.q_a_proj, submodule.kv_a_proj_with_mqa]):
+            global_scale = torch.min(
+                torch.cat(
+                    (
+                        submodule.q_a_proj.weight_global_scale.data,
+                        submodule.kv_a_proj_with_mqa.weight_global_scale.data,
+                    )
+                )
+            ).reshape([1])
+
+        update_offload_parameter(
+            submodule.q_a_proj, "weight_global_scale", global_scale
+        )
+        update_offload_parameter(
+            submodule.kv_a_proj_with_mqa, "weight_global_scale", global_scale
+        )
+
+        del global_scale
+
     if is_attention_module(submodule):
         # already fused/treated as one layer
         if hasattr(submodule, "qkv_proj"):
