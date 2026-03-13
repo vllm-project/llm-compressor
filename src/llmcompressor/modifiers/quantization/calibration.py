@@ -167,11 +167,16 @@ def finalize_distributed_update(modules: Iterable[torch.nn.Module], assigned_ran
 
         # device onloads
         for name in update_param_names:
-            if OffloadCache.offloading_disabled or is_same_device_offload(module):
+            if True: #if OffloadCache.offloading_disabled or is_same_device_offload(module):
                 value = getattr(module, name, None)
                 if value is not None:
-                    logger.info((name, value))
-                    dist.broadcast(as_broadcastable(value), src=src)
+                    logger.info(f"Rank {dist.get_rank()}: {name} shape={value.shape}, "
+                        f"dtype={value.dtype}, device={value.device}, "
+                        f"is_contiguous={value.is_contiguous()}, "
+                        f"stride={value.stride()}, src={src}")
+                    dist.broadcast(as_broadcastable(value), src=src)  # doesn't work
+                    logger.info(f"Finished {name}")
+                    #dist.barrier()  # WORKS
 
 
 def update_weight_qparams(
@@ -208,10 +213,9 @@ def update_weight_qparams(
 def update_activation_qparams(
     modules: Iterable[torch.nn.Module], show_progress: bool = True
 ):
-    return
-    modules: set[torch.nn.Module] = set(
+    modules: set[torch.nn.Module] = list(set(
         module for module in modules if hasattr(module, "input_observer")
-    )
+    ))
 
     def apply_fn(module: torch.nn.Module):
         observer = module.input_observer
