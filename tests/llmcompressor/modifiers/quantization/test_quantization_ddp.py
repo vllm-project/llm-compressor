@@ -53,9 +53,7 @@ def test_observer_synchronize_reduces_min_max():
     wait_for_comms(comms)
 
     # after sync, min should be element-wise minimum, max element-wise maximum
-    assert torch.equal(
-        observer.past_min_vals, torch.tensor([1.0, 1.0], device="cuda")
-    )
+    assert torch.equal(observer.past_min_vals, torch.tensor([1.0, 1.0], device="cuda"))
     assert torch.equal(
         observer.past_max_vals, torch.tensor([15.0, 20.0], device="cuda")
     )

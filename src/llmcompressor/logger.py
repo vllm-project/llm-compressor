@@ -158,6 +158,10 @@ def configure_distributed_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
     configure_logger(logger_config)
 
 
+def logger_tqdm():
+    """ """
+
+
 # invoke logger setup on import with default values enabling console logging with INFO
 # and disabling file logging
 configure_logger()

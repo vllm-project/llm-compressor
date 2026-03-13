@@ -73,7 +73,7 @@ class Subgraph:
         with append_autowrap_source_on_fail():
             return forward_fn(*args, **kwargs)
 
-    def submodules(self, model: Module, recurse: bool = False) -> set[Module]:
+    def submodules(self, model: Module, recurse: bool = True) -> set[Module]:
         nodes = self.graph.find_nodes(op="call_module")
         modules = set(model.get_submodule(node.target) for node in nodes)
         if recurse:

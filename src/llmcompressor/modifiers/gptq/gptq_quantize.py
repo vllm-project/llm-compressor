@@ -9,12 +9,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
-from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
-
-from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
-from llmcompressor.observers.base import Observer
-from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
 
@@ -92,13 +87,8 @@ def quantize_weight(
     W = module.weight.clone()
     H = hessian
 
-    # create observer for calculating quantization parameters
-    observer = Observer.load_from_registry(
-        quant_args.observer if quant_args.observer else "memoryless_minmax",
-        base_name="weight",
-        args=quant_args,
-        module=module,
-    )
+    if strategy not in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+        raise ValueError(f"GPTQ only supports group quantization ({strategy})")
 
     # standardize shape and dtype
     match module:
@@ -109,44 +99,20 @@ def quantize_weight(
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
+    g_idx = torch.arange(num_columns, device=W.device) // quant_args.group_size
 
-    # generate scale, should include tensor group / use global scale
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        # mapping from column index to group index
-        g_idx = (
-            torch.arange(num_columns, device=W.device, dtype=torch.int)
-            // quant_args.group_size
-        )
+    if actorder == ActivationOrdering.GROUP:
+        # permute by activation order, then update qparams
+        W, H, perm = _apply_activation_ordering(W, H)
 
-        if actorder == ActivationOrdering.GROUP:
-            # permute by activation order first, then update groups
-            W, H, perm = _apply_activation_ordering(W, H)
-            update_offload_parameter(module, "weight_g_idx", g_idx)
-            scale, zero_point = observer(W)
+    module.weight_observer(W)
+    qparams = module.weight_observer.calculate_qparams()
+    scale, zero_point = qparams["weight_scale"], qparams["weight_zero_point"]
 
-            # use identity g_idx (invert permutation later)
-
-        elif actorder == ActivationOrdering.WEIGHT:
-            # update groups first, then permute by activation order
-            scale, zero_point = observer(W)
-            W, H, perm = _apply_activation_ordering(W, H)
-
-            # permute g_idx to maintain identity mapping after unpermutation
-            g_idx = g_idx[perm]
-
-        else:
-            scale, zero_point = observer(W)
-    else:
-        scale, zero_point = observer(W)
-
-    # sparsity mask
-    sparsity = tensor_sparsity(W)
-    preserve_zeros = sparsity >= SPARSITY_THRESHOLD
-    W_nz_mask = (
-        (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
-        if preserve_zeros
-        else None
-    )
+    if actorder == ActivationOrdering.WEIGHT:
+        # update qparams, then permute by activation order
+        W, H, perm = _apply_activation_ordering(W, H)
+        g_idx = g_idx[perm]
 
     losses = torch.zeros(num_rows, device=module.weight.device)
 
@@ -183,9 +149,6 @@ def quantize_weight(
         Err1 = torch.zeros_like(W1)
         losses1 = torch.zeros_like(W1)
         Hinv1 = Hinv[i1:i2, i1:i2]
-
-        if preserve_zeros:
-            W1_nz_mask = W_nz_mask[:, i1:i2]
 
         for i in range(count):
             w = W1[:, i]
@@ -237,10 +200,7 @@ def quantize_weight(
 
             err1 = (w - q) / d
             w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
-            if preserve_zeros:
-                W1[:, i:] -= w1_err * W1_nz_mask[:, i:]
-            else:
-                W1[:, i:] -= w1_err
+            W1[:, i:] -= w1_err
             Err1[:, i] = err1
 
         # propagate block error
@@ -248,29 +208,19 @@ def quantize_weight(
         losses += torch.sum(losses1, 1) / 2
 
         w_err = Err1.matmul(Hinv[i1:i2, i2:])
-        if preserve_zeros:
-            W[:, i2:] -= w_err * W_nz_mask[:, i2:]
-        else:
-            W[:, i2:] -= w_err
+        W[:, i2:] -= w_err
 
-    has_gidx = False
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        if actorder == ActivationOrdering.WEIGHT:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
+    if actorder == ActivationOrdering.WEIGHT:
+        # restore original permutation
+        invperm = torch.argsort(perm)
+        W = W[:, invperm]
+        del g_idx
 
-        elif actorder == ActivationOrdering.GROUP:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
-            g_idx = g_idx[invperm]
-
-            # only save g_idx if mapping is not identity
-            has_gidx = True
-
-    if not has_gidx:
-        g_idx = None
+    elif actorder == ActivationOrdering.GROUP:
+        # restore original permutation
+        invperm = torch.argsort(perm)
+        W = W[:, invperm]
+        g_idx = g_idx[invperm]
 
     if isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
@@ -282,7 +232,7 @@ def quantize_weight(
         "weight_scale": scale.to(dtype=final_dtype),
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
     }
-    if g_idx is not None:
+    if actorder == ActivationOrdering.GROUP:
         q_param_dict["weight_g_idx"] = g_idx
     return (loss, q_param_dict)
 

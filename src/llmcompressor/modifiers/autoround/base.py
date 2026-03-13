@@ -218,15 +218,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            subgraph = kwargs.pop("subgraph", None)
-            self.apply_autoround(state, subgraph)
+            self.apply_autoround(state, kwargs["modules"])
             self.post_autoround_cleanup()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
                 self.on_end(state, None)
 
-    def apply_autoround(self, state, subgraph):
+    def apply_autoround(self, state, modules):
         """
         Applies AutoRound quantization tuning on the current decoding layer.
 
@@ -242,8 +241,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
         """
-        modules = list(subgraph.submodules(model=state.model))
-
         decoding_layers = [m for m in modules if self._is_decoding_layer(m)]
         if len(decoding_layers) == 0:
             return
