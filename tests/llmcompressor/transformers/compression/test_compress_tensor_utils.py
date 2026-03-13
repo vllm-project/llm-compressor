@@ -240,12 +240,11 @@ def _quantization_config_from_string(config_str, q_type):
 @pytest.mark.parametrize(
     "quant_style,quant_type,expected_format",
     [
-        ("W8A8", "int", False, "int-quantized"),
-        ("W4A16", "int", False, "pack-quantized"),
-        ("W8A16", "int", False, "pack-quantized"),
-        ("W8A8", "float", False, "float-quantized"),
-        ("W8A16", "float", False, "naive-quantized"),
-        ("W8A16", "float", True, "naive-quantized"),
+        ("W8A8", "int", "int-quantized"),
+        ("W4A16", "int", "pack-quantized"),
+        ("W8A16", "int", "pack-quantized"),
+        ("W8A8", "float", "float-quantized"),
+        ("W8A16", "float", "naive-quantized"),
     ],
 )
 def test_correct_compressor_inferred(
