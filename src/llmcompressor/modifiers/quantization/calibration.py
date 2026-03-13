@@ -1,8 +1,10 @@
 from typing import Any, Iterable, Optional
 
 import torch
-from compressed_tensors.distributed import update_module_parallel
-from compressed_tensors.offload import is_distributed
+import torch.distributed as dist
+from compressed_tensors.offload import is_distributed, OffloadCache, disable_onloading, as_broadcastable
+from compressed_tensors.offload.cache import DeviceCache
+from compressed_tensors.offload.utils import module_size
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStatus,
@@ -138,30 +140,75 @@ def update_weight_global_scale(module: Module):
     )
 
 
+# TODO: move
+def finalize_distributed_update(modules: Iterable[torch.nn.Module], assigned_rank, update_param_names: Iterable[str]):
+    def is_fsdp(module):
+        return (
+            isinstance(module._parameters, DeviceCache)
+            and module._parameters.onload_device != module._parameters.offload_device
+        )
+    
+    def is_same_device_offload(module):
+        return (
+            isinstance(module._parameters, DeviceCache)
+            and module._parameters.onload_device == module._parameters.offload_device
+        )
+
+
+    for module in modules:
+        src = assigned_rank[module]
+
+        # # fsdp device offloads
+        # if is_fsdp(module):
+        #     with disable_onloading():
+        #         for name in update_param_names:
+        #             if hasattr(module, name):
+        #                 dist.broadcast(as_broadcastable(getattr(module, name)), src=src)
+
+        # device onloads
+        for name in update_param_names:
+            if OffloadCache.offloading_disabled or is_same_device_offload(module):
+                value = getattr(module, name, None)
+                if value is not None:
+                    logger.info((name, value))
+                    dist.broadcast(as_broadcastable(value), src=src)
+
+
 def update_weight_qparams(
     modules: Iterable[torch.nn.Module], show_progress: bool = True
 ):
-    modules: set[torch.nn.Module] = set(
+    modules: set[torch.nn.Module] = list(set(
         module for module in modules if hasattr(module, "weight_observer")
-    )
-
-    def apply_fn(module: torch.nn.Module):
-        observer = module.weight_observer
-        observer(module.weight)
-        observer.calibrate_module(module)
+    ))
 
     desc = "Calculating weight quantization parameters" if show_progress else None
     if not is_distributed():
         for module in tqdm(modules, desc=desc, disable=(not show_progress)):
-            apply_fn(module)
+            observer = module.weight_observer
+            observer(module.weight)
+            observer.calibrate_module(module)
     else:
+        import torch.distributed as dist
+        from compressed_tensors.distributed.assign import greedy_bin_packing
+
+        _, _, assigned_rank = greedy_bin_packing(
+            list(modules), dist.get_world_size(), module_size
+        )
+        
+        for module in modules:
+            if assigned_rank[module] == dist.get_rank():
+                observer = module.weight_observer
+                observer(module.weight)
+                observer.calibrate_module(module)
+
         update_names = quant_metadata.QuantizationMetadata.all_qparam_names()
-        update_module_parallel(list(modules), apply_fn, update_names, desc=desc)
+        finalize_distributed_update(modules, assigned_rank, update_names)
 
 
 def update_activation_qparams(
     modules: Iterable[torch.nn.Module], show_progress: bool = True
 ):
+    return
     modules: set[torch.nn.Module] = set(
         module for module in modules if hasattr(module, "input_observer")
     )
@@ -179,17 +226,22 @@ def update_activation_qparams(
         from compressed_tensors.distributed.assign import greedy_bin_packing
 
         _, _, assigned_rank = greedy_bin_packing(
-            modules, dist.get_world_size(), weight_fn
+            list(modules), dist.get_world_size(), module_size
         )
 
-        sync = []
+        comms = []
         for module in modules:
-            print(module.input_observer)
-            sync.extend(module.input_observer.synchronize())
-        wait_for_comms(sync)
+            observer: Observer = module.input_observer
+            comms.extend(observer.synchronize(assigned_rank[module]))
+        wait_for_comms(comms)
+        
+        # for module in modules:
+        #     if assigned_rank[module] == dist.get_rank():
+        #         observer: Observer = module.input_observer
+        #         observer.calibrate_module(module)
 
         # update_names = quant_metadata.QuantizationMetadata.all_qparam_names()
-        # update_module_parallel(list(modules), apply_fn, update_names, desc=desc)
+        # finalize_distributed_update(modules, assigned_rank, update_names)
 
 
 def calibrate_input_hook(module: Module, args: Any):

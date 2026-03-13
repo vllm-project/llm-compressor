@@ -113,20 +113,15 @@ class Observer(InternalModule, RegistryMixin):
 
         return qparams
 
-    def synchronize(self) -> list[dist.Work]:
-        """
-        All-reduce accumulated min/max statistics across DDP ranks
-
-        :return: list of async communication handles
-        """
+    def synchronize(self, dst) -> list[dist.Work]:
         comms = []
         if self.min_vals is not None:
             comms.append(
-                dist.all_reduce(self.min_vals, op=dist.ReduceOp.MIN, async_op=True)
+                dist.reduce(self.min_vals, dst=dst, op=dist.ReduceOp.MIN, async_op=True)
             )
         if self.max_vals is not None:
             comms.append(
-                dist.all_reduce(self.max_vals, op=dist.ReduceOp.MAX, async_op=True)
+                dist.reduce(self.max_vals, dst=dst, op=dist.ReduceOp.MAX, async_op=True)
             )
 
         return comms
