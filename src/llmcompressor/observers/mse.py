@@ -55,20 +55,6 @@ class MemorylessMSEObserver(Observer):
 
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals](mse_quant_error)
-        global_scale = self._get_module_param("global_scale")
-        return _grid_search_mse(
-            observed,
-            self.args,
-            self.maxshrink,
-            self.patience,
-            self.grid,
-            self.norm,
-            global_scale=global_scale,
-            optimize_global_scale=False,
-        )
-
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        # min[min_vals, max_vals, global_scale](mse_quant_error)
         return _grid_search_mse(
             observed,
             self.args,
@@ -121,20 +107,6 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
 
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals](mse_quant_error)
-        global_scale = self._get_module_param("global_scale")
-        return _grid_search_mse(
-            observed,
-            self.args,
-            self.maxshrink,
-            self.patience,
-            self.grid,
-            self.norm,
-            global_scale=global_scale,
-            optimize_global_scale=False,
-        )
-
-    def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        # min[min_vals, max_vals, global_scale](mse_quant_error)
         return _grid_search_mse(
             observed,
             self.args,

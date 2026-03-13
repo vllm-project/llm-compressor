@@ -78,9 +78,7 @@ def initialize_observer(
         )
 
     if args is not None and args.dynamic is not True:
-        observer = Observer.load_from_registry(
-            observer, base_name=base_name, args=args, module=module
-        )
+        observer = Observer.load_from_registry(observer, base_name=base_name, args=args)
         module.register_module(f"{base_name}_observer", observer)
 
 
@@ -99,21 +97,22 @@ def call_observer(
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
+    :param should_calculate_gparam: deprecated, ignored (global params calculated automatically)
+    :param should_calculate_qparams: whether to calculate quantization parameters
     """
     with align_module_device(module):
         if value is None and base_name == "weight":
             value = module.weight
         observer: Observer = getattr(module, f"{base_name}_observer")
 
-        if should_calculate_gparam:
-            global_scale = observer.get_global_scale(value)
-            update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
+        # Call observer forward to accumulate min/max values
+        observer(value)
 
-        if should_calculate_qparams:
-            scale, zero_point = observer(value)
-            update_offload_parameter(module, f"{base_name}_scale", scale)
-            if hasattr(module, f"{base_name}_zero_point"):
-                update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
+        # Calculate quantization parameters from accumulated min/max
+        if should_calculate_qparams or should_calculate_gparam:
+            qparams = observer.calculate_qparams()
+            for param_name, param_value in qparams.items():
+                update_offload_parameter(module, param_name, param_value)
 
 
 def update_weight_global_scale(module: Module):

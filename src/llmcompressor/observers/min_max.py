@@ -21,8 +21,12 @@ class MemorylessMinMaxObserver(Observer):
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         return _get_min_max(observed)
 
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
+    def calculate_qparams(self) -> dict[str, torch.Tensor]:
+        ret = super().calculate_qparams()
+        self.min_vals = None
+        self.max_vals = None
+
+        return ret
 
 
 @Observer.register("static_minmax")
@@ -37,34 +41,13 @@ class StaticMinMaxObserver(Observer):
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.past_min_vals = None
-        self.past_max_vals = None
-        self.past_global_min_vals = None
-        self.past_global_max_vals = None
-
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         min_vals, max_vals = _get_min_max(observed)
 
-        if self.past_min_vals is not None:
-            min_vals = torch.min(min_vals, self.past_min_vals)
-            max_vals = torch.max(max_vals, self.past_max_vals)
-
-        self.past_min_vals = min_vals
-        self.past_max_vals = max_vals
-
-        return min_vals, max_vals
-
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        min_vals, max_vals = _get_min_max(observed)
-
-        if self.past_global_min_vals is not None:
-            min_vals = torch.min(min_vals, self.past_global_min_vals)
-            max_vals = torch.max(max_vals, self.past_global_max_vals)
-
-        self.past_global_min_vals = min_vals
-        self.past_global_max_vals = max_vals
+        if self.min_vals is not None:
+            min_vals = torch.min(min_vals, self.min_vals)
+        if self.max_vals is not None:
+            max_vals = torch.max(max_vals, self.max_vals)
 
         return min_vals, max_vals
 
@@ -82,9 +65,6 @@ class MinMaxObserver(MovingAverageObserverBase):
     """
 
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
-
-    def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         return _get_min_max(observed)
 
 
