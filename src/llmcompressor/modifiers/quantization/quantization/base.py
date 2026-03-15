@@ -4,6 +4,7 @@ from compressed_tensors.utils import match_named_modules
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
+    flush_activation_qparams,
     update_weight_global_scale,
     update_weight_zp_scale,
 )
@@ -65,7 +66,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
-        Begin calibrating activations and weights. Calibrate weights only once on start
+        Begin calibrating activations and weights. Calibrate weights only once on start.
+        Activation qparams are computed once per subgraph at SEQUENTIAL_EPOCH_END via
+        flush_activation_qparams, rather than per batch.
         """
         self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
@@ -94,6 +97,14 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
                 self.on_start(state, None)
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            # Compute scale/zero_point once from accumulated running statistics,
+            # then free those stats to reduce memory.
+            for _, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            ):
+                flush_activation_qparams(module)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
