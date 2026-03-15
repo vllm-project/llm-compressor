@@ -7,8 +7,7 @@ from compressed_tensors import InternalModule
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
-from compressed_tensors.utils import align_module_device
-
+from compressed_tensors.utils import align_module_device, update_offload_parameter
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple", "calibrate_module_from_observer"]
@@ -213,8 +212,6 @@ def calibrate_module_from_observer(
     :param base_name: one of "input", "output", "q", "k", "v"
     :return: True if qparams were updated, False if observer had no accumulated stats
     """
-    from compressed_tensors.utils import align_module_device, update_offload_parameter
-
     observer: Optional[Observer] = getattr(module, f"{base_name}_observer", None)
     if observer is None:
         return False

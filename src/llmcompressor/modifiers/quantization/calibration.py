@@ -195,10 +195,6 @@ def calibrate_activations(
     # min/max stats but do NOT write scale/zero_point yet.
     # Qparams are written once at epoch end via flush_activation_qparams.
     if stats_only:
-        # Deferred mode: accumulate global min/max into the observer's
-        # _deferred_min / _deferred_max. Works for ALL observer types,
-        # including MemorylessMinMaxObserver which has no past_min_vals.
-        # Qparams are written once at epoch end via flush_activation_qparams.
         observer = getattr(module, f"{base_name}_observer", None)
         if observer is not None:
             observer.update_deferred_stats(value)
@@ -215,10 +211,9 @@ def calibrate_activations(
 
 def calibrate_input_hook(module: Module, args: Any):
     """
-    Hook to calibrate input activations.
-    Accumulates running min/max statistics in the observer without computing
-    scale/zero_point. Qparams are computed once at epoch end via
-    flush_activation_qparams (deferred mode).
+    Hook to accumulate input activation statistics (min/max) in the observer.
+    Scale and zero_point are not written here; they are computed once per subgraph
+    at epoch end via flush_activation_qparams.
     """
     args = args[0] if isinstance(args, tuple) else args
     calibrate_activations(module, value=args, base_name="input", stats_only=True)
@@ -226,10 +221,10 @@ def calibrate_input_hook(module: Module, args: Any):
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
-    Hook to calibrate output activations.
-    Accumulates running min/max statistics only (deferred qparam mode).
-    Qparams are computed at epoch end; forward_quantize is skipped during
-    calibration batches since quantization is disabled in the sequential pipeline.
+    Hook to accumulate output activation statistics (min/max) in the observer.
+    Scale and zero_point are not written here; they are computed once per subgraph
+    at epoch end via flush_activation_qparams.
+    Note: forward_quantize is intentionally absent — hooks only collect statistics.
     """
     calibrate_activations(
         module,
