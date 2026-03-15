@@ -1,3 +1,10 @@
+#############################################################################
+# This script is adapted from ./llama_example.py and adds DDP functionality.
+# run this with `torchrun --nproc_per_node=2 llama_example_ddp.py`
+# or change nproc_per_node to your desired configuration
+# to adapt other examples to use DDP, see the 2 altered sections below
+#############################################################################
+
 import time
 
 import torch
