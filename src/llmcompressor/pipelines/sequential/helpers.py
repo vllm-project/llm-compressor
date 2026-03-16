@@ -531,6 +531,25 @@ def dispatch_for_sequential(
     """
     if onload_device is None:
         onload_device = get_main_device()
+
+    # Move all parameters to CPU before calling offload_model so that
+    # compressed_tensors uses CPUCache (offload to CPU, onload to GPU).
+    # Without this, DeviceCache is selected for CUDA-resident modules and it
+    # hardcodes offload_device = onload_device, which tries to consolidate
+    # every parameter onto a single GPU and OOMs for large multi-GPU models.
+    for module in model.modules():
+        remove_hook_from_module(module)
+        for name, param in module._parameters.items():
+            if param is not None and param.device.type != "cpu":
+                module._parameters[name] = torch.nn.Parameter(
+                    param.data.to("cpu"), requires_grad=param.requires_grad
+                )
+        for name, buf in module._buffers.items():
+            if buf is not None and buf.device.type != "cpu":
+                module._buffers[name] = buf.to("cpu")
+
+    torch.cuda.empty_cache()
+
     return offload_model(model, onload_device, offload_device)
 
 
