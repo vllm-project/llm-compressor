@@ -10,7 +10,7 @@ from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import align_module_device, update_offload_parameter
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple", "calibrate_module_from_observer"]
+__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple", "update_module_qparams_from_observer"]
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
@@ -127,12 +127,14 @@ class Observer(InternalModule, RegistryMixin):
     @torch.no_grad
     def forward(self, observed: torch.Tensor) -> ScaleZpTuple:
         """
-        Calculate updated scales and zero points from observed value
-        (weight, activation, or attention state).
+        Accumulate running statistics from the observed value and update
+        deferred min/max. Qparams (scale/zero_point) are not computed here;
+        they are written once at epoch end via update_module_qparams_from_observer.
 
         :param observed: value being observed
-        :return: calibrated scale and zero point
+        :return: calibrated scale and zero point (from accumulated stats)
         """
+        self.update_deferred_stats(observed)
         scales, zero_points, _min, _max = self._forward_with_minmax(observed)
         return (scales, zero_points)
 
@@ -195,7 +197,7 @@ class Observer(InternalModule, RegistryMixin):
 
 
 @torch.no_grad()
-def calibrate_module_from_observer(
+def update_module_qparams_from_observer(
     module: torch.nn.Module,
     base_name: str,
 ) -> bool:

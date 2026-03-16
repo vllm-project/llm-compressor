@@ -160,8 +160,9 @@ class SequentialPipeline(CalibrationPipeline):
                     # propagation pass: modifier hooks are disabled but quantization is
                     # re-enabled so that compressed module outputs are quantized.
                     # This ensures downstream subgraphs receive realistic inputs.
-                    model.apply(enable_quantization)
-                    with HooksMixin.disable_hooks():
+                    with contextlib.ExitStack() as prop_stack:
+                        prop_stack.enter_context(HooksMixin.disable_hooks())
+                        model.apply(enable_quantization)
                         for batch_idx, inputs in _get_batches(
                             activations,
                             num_batches,
@@ -173,6 +174,7 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+                    # restore disabled quantization for next calibration pass
                     model.apply(disable_quantization)
 
             # redundant, finish any remaining compression

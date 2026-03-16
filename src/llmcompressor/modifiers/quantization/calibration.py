@@ -17,7 +17,7 @@ from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.observers import Observer
-from llmcompressor.observers.base import calibrate_module_from_observer
+from llmcompressor.observers.base import update_module_qparams_from_observer
 
 __all__ = [
     "initialize_observer",
@@ -31,8 +31,11 @@ __all__ = [
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
-    "flush_activation_qparams",
+    "write_activation_qparams",
 ]
+
+# Activation observer base names used across calibration and quantization code
+ACTIVATION_BASE_NAMES = ("input", "output", "q", "k", "v")
 
 
 def initialize_observer(
@@ -171,7 +174,7 @@ def calibrate_activations(
     :param stats_only: if True, only update running statistics in the observer
         (accumulate min/max) without computing or writing scale/zero_point.
         Used during deferred qparam calibration — qparams are computed once
-        at epoch end via flush_activation_qparams instead of per batch.
+        at epoch end via write_activation_qparams instead of per batch.
     """
     # If empty tensor, can't update zp/scale
     # Case for MoEs
@@ -193,7 +196,7 @@ def calibrate_activations(
 
     # In deferred (stats_only) mode: call the observer to accumulate running
     # min/max stats but do NOT write scale/zero_point yet.
-    # Qparams are written once at epoch end via flush_activation_qparams.
+    # Qparams are written once at epoch end via write_activation_qparams.
     if stats_only:
         observer = getattr(module, f"{base_name}_observer", None)
         if observer is not None:
@@ -213,7 +216,7 @@ def calibrate_input_hook(module: Module, args: Any):
     """
     Hook to accumulate input activation statistics (min/max) in the observer.
     Scale and zero_point are not written here; they are computed once per subgraph
-    at epoch end via flush_activation_qparams.
+    at epoch end via write_activation_qparams.
     """
     args = args[0] if isinstance(args, tuple) else args
     calibrate_activations(module, value=args, base_name="input", stats_only=True)
@@ -223,7 +226,7 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
     Hook to accumulate output activation statistics (min/max) in the observer.
     Scale and zero_point are not written here; they are computed once per subgraph
-    at epoch end via flush_activation_qparams.
+    at epoch end via write_activation_qparams.
     Note: forward_quantize is intentionally absent — hooks only collect statistics.
     """
     calibrate_activations(
@@ -287,7 +290,7 @@ def reset_quantization_status(model: Module):
             delattr(module, "quantization_status")
 
 
-def flush_activation_qparams(module: Module):
+def write_activation_qparams(module: Module):
     """
     Compute and write final activation qparams from each observer's accumulated
     running statistics, then free those statistics to reduce memory.
@@ -301,7 +304,7 @@ def flush_activation_qparams(module: Module):
 
     apply to targeted modules with:
         for _, module in match_named_modules(...):
-            flush_activation_qparams(module)
+            write_activation_qparams(module)
 
     :param module: module to flush activation qparams for
     """
@@ -309,5 +312,5 @@ def flush_activation_qparams(module: Module):
     if scheme is None:
         return
 
-    for base_name in ("input", "output", "q", "k", "v"):
-        calibrate_module_from_observer(module, base_name)
+    for base_name in ACTIVATION_BASE_NAMES:
+        update_module_qparams_from_observer(module, base_name)
