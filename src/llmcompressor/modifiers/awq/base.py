@@ -3,13 +3,12 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
-from compressed_tensors.offload.dist_utils import is_distributed, as_broadcastable
+from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
     disable_quantization,
     forward_quantize,
 )
-from torch import distributed as dist
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
@@ -22,6 +21,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
+from torch import distributed as dist
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
@@ -169,7 +169,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
-    # Dict[smooth layer name, [activation means, activation counts]]
+    # Dict[smooth layer name, [activation sums, activation counts]]
     _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
@@ -468,10 +468,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                 if smooth_name not in self._smooth_activation_stats:
                     self._smooth_activation_stats[smooth_name] = [
                         torch.zeros_like(new_sum),
-                        torch.zeros_like(new_count)
+                        torch.zeros_like(new_count),
                     ]
-                self._smooth_activation_stats[smooth_name][0]+=new_sum
-                self._smooth_activation_stats[smooth_name][1]+=new_count
+                self._smooth_activation_stats[smooth_name][0] += new_sum
+                self._smooth_activation_stats[smooth_name][1] += new_count
 
             return cache_smooth_activations_hook
 
@@ -657,7 +657,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         x_sum, count = self._smooth_activation_stats[mapping.smooth_name]
         if is_distributed():
             x_sum, count = _allreduce_data_sum([x_sum, count])
-        x_mean = (x_sum.to(device) / count.to(device))
+        x_mean = x_sum.to(device) / count.to(device)
 
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
@@ -1039,18 +1039,16 @@ def get_lowest_common_ancestor_with_avoid(
         ancestor_name = ".".join(ancestor_name.split(".")[:-1])
 
 
-def _allreduce_data_sum(data):
+def _allreduce_data_sum(data: list[torch.Tensor]) -> list[torch.Tensor]:
     # needs to be on device to broadcast
     device = torch.device(f"cuda:{torch.cuda.current_device()}")
     data = [datum.to(device) for datum in data]
-    
+
     pending_comms = []
     for datum in data:
         pending_comms.append(
             dist.all_reduce(
-                as_broadcastable(datum), 
-                op=dist.ReduceOp.SUM,
-                async_op=True
+                as_broadcastable(datum), op=dist.ReduceOp.SUM, async_op=True
             )
         )
     wait_for_comms(pending_comms)
