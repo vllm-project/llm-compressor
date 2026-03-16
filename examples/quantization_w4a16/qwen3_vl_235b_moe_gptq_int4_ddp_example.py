@@ -17,7 +17,7 @@ MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 init_dist()
 with load_offloaded_model():
     model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-        MODEL_ID, dtype="auto", device_map="auto_offload"
+        MODEL_ID, dtype="auto", device_map="auto"
     )
 ##################################
 

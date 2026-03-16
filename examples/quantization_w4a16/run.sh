@@ -165,26 +165,26 @@ run_and_eval() {
 # run_and_eval "llama4_gptq_int4_ddp_example.py" 4 "Llama-4-Scout-17B-16E-Instruct-GPTQ-W4A16-G128-DDP4" "gsm8k" 8192 # .906 .887
 # run_and_eval "llama4_gptq_int4_ddp_example.py" 1 "Llama-4-Scout-17B-16E-Instruct-GPTQ-W4A16-G128-DDP1" "gsm8k" 8192 # 0.9075 0.8878
 
-# run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 4 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP4" "gsm8k" 2048 # fail
+run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 2 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP4" "gsm8k" 2048 # fail
 # run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP8" "gsm8k" 2048 # fail
-# run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP1" "gsm8k" 2048 # some disk offload error it looks like
+run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP1" "gsm8k" 2048 # some disk offload error it looks like
 
 
 # NVFP4
-run_and_eval "llama3_ddp_nvfp4.py" 4 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
-run_and_eval "llama3_ddp_nvfp4.py" 1 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+# run_and_eval "llama3_ddp_nvfp4.py" 4 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
+# run_and_eval "llama3_ddp_nvfp4.py" 1 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
-run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 4 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
-run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 1 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+# run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 4 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
+# run_and_eval "qwen3_vl_8b_gptq_nvfp4_ddp_example.py" 1 "Qwen3-VL-8B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
-run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 4 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
-run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 1 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+# run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 4 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
+# run_and_eval "qwen3_30b_moe_gptq_nvfp4_ddp_example.py" 1 "Qwen3-30B-A3B-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
-run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 4 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 8192 
-run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 1 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 8192
+# run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 4 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 8192 
+# run_and_eval "llama4_gptq_nvfp4_ddp_example.py" 1 "Llama-4-Scout-17B-16E-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 8192
 
-run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP8" "gsm8k" 2048
-run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
+# run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP8" "gsm8k" 2048
+# run_and_eval "qwen3_vl_235b_moe_nvfp4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-NVFP4A16-DDP1" "gsm8k" 2048
 
 
 # Base model evaluations
@@ -195,7 +195,7 @@ echo "============================================"
 # eval_base_model "meta-llama/Meta-Llama-3-8B-Instruct" "gsm8k" 2048 # 0.7513 0.7536
 # eval_base_model "Qwen/Qwen3-VL-8B-Instruct" "gsm8k" 2048 # 0.8560 0.8347
 # eval_base_model "Qwen/Qwen3-30B-A3B" "gsm8k" 2048 # 0.8484 0.8916
-eval_base_model "meta-llama/Llama-4-Scout-17B-16E-Instruct" "gsm8k" 8192
+# eval_base_model "meta-llama/Llama-4-Scout-17B-16E-Instruct" "gsm8k" 8192
 
 echo "============================================"
 echo "All runs complete!"

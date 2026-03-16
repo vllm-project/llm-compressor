@@ -1,7 +1,6 @@
 from typing import Callable, Hashable, TypeVar
-import torch
-import torch.distributed as dist
 
+import torch.distributed as dist
 
 T = TypeVar("T", bound=Hashable)
 
@@ -53,16 +52,3 @@ def wait_for_comms(pending_comms: list[dist.Work]) -> None:
     for comm in list(pending_comms):
         comm.wait()
     pending_comms.clear()
-
-def maybe_make_tensor_broadcastable(x) -> bool:
-    assert isinstance(x, torch.Tensor), f"is_broadcastable_tensor expects a torch.Tensor but got {type(x)}"
-    # NCCL does not support FP8 dtypes on pre-sm90 GPUs.
-    # View as uint8 (same byte width) for the broadcast.
-    if x.dtype in (
-        torch.float8_e4m3fn,
-        torch.float8_e5m2,
-        torch.float8_e4m3fnuz,
-        torch.float8_e5m2fnuz,
-    ):
-        return x.data.view(torch.uint8)
-    return x

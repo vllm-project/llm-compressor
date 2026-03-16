@@ -31,7 +31,7 @@ from llmcompressor.modifiers.quantization.calibration import update_weight_globa
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils import greedy_bin_packing, wait_for_comms, maybe_make_tensor_broadcastable
+from llmcompressor.utils import greedy_bin_packing, wait_for_comms
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
@@ -358,12 +358,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
             # Get parameters from module
             for attr in _GPTQ_Q_PARAMS:
                 if getattr(module, attr, None) is not None:
-                    param = getattr(module, attr)
-                    # NCCL does not support FP8 dtypes on pre-sm90 GPUs.
-                    # View as uint8 (same byte width) for the broadcast.
-                    param = maybe_make_tensor_broadcastable(param)
                     pending_comms.append(
-                        dist.broadcast(param, src=src_rank, async_op=True)
+                        dist.broadcast(
+                            getattr(module, attr), src=src_rank, async_op=True
+                        )
                     )
         wait_for_comms(pending_comms)
 

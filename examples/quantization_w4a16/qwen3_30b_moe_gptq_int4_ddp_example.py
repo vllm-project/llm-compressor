@@ -21,7 +21,11 @@ model_id = "Qwen/Qwen3-30B-A3B"
 init_dist()
 with load_offloaded_model():
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype="auto", device_map="auto_offload", trust_remote_code=True
+        model_id,
+        dtype="auto",
+        device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
+        max_memory={"cpu": 6e9},  # remove this line to use as much cpu as possible
+        offload_folder="./offload_folder",
     )
 ##################################
 
