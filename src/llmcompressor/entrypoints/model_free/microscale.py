@@ -1,9 +1,8 @@
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
-
 from compressed_tensors.utils.match import match_name
+
 from llmcompressor.entrypoints.model_free.helpers import (
     MatchedNamesSet,
-    match_names_set_eager,
 )
 
 __all__ = ["is_microscale_scheme", "get_fused_names", "DEFAULT_FUSED_MAPPINGS"]

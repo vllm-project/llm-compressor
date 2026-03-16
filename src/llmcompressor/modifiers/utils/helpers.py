@@ -39,7 +39,7 @@ def update_fused_layer_weight_global_scales(submodule: Module):
         ("q_a_proj", "kv_a_proj_with_mqa"),
     ]
 
-    def _is_valid_tensor_group_quant(layer_list: list[Linear]):
+    def _is_valid_tensor_group_quant(layer_list: list[Linear]) -> bool:
         """
         Return True if all the linear layers in the layer_list are
         TENSOR_GROUP quantized.

@@ -1,18 +1,15 @@
+import torch
+from compressed_tensors.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 from compressed_tensors.offload import get_device_map, load_offloaded_model
 from compressed_tensors.quantization.quant_scheme import (
-    NVFP4,
     FP8_BLOCK,
+    NVFP4,
     QuantizationScheme,
 )
 from transformers import AutoTokenizer
-import torch
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-
-from compressed_tensors.modeling.deepseekv32.config import (
-    ModelConfig as DeepseekV32Config,
-)
-from compressed_tensors.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 
 # from transformers import AutoConfig, AutoModelForCausalLM
 # AutoConfig.register("deepseek_v32", DeepseekV32Config)
@@ -23,6 +20,7 @@ model_id = "/mnt/data/brian-dellabetta/DeepSeek-V3.2-bf16"
 # model_id = "nvidia/DeepSeek-R1-NVFP4"
 
 SAVE_DIR = "DeepSeek-V3.2-NVFP4-FP8-BLOCK"
+# SAVE_DIR = "DeepSeek-V3.2-W4A16"
 
 # Select model and load it in the `load_offloaded_model` context
 with load_offloaded_model(), torch.no_grad():
@@ -70,6 +68,14 @@ recipe = QuantizationModifier(
             **FP8_BLOCK,
         ),
     },
+    # targets=[
+    #     r"re:model.*mlp.*(gate|up|down|gate_up)_proj$",
+    #     r"re:model.*self_attn.indexer.(wk|wq_b)$",
+    #     r"re:model.*self_attn.kv_a_proj_with_mqa$",
+    #     r"re:model.*self_attn.(kv_b|o|q_a|q_b)_proj$",
+    #     r"re:model.*self_attn.fused_qkv_a_proj$",
+    # ],
+    # scheme="W4A16",
     ignore=["lm_head"],
 )
 
