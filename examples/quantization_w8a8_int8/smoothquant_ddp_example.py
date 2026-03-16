@@ -127,13 +127,14 @@ if rank == 0:
 # ---------------------------------------------------------------------------
 # Save (rank 0 only — save_pretrained handles dist internally)
 # ---------------------------------------------------------------------------
-SAVE_DIR = (
-    MODEL_ID.rstrip("/").split("/")[-1]
-    + "-W8A8-SmoothQuant-DDP"
-    + str(dist.get_world_size())
-)
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
-logger.info(f"[Rank {rank}] Saved to {SAVE_DIR}")
+if rank == 0:
+    SAVE_DIR = (
+        MODEL_ID.rstrip("/").split("/")[-1]
+        + "-W8A8-SmoothQuant-DDP"
+        + str(dist.get_world_size())
+    )
+    model.save_pretrained(SAVE_DIR, save_compressed=True)
+    tokenizer.save_pretrained(SAVE_DIR)
+    logger.info(f"[Rank {rank}] Saved to {SAVE_DIR}")
 
 dist.destroy_process_group()
