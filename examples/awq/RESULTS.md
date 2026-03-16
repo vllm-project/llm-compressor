@@ -6,7 +6,7 @@
 
 ## Summary
 
-Ran the example scripts with both FP8 schemes (FP8_DYNAMIC and FP8_BLOCK) on Meta-Llama-3-8B-Instruct, then evaluated on GSM8K as requested in #2305. FP8_DYNAMIC performs better overall.
+Ran the example scripts with both FP8 schemes (FP8_DYNAMIC and FP8_BLOCK) on Meta-Llama-3-8B-Instruct, then evaluated on GSM8K.
 
 This PR adds `RESULTS.md` with reproducible workflow for evaluating AWQ+FP8 quantization schemes on GSM8K.
 
@@ -14,7 +14,7 @@ This PR adds `RESULTS.md` with reproducible workflow for evaluating AWQ+FP8 quan
 
 | Scheme | Strict Match | Flexible Extract |
 |--------|-------------|------------------|
-| **FP8_DYNAMIC** | **76.42%** | **76.19%** |
+| **FP8_DYNAMIC** | 76.42% | 76.19% |
 | **FP8_BLOCK** | 75.21% | 74.98% |
 
 **Evaluation details:**
@@ -42,7 +42,7 @@ Run GSM8K evaluation using lm-eval:
 
 ```bash
 lm_eval \
-  --model hf \
+  --model vllm \
   --model_args pretrained=<model_path>,dtype=auto \
   --tasks gsm8k \
   --batch_size 16 \
@@ -50,7 +50,3 @@ lm_eval \
 ```
 
 **Important:** Setting `batch_size=16` is critical. The default `auto` picks 1, which significantly increases evaluation time.
-
-## Recommendation
-
-**Use FP8_DYNAMIC** for AWQ quantization - better accuracy preservation (76.42% vs 75.21% on GSM8K strict matching) with similar model characteristics.
