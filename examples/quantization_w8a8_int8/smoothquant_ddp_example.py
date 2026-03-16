@@ -115,12 +115,14 @@ logger.info(
 # ---------------------------------------------------------------------------
 # Sample generation (rank 0 only)
 # ---------------------------------------------------------------------------
+# Sample generation (all ranks must participate)
+dist.barrier()
+dispatch_model(model)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {k: v.to(model.device) for k, v in sample.items()}
+output = model.generate(**sample, max_new_tokens=50)
 if rank == 0:
     logger.info("\n========== SAMPLE GENERATION ==========")
-    dispatch_model(model)
-    sample = tokenizer("Hello my name is", return_tensors="pt")
-    sample = {k: v.to(model.device) for k, v in sample.items()}
-    output = model.generate(**sample, max_new_tokens=50)
     logger.info(tokenizer.decode(output[0]))
     logger.info("========================================\n")
 
