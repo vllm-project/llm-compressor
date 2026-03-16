@@ -542,7 +542,7 @@ def dispatch_for_sequential(
         for name, param in module._parameters.items():
             if param is not None and param.device.type != "cpu":
                 module._parameters[name] = torch.nn.Parameter(
-                    param.data.to("cpu"), requires_grad=param.requires_grad
+                    param.detach().to("cpu"), requires_grad=param.requires_grad
                 )
         for name, buf in module._buffers.items():
             if buf is not None and buf.device.type != "cpu":
