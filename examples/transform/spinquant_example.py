@@ -1,9 +1,9 @@
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import SpinQuantModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -31,7 +31,7 @@ oneshot(model=model, recipe=recipe, pipeline="datafree")
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

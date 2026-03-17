@@ -41,7 +41,7 @@ The simplest approach is to use `oneshot`, which handles both compression and wr
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model
 model = AutoModelForCausalLM.from_pretrained("your-model")
