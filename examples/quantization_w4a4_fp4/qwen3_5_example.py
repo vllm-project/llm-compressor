@@ -31,7 +31,6 @@ NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 4096
 
 # Load datasets and preprocess.
-# Use half from each source for a diverse calibration set.
 samples_per_dataset = NUM_CALIBRATION_SAMPLES
 
 ds_ultrachat = load_dataset(

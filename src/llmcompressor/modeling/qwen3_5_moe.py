@@ -36,7 +36,7 @@ class CalibrationQwen3_5MoeSparseMoeBlock(MoECalibrationModule):
         super().__init__()
         text_config = getattr(config, "text_config", config)
 
-        self.calibrate_all_experts = True
+        self.calibrate_all_experts = calibrate_all_experts
 
         # Use plain Linear for gate so module_type() returns "Linear"
         # This ensures gates appear in the ignore list when config is saved
