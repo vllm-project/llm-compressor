@@ -167,7 +167,7 @@ run_and_eval() {
 
 run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 2 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP4" "gsm8k" 2048 # fail
 # run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP8" "gsm8k" 2048 # fail
-run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP1" "gsm8k" 2048 # some disk offload error it looks like
+# run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP1" "gsm8k" 2048 # some disk offload error it looks like
 
 
 # NVFP4
