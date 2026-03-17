@@ -534,7 +534,7 @@ def dispatch_for_sequential(
     """
     if onload_device is None:
         onload_device = get_main_device()
-    if isinstance(offload_device, str) and offload_device.lower() == "none":
+    if isinstance(offload_device, str) and offload_device.strip().lower() == "none":
         offload_device = None
     if offload_device is None:
         remove_hook_from_module(model, recurse=True)
