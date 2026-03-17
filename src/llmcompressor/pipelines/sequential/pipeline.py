@@ -96,8 +96,10 @@ class SequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
-        offload_device = torch.device(dataset_args.sequential_offload_device)
-        dispatch_for_sequential(model, onload_device)
+        activation_offload_device = torch.device(dataset_args.sequential_offload_device)
+        dispatch_for_sequential(
+            model, onload_device, dataset_args.sequential_weight_offload_device
+        )
 
         # prepare to trace subgraphs
         modifiers = session.lifecycle.recipe.modifiers
@@ -126,7 +128,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
-                dataloader, onload_device, offload_device
+                dataloader, onload_device, activation_offload_device
             )
 
             # Populate loss_masks once from cached activations for AWQ masking support

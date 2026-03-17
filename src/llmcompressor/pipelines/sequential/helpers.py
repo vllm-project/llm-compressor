@@ -527,10 +527,19 @@ def dispatch_for_sequential(
     if available. Removes any existing hooks.
 
     :param model: model to dispatch
+    :param onload_device: device used for forward passes
+    :param offload_device: device to offload weights to. ``"none"`` or ``None``
+        disables weight offloading and keeps the model on ``onload_device``.
     :return: dispatched model
     """
     if onload_device is None:
         onload_device = get_main_device()
+    if isinstance(offload_device, str) and offload_device.lower() == "none":
+        offload_device = None
+    if offload_device is None:
+        remove_hook_from_module(model, recurse=True)
+        model.to(onload_device)
+        return model
     return offload_model(model, onload_device, offload_device)
 
 

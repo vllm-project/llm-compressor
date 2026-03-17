@@ -242,6 +242,14 @@ class DatasetArguments(CustomDatasetArguments):
             "than one gpu. Default is cpu."
         },
     )
+    sequential_weight_offload_device: str = field(
+        default="cpu",
+        metadata={
+            "help": "Device used to offload model weights in the sequential "
+            "pipeline. Set to `none` to disable weight offloading and keep "
+            "weights on the main execution device. Default is cpu."
+        },
+    )
     quantization_aware_calibration: bool = field(
         default=True,
         metadata={
