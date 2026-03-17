@@ -20,7 +20,7 @@ from tests.testing_utils import requires_gpu
 
 
 @requires_gpu
-def test_quant_model_reload(tmp_path):
+def test_quant_model_compressed(tmp_path):
     """Test that models are compressed after saving"""
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
