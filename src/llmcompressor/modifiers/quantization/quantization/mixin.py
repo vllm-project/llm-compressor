@@ -231,6 +231,12 @@ class QuantizationMixin(HooksMixin):
         # disable quantization until calibration
         model.apply(disable_quantization)
 
+    def _start_calibrating_module(self, module: torch.nn.Module):
+        """Initialize observers, register calibration hooks, and set status."""
+        self._initialize_observers(module)
+        self._calibration_hooks |= self._initialize_hooks(module)
+        apply_calibration_status(module)
+
     def start_calibration(self, model: torch.nn.Module):
         """
         Attach observers, register activation calibration hooks (including
@@ -242,10 +248,24 @@ class QuantizationMixin(HooksMixin):
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
+        initialized_ids: set[int] = set()
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            self._initialize_observers(module)
-            self._calibration_hooks |= self._initialize_hooks(module)
-            apply_calibration_status(module)
+            self._start_calibrating_module(module)
+            initialized_ids.add(id(module))
+
+        # _apply_kv_cache_scheme uses is_attention_module() to set
+        # quantization_scheme on attention modules, but resolved_targets
+        # uses a name regex ("re:.*self_attn$") that may not match all
+        # attention modules (e.g. models using "attention" or
+        # "self_attention"). Catch any that were missed.
+        if self.resolved_config.kv_cache_scheme is not None:
+            for _, module in model.named_modules():
+                if (
+                    id(module) not in initialized_ids
+                    and is_attention_module(module)
+                    and hasattr(module, "quantization_scheme")
+                ):
+                    self._start_calibrating_module(module)
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
@@ -259,6 +279,18 @@ class QuantizationMixin(HooksMixin):
         self.remove_hooks(self._calibration_hooks)
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
+
+        # Also freeze attention modules that were initialized by the
+        # is_attention_module() fallback in start_calibration.
+        if self.resolved_config.kv_cache_scheme is not None:
+            for _, module in model.named_modules():
+                if (
+                    is_attention_module(module)
+                    and hasattr(module, "quantization_scheme")
+                    and getattr(module, "quantization_status", None)
+                    == QuantizationStatus.CALIBRATION
+                ):
+                    freeze_module_quantization(module)
 
         model.apply(enable_quantization)  # keep quantization enabled
 
