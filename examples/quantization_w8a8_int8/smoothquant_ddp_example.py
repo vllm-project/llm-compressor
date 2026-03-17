@@ -30,7 +30,7 @@ from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "Qwen/Qwen2-7B-Instruct"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 512

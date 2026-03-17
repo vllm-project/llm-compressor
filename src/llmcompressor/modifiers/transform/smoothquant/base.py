@@ -343,7 +343,8 @@ class SmoothQuantModifier(Modifier):
 
         This modifies the weights of the model in-place.
         """
-        self._reduce_activation_scales()
+        if is_distributed():
+            self._reduce_activation_scales()
 
         for mapping in self.resolved_mappings_:
             if mapping.smooth_name not in self.scales_:
