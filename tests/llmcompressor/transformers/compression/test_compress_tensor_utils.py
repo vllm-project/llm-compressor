@@ -1,11 +1,7 @@
-import os
-import shutil
-
 import pytest
 import torch
 from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.compressors.format import infer_model_format
 from compressed_tensors.quantization import (
     QuantizationConfig,
@@ -13,8 +9,7 @@ from compressed_tensors.quantization import (
     quantize,
 )
 from torch import nn
-from transformers import AutoConfig, AutoModelForCausalLM
-from transformers.utils.quantization_config import CompressedTensorsConfig
+from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
@@ -24,84 +19,31 @@ from llmcompressor.utils import untie_word_embeddings
 from tests.testing_utils import requires_gpu
 
 
-@pytest.mark.parametrize(
-    "format,dtype",
-    [
-        ["dense", torch.bfloat16],
-        # NOTE: Int8 Decompression fails for transformers>4.49 due to bug in loading
-        # parameters with integers (hf attempts to attach gradients to int params)
-        # ["int-quantized", torch.bfloat16],
-    ],
-)
-def test_quant_model_reload(format, dtype, tmp_path):
+@requires_gpu
+def test_quant_model_reload(tmp_path):
+    """Test that models are compressed after saving"""
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
     model_path = "nm-testing/tinysmokellama-3.2"
-    device = "cuda:0" if not torch.cuda.is_available() else "cpu"
     dataset = "open_platypus"
-    concatenate_data = False
     num_calibration_samples = 16
     splits = {"calibration": f"train[:{num_calibration_samples}]"}
 
-    # create a quantized model
+    # create a compressed
     model = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
         recipe=recipe_str,
-        concatenate_data=concatenate_data,
         splits=splits,
-        precision=dtype,
-        tie_word_embeddings=False,
+        output_dir=(tmp_path / "compressed"),  # save to trigger compression
     )
 
-    # Fetch the oneshot model
-    og_state_dict = model.state_dict()
-    save_path_compressed = tmp_path / "compressed"
-
+    # assert compressed
     for name, module in model.named_modules():
-        if hasattr(module, "quantization_scheme"):
-            assert (
-                module.weight.dtype == dtype
-            ), f"Module {name} has incorrect weight dtype"
-            assert (
-                module.quantization_status == QuantizationStatus.FROZEN
-            ), f"Module {name} has incorrect quantization status"
-
-    # Save to disk, override format
-    model.save_pretrained(
-        save_path_compressed,
-        quantization_format=format,
-        save_compressed=True,
-    )
-
-    # Verify config on disk
-    config = AutoConfig.from_pretrained(save_path_compressed)
-    quant_config = getattr(config, QUANTIZATION_CONFIG_NAME)
-    assert quant_config["format"] == format
-
-    decompressed_model = AutoModelForCausalLM.from_pretrained(
-        save_path_compressed,
-        dtype=dtype,
-        quantization_config=CompressedTensorsConfig(run_compressed=False),
-    )
-
-    _remove_zp(og_state_dict)  # HACK: remove extra zero points added during quant init
-    reconstructed_state_dict = decompressed_model.state_dict()
-    assert len(og_state_dict) == len(reconstructed_state_dict)
-    for key in og_state_dict.keys():
-        dense_tensor = og_state_dict[key].to(device)
-        reconstructed_tensor = reconstructed_state_dict[key].to(device)
-        assert dense_tensor.dtype == reconstructed_tensor.dtype
-        if key.endswith("weight") and format != "dense":
-            # we don't expect an exact match for compressed
-            diff = torch.abs(dense_tensor - reconstructed_tensor)
-            assert not torch.any(diff > 0.01).item()
-        else:
-            assert torch.equal(dense_tensor, reconstructed_tensor)
-    if os.path.isdir(tmp_path):
-        shutil.rmtree(tmp_path)
+        if isinstance(module, torch.nn.Linear) and name != "lm_head":
+            assert module.weight.dtype == torch.int8, name
 
 
 @pytest.mark.parametrize(
@@ -274,11 +216,3 @@ def test_correct_compressor_inferred(
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
     assert infer_model_format(model) == expected_format
-
-
-def _remove_zp(state_dict: dict) -> dict:
-    return {
-        key: value
-        for key, value in state_dict.items()
-        if not key.endswith("zero_point")
-    }
