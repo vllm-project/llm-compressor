@@ -9,8 +9,7 @@ A complete list of formats can be found here: https://docs.vllm.ai/projects/llm-
 
 ### Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
--  [2:4-Sparsity with FP4 Weight](../../../examples/quantization_2of4_sparse_w4a16/README.md)
--  [2:4-Sparsity with FP8 Weight, FP8 Input Activation](../../../examples/sparse_2of4_quantization_fp8/README.md)
+-  [2:4-Sparsity with FP8 Weight Activation Quantization](../../../examples/sparse_2of4_quantization_fp8/README.md)
 
 ### Example
 

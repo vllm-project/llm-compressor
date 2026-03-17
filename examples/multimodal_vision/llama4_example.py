@@ -3,7 +3,7 @@ from datasets import load_dataset
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"

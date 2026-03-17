@@ -1,6 +1,6 @@
 # Getting Started
 
-Welcome to LLM Compressor! This section will guide you through the process of installing the library, compressing your first model, and deploying it with vLLM for faster, more efficient inference.
+This section will guide you through the process of installing the library, compressing your first model, and deploying it with vLLM for faster, more efficient inference.
 
 LLM Compressor makes it simple to optimize large language models for deployment, offering various quantization techniques that help you find the perfect balance between model quality, performance, and resource efficiency.
 
@@ -16,7 +16,7 @@ Follow the guides below to get started with LLM Compressor and optimize your mod
 
     Learn about the benefits of model optimization and how LLM Compressor helps reduce costs and improve performance.
 
-    [:octicons-arrow-right-24: Why LLM Compressor](why-llmcompressor.md)
+    [:octicons-arrow-right-24: Why LLM Compressor](../steps/why-llmcompressor.md)
 
 - :material-package-variant:{ .lg .middle } Installation
 
@@ -30,9 +30,9 @@ Follow the guides below to get started with LLM Compressor and optimize your mod
 
     ---
 
-    Learn how to apply quantization to your models using different algorithms and formats.
+    Learn how to compress your model using different algorithms and formats with a step-by-step walkthrough
 
-    [:octicons-arrow-right-24: Compression Guide](compress.md)
+    [:octicons-arrow-right-24: Compression Guide](../steps/choosing-model.md)
 
 - :material-rocket-launch:{ .lg .middle } Deploy with vLLM
 
@@ -40,7 +40,7 @@ Follow the guides below to get started with LLM Compressor and optimize your mod
 
     Deploy your compressed model for efficient inference using vLLM.
 
-    [:octicons-arrow-right-24: Deployment Guide](deploy.md)
+    [:octicons-arrow-right-24: Deployment Guide](../steps/deploy.md)
 
 - :material-rocket-launch:{ .lg .middle } FAQ
 
@@ -48,6 +48,6 @@ Follow the guides below to get started with LLM Compressor and optimize your mod
 
     View the most frequently asked questions for LLM Compressor.
 
-    [:octicons-arrow-right-24: FAQ](faq.md)
+    [:octicons-arrow-right-24: FAQ](../faq/faq.md)
 
 </div>

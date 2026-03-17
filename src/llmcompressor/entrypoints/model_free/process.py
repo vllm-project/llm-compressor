@@ -1,11 +1,11 @@
 import os
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
 from typing import Iterable
 
 import torch
+from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
-from compressed_tensors.utils.match import _match_name
+from compressed_tensors.utils import match_quantizable_tensors
 from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
@@ -21,21 +21,11 @@ from llmcompressor.entrypoints.model_free.microscale import (
     is_microscale_scheme,
 )
 
-__all__ = ["validate_file", "process_file", "process_file_microscale_scheme"]
-
-
-def iter_quantizable_tensors(
-    tensors: Mapping[str, torch.Tensor],
-    ignore: Iterable[str],
-) -> Iterator[tuple[str, str]]:
-    for name in list(tensors.keys()):
-        module_name, param_name = name.rsplit(".", 1)
-        is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
-        is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        if not is_linear_weight or is_ignored:
-            continue
-
-        yield module_name, name
+__all__ = [
+    "validate_file",
+    "process_file",
+    "process_file_microscale_scheme",
+]
 
 
 def validate_file(
@@ -44,6 +34,7 @@ def validate_file(
     scheme: QuantizationScheme,
     ignore: Iterable[str],
     device: str | torch.device,
+    converter: Converter | None = None,
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -52,10 +43,15 @@ def validate_file(
     :param scheme: quantization scheme to apply to tensors
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
+    :param converter: optional converter to apply to the checkpoint,
+        e.g. conversion of some layers from some format to compressed-tensors
     """
     tensors = load_file(file_path)
 
-    for _, name in iter_quantizable_tensors(tensors, ignore):
+    if converter is not None:
+        converter.validate(tensors)
+
+    for _, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
 
@@ -65,6 +61,7 @@ def process_file(
     scheme: QuantizationScheme,
     ignore: Iterable[str],
     device: str | torch.device,
+    converter: Converter | None = None,
 ) -> tuple[int, dict[str, str]]:
     """
     Quantize and compress tensors in a given safetensors file
@@ -75,11 +72,16 @@ def process_file(
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
     :param device: device used to quantize and compress weights
+    :param converter: optional converter to apply to the checkpoint,
+        e.g. conversion of some layers from some format to compressed-tensors
     """
     assert not is_microscale_scheme(scheme), "Use `_process_file_microscale_scheme`"
     tensors = load_file(file_path)
 
-    for module_name, name in iter_quantizable_tensors(tensors, ignore):
+    if converter is not None:
+        converter.process(tensors)
+
+    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
         # 1. initialize module with qparams (on device)
@@ -109,6 +111,7 @@ def process_file_microscale_scheme(
     scheme: QuantizationScheme,
     ignore: Iterable[str],
     device: str | torch.device,
+    converter: Converter | None = None,
 ) -> tuple[int, dict[str, str]]:
     """
     Quantize and compress tensors in a given safetensors file
@@ -119,9 +122,15 @@ def process_file_microscale_scheme(
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
     :param device: device used to quantize and compress weights
+    :param converter: optional converter to apply to the checkpoint,
+        e.g. conversion of some layers from some format to compressed-tensors
     """
     assert is_microscale_scheme(scheme), "Use `_process_file` for non-microscale scheme"
     tensors = load_file(file_path)
+
+    if converter is not None:
+        converter.process(tensors)
+
     fused_sets, unmatched_sets = get_fused_names(tensors)
     assert len(unmatched_sets) <= 0  # should be caught by `validate_safetensors_index`
 
@@ -135,7 +144,7 @@ def process_file_microscale_scheme(
     }
     fused_modules = defaultdict(dict)
 
-    for module_name, name in iter_quantizable_tensors(tensors, ignore):
+    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
 
         # 1. initialize module with qparams (on device)
