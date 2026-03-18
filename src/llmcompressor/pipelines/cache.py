@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import warnings
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
 from weakref import WeakKeyDictionary
@@ -196,6 +197,59 @@ class IntermediatesCache:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
+    def iter_prefetch(
+        self, input_names: list[str] | None = None
+    ) -> Generator[Any, None, None]:
+        """
+        Iterate over batches with the next batch prefetched in a background thread.
+        Overlaps onload from offload_device with consumption of the current batch,
+        which can reduce wall-clock time when offloading to CPU.
+
+        When CUDA is available, uses non_blocking transfers (requires pinned CPU
+        tensors, set up by _offload_value) and synchronises via CUDA events so the
+        main stream waits for each H2D copy before running GPU kernels on the data.
+
+        Yields the same fetched batch dicts as :meth:`iter`; only the timing
+        of onloads differs.
+        """
+        num_batches = len(self.batch_intermediates)
+        if num_batches == 0:
+            return
+
+        # Create a dedicated CUDA stream for H2D transfers so they run on a
+        # separate stream from the main thread's compute stream. Without this,
+        # both threads default to the null stream (stream 0) which serializes
+        # all operations and prevents any overlap.
+        h2d_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+
+        def _fetch_and_record(batch_index):
+            event = None
+            if h2d_stream is not None:
+                with torch.cuda.stream(h2d_stream):
+                    data = self.fetch(batch_index, input_names)
+                event = torch.cuda.Event()
+                event.record(h2d_stream)
+            else:
+                data = self.fetch(batch_index, input_names)
+            return data, event
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = None
+            for batch_index in range(num_batches):
+                if future is not None:
+                    current, event = future.result()
+                else:
+                    current, event = _fetch_and_record(batch_index)
+                if batch_index + 1 < num_batches:
+                    future = executor.submit(_fetch_and_record, batch_index + 1)
+                else:
+                    future = None
+                # Make the main CUDA stream wait for the background H2D copy
+                # before any GPU kernel consumes the prefetched tensors
+                if event is not None:
+                    torch.cuda.current_stream().wait_event(event)
+                yield current
+
     def __iter__(self) -> Generator[Any, None, None]:
         yield from self.iter()
 
@@ -215,7 +269,14 @@ class IntermediatesCache:
 
         match value:
             case torch.Tensor():
-                return value.to(device=device)
+                # use non_blocking when source is pinned and target is CUDA so the
+                # H2D DMA can overlap with GPU compute on a separate CUDA stream
+                non_blocking = (
+                    value.is_pinned()
+                    and device is not None
+                    and torch.device(device).type == "cuda"
+                )
+                return value.to(device=device, non_blocking=non_blocking)
             case list():
                 return [cls._onload_value(v) for v in value]
             case tuple():
@@ -259,6 +320,13 @@ class IntermediatesCache:
                         # move to offload if no hit
                         offloaded = value.to(device=offload_device)
                         if offloaded is not value:  # avoid circular ref
+                            # pin CPU tensors so onload can use non_blocking DMA
+                            if (
+                                torch.device(offload_device).type == "cpu"
+                                and torch.cuda.is_available()
+                                and not offloaded.is_pinned()
+                            ):
+                                offloaded = offloaded.pin_memory()
                             cls.offload_values[value] = offloaded
 
                 return IntermediateValue(
