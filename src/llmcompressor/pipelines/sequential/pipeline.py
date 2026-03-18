@@ -1,5 +1,4 @@
 import contextlib
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -35,30 +34,23 @@ def _get_batches(
     num_batches: int,
     input_names: list[str],
     desc: str,
-    use_prefetch: bool = False,
+    sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched in a
     background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass.
+    main-thread forward pass. Delegates to
+    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
     """
-    if not use_prefetch:
-        for batch_idx in tqdm(range(num_batches), desc=desc):
-            inputs = activations.fetch(batch_idx, input_names)
-            yield batch_idx, inputs
-        return
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = None
-        for batch_idx in tqdm(range(num_batches), desc=desc):
-            if future is not None:
-                inputs = future.result()
-            else:
-                inputs = activations.fetch(batch_idx, input_names)
-            if batch_idx + 1 < num_batches:
-                future = executor.submit(activations.fetch, batch_idx + 1, input_names)
-            else:
-                future = None
-            yield batch_idx, inputs
+    batch_source = (
+        activations.iter_prefetch(input_names)
+        if sequential_prefetch
+        else activations.iter(input_names)
+    )
+    for batch_idx, inputs in tqdm(
+        enumerate(batch_source), total=num_batches, desc=desc
+    ):
+        yield batch_idx, inputs
 
 
 @CalibrationPipeline.register("sequential")
@@ -139,6 +131,9 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
+            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
+            session.state.sequential_prefetch = sequential_prefetch
+
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
@@ -146,7 +141,6 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                use_prefetch = getattr(dataset_args, "sequential_prefetch", False)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
@@ -154,7 +148,7 @@ class SequentialPipeline(CalibrationPipeline):
                         num_batches,
                         subgraph.input_names,
                         calib_desc,
-                        use_prefetch,
+                        sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
                         subgraph.forward(model, **inputs)
@@ -169,7 +163,7 @@ class SequentialPipeline(CalibrationPipeline):
                             num_batches,
                             subgraph.input_names,
                             prop_desc,
-                            use_prefetch,
+                            sequential_prefetch,
                         ):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
