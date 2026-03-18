@@ -136,7 +136,12 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 
     :return: list of class names that shouldn't be split
     """
-    no_split_modules = model._get_no_split_modules("auto")
+    try:
+        # Transformers < v5 support
+        no_split_modules = model._get_no_split_modules("auto")
+    except AttributeError:
+        # Transformers v5 support
+        no_split_modules = model._no_split_modules
     if len(no_split_modules) <= 0:
         return ALL_TARGET
 
