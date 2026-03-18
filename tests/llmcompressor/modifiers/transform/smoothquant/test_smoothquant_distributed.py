@@ -54,9 +54,7 @@ def test_reduce_activation_scales_noop_single_gpu():
             "llmcompressor.modifiers.transform.smoothquant.base.is_distributed",
             return_value=False,
         ),
-        patch(
-            "llmcompressor.modifiers.transform.smoothquant.base.dist"
-        ) as mock_dist,
+        patch("llmcompressor.modifiers.transform.smoothquant.base.dist") as mock_dist,
     ):
         modifier._reduce_activation_scales()
         mock_dist.all_reduce.assert_not_called()
@@ -88,9 +86,7 @@ def test_reduce_activation_scales_2n_calls_for_n_layers():
             "llmcompressor.modifiers.transform.smoothquant.base.is_distributed",
             return_value=True,
         ),
-        patch(
-            "llmcompressor.modifiers.transform.smoothquant.base.dist"
-        ) as mock_dist,
+        patch("llmcompressor.modifiers.transform.smoothquant.base.dist") as mock_dist,
         patch(
             "llmcompressor.modifiers.transform.smoothquant.base.wait_for_comms",
             side_effect=lambda h: collected.extend(h),
@@ -270,9 +266,9 @@ dist.destroy_process_group()
         text=True,
         cwd=tmp_path,
     )
-    assert r.returncode == 0, (
-        f"DDP run failed:\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
-    )
+    assert (
+        r.returncode == 0
+    ), f"DDP run failed:\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
 
     ddp = torch.load(ddp_out, weights_only=True)
 
