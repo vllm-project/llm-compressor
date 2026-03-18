@@ -39,20 +39,16 @@ def _get_quant_info(model):
     for name, module in model.named_modules():
         with align_module_device(module):
             if is_module_quantized(module):
+                # skip zero points, as these are removed between
+                # compression/decompression for symmetric models
+
                 if module.quantization_scheme.weights is not None:
-                    quant_info_weights[name] = (
-                        module.weight_scale,
-                        module.weight_zero_point,
-                        module.weight,
-                    )
+                    quant_info_weights[name] = (module.weight_scale, module.weight)
 
                 if module.quantization_scheme.input_activations is not None:
                     is_dynamic = module.quantization_scheme.input_activations.dynamic
                     if not is_dynamic:
-                        quant_info_inputs[name] = (
-                            module.input_scale,
-                            module.input_zero_point,
-                        )
+                        quant_info_inputs[name] = (module.input_scale,)
 
     return quant_info_weights, quant_info_inputs
 
@@ -110,23 +106,19 @@ def test_quantization_reload(setup_model_and_config):
     # TODO: can remove `to` calls after
     # https://github.com/neuralmagic/compressed-tensors/pull/427
 
-    for name, (o_scale, o_zp, o_weight) in og_weights.items():
-        n_scale, n_zp, n_weight = reloaded_weights[name]
+    for name, (o_scale, o_weight) in og_weights.items():
+        n_scale, n_weight = reloaded_weights[name]
         assert o_scale.dtype == n_scale.dtype == config["weight_dtype"]
         assert torch.equal(o_scale, n_scale.to(o_scale.device))
-        assert o_zp.dtype == n_zp.dtype
-        assert torch.equal(o_zp, n_zp.to(o_zp.device))
 
         # we don't expect an exact match here because o_weight still has the
         # original weight and n_weight has been fake_quantized
         assert n_weight.dtype == o_weight.dtype == config["weight_dtype"]
 
-    for name, (o_scale, o_zp) in og_inputs.items():
-        n_scale, n_zp = reloaded_inputs[name]
+    for name, (o_scale,) in og_inputs.items():
+        (n_scale,) = reloaded_inputs[name]
         assert o_scale.dtype == n_scale.dtype == config["weight_dtype"]
         assert torch.equal(o_scale, n_scale.to(o_scale.device))
-        assert o_zp.dtype == n_zp.dtype
-        assert torch.equal(o_zp, n_zp.to(o_zp.device))
 
 
 @requires_gpu
