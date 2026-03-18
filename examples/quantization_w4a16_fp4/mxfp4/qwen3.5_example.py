@@ -1,15 +1,15 @@
 from compressed_tensors.offload import dispatch_model
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 MODEL_ID = "Qwen/Qwen3.5-27B"
-model = AutoModelForCausalLM.from_pretrained(
+model = Qwen3_5ForConditionalGeneration.from_pretrained(
     MODEL_ID, dtype="auto", trust_remote_code=True
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
@@ -32,14 +32,16 @@ oneshot(model=model, recipe=recipe)
 
 print("\n\n========== SAMPLE GENERATION ==============")
 dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
+messages = [{"role": "user", "content": "Hello my name is"}]
+prompt = processor.apply_chat_template(
+    messages, tokenize=False, add_generation_prompt=True
 )
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0], skip_special_tokens=True))
+inputs = processor(text=prompt, return_tensors="pt").to(model.device)
+output = model.generate(**inputs, max_new_tokens=100)
+print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================\n\n")
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
