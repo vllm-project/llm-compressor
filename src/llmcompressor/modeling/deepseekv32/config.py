@@ -1,4 +1,5 @@
-from typing import Tuple, Optional, Literal
+from typing import Literal, Optional
+
 from transformers.configuration_utils import PretrainedConfig
 
 
@@ -123,7 +124,6 @@ class ModelConfig(PretrainedConfig):
         index_topk: int = 2048,
         **kwargs,
     ):
-
         self.max_batch_size = max_batch_size
         self.max_seq_len = max_seq_len
         self.dtype = dtype

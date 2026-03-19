@@ -1,12 +1,12 @@
 import json
 
-from compressed_tensors.quantization import (
-    QuantizationScheme,
-    preset_name_to_scheme,
-)
 from compressed_tensors.entrypoints.convert import (
     find_safetensors_index_file,
     invert_mapping,
+)
+from compressed_tensors.quantization import (
+    QuantizationScheme,
+    preset_name_to_scheme,
 )
 from compressed_tensors.utils import getattr_chain
 from loguru import logger

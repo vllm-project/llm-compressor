@@ -1,6 +1,4 @@
 import re
-from collections import defaultdict
-from typing import Mapping, TypeVar
 
 import torch
 from compressed_tensors.utils.match import match_name

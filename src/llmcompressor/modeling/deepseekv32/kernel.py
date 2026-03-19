@@ -1,8 +1,8 @@
-import torch
+from typing import Optional, Tuple
+
 import tilelang
 import tilelang.language as T
-from typing import Tuple, Optional
-
+import torch
 
 tilelang.set_log_level("WARNING")
 
@@ -379,7 +379,7 @@ def bf16_index(
     # Use einsum for memory-efficient computation
     # k: (b, n, d), q: (b, m, h, d)
     # logits[b, m, n, h] = sum_d(k[b, n, d] * q[b, m, h, d])
-    logits = torch.einsum('bnd,bmhd->bmnh', k, q)  # (b, m, n, h)
+    logits = torch.einsum("bnd,bmhd->bmnh", k, q)  # (b, m, n, h)
 
     # Apply ReLU
     logits = torch.relu(logits)

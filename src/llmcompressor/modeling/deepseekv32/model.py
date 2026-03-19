@@ -1,26 +1,22 @@
 import math
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import torch
+import torch.distributed as dist
+import torch.nn.functional as F
 from torch import nn
 from torch.nn import Linear
-import torch.nn.functional as F
-import torch.distributed as dist
-
-from .kernel import act_quant, fp8_index, bf16_index
-from .config import ModelConfig
-from transformers.models.deepseek_v3 import DeepseekV3ForCausalLM
-
 from transformers import PreTrainedModel
+from transformers.cache_utils import Cache
+from transformers.generation import GenerationMixin
 from transformers.modeling_outputs import (
-    BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs
-from transformers.cache_utils import Cache
-from transformers.generation import GenerationMixin
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3Attention
+
+from .config import ModelConfig
+from .kernel import bf16_index
 
 world_size = 1
 rank = 0
@@ -936,7 +932,6 @@ class DeepseekV32PreTrainedModel(PreTrainedModel):
 
 
 class DeepseekV32ForCausalLM(DeepseekV32PreTrainedModel, GenerationMixin):
-
     config: ModelConfig
 
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}

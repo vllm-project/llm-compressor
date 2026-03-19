@@ -8,9 +8,8 @@ from compressed_tensors.quantization.quant_scheme import (
 from transformers import AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
-
 from llmcompressor.modeling.deepseekv32.model import DeepseekV32ForCausalLM
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # from llmcompressor.modeling.deepseekv32.config import (
 #     ModelConfig as DeepseekV32Config,
