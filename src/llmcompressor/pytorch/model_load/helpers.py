@@ -1,73 +1,16 @@
-import json
-import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Optional, Union
 
 import torch
 from loguru import logger
-from safetensors import safe_open
 from torch.nn import Module
-from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
-from llmcompressor.typing import Processor
-
-COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
 __all__ = [
     "copy_python_files_from_model_cache",
     "parse_dtype",
     "get_session_model",
-    "get_completed_stages",
-    "save_completed_stages",
-    "save_checkpoint",
 ]
-
-
-def save_checkpoint(
-    save_path: str,
-    model: PreTrainedModel,
-    processor: Optional[Processor] = None,
-    save_safetensors: bool = True,
-    save_compressed: bool = True,
-    skip_sparsity_compression_stats: bool = False,
-):
-    """
-    Save a model, processor, and recipe
-
-    :param save_path: Path used to save model and processor
-    :param model: model to save
-    :param processor: processor to save
-    :param save_safetensors: save model checkpoint using safetensors file type
-    :param save_compressed: save model checkpoint using compressed-tensors format
-    """
-    from llmcompressor.transformers.compression.compressed_tensors_utils import (
-        get_model_compressor,  # avoid circular import
-    )
-
-    # used for decompression
-    # unfortunately, if skip_sparsity_compression_stats==True, sparsity stats
-    # are computed twice. In the future, track sparsity from recipe or
-    # share recipe between compression and decompression
-    compressor = get_model_compressor(
-        model=model,
-        save_compressed=save_compressed,
-        skip_sparsity_compression_stats=skip_sparsity_compression_stats,
-    )
-
-    # saving the model also saves the recipe
-    model.save_pretrained(
-        save_path,
-        save_safetensors=save_safetensors,
-        save_compressed=save_compressed,
-        skip_sparsity_compression_stats=skip_sparsity_compression_stats,
-    )
-    if processor is not None:
-        processor.save_pretrained(save_path)
-
-    # decompression: saving the model modifies the model strcuture
-    # as this is only a checkpoint, decompress model to enable future training/oneshot
-    if compressor is not None:
-        compressor.decompress_model(model)
 
 
 def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
@@ -98,47 +41,6 @@ def get_session_model() -> Optional[Module]:
 
     active_model = session.state.model
     return active_model
-
-
-def get_completed_stages(checkpoint_dir: Any) -> List[str]:
-    """
-    Given a checkpoint directory for a staged run, get the list of stages that
-    have completed in a prior run if the checkpoint_dir is a string
-
-    :param checkpoint_dir: path to staged checkpoint
-    :return: list of completed stage names
-    """
-    if isinstance(checkpoint_dir, str):
-        stage_path = os.path.join(checkpoint_dir, COMPLETED_STAGES_FILENAME)
-        if os.path.exists(stage_path):
-            with open(stage_path) as stage_file:
-                stage_data = json.load(stage_file)
-                return stage_data["completed"]
-
-    return []
-
-
-def save_completed_stages(checkpoint_dir: str, completed_stages: List[str]):
-    """
-    Save a list of completed stages to a checkpoint directory
-
-    :param checkpoint_dir: model checkpoint directory to save stages to
-    :param completed_stages: list of stage names that have been run
-    """
-    stage_path = os.path.join(checkpoint_dir, COMPLETED_STAGES_FILENAME)
-    with open(stage_path, "w") as out_file:
-        json.dump({"completed": completed_stages}, out_file)
-
-
-def load_safetensors_state_dict(file_path: str) -> Dict[str, torch.Tensor]:
-    """
-    Load a safetensors file from disk
-
-    :param file_path: path to the safetensors file
-    :return: dictionary of safetensors data
-    """
-    with safe_open(file_path, framework="pt", device="cpu") as f:
-        return {key: f.get_tensor(key) for key in f.keys()}
 
 
 def copy_python_files_from_model_cache(model, save_path: str):

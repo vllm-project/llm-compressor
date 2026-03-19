@@ -3,7 +3,7 @@ from datasets import load_dataset
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "OpenGVLab/InternVL3-8B-hf"

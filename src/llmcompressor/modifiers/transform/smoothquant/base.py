@@ -2,11 +2,10 @@ from dataclasses import dataclass
 from typing import Callable
 
 import torch
-from compressed_tensors.utils import (
-    align_module_device,
-    match_modules_set,
-    match_named_modules,
-)
+import torch.distributed as dist
+from compressed_tensors.offload import update_offload_parameter
+from compressed_tensors.offload.dist_utils import is_distributed
+from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
@@ -18,6 +17,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
+from llmcompressor.utils.dist import wait_for_comms
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
@@ -293,6 +293,40 @@ class SmoothQuantModifier(Modifier):
             layer = mapping.smooth_layer
             self.register_hook(layer, create_hook_fn(name), "forward")
 
+    def _reduce_activation_scales(self):
+        """
+        In a distributed setting, all-reduce the per-channel min/max activation
+        statistics collected by each rank during calibration.
+
+        Each rank observes a disjoint partition of the calibration dataset, so the
+        global channel-wise min/max must be gathered across all ranks before smoothing
+        scales are computed.  We use ``dist.all_reduce`` with MIN/MAX ops so that
+        every rank ends up with identical statistics and can independently compute the
+        same smoothing scales without an extra broadcast of the final scale tensors.
+
+        This is a no-op when not running in a distributed context.
+        """
+        if not is_distributed():
+            return
+
+        pending_comms = []
+        for layer_name, scale in self.scales_.items():
+            pending_comms.append(
+                dist.all_reduce(
+                    scale.min_channel_vals,
+                    op=dist.ReduceOp.MIN,
+                    async_op=True,
+                )
+            )
+            pending_comms.append(
+                dist.all_reduce(
+                    scale.max_channel_vals,
+                    op=dist.ReduceOp.MAX,
+                    async_op=True,
+                )
+            )
+        wait_for_comms(pending_comms)
+
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):
         """
@@ -302,8 +336,16 @@ class SmoothQuantModifier(Modifier):
         Y = (Xdiag(scales)^(-1) * diag(scales)W) where W is the to_balance weights and
         X is the to_smooth weights
 
+        In a distributed setting, activation statistics are first all-reduced across
+        ranks so that every rank computes identical smoothing scales.  The scale
+        computation itself is duplicated across ranks (cheap), avoiding the need for
+        a broadcast of the final weight tensors.
+
         This modifies the weights of the model in-place.
         """
+        if is_distributed():
+            self._reduce_activation_scales()
+
         for mapping in self.resolved_mappings_:
             if mapping.smooth_name not in self.scales_:
                 continue
@@ -323,16 +365,22 @@ class SmoothQuantModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
-                with align_module_device(module):
-                    if module in balance_layers:
-                        module.weight.mul_(scales.view(1, -1))
-                    elif module == smooth_layer:
-                        if module.weight.ndim == 1:
-                            module.weight.div_(scales)
-                        else:
-                            module.weight.div_(scales.view(-1, 1))
-                        if hasattr(module, "bias") and module.bias is not None:
-                            module.bias.div_(scales)
+                if module in balance_layers:
+                    update_offload_parameter(
+                        module, "weight", module.weight * scales.view(1, -1)
+                    )
+                elif module == smooth_layer:
+                    if module.weight.ndim == 1:
+                        update_offload_parameter(
+                            module, "weight", module.weight / scales
+                        )
+                    else:
+                        update_offload_parameter(
+                            module, "weight", module.weight / scales.view(-1, 1)
+                        )
+
+                    if hasattr(module, "bias") and module.bias is not None:
+                        update_offload_parameter(module, "bias", module.bias / scales)
 
             for layer in balance_layers:
                 smooth(layer)
@@ -355,9 +403,8 @@ class SmoothQuantModifier(Modifier):
         # get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
-            with align_module_device(layer):
-                scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
-                weight_scales.append(scale)
+            scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
+            weight_scales.append(scale)
 
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
