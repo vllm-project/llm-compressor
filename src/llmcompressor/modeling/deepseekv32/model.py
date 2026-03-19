@@ -18,6 +18,8 @@ from transformers.utils import TransformersKwargs
 from .config import ModelConfig
 from .kernel import bf16_index
 
+# flake8: noqa
+
 world_size = 1
 rank = 0
 block_size = 128

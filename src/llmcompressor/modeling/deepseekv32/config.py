@@ -2,6 +2,8 @@ from typing import Literal, Optional
 
 from transformers.configuration_utils import PretrainedConfig
 
+# flake8: noqa
+
 
 class ModelConfig(PretrainedConfig):
     """

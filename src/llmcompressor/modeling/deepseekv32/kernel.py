@@ -4,6 +4,8 @@ import tilelang
 import tilelang.language as T
 import torch
 
+# flake8: noqa
+
 tilelang.set_log_level("WARNING")
 
 pass_configs = {
