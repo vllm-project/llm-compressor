@@ -1,10 +1,11 @@
 from abc import abstractmethod
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from torch import distributed as dist
 
-from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.base import MinMaxTuple, Observer, _all_reduce_fp8_safe
 
 __all__ = ["MovingAverageObserverBase"]
 
@@ -96,6 +97,52 @@ class MovingAverageObserverBase(Observer):
         self.past_global_max_vals = max_vals
 
         return min_vals, max_vals
+
+    def synchronize(self) -> List[dist.Work]:
+        """Average accumulated moving-average min/max statistics across DDP ranks.
+
+        Unlike :class:`StaticMinMaxObserver` which reduces via MIN/MAX,
+        moving-average observers average their accumulated state across ranks
+        so that the result approximates the moving average over the union of
+        all ranks' data.
+
+        :return: list of async communication handles
+        """
+        comms = []
+        world_size = dist.get_world_size()
+        for attr in (
+            "past_min_vals",
+            "past_max_vals",
+            "past_global_min_vals",
+            "past_global_max_vals",
+        ):
+            val = getattr(self, attr, None)
+            if val is not None:
+                comms.extend(_all_reduce_fp8_safe(val, op=dist.ReduceOp.SUM))
+
+        # After the SUM completes we divide by world_size to get the average.
+        # Store the divisor so _finalize_synchronize can apply it.
+        self._sync_world_size = world_size
+        return comms
+
+    def finalize_synchronize(self):
+        """Divide summed tensors by world_size to complete the averaging.
+
+        Must be called after :meth:`synchronize` comms have been waited on.
+        """
+        world_size = getattr(self, "_sync_world_size", None)
+        if world_size is None:
+            return
+        for attr in (
+            "past_min_vals",
+            "past_max_vals",
+            "past_global_min_vals",
+            "past_global_max_vals",
+        ):
+            val = getattr(self, attr, None)
+            if val is not None:
+                val.div_(world_size)
+        self._sync_world_size = None
 
     def _lerp(
         self, input: torch.Tensor, end: torch.Tensor, weight: float
