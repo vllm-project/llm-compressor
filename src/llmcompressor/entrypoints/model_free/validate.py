@@ -4,10 +4,13 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.entrypoints.convert import (
+    find_safetensors_index_file,
+    invert_mapping,
+)
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 
-from .helpers import find_safetensors_index_file, invert_mapping
 from .microscale import get_fused_names, is_microscale_scheme
 
 __all__ = ["validate_scheme", "validate_safetensors_index"]

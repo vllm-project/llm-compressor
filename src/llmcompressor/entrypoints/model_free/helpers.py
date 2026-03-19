@@ -8,14 +8,10 @@ from loguru import logger
 
 __all__ = [
     "gpu_if_available",
-    "find_safetensors_index_file",
     "match_names_set_eager",
     "MatchedNamesSet",
-    "invert_mapping",
 ]
 
-KeyType = TypeVar("K")
-ValueType = TypeVar("V")
 MatchedNamesSet = dict[str, str | None]
 
 
@@ -37,14 +33,6 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
             "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
         )
         return torch.device("cpu")
-
-
-def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors.index.json"):
-            return resolved_path
-
-    return None
 
 
 def match_names_set_eager(
@@ -85,14 +73,3 @@ def match_names_set_eager(
         return matched_sets, unmatched_set
     else:
         return matched_sets
-
-
-def invert_mapping(
-    mapping: Mapping[KeyType, ValueType],
-) -> dict[ValueType, list[KeyType]]:
-    inverse = defaultdict(list)
-
-    for key, value in mapping.items():
-        inverse[value].append(key)
-
-    return inverse
