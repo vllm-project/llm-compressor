@@ -207,7 +207,7 @@ class QuantizationMixin(HooksMixin):
                 targets.add(target)
 
         if self.resolved_config.kv_cache_scheme is not None:
-            # TODO: decouple reliance on this regex for matching attention
+            # TODO: also apply is_attention_module() fallback in initialize_quantization
             targets.add("re:.*self_attn$")
 
         return targets
@@ -248,22 +248,17 @@ class QuantizationMixin(HooksMixin):
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
-        initialized_ids: set[int] = set()
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._start_calibrating_module(module)
-            initialized_ids.add(id(module))
 
-        # _apply_kv_cache_scheme uses is_attention_module() to set
-        # quantization_scheme on attention modules, but resolved_targets
-        # uses a name regex ("re:.*self_attn$") that may not match all
-        # attention modules (e.g. models using "attention" or
-        # "self_attention"). Catch any that were missed.
+        # Fallback: catch attention modules missed by the "re:.*self_attn$" regex.
         if self.resolved_config.kv_cache_scheme is not None:
             for _, module in model.named_modules():
                 if (
-                    id(module) not in initialized_ids
-                    and is_attention_module(module)
+                    is_attention_module(module)
                     and hasattr(module, "quantization_scheme")
+                    and getattr(module, "quantization_status", None)
+                    != QuantizationStatus.CALIBRATION
                 ):
                     self._start_calibrating_module(module)
 
@@ -280,13 +275,11 @@ class QuantizationMixin(HooksMixin):
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
-        # Also freeze attention modules that were initialized by the
-        # is_attention_module() fallback in start_calibration.
+        # Also freeze attention modules missed by the regex fallback in start_calibration.
         if self.resolved_config.kv_cache_scheme is not None:
             for _, module in model.named_modules():
                 if (
                     is_attention_module(module)
-                    and hasattr(module, "quantization_scheme")
                     and getattr(module, "quantization_status", None)
                     == QuantizationStatus.CALIBRATION
                 ):
