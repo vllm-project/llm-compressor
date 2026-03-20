@@ -4,6 +4,7 @@ from weakref import ref
 
 import torch
 from compressed_tensors import InternalModule
+from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
@@ -152,7 +153,11 @@ class Observer(InternalModule, RegistryMixin):
         ]:
             val = getattr(self, attr, None)
             if val is not None:
-                comms.extend(_all_reduce_fp8_safe(val, op=op))
+                comms.append(
+                    dist.all_reduce(
+                        as_broadcastable(val), op=op, async_op=True
+                    )
+                )
         return comms
 
     def recompute_global_scale(self) -> Optional[torch.Tensor]:
@@ -200,37 +205,3 @@ class Observer(InternalModule, RegistryMixin):
                 "Cannot compute scale and zero points "
                 "without first computing global scale"
             )
-
-
-# FP8 dtypes are not supported by NCCL collective operations.
-# Upcast to float32, perform the reduction, then cast back.
-_FP8_DTYPES = {
-    torch.float8_e4m3fn,
-    torch.float8_e4m3fnuz,
-    torch.float8_e5m2,
-    torch.float8_e5m2fnuz,
-}
-
-
-def _all_reduce_fp8_safe(
-    tensor: torch.Tensor,
-    op: dist.ReduceOp,
-) -> List[dist.Work]:
-    """Issue an all-reduce, upcasting FP8 tensors to float32 first.
-
-    Returns a list of async work handles. For FP8 tensors the reduction is
-    performed synchronously (upcast -> reduce -> downcast) so the returned
-    list is empty.
-
-    :param tensor: tensor to reduce **in-place**
-    :param op: reduction operation
-    :return: list of async communication handles
-    """
-    if tensor.dtype in _FP8_DTYPES:
-        orig_dtype = tensor.dtype
-        fp32 = tensor.float()
-        dist.all_reduce(fp32, op=op)
-        tensor.copy_(fp32.to(orig_dtype))
-        return []
-
-    return [dist.all_reduce(tensor, op=op, async_op=True)]

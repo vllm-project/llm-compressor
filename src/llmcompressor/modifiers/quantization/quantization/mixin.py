@@ -286,11 +286,6 @@ class QuantizationMixin(HooksMixin):
 
         wait_for_comms(pending_comms)
 
-        # finalize averaging for moving-average observers
-        for _, _, observer in modules_to_update:
-            if hasattr(observer, "finalize_synchronize"):
-                observer.finalize_synchronize()
-
         # recompute qparams from synchronized statistics
         for module, base_name, observer in modules_to_update:
             # recompute global scale if using TENSOR_GROUP strategy
