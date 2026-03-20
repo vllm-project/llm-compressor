@@ -1,7 +1,6 @@
 import pytest
 
 from llmcompressor.entrypoints.model_free.microscale import (
-    get_fused_names,
     get_unmatched_microscale_names,
 )
 

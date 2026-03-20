@@ -49,7 +49,7 @@ def get_unmatched_microscale_names(
     tensor_names: Iterable[str],
 ) -> list[str]:
     """
-    Get list of unmatched tensor names which are missing one or more desired
+    Get unique list of unmatched tensor names which are missing one or more desired
     accompanying tensors.
     """
     _, unmatched = get_fused_names(tensor_names)
