@@ -1,4 +1,5 @@
 import math
+import os
 from typing import Optional, Tuple
 
 import torch
@@ -20,9 +21,9 @@ from .kernel import bf16_index
 
 # flake8: noqa
 
+block_size = 128
 world_size = 1
 rank = 0
-block_size = 128
 
 
 class ParallelEmbedding(nn.Module):
@@ -240,7 +241,6 @@ def apply_rotary_emb(
 
 def rotate_activation(x: torch.Tensor) -> torch.Tensor:
     assert x.dtype == torch.bfloat16
-    # from fast_hadamard_transform import hadamard_transform
     from compressed_tensors.transform.utils.hadamard import (
         deterministic_hadamard_matrix,
     )
@@ -250,8 +250,6 @@ def rotate_activation(x: torch.Tensor) -> torch.Tensor:
         hidden_size, torch.bfloat16, x.device
     )
     return F.linear(x, hadamard_matrix) * hidden_size**-0.5
-    # return F.linear(x, torch.tensor(scipy.linalg.hadamard(hidden_size))) * hidden_size**-0.5
-    # return hadamard_transform(x, scale=hidden_size**-0.5)
 
 
 class Indexer(torch.nn.Module):
@@ -288,16 +286,6 @@ class Indexer(torch.nn.Module):
             ),
             persistent=False,
         )
-        self.register_buffer(
-            "k_scale_cache",
-            torch.zeros(
-                args.max_batch_size,
-                args.max_seq_len,
-                self.head_dim // block_size,
-                dtype=torch.float32,
-            ),
-            persistent=False,
-        )
 
     def forward(
         self,
@@ -327,10 +315,6 @@ class Indexer(torch.nn.Module):
         k = torch.cat([k_pe, k_nope], dim=-1)
         q = rotate_activation(q)
         k = rotate_activation(k)
-        # q_fp8, q_scale = act_quant(q, block_size, self.scale_fmt)
-        # k_fp8, k_scale = act_quant(k, block_size, self.scale_fmt)
-        # self.k_cache[:bsz, start_pos:end_pos] = k_fp8
-        # self.k_scale_cache[:bsz, start_pos:end_pos] = k_scale
         self.k_cache[:bsz, start_pos:end_pos] = k
 
         weights = self.weights_proj(x) * self.n_heads**-0.5
@@ -340,13 +324,6 @@ class Indexer(torch.nn.Module):
         # # re-squeeze https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/issues/43
 
         weights = weights.squeeze(-1).to(torch.bfloat16).contiguous()
-
-        # index_score = fp8_index(
-        #     q_fp8.contiguous(),
-        #     weights,
-        #     self.k_cache[:bsz, :end_pos].contiguous(),
-        #     self.k_scale_cache[:bsz, :end_pos].squeeze(-1).contiguous(),
-        # )
 
         k_ = self.k_cache[:bsz, :end_pos].contiguous()
         index_score = bf16_index(
@@ -486,13 +463,6 @@ class MLA(nn.Module):
         kv, k_pe = torch.split(kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
         kv = self.kv_a_layernorm(kv)
         k_pe = apply_rotary_emb(k_pe.unsqueeze(2), freqs_cis)
-        # we use fp8 kv cache in actual deployment, so here we simulate the precision by casting kv to fp8 and then back to bf16.
-        # kv_fp8, kv_scale = act_quant(kv, block_size, self.scale_fmt)
-        # kv = (
-        #     (kv_fp8.view(-1, block_size).float() * kv_scale.view(-1, 1))
-        #     .to(kv.dtype)
-        #     .view_as(kv)
-        # )
         self.kv_cache[:bsz, start_pos:end_pos] = kv
         self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
         if mask is not None:  # MHA prefill
@@ -799,7 +769,6 @@ class Block(nn.Module):
         """
         super().__init__()
 
-        # self.self_attn = DeepseekV3Attention(args, layer_id)
         self.self_attn = MLA(args)
         self.mlp = (
             MLP(args.dim, args.inter_dim)
@@ -859,11 +828,6 @@ class Transformer(nn.Module):
         Args:
             args (ModelConfig): Model arguments containing transformer parameters.
         """
-        global world_size, rank
-        world_size = dist.get_world_size() if dist.is_initialized() else 1
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        # Linear.dtype = torch.float8_e4m3fn if args.dtype == "fp8" else torch.bfloat16
-        # Linear.scale_fmt = args.scale_fmt
         super().__init__()
         self.max_seq_len = args.max_seq_len
         self.embed_tokens = ParallelEmbedding(args.vocab_size, args.dim)
@@ -917,20 +881,7 @@ class DeepseekV32PreTrainedModel(PreTrainedModel):
         "hidden_states": Block,
         "attentions": MLA,
     }
-    # _keep_in_fp32_modules_strict = ["e_score_correction_bias"]
     _keys_to_ignore_on_load_unexpected = [r"model\.layers\.61.*"]
-
-    # @torch.no_grad()
-    # def _init_weights(self, module):
-    #     super()._init_weights(module)
-    #     # if isinstance(module, DeepseekV3TopkRouter):
-    #     #     init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
-    #     #     init.zeros_(module.e_score_correction_bias)
-    #     # elif isinstance(module, DeepseekV3NaiveMoe):
-    #     #     init.normal_(
-    #     #         module.gate_up_proj, mean=0.0, std=self.config.initializer_range
-    #     #     )
-    #     #     init.normal_(module.down_proj, mean=0.0, std=self.config.initializer_range)
 
 
 class DeepseekV32ForCausalLM(DeepseekV32PreTrainedModel, GenerationMixin):
@@ -952,12 +903,7 @@ class DeepseekV32ForCausalLM(DeepseekV32PreTrainedModel, GenerationMixin):
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
-        attention_mask: torch.Tensor | None = None,
-        position_ids: torch.LongTensor | None = None,
-        past_key_values: Cache | None = None,
-        inputs_embeds: torch.FloatTensor | None = None,
         labels: torch.LongTensor | None = None,
-        use_cache: bool | None = None,
         logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
@@ -980,12 +926,6 @@ class DeepseekV32ForCausalLM(DeepseekV32PreTrainedModel, GenerationMixin):
         ```"""
         hidden_states = self.model(
             input_ids=input_ids,
-            # attention_mask=attention_mask,
-            # position_ids=position_ids,
-            # past_key_values=past_key_values,
-            # inputs_embeds=inputs_embeds,
-            # use_cache=use_cache,
-            # **kwargs,
         )
 
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
@@ -1008,9 +948,6 @@ class DeepseekV32ForCausalLM(DeepseekV32PreTrainedModel, GenerationMixin):
         return CausalLMOutputWithPast(
             loss=loss,
             logits=logits,
-            # past_key_values=outputs.past_key_values,
-            # hidden_states=outputs.hidden_states,
-            # attentions=outputs.attentions,
         )
 
 
