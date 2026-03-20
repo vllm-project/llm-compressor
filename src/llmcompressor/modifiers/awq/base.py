@@ -1,4 +1,5 @@
 import inspect
+import math
 from itertools import product
 from typing import Iterator, Literal
 
@@ -84,6 +85,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         # This change is only useful for MoE models with parallel transformer blocks,
         # and one should use the default value (None) in most cases.
       ignore: ["lm_head"]
+      # Set search_observer to match the observer used in the final QuantizationModifier
+      # for best scale alignment. "memoryless_mse" is recommended when pairing with
+      # MSE-based weight quantization. Defaults to "memoryless_minmax".
+      search_observer: "memoryless_minmax"
       config_groups:
         group_0:
           targets:
@@ -151,6 +156,21 @@ class AWQModifier(Modifier, QuantizationMixin):
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
         Defaults to 20
+    :param search_observer: name of the observer used to simulate quantization during
+        the grid search. For best accuracy, this should match the observer used in the
+        final QuantizationModifier (e.g. "memoryless_mse" when using MSE-based weight
+        quantization). Defaults to "memoryless_minmax" for backward compatibility.
+        Valid options: "memoryless_minmax", "memoryless_mse"
+    :param n_shrink_grid: number of shrinkage grid points to jointly search over
+        alongside the scale grid. When > 1, for each scale candidate (α) the grid
+        search also sweeps over shrink factors p ∈ (1 - maxshrink, 1], selecting the
+        (α, p) pair that minimizes output MSE jointly. This implements the joint
+        scale + shrinkage optimization described in issue #2479.
+        Defaults to 1 (disabled, shrinkage determined solely by the observer).
+        Recommended value: 5-10 for a lightweight joint search.
+    :param maxshrink: maximum shrinkage factor used when n_shrink_grid > 1.
+        Shrink factors are swept from 1.0 down to (1 - maxshrink).
+        Defaults to 0.20 (matching the memoryless_mse observer default).
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -162,6 +182,9 @@ class AWQModifier(Modifier, QuantizationMixin):
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
+    search_observer: str = "memoryless_minmax"
+    n_shrink_grid: int = 1
+    maxshrink: float = 0.20
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -673,8 +696,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 n_grid = self.n_grid
                 duo_scalings = [self.duo_scaling]
 
-        # Where appropriate, replace observers with memoryless_minmax
-        # for duration of grid search
+        # Where appropriate, replace observers with search_observer
+        # for duration of grid search. This should match the observer
+        # used in the final QuantizationModifier for best scale alignment.
         balance_layers_to_patch = [
             balance_layer
             for balance_layer in mapping.balance_layers
@@ -686,7 +710,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             "weight_observer",
             [
                 Observer.load_from_registry(
-                    "memoryless_minmax",
+                    self.search_observer,
                     base_name="weight",
                     args=balance_layer.quantization_scheme.weights,
                     module=balance_layer,
@@ -717,65 +741,103 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isnan(scales)] = 1
                 _scalesview = scales.view(1, -1).to(device)
 
-                # Q(W * s)
-                for balance_layer in balance_layers_to_patch:
-                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
-                        balance_layer.quantization_scheme, "weights"
+                # Build shrink factor candidates:
+                # n_shrink_grid=1 means no shrinkage search (p=1.0, minmax behaviour)
+                # n_shrink_grid>1 sweeps p from 1.0 down to (1 - maxshrink)
+                if self.n_shrink_grid > 1:
+                    shrink_factors = [
+                        1.0 - (self.maxshrink * i / (self.n_shrink_grid - 1))
+                        for i in range(self.n_shrink_grid)
+                    ]
+                else:
+                    shrink_factors = [1.0]
+
+                for shrink_p in shrink_factors:
+                    # Q(W * s) with optional shrinkage applied to observer range
+                    for balance_layer in balance_layers_to_patch:
+                        if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
+                            balance_layer.quantization_scheme, "weights"
+                        ):
+                            continue
+
+                        w_qscheme = balance_layer.quantization_scheme.weights
+                        balance_layer.weight.data.copy_(
+                            orig_layer_weights[balance_layer].to(_scalesview.device)
+                            * _scalesview
+                        )
+
+                        should_calculate_gparam = (
+                            w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                        )
+
+                        if shrink_p < 1.0:
+                            # Joint shrinkage: override observer min/max with shrunk range
+                            # using output MSE as the objective (not weight MSE)
+                            w = balance_layer.weight.data
+                            w_min = w.amin(dim=-1, keepdim=True) * shrink_p
+                            w_max = w.amax(dim=-1, keepdim=True) * shrink_p
+                            from compressed_tensors.quantization.utils import calculate_qparams
+                            scale, zp = calculate_qparams(
+                                min_vals=w_min.squeeze(-1),
+                                max_vals=w_max.squeeze(-1),
+                                quantization_args=w_qscheme,
+                            )
+                            # store directly into the layer's weight_scale / weight_zero_point
+                            from compressed_tensors.utils import update_parameter_data
+                            update_parameter_data(balance_layer, scale, "weight_scale")
+                            update_parameter_data(balance_layer, zp, "weight_zero_point")
+                        else:
+                            call_observer(
+                                balance_layer,
+                                "weight",
+                                balance_layer.weight,
+                                should_calculate_gparam=should_calculate_gparam,
+                            )
+
+                        balance_layer.weight.data = (
+                            forward_quantize(
+                                balance_layer,
+                                balance_layer.weight,
+                                "weight",
+                                w_qscheme,
+                            )
+                            / _scalesview
+                        ).to(balance_layer.weight.dtype)
+
+                    # Apply fused global scales for TENSOR_GROUP during grid search
+                    # to match inference behavior
+                    if balance_layers_to_patch and all(
+                        getattr(layer.quantization_scheme.weights, "strategy", None)
+                        == QuantizationStrategy.TENSOR_GROUP
+                        for layer in balance_layers_to_patch
                     ):
+                        update_fused_layer_weight_global_scales(mapping.parent)
+
+                    # W * X
+                    int_w_outputs = self._run_samples(mapping.parent)
+
+                    # compute mean squared error (L2 norm)
+                    loss = self._compute_loss(fp16_outputs, int_w_outputs)
+                    del int_w_outputs
+
+                    # skip non-finite losses (can occur with aggressive MSE clipping)
+                    if not math.isfinite(loss):
+                        history.append(
+                            {"ratio": ratio, "shrink": shrink_p, "duo_scaling": use_duo_scaling, "error": loss}
+                        )
                         continue
 
-                    w_qscheme = balance_layer.quantization_scheme.weights
-                    balance_layer.weight.data.copy_(
-                        orig_layer_weights[balance_layer].to(_scalesview.device)
-                        * _scalesview
+                    if initial_error is None:
+                        initial_error = loss
+
+                    history.append(
+                        {"ratio": ratio, "shrink": shrink_p, "duo_scaling": use_duo_scaling, "error": loss}
                     )
-
-                    should_calculate_gparam = (
-                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-                    )
-                    call_observer(
-                        balance_layer,
-                        "weight",
-                        balance_layer.weight,
-                        should_calculate_gparam=should_calculate_gparam,
-                    )
-                    balance_layer.weight.data = (
-                        forward_quantize(
-                            balance_layer,
-                            balance_layer.weight,
-                            "weight",
-                            w_qscheme,
-                        )
-                        / _scalesview
-                    ).to(balance_layer.weight.dtype)
-
-                # Apply fused global scales for TENSOR_GROUP during grid search
-                # to match inference behavior
-                if balance_layers_to_patch and all(
-                    getattr(layer.quantization_scheme.weights, "strategy", None)
-                    == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
-                ):
-                    update_fused_layer_weight_global_scales(mapping.parent)
-
-                # W * X
-                int_w_outputs = self._run_samples(mapping.parent)
-
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                del int_w_outputs
-
-                if initial_error is None:
-                    initial_error = loss
-
-                history.append(
-                    {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
-                )
-                if loss < best_error:
-                    best_error = loss
-                    best_ratio = ratio
-                    best_scales = scales.clone()
-                pbar.set_postfix({"best_error": f"{best_error:.3e}"})
+                    if loss < best_error:
+                        best_error = loss
+                        best_ratio = ratio
+                        best_scales = scales.clone()
+                    pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
         if best_ratio == -1:
             logger.debug(history)
@@ -983,6 +1045,19 @@ class AWQModifier(Modifier, QuantizationMixin):
         """Validate that duo_scaling is either True, False, or 'both' (lowercase)"""
         if v not in (True, False, "both"):
             raise ValueError(f"duo_scaling must be True, False, or 'both', got {v!r}")
+        return v
+
+    @field_validator("search_observer")
+    @classmethod
+    def validate_search_observer(cls, v):
+        """Validate that search_observer is a memoryless observer (stateless per call)"""
+        valid = {"memoryless_minmax", "memoryless_mse"}
+        if v not in valid:
+            raise ValueError(
+                f"search_observer must be one of {valid}, got {v!r}. "
+                "Only memoryless observers are supported to avoid accumulating "
+                "statistics across grid search iterations."
+            )
         return v
 
 

@@ -675,3 +675,38 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
     assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# search_observer tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_search_observer_default():
+    """search_observer defaults to memoryless_minmax (backward compat)"""
+    modifier = AWQModifier(scheme="W4A16_ASYM")
+    assert modifier.search_observer == "memoryless_minmax"
+
+
+@pytest.mark.unit
+def test_search_observer_mse_accepted():
+    """memoryless_mse is a valid search_observer value"""
+    modifier = AWQModifier(scheme="W4A16_ASYM", search_observer="memoryless_mse")
+    assert modifier.search_observer == "memoryless_mse"
+
+
+@pytest.mark.unit
+def test_search_observer_invalid_rejected():
+    """Non-memoryless or unknown observers are rejected"""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="search_observer must be one of"):
+        AWQModifier(scheme="W4A16_ASYM", search_observer="minmax")
+
+    with pytest.raises(ValidationError, match="search_observer must be one of"):
+        AWQModifier(scheme="W4A16_ASYM", search_observer="mse")
+
+    with pytest.raises(ValidationError, match="search_observer must be one of"):
+        AWQModifier(scheme="W4A16_ASYM", search_observer="invalid_observer")
+
