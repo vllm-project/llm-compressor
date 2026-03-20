@@ -19,7 +19,6 @@ nav:
     - Qwen3:
       - key-models/qwen3/index.md
       - FP8 Example: key-models/qwen3/fp8-example.md
-      - MXFP8 Examples: key-models/qwen3/mxfp8-example.md
     - Kimi-K2:
       - key-models/kimi-k2/index.md
       - FP8 Example: key-models/kimi-k2/fp8-example.md
