@@ -9,9 +9,9 @@ from compressed_tensors.entrypoints.convert import (
     exec_jobs,
     get_checkpoint_files,
     is_weights_file,
-    update_safetensors_index,
 )
 from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.utils.safetensors_load import update_safetensors_index
 from loguru import logger
 
 from llmcompressor.entrypoints.model_free.helpers import gpu_if_available

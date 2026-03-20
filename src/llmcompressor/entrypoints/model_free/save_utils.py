@@ -10,12 +10,13 @@ from compressed_tensors.base import (
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.entrypoints.convert import Converter, find_config_path
+from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
 )
+from compressed_tensors.utils.safetensors_load import find_config_path
 from loguru import logger
 from pydantic import ValidationError
 
