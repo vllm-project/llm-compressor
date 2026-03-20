@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 from pathlib import Path
@@ -14,7 +15,11 @@ from compressed_tensors.entrypoints.convert import (
 from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 
-from llmcompressor.entrypoints.model_free.helpers import gpu_if_available
+from llmcompressor.entrypoints.model_free.helpers import (
+    build_tensor_file_index,
+    find_safetensors_index_file,
+    gpu_if_available,
+)
 from llmcompressor.entrypoints.model_free.microscale import (
     is_microscale_scheme,
 )
@@ -45,9 +50,15 @@ def model_free_ptq(
 ):
     """
     Quantize a model without the need for a model definition. This function operates on
-    a model stub or folder containing weights saved in safetensors files
+    a model stub or folder containing weights saved in safetensors files.
+
+    For microscale schemes (NVFP4, MXFP4), fused weight sets (q/k/v, gate/up) are
+    handled correctly even when split across shards. Each shard is processed
+    independently — fused partner tensors are fetched via targeted partial reads from
+    their source shards as needed, with no cross-process coordination required.
 
     :param model_stub: huggingface model hub or path to local weights files
+    :param save_directory: directory to save quantized weights to
     :param scheme: weight quantization scheme or preset scheme name
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
         ignored
@@ -64,31 +75,55 @@ def model_free_ptq(
     device = gpu_if_available(device)
     validate_safetensors_index(model_files, scheme)
 
-    # 0. collect safetensors files, copy files
-    jobs = []
-    job_fn = (
-        process_file
-        if not is_microscale_scheme(scheme)
-        else process_file_microscale_scheme
-    )
-    for file_path, resolved_path in model_files.items():
-        save_path = Path(save_directory) / file_path
-
-        if file_path.endswith("safetensors"):
-            jobs.append(
-                (job_fn, resolved_path, save_path, scheme, ignore, device, converter)
+    # Build tensor file index for microscale cross-shard fused weight resolution
+    tensor_file_index = None
+    if is_microscale_scheme(scheme):
+        index_file = find_safetensors_index_file(model_files)
+        if index_file is not None:
+            with open(index_file, "r") as f:
+                weight_map: dict[str, str] = json.load(f)["weight_map"]
+            tensor_file_index = build_tensor_file_index(weight_map, model_files)
+            logger.debug(
+                f"Built tensor file index with {len(tensor_file_index)} entries "
+                "for cross-shard fused weight resolution"
             )
 
-        else:
+    # Copy non-safetensors files (configs, tokenizers, etc.)
+    for file_path, resolved_path in model_files.items():
+        if not file_path.endswith("safetensors"):
+            save_path = Path(save_directory) / file_path
             if is_weights_file(file_path):
                 logger.warning(f"Skip processing for weights file {file_path}")
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Copying {file_path} {save_path}")
+            logger.info(f"Copying {file_path} -> {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
-    # 1. validate quantizable tensors fail fast before long-running quantization
+    # Build one job per safetensors file — full parallelism preserved
+    job_fn = (
+        process_file_microscale_scheme if is_microscale_scheme(scheme) else process_file
+    )
+    jobs = []
+    for file_path, resolved_path in model_files.items():
+        if file_path.endswith("safetensors"):
+            save_path = Path(save_directory) / file_path
+            jobs.append(
+                (
+                    job_fn,
+                    resolved_path,
+                    save_path,
+                    scheme,
+                    ignore,
+                    device,
+                    converter,
+                    tensor_file_index,
+                )
+            )
+
+    # 1. validate quantizable tensors — fail fast before long-running quantization
     exec_jobs(
-        [(validate_file, *job[1:]) for job in jobs], max_workers, desc="Validating"
+        [(validate_file, *job[1:]) for job in jobs],
+        max_workers,
+        desc="Validating",
     )
 
     # 2-5. quantize and compress weights
@@ -99,6 +134,6 @@ def model_free_ptq(
         total_size += _total_size
         weight_map.update(_weight_map)
 
-    # 5. update config and safetensors index
+    # 6. update config and safetensors index
     update_config(save_directory, scheme_name, scheme, ignore, converter)
     update_safetensors_index(save_directory, total_size, weight_map)
