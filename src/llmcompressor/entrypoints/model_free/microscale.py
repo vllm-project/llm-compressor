@@ -53,4 +53,11 @@ def get_unmatched_microscale_names(
     accompanying tensors.
     """
     _, unmatched = get_fused_names(tensor_names)
-    return list(set(key for key in unmatched.values() if key is not None))
+    return list(
+        set(
+            name
+            for unmatched_set in unmatched
+            for name in unmatched_set.values()
+            if name is not None
+        )
+    )
