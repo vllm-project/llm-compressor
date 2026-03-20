@@ -99,7 +99,12 @@ class SequentialPipeline(CalibrationPipeline):
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+        subgraphs = trace_subgraphs(
+            model,
+            sample_input,
+            sequential_targets,
+            ignore,
+            dataset_args.sequential_targets_per_subgraph)
         num_subgraphs = len(subgraphs)
 
         LifecycleCallbacks.calibration_epoch_start()
