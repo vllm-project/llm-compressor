@@ -8,6 +8,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 - [W8A8-INT8](#int8_w8a8)
 - [W4A16 and W8A16](#w4a16-and-w8a16)
 - [NVFP4](#nvfp4)
+- [MXFP8 (Experimental)](#mxfp8)
 - [2:4 Semi-structured Sparsity](#semi-structured)
 - [Unstructured Sparsity](#unstructured)
 
@@ -62,6 +63,17 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Activations   | Quantized dynamically using per-group quantization (group_size=16)                                      |
 | Calibration   | Requires a calibration dataset to calibrate activation global scales                                                            |
 | Use case      | Supported on all NVIDIA Blackwell GPUs or later  
+
+### MXFP8
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| MXFP8         | Microscaling FP8 quantization using the OCP Microscaling (MX) format with block-level scaling |
+| Weights       | Compressed to FP8 with microscaling block-wise quantization                                  |
+| Activations   | Quantized to FP8 with microscaling (W8A8) or retained in 16-bit (W8A16)                     |
+| Calibration   | No calibration dataset required; uses RTN for weight quantization                            |
+| Use case      | Experimental; optimized for next-gen hardware supporting the OCP MX format                   |
+
+> **Note:** MXFP8 support is currently experimental. Use scheme `"MXFP8"` for W8A8 and `"MXFP8A16"` for W8A16 (weight-only).
 
 ## Sparsification Compression Schemes
 
