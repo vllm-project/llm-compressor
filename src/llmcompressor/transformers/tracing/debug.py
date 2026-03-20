@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
     parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
     parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
-    parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph") # noqa: E501
+    parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph")  # noqa: E501
     return parser.parse_args()
 
 
@@ -106,7 +106,11 @@ def trace(
         f"    ignore={dataset_args.tracing_ignore}\n"
     )
     subgraphs = trace_subgraphs(
-        model, sample, sequential_targets, dataset_args.tracing_ignore, targets_per_subgraph
+        model,
+        sample,
+        sequential_targets,
+        dataset_args.tracing_ignore,
+        targets_per_subgraph
     )
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
@@ -168,7 +172,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         skip_weights=args.skip_weights,
         device_map=args.device_map,
-        targets_per_subgraph=DatasetArguments.sequential_targets_per_subgraph
+        targets_per_subgraph=args.sequential_targets_per_subgraph
     )
 
 

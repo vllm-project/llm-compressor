@@ -97,7 +97,6 @@ def trace_subgraphs(
     :param sequential_targets: list of patterns matching sequential targets
     :param ignore: function and method names to skip during tracing
     :param targets_per_subgraph: number of targets to include per subgraph
-    
     :return: a list of Subgraphs in order of execution
     """
     # find modules
@@ -274,6 +273,9 @@ def topological_partition(graph: GraphModule, targets: set[Module], targets_per_
     """
     assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
+    
+    if(targets_per_subgraph <= 0):
+        raise ValueError("targets_per_subgraph is required to be greater than or equal to one")
 
     partitions: list[list[Node]] = [[]]
     remaining_indegrees = {
@@ -281,8 +283,8 @@ def topological_partition(graph: GraphModule, targets: set[Module], targets_per_
         for node in graph.graph.nodes
     }
     partition_index = 0  # global counter
-    targets_seen = 0 # global counter
-
+    targets_seen = 0 # number of targets encountered so far
+    
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
     queue = deque(
@@ -300,7 +302,7 @@ def topological_partition(graph: GraphModule, targets: set[Module], targets_per_
         if node in target_nodes:
             targets_seen += 1
             
-            if(targets_seen % targets_per_subgraph == 0):
+            if targets_seen % targets_per_subgraph == 0:
                 partition_index += 1
                 partitions.append([])
 

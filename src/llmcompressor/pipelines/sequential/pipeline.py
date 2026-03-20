@@ -104,7 +104,8 @@ class SequentialPipeline(CalibrationPipeline):
             sample_input,
             sequential_targets,
             ignore,
-            dataset_args.sequential_targets_per_subgraph)
+            dataset_args.sequential_targets_per_subgraph,
+        )
         num_subgraphs = len(subgraphs)
 
         LifecycleCallbacks.calibration_epoch_start()
