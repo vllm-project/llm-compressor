@@ -2,8 +2,8 @@ import json
 
 import pytest
 from compressed_tensors.entrypoints.convert import (
-    ModelOptNvfp4Converter,
     FP8BlockToBfloat16Converter,
+    ModelOptNvfp4Converter,
     convert_checkpoint,
 )
 from compressed_tensors.quantization import (
