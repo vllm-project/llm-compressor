@@ -86,7 +86,7 @@ class ModelConfig(PretrainedConfig):
     def qk_head_dim(self) -> int:
         return self.qk_rope_head_dim + self.qk_nope_head_dim
 
-    def ___init__(
+    def __init__(
         self,
         max_batch_size: int = 8,
         max_seq_len: int = 4096 * 4,
