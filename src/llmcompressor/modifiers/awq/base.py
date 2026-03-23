@@ -31,7 +31,7 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
-    get_layer_mappings_from_architecture,
+    get_layer_mappings_from_model,
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
@@ -209,9 +209,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
-            self.mappings = get_layer_mappings_from_architecture(
-                architecture=state.model.__class__.__name__
-            )
+            self.mappings = get_layer_mappings_from_model(state.model)
 
         # Set default offload_device
         if self.offload_device == Sentinel("not_provided"):

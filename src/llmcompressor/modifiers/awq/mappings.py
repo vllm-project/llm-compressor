@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from loguru import logger
 from torch.nn import Module
 
-__all__ = ["AWQMapping", "AWQ_MAPPING_REGISTRY", "get_layer_mappings_from_architecture"]
+__all__ = [
+    "AWQMapping",
+    "AWQ_MAPPING_REGISTRY",
+    "get_layer_mappings_from_architecture",
+    "get_layer_mappings_from_model",
+]
 
 
 @dataclass
@@ -63,35 +68,6 @@ _moe_default_mappings = [
         "re:.*up_proj$",
         ["re:.*down_proj$"],
     ),
-]
-
-# Qwen3Next uses hybrid attention: self_attn (layers 3,7,11,...) and
-# linear_attn/Gated DeltaNet (all other layers). Layer-specific patterns
-# are required since different layers have different projection structures.
-# Also includes shared_expert in the MoE MLP.
-# TODO: The self_attn layer indices are hardcoded for the 80B variant (48 layers,
-# interval=4, starting at layer 3). The interval is a configurable parameter in the
-# model config (full_attention_layer_interval). Consider making this dynamic.
-_qwen3_next_moe_mappings = [
-    AWQMapping(
-        "re:.*layers\\.(3|7|11|15|19|23|27|31|35|39|43|47)\\.input_layernorm$",
-        ["re:.*self_attn.q_proj$", "re:.*self_attn.k_proj$", "re:.*self_attn.v_proj$"],
-    ),
-    AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
-    AWQMapping(
-        "re:.*layers\\.(0|1|2|4|5|6|8|9|10|12|13|14|16|17|18|20|21|22|24|25|26|28|29|30|32|33|34|36|37|38|40|41|42|44|45|46)\\.input_layernorm$",
-        ["re:.*linear_attn.in_proj_qkvz$", "re:.*linear_attn.in_proj_ba$"],
-    ),
-    AWQMapping(
-        "re:.*post_attention_layernorm$",
-        [
-            "re:.*mlp.experts.*.gate_proj$",
-            "re:.*mlp.experts.*.up_proj$",
-            "re:.*mlp.shared_expert.gate_proj$",
-            "re:.*mlp.shared_expert.up_proj$",
-        ],
-    ),
-    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
 # Phi merges
@@ -265,7 +241,6 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
-    "Qwen3NextForCausalLM": _qwen3_next_moe_mappings,
     "SeedOssForCausalLM": _default_mappings,
     "Ernie4_5_MoeForCausalLM": _default_mappings,
 }
@@ -297,6 +272,172 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
+
+
+def _get_hybrid_attention_config(model: Module) -> tuple[list[str], int] | None:
+    """
+    Extract layer_types and num_hidden_layers from a model with hybrid attention
+    (mix of full self-attention and linear/Gated DeltaNet attention).
+
+    Checks both top-level config and text_config (for VL models like Qwen3.5).
+    Returns (layer_types, num_hidden_layers) or None if not a hybrid model.
+    """
+    config = getattr(model, "config", None)
+    if config is None:
+        return None
+
+    # VL models nest text config under text_config
+    text_config = getattr(config, "text_config", config)
+    layer_types = getattr(text_config, "layer_types", None)
+    num_layers = getattr(text_config, "num_hidden_layers", None)
+
+    if layer_types is None or num_layers is None:
+        return None
+
+    has_full = "full_attention" in layer_types
+    has_linear = "linear_attention" in layer_types
+    if not (has_full and has_linear):
+        return None
+
+    return layer_types, num_layers
+
+
+def _detect_linear_attn_projections(model: Module) -> list[str]:
+    """
+    Detect the linear attention projection names by inspecting the first
+    linear_attention layer's submodules.
+
+    Different architectures use different projection layouts:
+      - Qwen3Next: in_proj_qkvz, in_proj_ba
+      - Qwen3.5:   in_proj_qkv, in_proj_z, in_proj_b, in_proj_a
+    """
+    proj_names = []
+    for name, _ in model.named_modules():
+        if ".linear_attn." not in name:
+            continue
+        # Extract the submodule name after linear_attn.
+        sub = name.rsplit("linear_attn.", 1)[-1]
+        # Only include projection layers (in_proj_* and out_proj)
+        if sub.startswith("in_proj_"):
+            proj_names.append(sub)
+    # Deduplicate while preserving order (same projections repeat per layer)
+    seen = set()
+    unique = []
+    for p in proj_names:
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return unique
+
+
+def _detect_is_moe(model: Module) -> bool:
+    """Check if the model uses MoE with individually enumerable expert modules."""
+    return any(
+        "mlp.experts." in name and "gate_proj" in name
+        for name, _ in model.named_modules()
+    )
+
+
+def _build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
+    """
+    Dynamically build AWQ mappings for models with hybrid attention
+    (full self-attention + linear/Gated DeltaNet attention), such as
+    Qwen3Next and Qwen3.5.
+
+    Reads layer_types from the model config to determine which layers use
+    full vs linear attention, then inspects the model's module names to
+    detect the correct linear attention projection names and MLP structure.
+
+    Returns None if the model is not a hybrid attention model.
+    """
+    result = _get_hybrid_attention_config(model)
+    if result is None:
+        return None
+
+    layer_types, num_layers = result
+
+    full_indices = [i for i in range(num_layers) if layer_types[i] == "full_attention"]
+    linear_indices = [
+        i for i in range(num_layers) if layer_types[i] == "linear_attention"
+    ]
+
+    full_re = "|".join(str(i) for i in full_indices)
+    linear_re = "|".join(str(i) for i in linear_indices)
+
+    linear_proj_names = _detect_linear_attn_projections(model)
+    is_moe = _detect_is_moe(model)
+
+    mappings = []
+
+    # Full attention layers: input_layernorm -> q/k/v_proj
+    mappings.append(
+        AWQMapping(
+            f"re:.*layers\\.({full_re})\\.input_layernorm$",
+            [
+                "re:.*self_attn.q_proj$",
+                "re:.*self_attn.k_proj$",
+                "re:.*self_attn.v_proj$",
+            ],
+        )
+    )
+
+    # Linear attention layers: input_layernorm -> linear_attn projections
+    if linear_proj_names:
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({linear_re})\\.input_layernorm$",
+                [f"re:.*linear_attn.{p}$" for p in linear_proj_names],
+            )
+        )
+
+    # MLP mappings depend on whether the model uses MoE
+    if is_moe:
+        mappings.append(
+            AWQMapping(
+                "re:.*post_attention_layernorm$",
+                [
+                    "re:.*mlp.experts.*.gate_proj$",
+                    "re:.*mlp.experts.*.up_proj$",
+                    "re:.*mlp.shared_expert.gate_proj$",
+                    "re:.*mlp.shared_expert.up_proj$",
+                ],
+            )
+        )
+    else:
+        mappings.append(
+            AWQMapping(
+                "re:.*post_attention_layernorm$",
+                ["re:.*gate_proj$", "re:.*up_proj$"],
+            )
+        )
+
+    mappings.append(AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]))
+
+    logger.info(
+        f"Built dynamic hybrid attention AWQ mappings: "
+        f"{len(full_indices)} full-attention layers, "
+        f"{len(linear_indices)} linear-attention layers, "
+        f"linear projections: {linear_proj_names}, MoE: {is_moe}"
+    )
+
+    return mappings
+
+
+def get_layer_mappings_from_model(model: Module) -> list[AWQMapping]:
+    """
+    Infer AWQ mappings from a model, using dynamic detection for hybrid
+    attention architectures and falling back to the static registry.
+
+    :param model: the model to infer mappings for
+    :return: list of AWQMapping for the model
+    """
+    # Try dynamic hybrid attention detection first
+    hybrid_mappings = _build_hybrid_attention_mappings(model)
+    if hybrid_mappings is not None:
+        return hybrid_mappings
+
+    # Fall back to static registry
+    return get_layer_mappings_from_architecture(model.__class__.__name__)
 
 
 def get_layer_mappings_from_architecture(architecture: str) -> list[AWQMapping]:
