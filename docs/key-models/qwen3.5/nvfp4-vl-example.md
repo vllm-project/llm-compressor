@@ -75,7 +75,7 @@ print("==========================================\n\n")
 
 ```python
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
+model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
 
 # MTP layers are excluded from the model through Qwen3_5ForConditionalGeneration
