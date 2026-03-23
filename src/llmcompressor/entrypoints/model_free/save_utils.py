@@ -6,7 +6,6 @@ from compressed_tensors.base import (
     COMPRESSION_VERSION_NAME,
     QUANTIZATION_CONFIG_NAME,
     QUANTIZATION_METHOD_NAME,
-    SPARSITY_CONFIG_NAME,
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
@@ -46,7 +45,6 @@ def update_config(
     qconfig_data = {
         COMPRESSION_VERSION_NAME: ct_version,
         QUANTIZATION_METHOD_NAME: "compressed-tensors",
-        SPARSITY_CONFIG_NAME: {},
         TRANSFORM_CONFIG_NAME: {},
         **qconfig_data,
     }
