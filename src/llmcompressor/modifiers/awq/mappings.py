@@ -317,7 +317,7 @@ def _detect_linear_attn_projections(model: Module) -> list[str]:
             continue
         # Extract the submodule name after linear_attn.
         sub = name.rsplit("linear_attn.", 1)[-1]
-        # Only include projection layers (in_proj_* and out_proj)
+        # Only include input projection layers (in_proj_*)
         if sub.startswith("in_proj_"):
             proj_names.append(sub)
     # Deduplicate while preserving order (same projections repeat per layer)
