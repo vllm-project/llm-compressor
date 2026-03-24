@@ -3,12 +3,10 @@ import weakref
 from functools import wraps
 
 import torch
-from compressed_tensors import (
-    ModelCompressor,
-    SparsityCompressionConfig,
-)
+from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.offload import from_accelerate, is_rank0, to_accelerate
+from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -39,19 +37,15 @@ def modify_save_pretrained(model: PreTrainedModel):
         # Keep a weak reference to the model class and unbound save_pretrained
         # method so we can call the original
         model_ref = weakref.ref(save_pretrained_method.__self__)
-        original_save_pretrained = save_pretrained_method.__func__
+        original_save_fn = save_pretrained_method.__func__
         model_class = model_ref().__class__
         del save_pretrained_method
 
-        @wraps(original_save_pretrained)
+        @wraps(original_save_fn)
         def save_pretrained_wrapper(
             save_directory: str,
-            sparsity_config: SparsityCompressionConfig | None = None,
             quantization_format: str | None = None,
             save_compressed: bool = True,
-            safe_serialization: bool = True,
-            skip_sparsity_compression_stats: bool = True,
-            disable_sparse_compression: bool = False,
             **kwargs,
         ):
             """
@@ -60,45 +54,30 @@ def modify_save_pretrained(model: PreTrainedModel):
             saved to the model's config file
 
             :param save_directory: output directory to save model to
-            :param sparsity_config: optional sparsity config to compress model with,
-                if no config is provided it will be inferred from the model
-            :param quantization_format: optional compression format for quantized
-                models. If none is provided it will be inferred from the model
-            :param save_compressed: whether or not to compress the model on disk
-            :param skip_sparsity_compression_stats: whether to skip the calculation of
-                sparsity statistics (such as global sparsity and sparsity structure)
-                when saving a model in dense format
-            :param disable_sparse_compression: whether to skip sparse compression
-                during save, default is False
+            :param quantization_format: optional compression format override. If none
+                is provided, the compression format will be inferred from the model
+            :param save_compressed: whether or not to compress the model. If true,
+                weights will be compressed. Otherwise, weights will remain in full
+                precision in the "FROZEN" state.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
             # compress model using compressor
-            compressor = get_model_compressor(
-                model=model,
-                sparsity_config=sparsity_config,
-                quantization_format=quantization_format,
-                save_compressed=save_compressed,
-                skip_sparsity_compression_stats=skip_sparsity_compression_stats,
-                disable_sparse_compression=disable_sparse_compression,
+            compressor = ModelCompressor.from_pretrained_model(
+                model, quantization_format=quantization_format
             )
-            if compressor is not None:
+            if save_compressed:
                 compressor.compress_model(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
             if is_rank0():
-                # save (compressed) model structure
-                original_save_pretrained.__get__(model, model_class)(
-                    save_directory,
-                    safe_serialization=safe_serialization,
-                    **kwargs,
-                )
+                # save model structure
+                original_save_fn.__get__(model, model_class)(save_directory, **kwargs)
 
-                # update config to reflect compression
-                if compressor is not None:
-                    compressor.update_config(save_directory)
+                # update config to reflect quantization
+                compressor.update_config(save_directory)
 
                 # update existing recipe
                 update_and_save_recipe(model.name_or_path, save_directory)
@@ -117,6 +96,7 @@ def modify_save_pretrained(model: PreTrainedModel):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
+@deprecated("ModelCompressor.from_pretrained_model")
 def get_model_compressor(
     model: torch.nn.Module,
     sparsity_config: SparsityCompressionConfig | None = None,
@@ -126,8 +106,7 @@ def get_model_compressor(
     disable_sparse_compression: bool = False,
 ):
     """
-    Obtain the compressor based on the config and the
-        quantization_format
+    Obtain the compressor based on the config and the quantization_format
 
     :param model: torch model
     :param sparsify_config: Sparsity Compression config
