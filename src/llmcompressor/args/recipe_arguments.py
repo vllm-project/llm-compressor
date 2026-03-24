@@ -1,9 +1,9 @@
 """
 Recipe argument classes for LLM compression workflows.
 
-Defines dataclass-based argument containers for configuring sparsification
-recipes, compression sessions, and stage-based execution parameters used in
-model compression and optimization workflows.
+Defines dataclass-based argument containers for configuring recipes, compression
+sessions, and stage-based execution parameters used in model compression and\
+optimization workflows.
 """
 
 from dataclasses import dataclass, field
@@ -16,7 +16,7 @@ class RecipeArguments:
     recipe: str | None = field(
         default=None,
         metadata={
-            "help": "Path to a LLM Compressor sparsification recipe",
+            "help": "Path to a LLM Compressor recipe",
         },
     )
     recipe_args: list[str] | None = field(
