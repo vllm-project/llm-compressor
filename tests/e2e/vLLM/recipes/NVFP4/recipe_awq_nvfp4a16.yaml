@@ -5,4 +5,7 @@ quant_stage:
       scheme: "NVFP4A16"
       duo_scaling: "both"
       targets: ["Linear"]
-      
+    QuantizationModifier:
+      ignore: ["lm_head"]
+      scheme: "NVFP4A16"
+      targets: ["Linear"]

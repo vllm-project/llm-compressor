@@ -6,12 +6,24 @@ The AWQ implementation found in LLM Compressor is derived from the pioneering wo
 
 ## AWQ Recipe ##
 
-The AWQ recipe has been inferfaced as follows, where the `AWQModifier` adjusts model scales ahead of efficient weight quantization by the `QuantizationModifier`
+AWQ is a **pre-quantization transform** — it computes and applies smoothing scales to model weights, but does not produce final quantized weights on its own. A downstream quantizer (`QuantizationModifier` or `GPTQModifier`) must follow AWQ in the recipe to finalize quantization.
 
 ```python
+from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
 recipe = [
     AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+    QuantizationModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
 ]
+```
+
+The `scheme` on `AWQModifier` tells AWQ how the downstream quantizer will quantize, so that the grid search optimizes for the correct quantization format. It must match the downstream quantizer's scheme.
+
+AWQ can also be stacked with other transforms and quantizers:
+```python
+recipe = [AWQModifier(...), GPTQModifier(...)]
+recipe = [AWQModifier(...), QuantizationModifier(...)]
 ```
 
 ## Compressing Your Own Model ##

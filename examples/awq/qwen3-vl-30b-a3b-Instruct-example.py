@@ -5,6 +5,7 @@ from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
@@ -60,37 +61,46 @@ def data_collator(batch):
     }
 
 
-# Configure AWQ quantization with smoothing and balancing
+# Configure AWQ smoothing + downstream quantization.
 # NOTE: This recipe uses W4A16 quantization with group_size=32
-# rather than the default preset with group_size=128
-recipe = AWQModifier(
-    ignore=[
-        "re:.*embed_tokens",
-        "re:.*input_layernorm$",
-        "re:.*mlp[.]gate$",
-        "re:.*post_attention_layernorm$",
-        "re:.*norm$",
-        "re:model[.]visual.*",
-        "re:visual.*",
-        "lm_head",
-    ],
-    duo_scaling=True,
-    config_groups={
-        "group_0": {
-            "targets": ["Linear"],
-            "weights": {
-                "num_bits": 4,
-                "type": "int",
-                "symmetric": True,
-                "group_size": 32,
-                "strategy": "group",
-                "dynamic": False,
-                "actorder": None,
-                "observer": "mse",
-            },
-        }
-    },
-)
+# rather than the default preset with group_size=128.
+# AWQModifier applies smoothing, then QuantizationModifier finalizes quantization.
+_ignore = [
+    "re:.*embed_tokens",
+    "re:.*input_layernorm$",
+    "re:.*mlp[.]gate$",
+    "re:.*post_attention_layernorm$",
+    "re:.*norm$",
+    "re:model[.]visual.*",
+    "re:visual.*",
+    "lm_head",
+]
+_config_groups = {
+    "group_0": {
+        "targets": ["Linear"],
+        "weights": {
+            "num_bits": 4,
+            "type": "int",
+            "symmetric": True,
+            "group_size": 32,
+            "strategy": "group",
+            "dynamic": False,
+            "actorder": None,
+            "observer": "mse",
+        },
+    }
+}
+recipe = [
+    AWQModifier(
+        ignore=_ignore,
+        duo_scaling=True,
+        config_groups=_config_groups,
+    ),
+    QuantizationModifier(
+        ignore=_ignore,
+        config_groups=_config_groups,
+    ),
+]
 
 # Apply AWQ quantization.
 oneshot(
