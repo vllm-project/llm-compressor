@@ -48,14 +48,12 @@ Some of the exciting new features include:
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8), MXFP8 (experimental)
 * Mixed Precision: W4A16, W8A16, MXFP8A16 (experimental), NVFP4 (W4A4 and W4A16 support)
-* 2:4 Semi-structured and Unstructured Sparsity
 
 ### Supported Algorithms
 * Simple PTQ
 * GPTQ
 * AWQ
 * SmoothQuant
-* SparseGPT
 * AutoRound
 
 ### When to Use Which Optimization
@@ -186,3 +184,7 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
+
+
+!!! warning
+    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due lack of hardware support and usage
