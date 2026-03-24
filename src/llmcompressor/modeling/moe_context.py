@@ -12,12 +12,14 @@ Key components:
 """
 
 import contextlib
-import os
 from abc import ABC
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import get_execution_device, get_offloaded_device, is_distributed
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    is_distributed,
+)
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.module import offload_module
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
@@ -31,70 +33,41 @@ __all__ = [
 ]
 
 
-def _log_memory_stats(prefix: str):
-    """Log mmap count and memory usage for debugging."""
-    try:
-        # Get mmap count for current process
-        pid = os.getpid()
-        with open(f"/proc/{pid}/maps", "r") as f:
-            mmap_count = sum(1 for _ in f)
+def _find_ancestor_with_offload_cache(module):
+    if isinstance(module._parameters, OffloadCache):
+        return module
 
-        # Get shared memory usage
-        shm_usage = 0
-        if os.path.exists("/dev/shm"):
-            for entry in os.listdir("/dev/shm"):
-                if entry.startswith("torch_"):
-                    path = os.path.join("/dev/shm", entry)
-                    if os.path.isfile(path):
-                        shm_usage += os.path.getsize(path)
-
-        # Get max_map_count limit
-        with open("/proc/sys/vm/max_map_count", "r") as f:
-            max_map_count = int(f.read().strip())
-
-        logger.info(
-            f"{prefix} | mmaps: {mmap_count}/{max_map_count} "
-            f"({100*mmap_count/max_map_count:.1f}%) | "
-            f"/dev/shm usage: {shm_usage/(1024**3):.2f} GB"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to log memory stats: {e}")
+    for child in module.children():
+        child_val = _find_ancestor_with_offload_cache(child)
+        if child_val is not None:
+            return child_val
+    return None
 
 
-def _apply_offloading_to_replacement(original: torch.nn.Module, replacement: torch.nn.Module):
+def _apply_offloading_to_replacement(
+    original: torch.nn.Module, replacement: torch.nn.Module
+):
     """
     Apply the same offloading configuration from original to replacement module.
 
-    If the original module uses OffloadCache, this recursively applies the same
-    offloading settings to all submodules of the replacement that have parameters.
+    If the original module or ANY of its children use OffloadCache, this recursively
+    applies the same offloading settings to all submodules of the replacement that
+    have parameters.
     """
-    if not isinstance(original._parameters, OffloadCache):
-        return  # Original doesn't use offloading, nothing to do
 
-    # Get offloading settings from original
-    onload_device = get_execution_device(original)
-    offload_device = get_offloaded_device(original)
+    if (module_with_cache := _find_ancestor_with_offload_cache(original)) is None:
+        return
 
-    # Get additional kwargs if using disk cache
-    offload_kwargs = {}
-    if hasattr(original._parameters, 'offload_dir'):
-        offload_kwargs['offload_dir'] = original._parameters.offload_dir
-
-    logger.debug(
-        f"Applying offloading to replacement module: "
-        f"onload={onload_device}, offload={offload_device}"
-    )
+    kwargs = get_cache_init_kwargs(module_with_cache)
 
     # Apply offloading to all submodules that have parameters
-    offloaded_count = 0
     for module in replacement.modules():
-        # Only offload modules that have parameters and aren't already offloaded
-        if (len(list(module.parameters(recurse=False))) > 0 and
-            not isinstance(module._parameters, OffloadCache)):
-            offload_module(module, onload_device, offload_device, **offload_kwargs)
-            offloaded_count += 1
+        if isinstance(module._parameters, OffloadCache):
+            continue
+        if len(list(module.parameters(recurse=False))) == 0:
+            continue
 
-    logger.debug(f"Offloaded {offloaded_count} submodules in replacement")
+        offload_module(module, **kwargs)
 
 
 class MoECalibrationModule(ABC, torch.nn.Module, RegistryMixin):
@@ -171,10 +144,8 @@ def moe_calibration_context(
     # Step 2: Replace modules with progress bar
     if modules_to_replace:
         logger.info(f"Found {len(modules_to_replace)} MoE modules to replace")
-        _log_memory_stats("Before MoE replacement")
-
-        for idx, (name, module, class_name) in enumerate(
-            tqdm(modules_to_replace, desc="Replacing MoE modules for calibration")
+        for name, module, class_name in tqdm(
+            modules_to_replace, desc="Replacing MoE modules for calibration"
         ):
             replacement = MoECalibrationModule.load_from_registry(
                 class_name,
@@ -182,7 +153,6 @@ def moe_calibration_context(
                 config=model.config,
                 calibrate_all_experts=calibrate_all_experts,
             )
-
             # Apply the same offloading settings as the original module
             _apply_offloading_to_replacement(module, replacement)
 
@@ -191,18 +161,12 @@ def moe_calibration_context(
             # Only store original if we need to restore it later
             if replacement.is_permanent:
                 replaced[name] = (None, replacement)
-                del module  # Help GC by explicitly deleting
+                del module
             else:
                 replaced[name] = (module, replacement)
 
-            # Log every 10 replacements or on the last one
-            if (idx + 1) % 10 == 0 or idx == len(modules_to_replace) - 1:
-                _log_memory_stats(f"After replacing {idx+1}/{len(modules_to_replace)} modules")
-
             if is_distributed():
                 dist.barrier()
-
-        _log_memory_stats("After all MoE replacements")
 
     # Log what was replaced
     if replaced:

@@ -529,23 +529,6 @@ def dispatch_for_sequential(
     :param model: model to dispatch
     :return: dispatched model
     """
-    import os
-    from loguru import logger
-
-    # Log memory stats before dispatch
-    try:
-        pid = os.getpid()
-        with open(f"/proc/{pid}/maps", "r") as f:
-            mmap_count = sum(1 for _ in f)
-        with open("/proc/sys/vm/max_map_count", "r") as f:
-            max_map_count = int(f.read().strip())
-        logger.info(
-            f"Before dispatch_for_sequential: mmaps={mmap_count}/{max_map_count} "
-            f"({100*mmap_count/max_map_count:.1f}%)"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to log memory stats: {e}")
-
     if onload_device is None:
         onload_device = get_main_device()
     return offload_model(model, onload_device, offload_device)

@@ -24,8 +24,8 @@ MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 init_dist()
 with load_offloaded_model():
     model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-        MODEL_ID, 
-        dtype="auto", 
+        MODEL_ID,
+        dtype="auto",
         device_map="auto_offload",
         max_memory={"cpu": 5e9},
         offload_folder="./offload_folder",
@@ -164,3 +164,4 @@ SAVE_DIR = (
 )
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)
+torch.distributed.destroy_process_group()
