@@ -62,4 +62,4 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Use case      | Supported on all NVIDIA Blackwell GPUs or later  
 
 !!! warning
-    Sparsity (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.

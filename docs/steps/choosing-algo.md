@@ -57,7 +57,7 @@ Use the table below to select the algorithm that best matches your deployment re
 | FP8 KV Cache | Target KV Cache or attention activations |
 
 !!! warning
-    Sparsity (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
 
 ### Mixed-precision quantization for accuracy recovery
 

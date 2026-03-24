@@ -85,7 +85,7 @@ config.json while a local format is indicated for each group of targeted layers.
 | W8A16 - float | naive_quantized         |
 
 !!! warning
-    Sparsity (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
 
 ## Next steps
 

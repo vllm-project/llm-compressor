@@ -18,7 +18,7 @@ When saving your compressed models, you can use the following extra arguments wi
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `quantization_format` | `Optional[str]` | `None` | Optional format string for quantization. If not provided, it will be inferred from the model. |
-| `save_compressed` | `bool` | `True` | Controls whether to save the model in a compressed format. Set to `False` to save in the original dense format. |
+| `save_compressed` | `bool` | `True` | Controls whether to save the model in a compressed format. Set to `False` to save in the original frozen state. |
 
 ## Examples
 
@@ -54,7 +54,7 @@ tokenizer.save_pretrained(SAVE_DIR)
 ## Notes
 
 !!! warning
-    Sparsity (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
 
 - When loading compressed models with `from_pretrained`, the compression format is automatically detected.
 - To use compressed models with vLLM, simply load them as you would any model:
