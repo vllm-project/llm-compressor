@@ -3,8 +3,8 @@ import torch
 from torch.nn import Linear
 
 from llmcompressor.modifiers.awq.mappings import (
+    AWQ_DYNAMIC_MAPPING_REGISTRY,
     _build_hybrid_attention_mappings,
-    _detect_is_moe,
     _detect_linear_attn_projections,
     _get_hybrid_attention_config,
     get_layer_mappings_from_model,
@@ -97,14 +97,13 @@ def _make_hybrid_model(
     )
 
     # Attach a config
-    config = type(
-        "Config",
-        (),
-        {
-            "num_hidden_layers": num_layers,
-            "layer_types": layer_types,
-        },
-    )()
+    config_attrs = {
+        "num_hidden_layers": num_layers,
+        "layer_types": layer_types,
+    }
+    if moe:
+        config_attrs["num_local_experts"] = num_experts
+    config = type("Config", (), config_attrs)()
 
     if use_text_config:
         model.config = type("Config", (), {"text_config": config})()
@@ -204,29 +203,20 @@ class TestDetectLinearAttnProjections:
 
 
 @pytest.mark.unit
-class TestDetectIsMoe:
-    def test_detects_enumerable_experts(self):
+class TestMoeDetectionInMappings:
+    def test_moe_model_gets_expert_mlp_mappings(self):
         model = _make_hybrid_model(moe=True, num_experts=4)
-        assert _detect_is_moe(model) is True
+        mappings = _build_hybrid_attention_mappings(model)
+        assert mappings is not None
+        mlp_mapping = mappings[2]
+        assert any("experts" in b for b in mlp_mapping.balance_layers)
 
-    def test_false_for_dense_model(self):
+    def test_dense_model_gets_simple_mlp_mappings(self):
         model = _make_hybrid_model(moe=False)
-        assert _detect_is_moe(model) is False
-
-    def test_false_for_fused_experts(self):
-        """Fused expert modules (e.g. Qwen3NextExperts) don't expose
-        individual expert.N.gate_proj submodules."""
-        model = _make_hybrid_model(moe=False)
-        # Add a fused experts module that doesn't have individual submodules
-        model.model.layers[0].mlp = torch.nn.ModuleDict(
-            {
-                "experts": torch.nn.Module(),  # opaque, no gate_proj children
-                "gate_proj": Linear(8, 8),
-                "up_proj": Linear(8, 8),
-                "down_proj": Linear(8, 8),
-            }
-        )
-        assert _detect_is_moe(model) is False
+        mappings = _build_hybrid_attention_mappings(model)
+        assert mappings is not None
+        mlp_mapping = mappings[2]
+        assert not any("experts" in b for b in mlp_mapping.balance_layers)
 
 
 @pytest.mark.unit
@@ -301,27 +291,36 @@ class TestBuildHybridAttentionMappings:
 
 @pytest.mark.unit
 class TestGetLayerMappingsFromModel:
-    def test_hybrid_model_uses_dynamic_path(self):
+    def test_dynamic_registry_model_uses_dynamic_path(self):
         model = _make_hybrid_model(num_layers=8)
+        # Fake the class name to match a dynamic registry entry
+        model.__class__ = type(
+            "Qwen3_5ForConditionalGeneration", (model.__class__,), {}
+        )
+        assert model.__class__.__name__ in AWQ_DYNAMIC_MAPPING_REGISTRY
         mappings = get_layer_mappings_from_model(model)
-        # Dynamic path produces 4 mappings for hybrid models
         assert len(mappings) == 4
-        # Should have layer-index-specific regex
         assert any("|" in m.smooth_layer for m in mappings)
 
-    def test_standard_model_uses_static_registry(self):
+    def test_static_registry_model_uses_static_path(self):
         model = _make_standard_model()
-        # Fake the class name to match a known registry entry
-        model.__class__ = type("LlamaForCausalLM", (), {})
-        model.__class__.__name__ = "LlamaForCausalLM"
+        model.__class__ = type("LlamaForCausalLM", (model.__class__,), {})
         mappings = get_layer_mappings_from_model(model)
-        # Static default mappings have 4 entries
         assert len(mappings) == 4
-        # Should NOT have layer-index-specific regex
+        assert not any("|" in m.smooth_layer for m in mappings)
+
+    def test_unknown_model_gets_default_mappings(self):
+        model = _make_standard_model()
+        model.__class__ = type("SomeNewModelNobodyKnows", (model.__class__,), {})
+        mappings = get_layer_mappings_from_model(model)
+        assert len(mappings) == 4
         assert not any("|" in m.smooth_layer for m in mappings)
 
     def test_vl_model_reads_text_config(self):
         model = _make_hybrid_model(num_layers=4, use_text_config=True)
+        model.__class__ = type(
+            "Qwen3_5ForConditionalGeneration", (model.__class__,), {}
+        )
         mappings = get_layer_mappings_from_model(model)
         assert mappings is not None
         assert len(mappings) == 4

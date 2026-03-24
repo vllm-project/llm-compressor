@@ -3,10 +3,12 @@ from dataclasses import dataclass
 from loguru import logger
 from torch.nn import Module
 
+from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
+
 __all__ = [
     "AWQMapping",
     "AWQ_MAPPING_REGISTRY",
-    "get_layer_mappings_from_architecture",
+    "AWQ_DYNAMIC_MAPPING_REGISTRY",
     "get_layer_mappings_from_model",
 ]
 
@@ -321,21 +323,7 @@ def _detect_linear_attn_projections(model: Module) -> list[str]:
         if sub.startswith("in_proj_"):
             proj_names.append(sub)
     # Deduplicate while preserving order (same projections repeat per layer)
-    seen = set()
-    unique = []
-    for p in proj_names:
-        if p not in seen:
-            seen.add(p)
-            unique.append(p)
-    return unique
-
-
-def _detect_is_moe(model: Module) -> bool:
-    """Check if the model uses MoE with individually enumerable expert modules."""
-    return any(
-        "mlp.experts." in name and "gate_proj" in name
-        for name, _ in model.named_modules()
-    )
+    return list(dict.fromkeys(proj_names))
 
 
 def _build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
@@ -361,11 +349,18 @@ def _build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
         i for i in range(num_layers) if layer_types[i] == "linear_attention"
     ]
 
+    if not full_indices or not linear_indices:
+        logger.warning(
+            "Hybrid attention model detected but could not find indices for "
+            "both full and linear attention layers. Falling back."
+        )
+        return None
+
     full_re = "|".join(str(i) for i in full_indices)
     linear_re = "|".join(str(i) for i in linear_indices)
 
     linear_proj_names = _detect_linear_attn_projections(model)
-    is_moe = _detect_is_moe(model)
+    is_moe = is_moe_model(model)
 
     mappings = []
 
@@ -423,33 +418,33 @@ def _build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
     return mappings
 
 
+AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, callable] = {
+    "Qwen3NextForCausalLM": _build_hybrid_attention_mappings,
+    "Qwen3_5ForConditionalGeneration": _build_hybrid_attention_mappings,
+}
+
+
 def get_layer_mappings_from_model(model: Module) -> list[AWQMapping]:
     """
-    Infer AWQ mappings from a model, using dynamic detection for hybrid
-    attention architectures and falling back to the static registry.
+    Infer AWQ mappings from a model. Checks the dynamic mapping registry
+    first (for models needing runtime-generated mappings), then falls back
+    to the static registry, then to default mappings.
 
     :param model: the model to infer mappings for
     :return: list of AWQMapping for the model
     """
-    # Try dynamic hybrid attention detection first
-    hybrid_mappings = _build_hybrid_attention_mappings(model)
-    if hybrid_mappings is not None:
-        return hybrid_mappings
+    model_name = model.__class__.__name__
 
-    # Fall back to static registry
-    return get_layer_mappings_from_architecture(model.__class__.__name__)
+    if model_name in AWQ_DYNAMIC_MAPPING_REGISTRY:
+        mappings = AWQ_DYNAMIC_MAPPING_REGISTRY[model_name](model)
+        if mappings is not None:
+            return mappings
 
+    if model_name in AWQ_MAPPING_REGISTRY:
+        return AWQ_MAPPING_REGISTRY[model_name]
 
-def get_layer_mappings_from_architecture(architecture: str) -> list[AWQMapping]:
-    """
-    :param architecture: str: The architecture of the model
-    :return: list: The layer mappings for the given architecture
-    """
-
-    if architecture not in AWQ_MAPPING_REGISTRY:
-        logger.info(
-            f"Architecture {architecture} not found in mappings. "
-            f"Using default mappings: {_default_mappings}"
-        )
-
-    return AWQ_MAPPING_REGISTRY.get(architecture, _default_mappings)
+    logger.info(
+        f"Architecture {model_name} not found in mappings. "
+        f"Using default mappings: {_default_mappings}"
+    )
+    return _default_mappings
