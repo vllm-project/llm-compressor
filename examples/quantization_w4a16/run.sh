@@ -152,6 +152,12 @@ run_and_eval() {
     echo ""
 }
 
+run 1 lm_eval \
+    --model vllm \
+    --model_args pretrained=./Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP2,dtype=auto,max_model_len=2048,add_bos_token=True \
+    --tasks gsm8k \
+    --batch_size auto
+
 # W4A16
 # run_and_eval "llama3_ddp_example.py" 4 "Meta-Llama-3-8B-Instruct-W4A16-G128-DDP4" "gsm8k" 2048  # .7111 .7127
 # run_and_eval "llama3_ddp_example.py" 1 "Meta-Llama-3-8B-Instruct-W4A16-G128-DDP1" "gsm8k" 2048 # .702 .702
@@ -169,6 +175,11 @@ run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 2 "Qwen3-VL-235B-A22B-
 # run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 8 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP8" "gsm8k" 2048 # fail
 # run_and_eval "qwen3_vl_235b_moe_gptq_int4_ddp_example.py" 1 "Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP1" "gsm8k" 2048 # some disk offload error it looks like
 
+run 1 lm_eval \
+    --model vllm \
+    --model_args pretrained=./Qwen3-VL-235B-A22B-Instruct-GPTQ-W4A16-G128-DDP2,dtype=auto,max_model_len=2048,add_bos_token=True \
+    --tasks gsm8k \
+    --batch_size auto
 
 # NVFP4
 # run_and_eval "llama3_ddp_nvfp4.py" 4 "Meta-Llama-3-8B-Instruct-GPTQ-NVFP4A16-DDP4" "gsm8k" 2048
