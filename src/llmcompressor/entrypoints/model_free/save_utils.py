@@ -6,16 +6,16 @@ from compressed_tensors.base import (
     COMPRESSION_VERSION_NAME,
     QUANTIZATION_CONFIG_NAME,
     QUANTIZATION_METHOD_NAME,
-    SPARSITY_CONFIG_NAME,
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.entrypoints.convert import Converter, find_config_path
+from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
 )
+from compressed_tensors.utils.safetensors_load import find_config_path
 from loguru import logger
 from pydantic import ValidationError
 
@@ -46,7 +46,6 @@ def update_config(
     qconfig_data = {
         COMPRESSION_VERSION_NAME: ct_version,
         QUANTIZATION_METHOD_NAME: "compressed-tensors",
-        SPARSITY_CONFIG_NAME: {},
         TRANSFORM_CONFIG_NAME: {},
         **qconfig_data,
     }

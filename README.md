@@ -37,6 +37,7 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **Qwen3.5 Support**: Qwen 3.5 can now be quantized using LLM Compressor. You will need to update your local transformers version using `uv pip install --upgrade transformers` and install LLM Compressor from source if using `<0.11`. Once updated, you should be able to run examples for the [MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) and [non-MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) variants of Qwen 3.5 end-to-end. For models quantized and published by the RedHat team, consider using the [NVFP4](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-NVFP4) and FP8 checkpoints for [Qwen3.5-122B](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-FP8-dynamic) and [Qwen3.5-397B](https://huggingface.co/RedHatAI/Qwen3.5-397B-A17B-FP8-dynamic).
 * **Updated offloading and model loading support**: Loading transformers models that are offloaded to disk and/or offloaded across distributed process ranks is now supported. Disk offloading allows users to load and compress very large models which normally would not fit in CPU memory. Offloading functionality is no longer supported through accelerate but through model loading utilities added to compressed-tensors. For a full summary of updated loading and offloading functionality, for both single-process and distributed flows, see the [Big Models and Distributed Support guide](docs/guides/big_models_and_distributed/model_loading.md).
 * **Distributed GPTQ Support**: GPTQ now supports Distributed Data Parallel (DDP) functionality to significantly improve calibration runtime. An example using DDP with GPTQ can be found [here](examples/quantization_w4a16/llama3_ddp_example.py).
 * **Updated FP4 Microscale Support**: GPTQ now supports FP4 quantization schemes, including both [MXFP4](examples/quantization_w4a16_fp4/mxfp4/llama3_example.py) and [NVFP4](examples/quantization_w4a4_fp4/llama3_gptq_example.py). MXFP4 support has also been improved with updated weight scale generation. Models with weight-only quantization in the MXFP4 format can now run in vLLM as of vLLM v0.14.0. MXFP4 models with activation quantization are not yet supported in vLLM for compressed-tensors models
@@ -48,14 +49,12 @@ Some of the exciting new features include:
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8), MXFP8 (experimental)
 * Mixed Precision: W4A16, W8A16, MXFP8A16 (experimental), NVFP4 (W4A4 and W4A16 support)
-* 2:4 Semi-structured and Unstructured Sparsity
 
 ### Supported Algorithms
 * Simple PTQ
 * GPTQ
 * AWQ
 * SmoothQuant
-* SparseGPT
 * AutoRound
 
 ### When to Use Which Optimization
@@ -186,3 +185,7 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
+
+
+!!! warning
+    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due lack of hardware support and usage

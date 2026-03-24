@@ -8,8 +8,6 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 - [W8A8-INT8](#int8_w8a8)
 - [W4A16 and W8A16](#w4a16-and-w8a16)
 - [NVFP4](#nvfp4)
-- [2:4 Semi-structured Sparsity](#semi-structured)
-- [Unstructured Sparsity](#unstructured)
 
 ## PTQ Compression Schemes
 
@@ -63,27 +61,5 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Calibration   | Requires a calibration dataset to calibrate activation global scales                                                            |
 | Use case      | Supported on all NVIDIA Blackwell GPUs or later  
 
-## Sparsification Compression Schemes
-
-Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
-
-
-### Semi-Structured
-| Feature       | Description                                                                                  |
-|---------------|----------------------------------------------------------------------------------------------|
-| 2:4 Semi-structured Sparsity | Uses semi-structured sparsity (SparseGPT), where 2 of every 4 contiguous weights are set to zero. |
-| Weights       | 2:4 sparsity                                                                                |
-| Activations   | N/A                                                                                          |
-| Calibration   | Requires a calibration dataset                                                              |
-| Use case      | Fine-grained sparsity for compression and speedups           |
-
-
-
-### Unstructured
-| Feature       | Description                                                                                  |
-|---------------|----------------------------------------------------------------------------------------------|
-| Unstructured Sparsity | Zeros out individual weights without a regular pattern, removing weights wherever they contribute least. Produces a fine-grained sparse matrix. |
-| Weights       | Sparsified individually (no structure)                                                     |
-| Activations   | N/A                                                                  |
-| Calibration   | Does not require a calibration dataset                                                    |
-| Use case      | Fine-grained sparsity for compression and speedups                                         |
+!!! warning
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
