@@ -194,6 +194,24 @@ class Observer(InternalModule, RegistryMixin):
             global_scale=global_scale,
         )
 
+    def attach(self, module: torch.nn.Module) -> None:
+        """
+        Called when the observer is attached to a module.
+        Subclasses can override to register hooks or initialize state.
+
+        :param module: the module this observer is being attached to
+        """
+        pass
+
+    def detach(self, module: torch.nn.Module) -> None:
+        """
+        Called before the observer is deleted from a module.
+        Subclasses can override to remove hooks and clean up module attributes.
+
+        :param module: the module this observer is being removed from
+        """
+        pass
+
     def _check_has_global_scale(self, global_scale: Optional[torch.nn.Parameter]):
         if (
             self.args.strategy == QuantizationStrategy.TENSOR_GROUP
