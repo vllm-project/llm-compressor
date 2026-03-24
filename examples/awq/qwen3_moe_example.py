@@ -52,17 +52,12 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 # NOTE: vllm currently does not support asym MoE, using symmetric here
 # AWQModifier applies smoothing, then QuantizationModifier finalizes quantization.
+_ignore = ["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"]
+_scheme = "W4A16"
+_targets = ["Linear"]
 recipe = [
-    AWQModifier(
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
-        scheme="W4A16",
-        targets=["Linear"],
-    ),
-    QuantizationModifier(
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
-        scheme="W4A16",
-        targets=["Linear"],
-    ),
+    AWQModifier(ignore=_ignore, scheme=_scheme, targets=_targets),
+    QuantizationModifier(ignore=_ignore, scheme=_scheme, targets=_targets),
 ]
 
 # Apply algorithms.

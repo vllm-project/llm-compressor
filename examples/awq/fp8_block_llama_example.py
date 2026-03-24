@@ -51,11 +51,12 @@ def tokenize(sample):
 
 # Configure the quantization algorithm to run.
 # AWQModifier applies smoothing, then QuantizationModifier finalizes quantization.
+_ignore = ["lm_head"]
+_scheme = "FP8_BLOCK"
+_targets = ["Linear"]
 recipe = [
-    AWQModifier(
-        ignore=["lm_head"], scheme="FP8_BLOCK", targets=["Linear"], duo_scaling="both"
-    ),
-    QuantizationModifier(ignore=["lm_head"], scheme="FP8_BLOCK", targets=["Linear"]),
+    AWQModifier(ignore=_ignore, scheme=_scheme, targets=_targets, duo_scaling="both"),
+    QuantizationModifier(ignore=_ignore, scheme=_scheme, targets=_targets),
 ]
 
 # Apply algorithms.

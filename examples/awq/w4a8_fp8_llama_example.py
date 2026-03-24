@@ -41,18 +41,12 @@ ds = ds.map(preprocess)
 # W4AFP8 scheme: 4-bit integer weights (group 128) + FP8 dynamic per-token activations
 # AWQ smooths the weights before quantization to reduce quantization error.
 # AWQModifier applies smoothing, then QuantizationModifier finalizes quantization.
+_ignore = ["lm_head"]
+_scheme = "W4AFP8"
+_targets = ["Linear"]
 recipe = [
-    AWQModifier(
-        ignore=["lm_head"],
-        scheme="W4AFP8",
-        targets=["Linear"],
-        duo_scaling=True,
-    ),
-    QuantizationModifier(
-        ignore=["lm_head"],
-        scheme="W4AFP8",
-        targets=["Linear"],
-    ),
+    AWQModifier(ignore=_ignore, scheme=_scheme, targets=_targets, duo_scaling=True),
+    QuantizationModifier(ignore=_ignore, scheme=_scheme, targets=_targets),
 ]
 
 # Apply algorithms.
