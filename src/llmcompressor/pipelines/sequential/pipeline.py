@@ -2,6 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors.quantization import disable_quantization, enable_quantization
 from compressed_tensors.utils import disable_offloading
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -18,7 +19,6 @@ from llmcompressor.pipelines.sequential.helpers import (
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import (
-    DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
 )
@@ -103,18 +103,13 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        # TODO: remove this to enable quantization aware calibration
-        # for GPTQ, AWQ and AutoRound.
-        disable_qac = any(
-            type(mod).__name__ in DISABLE_QAC_MODIFIERS
-            for mod in session.lifecycle.recipe.modifiers
-        )
-
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-            # Optionally disable quantization
-            if not dataset_args.quantization_aware_calibration or disable_qac:
-                stack.enter_context(DisableQuantization(model))
+            # Always disable quantization during calibration so that observer hooks
+            # accumulate statistics from unquantized activations. Quantization is
+            # re-enabled during the propagation pass so that downstream subgraphs
+            # receive realistic (quantized) inputs.
+            stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
@@ -142,7 +137,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
-                    # do a preliminary pass to trigger modifier hooks
+                    # calibration pass: hooks accumulate activation statistics
                     for batch_idx, inputs in _get_batches(
                         activations,
                         num_batches,
@@ -153,11 +148,15 @@ class SequentialPipeline(CalibrationPipeline):
                         session.state.current_batch_idx = batch_idx
                         subgraph.forward(model, **inputs)
 
+                    # flush accumulated stats -> write scale/zero_point once per subgraph
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
+                    # propagation pass: modifier hooks are disabled but quantization is
+                    # re-enabled so that compressed module outputs are quantized.
+                    # This ensures downstream subgraphs receive realistic inputs.
+                    with contextlib.ExitStack() as prop_stack:
+                        prop_stack.enter_context(HooksMixin.disable_hooks())
+                        model.apply(enable_quantization)
                         for batch_idx, inputs in _get_batches(
                             activations,
                             num_batches,
@@ -169,6 +168,8 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+                    # restore disabled quantization for next calibration pass
+                    model.apply(disable_quantization)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
