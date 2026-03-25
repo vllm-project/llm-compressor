@@ -144,6 +144,8 @@ AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | No
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForConditionalGeneration": build_hybrid_attention_mappings,
+    "Qwen3_5MoeForCausalLM": build_hybrid_attention_mappings,
+    "Qwen3_5MoeForConditionalGeneration": build_hybrid_attention_mappings,
 }
 
 
