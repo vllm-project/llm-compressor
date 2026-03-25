@@ -1,12 +1,16 @@
 # Adding a New Observer
 
-Observers compute the quantization parameters — `scale` and `zero_point` — from observed tensors during calibration. This tutorial explains how observers fit into the quantization pipeline and how to implement a custom one.
+Observers analyze weight and activation tensors during calibration to compute the statistics needed for quantization. This guide explains how observers fit into the quantization pipeline and how to implement a custom one.
 
 ## What is an Observer?
 
-When a quantized layer runs a calibration forward pass, it passes the weight or activation tensor to an observer. The observer analyzes the tensor and returns `(scale, zero_point)` values used to quantize that tensor.
+When a quantized layer runs a calibration forward pass, it passes the weight or activation tensor to an observer. The observer's job is to compute **min and max values** from the observed tensor. These min/max values are then passed to `compressed_tensors.quantization.utils.calculate_qparams`, which converts them into `scale` and `zero_point` tensors used for quantization.
 
-The base class (`Observer`) handles all the mechanics of group-wise, channel-wise, and token-wise quantization — slicing the tensor appropriately and calling `calculate_qparams`. Your subclass only needs to implement one thing: given a prepared tensor, compute the min and max values.
+Observers do **not** compute scales or zero points directly — that responsibility belongs to `compressed-tensors`. The observer's only job is to characterize the tensor's range via min and max values.
+
+For schemes that require a global scale (e.g., NVFP4, MXFP4), the observer's `get_global_min_max` output is similarly passed to `compressed_tensors.quantization.utils.generate_gparam`, which generates the global scale used to keep per-group local scales within a target dtype range (e.g., FP8 for NVFP4 group scales).
+
+The base `Observer` class handles all slicing and reshaping for group-wise, channel-wise, and token-wise strategies before calling your subclass. Your subclass only needs to answer: **given this pre-shaped tensor, what are the min and max values?**
 
 ## The Observer Contract
 
@@ -24,8 +28,10 @@ class MyObserver(Observer):
         """
         Compute min and max from the observed tensor.
 
-        The tensor has already been reshaped by the base class into
+        The base class has already reshaped the tensor into
         shape (num_observations, *qparam_shape, group_size).
+        These min/max values are passed to calculate_qparams
+        in compressed-tensors to produce scale and zero_point.
 
         :param observed: pre-processed tensor ready for statistics computation
         :return: (min_vals, max_vals) with shape (*qparam_shape,)
@@ -34,17 +40,45 @@ class MyObserver(Observer):
 
     def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
-        Compute global min and max for global scale calculation (e.g., MXFP4).
+        Compute global min and max for global scale calculation (e.g., NVFP4, MXFP4).
 
-        The tensor has already been reshaped to (1, 1, total_elements).
+        The base class reshapes the tensor to (1, 1, total_elements) before calling
+        this method. The returned values are passed to generate_gparam in
+        compressed-tensors to produce a global scale that keeps per-group local
+        scales within the target dtype range.
 
         :param observed: per-tensor reshaped tensor
-        :return: (min_val, max_val) scalar tensors
+        :return: (min_val, max_val) scalar tensors of shape (1,)
         """
         ...
 ```
 
 The `@Observer.register("my_observer")` decorator registers your observer under the given name so it can be referenced in recipes by string.
+
+## How the Base Class Uses Your Output
+
+The base class `_forward_with_minmax` method calls your `get_min_max` and passes the result directly to `calculate_qparams` from `compressed-tensors`:
+
+```python
+# Inside Observer._forward_with_minmax (simplified):
+min_vals, max_vals = self.get_min_max(observed)
+scales, zero_points = calculate_qparams(
+    min_vals=min_vals,
+    max_vals=max_vals,
+    quantization_args=self.args,
+    global_scale=global_scale,
+)
+```
+
+`calculate_qparams` handles the actual scale and zero point computation — symmetric vs asymmetric quantization, dtype clamping, MX scale generation, and so on. Your observer only controls the min/max values fed into it.
+
+For global scales (FP4 schemes), the base class calls your `get_global_min_max` and passes the result to `generate_gparam`:
+
+```python
+# Inside Observer._get_global_scale_with_minmax (simplified):
+global_min_vals, global_max_vals = self.get_global_min_max(observed)
+global_scale = generate_gparam(global_min_vals, global_max_vals)
+```
 
 ## Stateful Observers
 
@@ -75,7 +109,7 @@ class MyObserver(Observer):
 
 ## Example: A Percentile-Clipping Observer
 
-The following observer clips outliers by computing quantization parameters from a configurable percentile range instead of the full min/max. This can improve accuracy when the tensor has extreme outlier values.
+The following observer clips outliers by returning min/max values from a configurable percentile range rather than the absolute extremes. This can improve accuracy when tensors have extreme outlier values that would otherwise inflate the quantization range.
 
 ```python
 import torch
@@ -85,8 +119,10 @@ from llmcompressor.observers.base import MinMaxTuple
 @Observer.register("percentile")
 class PercentileObserver(Observer):
     """
-    Computes quantization parameters by clipping to a symmetric percentile
-    range, discarding outlier values beyond the given percentile.
+    Returns per-channel min/max values clipped to a configurable percentile
+    range, discarding outliers beyond the given percentile. The resulting
+    min/max values are passed to calculate_qparams in compressed-tensors
+    to produce scale and zero_point.
 
     Configure via observer_kwargs:
         percentile (float): the upper percentile to retain, e.g. 99.9
@@ -168,7 +204,9 @@ quantization_stage:
 
 ## Tips
 
-- **`get_min_max` receives a pre-shaped tensor.** The base class has already sliced the input into groups, channels, or tokens according to `QuantizationArgs.strategy`. You do not need to handle reshaping yourself.
+- **Observers return min/max, not scale/zero_point.** The conversion from min/max → scale/zero_point is handled by `calculate_qparams` in `compressed-tensors`. Focus your implementation on accurately characterizing the tensor range.
+- **`get_min_max` receives a pre-shaped tensor.** The base class has already sliced the input according to `QuantizationArgs.strategy` (group, channel, token, etc.). You do not need to handle reshaping yourself.
+- **`get_global_min_max` is only used for FP4 schemes** (NVFP4, MXFP4) that require a global scale. For standard int8/fp8 quantization, the base class will not call it.
 - **`observer_kwargs` is the right place for hyperparameters.** Access them via `self.args.observer_kwargs.get(...)`.
 - **Match the shape contract.** `get_min_max` must return tensors of shape `(*qparam_shape,)` — one scalar per quantization group/channel/token. `get_global_min_max` must return shape `(1,)`.
 - **Existing observers are good references.** See `min_max.py` for a simple stateless example and `mse.py` for a more complex stateful one.
