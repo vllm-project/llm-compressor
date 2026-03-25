@@ -33,43 +33,6 @@ __all__ = [
 ]
 
 
-def _find_ancestor_with_offload_cache(module):
-    if isinstance(module._parameters, OffloadCache):
-        return module
-
-    for child in module.children():
-        child_val = _find_ancestor_with_offload_cache(child)
-        if child_val is not None:
-            return child_val
-    return None
-
-
-def _apply_offloading_to_replacement(
-    original: torch.nn.Module, replacement: torch.nn.Module
-):
-    """
-    Apply the same offloading configuration from original to replacement module.
-
-    If the original module or ANY of its children use OffloadCache, this recursively
-    applies the same offloading settings to all submodules of the replacement that
-    have parameters.
-    """
-
-    if (module_with_cache := _find_ancestor_with_offload_cache(original)) is None:
-        return
-
-    kwargs = get_cache_init_kwargs(module_with_cache)
-
-    # Apply offloading to all submodules that have parameters
-    for module in replacement.modules():
-        if isinstance(module._parameters, OffloadCache):
-            continue
-        if len(list(module.parameters(recurse=False))) == 0:
-            continue
-
-        offload_module(module, **kwargs)
-
-
 class MoECalibrationModule(ABC, torch.nn.Module, RegistryMixin):
     """
     Abstract base class for MoE calibration modules.
@@ -197,3 +160,42 @@ def moe_calibration_context(
 
 def _is_registered(name: str, subclass: RegistryMixin):
     return standardize_lookup_name(name) in subclass.registered_names()
+
+
+def _find_ancestor_with_offload_cache(module):
+    if isinstance(module._parameters, OffloadCache):
+        return module
+
+    for child in module.children():
+        child_val = _find_ancestor_with_offload_cache(child)
+        if child_val is not None:
+            return child_val
+    return None
+
+
+def _apply_offloading_to_replacement(
+    original: torch.nn.Module, replacement: torch.nn.Module
+):
+    """
+    Apply the same offloading configuration from original to replacement module.
+
+    If the original module or ANY of its children use OffloadCache, this recursively
+    applies the same offloading settings to all submodules of the replacement that
+    have parameters.
+    """
+
+    module_with_cache = _find_ancestor_with_offload_cache(original)
+    if module_with_cache is None:
+        return
+
+    kwargs = get_cache_init_kwargs(module_with_cache)
+
+    # Apply offloading to all submodules that have parameters
+    # and are not already offloaded
+    for module in replacement.modules():
+        if isinstance(module._parameters, OffloadCache):
+            continue
+        if len(list(module.parameters(recurse=False))) == 0:
+            continue
+
+        offload_module(module, **kwargs)
