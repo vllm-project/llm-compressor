@@ -49,7 +49,9 @@ pull_request_rules:
           - files~=^examples/
       - -files~=^src/
       - -files~=^tests/
-      - -files~=^\.github/workflows/
+      - -files~=^\.github/
+      - -files~=^Makefile$
+      - -files~=^pyproject\.toml$
     actions:
       label:
         add:
