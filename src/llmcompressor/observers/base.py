@@ -154,9 +154,7 @@ class Observer(InternalModule, RegistryMixin):
             val = getattr(self, attr, None)
             if val is not None:
                 comms.append(
-                    dist.all_reduce(
-                        as_broadcastable(val), op=op, async_op=True
-                    )
+                    dist.all_reduce(as_broadcastable(val), op=op, async_op=True)
                 )
         return comms
 

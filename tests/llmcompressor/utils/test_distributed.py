@@ -75,10 +75,10 @@ def test_static_synchronize_with_global_state(mock_dist):
 
 
 @pytest.mark.unit
-@patch("llmcompressor.observers.base.dist")
+@patch("llmcompressor.observers.moving_base.dist")
 def test_moving_avg_synchronize_issues_all_reduce(mock_dist):
-    mock_dist.ReduceOp.MIN = "MIN"
-    mock_dist.ReduceOp.MAX = "MAX"
+    mock_dist.ReduceOp.SUM = "SUM"
+    mock_dist.get_world_size.return_value = 2
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(MinMaxObserver)
