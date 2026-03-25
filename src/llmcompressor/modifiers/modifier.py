@@ -109,7 +109,7 @@ class Modifier(ModifierInterface, HooksMixin):
         not initialized
 
         :raises RuntimeError: if the modifier has been finalized
-        :param state: The current state of sparsification
+        :param state: The current state of compression
         :param event: The event to update the modifier with
         :param kwargs: Additional arguments for updating the modifier
         """

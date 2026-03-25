@@ -18,7 +18,6 @@ from torch.optim import SGD, Adam
 from torch.utils.data import Dataset
 
 __all__ = [
-    "SAMPLE_STAGED_RECIPE",
     "test_epoch",
     "test_steps_per_epoch",
     "test_loss",
@@ -328,47 +327,3 @@ def create_optim_sgd(model: Module, lr: float = 0.0001) -> SGD:
 
 def create_optim_adam(model: Module, lr: float = 0.0001) -> Adam:
     return Adam(model.parameters(), lr=lr)
-
-
-SAMPLE_STAGED_RECIPE = """
-stage_1:
-    training_modifiers:
-      - !EpochRangeModifier
-        start_epoch: 0.0
-        end_epoch: 50.0
-
-      - !SetLearningRateModifier
-        start_epoch: 0.0
-        learning_rate: 0.1
-
-    pruning_modifiers:
-      - !GMPruningModifier
-        start_epoch: 0
-        end_epoch: 40
-        init_sparsity: 0.05
-        final_sparsity: 0.85
-        params: ["params.1", "params.2"]
-        update_frequency: 0.5
-
-      - !GMPruningModifier
-        start_epoch: 0
-        end_epoch: 40
-        init_sparsity: 0.05
-        final_sparsity: 0.95
-        params: ["params.3"]
-        update_frequency: 0.5
-
-stage_2:
-    training_modifiers:
-      - !EpochRangeModifier
-        start_epoch: 50.0
-        end_epoch: 52.0
-
-      - !SetLearningRateModifier
-        start_epoch: 0.0
-        learning_rate: 0.0001
-
-    quantization_modifiers:
-      - !QuantizationModifier
-          start_epoch: 50.0
-"""
