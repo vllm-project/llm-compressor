@@ -24,6 +24,64 @@ Weight and activation quantization is best for maximum throughput on modern hard
 !!! note
     AWQ and GPTQ are typically used for weight-only quantization but can also be applied to weight and activation quantization workflows.
 
+### AWQ details
+
+The AWQ recipe uses the `AWQModifier`, which adjusts model scales ahead of weight quantization:
+
+```python
+recipe = [
+    AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+]
+```
+
+AWQ requires layer mappings to identify where to apply activation-aware scaling. Mappings for common model families are built in, but you can supply your own via the `mappings` argument. For example, the Llama mapping looks like:
+
+```python
+[
+    AWQMapping("re:.*input_layernorm", ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]),
+    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+    AWQMapping("re:.*post_attention_layernorm", ["re:.*gate_proj", "re:.*up_proj"]),
+    AWQMapping("re:.*up_proj", ["re:.*down_proj"]),
+]
+```
+
+!!! note
+    Mappings define which layers get smoothed, while `targets` and `ignore` define which layers get quantized. A layer in the `ignore` list that is matched by a mapping will still be smoothed but not quantized.
+
+To add support for a new model family, supply your own mappings via the `mappings` argument or contribute them to the [mappings registry](/src/llmcompressor/modifiers/awq/mappings.py).
+
+### AutoRound details
+
+AutoRound introduces three trainable parameters (V, α, and β) to optimize rounding values and clipping ranges during quantization. It processes each decoder layer sequentially using block-wise output reconstruction error as the training objective.
+
+**When to use AutoRound:**
+
+- **INT4 for large models (≈30B+):** Performance comparable to other PTQ methods; accuracy drop is generally minimal at this scale.
+- **INT4 for small-to-medium models:** Likely to deliver higher accuracy than other PTQ methods.
+- **Sub-4-bit (INT2/INT3):** Shows 10–20% absolute accuracy improvements over PTQ methods, matching QAT performance at 1–2 orders of magnitude lower tuning cost.
+- **New data types (MXFP4/NVFP4):** Consistently outperforms RTN in accuracy for emerging floating-point formats.
+
+**Key parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `scheme` | Quantization scheme (e.g. `W4A16`, `W8A16`) | — |
+| `iters` | Tuning iterations per block | 200 |
+| `batch_size` | Batch size for calibration | 8 |
+| `lr` | Learning rate; auto-set to `1.0/iters` if `None` | `None` |
+
+**Recommended configurations:**
+
+| Mode | Batch Size | Iters | Seq Length | Samples | Speed | Memory | Accuracy |
+|------|------------|-------|------------|---------|-------|--------|----------|
+| `default` | 8 | 200 | 2048 | 128 | Fast | Medium | Good |
+| `best` | 8 | 1000 | 2048 | 512 | Slow | High | Best |
+| `light` | 8 | 50 | 2048 | 128 | Fastest | Medium | Slight drop |
+| `fast` | 4 | 200 | 512 | 128 | Fastest | Low | Good |
+
+!!! note
+    AutoRound currently supports WNA16, NVFP4, and W8A8-FP8 quantization schemes. Support for additional schemes is planned; follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+
 ## KV cache and attention quantization
 
 KV cache quantization reduces memory usage for long context inference:
