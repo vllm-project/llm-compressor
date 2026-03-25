@@ -172,11 +172,22 @@ tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-4-Scout-17B-16E-Inst
 oneshot(
     model=model,
     dataset="HuggingFaceH4/ultrachat_200k",
-    recipe=QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]),
-    num_calibration_samples=512,
+    recipe=QuantizationModifier(
+        targets="Linear",
+        scheme="NVFP4",
+        ignore=[
+            "re:.*lm_head",
+            "re:.*self_attn",
+            "re:.*router",
+            "re:.*vision_model.*",
+            "re:.*multi_modal_projector.*",
+            "Llama4TextAttention",
+        ],
+    ),
+    num_calibration_samples=20,
     max_seq_length=2048,
     moe_calibrate_all_experts=True,
-    output_dir="Llama-4-Scout-17B-FP8",
+    output_dir="Llama-4-Scout-17B-NVFP4",
 )
 ```
 
