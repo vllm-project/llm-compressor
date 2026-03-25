@@ -62,7 +62,7 @@ FP4 can sometimes provide good results with RTN algorithms for fast quantization
 
 ## Compression Formats
 
-Each quantization scheme corresponds to a particular quantization or sparsity compressor, which dictates
+Each quantization scheme corresponds to a particular compressor, which dictates
 how the weights, scales, zero-points and other parameters are saved to disk after being compressed.
 These compressors live in the [compressed-tensors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/compressors) project where a list of [available compressors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/config/base.py#L26) can be found. The table summarizies the common compression schemes and their corresponding compressed-tensors compressor.
 
@@ -70,23 +70,22 @@ For models with multiple precisions (e.g FP4 and FP8), multiple compressors may 
 config.json while a local format is indicated for each group of targeted layers.
 
 
-| Quantization  | Sparsity | Quant Compressor     | Sparsity Compressor |
-|---------------|----------|----------------------|---------------------|
-| W8A8 - int    | None     | int_quantized        | Dense               |
-| W8A8 - float  | None     | float_quantized      | Dense               |
-| NVFP4A16 - float | None     | nvfp4_pack_quantized | Dense               |
-| NVFP4 - float  | None     | nvfp4_pack_quantized | Dense               |
-| MXFP4A16 - float | None     | mxfp4_pack_quantized | Dense               |
-| MXFP4 - float  | None     | mxfp4_pack_quantized | Dense               |
-| W4A16 - int   | None     | pack_quantized       | Dense               |
-| W4AFP8 - int   | None     | pack_quantized       | Dense               |
-| W4AInt8 - int   | None     | pack_quantized       | Dense               |
-| W8A16 - int   | None     | pack_quantized       | Dense               |
-| W8A16 - float | None     | naive_quantized      | Dense               |
-| W8A8 - int    | 2:4      | int_quantized        | Sparse24            |
-| W8A8 - float  | 2:4      | float_quantized      | Sparse24            |
-| W8A16 - float | 2:4      | naive_quantized      | Dense               |
+| Quantization  | Quant Compressor        |
+|---------------|-------------------------|
+| W8A8 - int    | int_quantized           |
+| W8A8 - float  | float_quantized         |
+| NVFP4A16 - float | nvfp4_pack_quantized |
+| NVFP4 - float  | nvfp4_pack_quantized   |
+| MXFP4A16 - float | mxfp4_pack_quantized |
+| MXFP4 - float  | mxfp4_pack_quantized   |
+| W4A16 - int   | pack_quantized          |
+| W4AFP8 - int   | pack_quantized         |
+| W4AInt8 - int   | pack_quantized        |
+| W8A16 - int   | pack_quantized          |
+| W8A16 - float | naive_quantized         |
 
+!!! warning
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
 
 ## Next steps
 
