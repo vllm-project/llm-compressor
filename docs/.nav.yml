@@ -43,7 +43,7 @@ nav:
     - developer-tutorials/index.md
     - Adding a New Modifier: developer-tutorials/add-modifier.md
     - Adding a New Observer: developer-tutorials/add-observer.md
-    - Adding MoE Model Support: developer-tutorials/add-moe-support.md
+    - Adding MoE Calibration Support for a New Model: developer-tutorials/add-moe-support.md
   - Examples:
     - examples/README.md
     - examples/*

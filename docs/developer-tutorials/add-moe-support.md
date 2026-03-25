@@ -1,4 +1,4 @@
-# Adding MoE Model Support
+# Adding MoE Calibration Support for a New Model
 
 Mixture of Experts (MoE) models route each token to only a subset of expert layers. This creates a calibration problem: experts that are not activated for a given token never see calibration data, which can result in poorly calibrated quantization parameters, numerical instability, or NaNs.
 

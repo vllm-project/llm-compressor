@@ -22,12 +22,12 @@ These guides are for contributors who want to extend LLM Compressor with new fun
 
     [:octicons-arrow-right-24: Adding a New Observer](add-observer.md)
 
-- **Adding MoE Model Support**
+- **Adding MoE Calibration Support for a New Model**
 
     ---
 
     Learn why MoE models require special calibration handling and how to implement a calibration-friendly module definition for a new MoE architecture.
 
-    [:octicons-arrow-right-24: Adding MoE Model Support](add-moe-support.md)
+    [:octicons-arrow-right-24: Adding MoE Calibration Support for a New Model](add-moe-support.md)
 
 </div>
