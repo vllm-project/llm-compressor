@@ -142,6 +142,7 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
 
 AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | None]] = {
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
+    "Qwen3_5ForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForConditionalGeneration": build_hybrid_attention_mappings,
 }
 
