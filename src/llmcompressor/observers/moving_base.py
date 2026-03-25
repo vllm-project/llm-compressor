@@ -121,7 +121,7 @@ class MovingAverageObserverBase(Observer):
                 val.div_(world_size)
                 comms.append(
                     dist.all_reduce(
-                        as_broadcastable(val), op=dist.ReduceOp.SUM, async_op=True
+                        as_broadcastable(val), op=dist.ReduceOp.AVG, async_op=True
                     )
                 )
         return comms
