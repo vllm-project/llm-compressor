@@ -18,6 +18,7 @@ from .qwen3_moe import CalibrationQwen3MoeSparseMoeBlock  # noqa: F401
 from .qwen3_5_moe import CalibrationQwen3_5MoeSparseMoeBlock
 from .qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock  # noqa: F401
 from .qwen3_next_moe import CalibrationQwen3NextSparseMoeBlock  # noqa: F401
+from .offset_norm import CalibrationOffsetNorm  # noqa: F401
 # TODO: add granite4
 
 from .fuse import *
