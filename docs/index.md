@@ -21,7 +21,7 @@ For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md
 
 ## New in this release
 
-Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.9.0) for details about new features. Highlights include:
+Review the [LLM Compressor v0.10.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.10.0) for details about new features. Highlights include:
 
 !!! info "Updated offloading and model loading support"
     Loading transformers models that are offloaded to disk and/or offloaded across distributed process ranks is now supported. Disk offloading allows users to load and compress very large models which normally would not fit in CPU memory. Offloading functionality is no longer supported through accelerate but through model loading utilities added to compressed-tensors. For a full summary of updated loading and offloading functionality, for both single-process and distributed flows, see the [Big Models and Distributed Support guide](guides/big_models_and_distributed/model_loading.md)
