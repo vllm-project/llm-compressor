@@ -39,7 +39,7 @@ nav:
     - Observers: guides/observers.md
     - Memory Requirements: guides/memory.md
     - Runtime Performance: guides/runtime.md
-  - Developer Tutorials:
+  - Developer Guides:
     - developer-tutorials/index.md
     - Adding a New Modifier: developer-tutorials/add-modifier.md
     - Adding a New Observer: developer-tutorials/add-observer.md

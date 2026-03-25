@@ -1,6 +1,6 @@
-# Developer Tutorials
+# Developer Guides
 
-These tutorials are for contributors who want to extend LLM Compressor with new functionality. Each tutorial walks through the relevant abstractions, the contracts you must fulfill, and a concrete working example.
+These guides are for contributors who want to extend LLM Compressor with new functionality. Each guide walks through the relevant abstractions, the contracts you must fulfill, and a concrete working example.
 
 ## Tutorials
 
