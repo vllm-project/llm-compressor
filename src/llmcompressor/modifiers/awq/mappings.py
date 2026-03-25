@@ -1,15 +1,11 @@
 from dataclasses import dataclass
 
-from loguru import logger
 from torch.nn import Module
-
-from llmcompressor.modifiers.awq.dynamic_mappings import build_hybrid_attention_mappings
 
 __all__ = [
     "AWQMapping",
     "AWQ_MAPPING_REGISTRY",
-    "AWQ_DYNAMIC_MAPPING_REGISTRY",
-    "get_layer_mappings_from_model",
+    "default_mappings",
 ]
 
 
@@ -40,7 +36,7 @@ class AWQMapping:
     activation_hook_target: str | None = None
 
 
-_default_mappings = [
+default_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",
         ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
@@ -229,22 +225,22 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
-    "Glm4MoeForCausalLM": _default_mappings,
+    "Glm4MoeForCausalLM": default_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
-    "LlamaForCausalLM": _default_mappings,
-    "Llama4ForConditionalGeneration": _default_mappings,
-    "Mistral3ForConditionalGeneration": _default_mappings,
-    "MistralForCausalLM": _default_mappings,
+    "LlamaForCausalLM": default_mappings,
+    "Llama4ForConditionalGeneration": default_mappings,
+    "Mistral3ForConditionalGeneration": default_mappings,
+    "MistralForCausalLM": default_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
-    "Qwen2ForCausalLM": _default_mappings,
-    "Qwen2_5OmniThinkerForConditionalGeneration": _default_mappings,
+    "Qwen2ForCausalLM": default_mappings,
+    "Qwen2_5OmniThinkerForConditionalGeneration": default_mappings,
     "Qwen2MoeForCausalLM": _moe_default_mappings,
-    "Qwen3ForCausalLM": _default_mappings,
+    "Qwen3ForCausalLM": default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
-    "SeedOssForCausalLM": _default_mappings,
-    "Ernie4_5_MoeForCausalLM": _default_mappings,
+    "SeedOssForCausalLM": default_mappings,
+    "Ernie4_5_MoeForCausalLM": default_mappings,
 }
 
 
@@ -274,35 +270,3 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
-
-
-AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, callable] = {
-    "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
-    "Qwen3_5ForConditionalGeneration": build_hybrid_attention_mappings,
-}
-
-
-def get_layer_mappings_from_model(model: Module) -> list[AWQMapping]:
-    """
-    Infer AWQ mappings from a model. Checks the dynamic mapping registry
-    first (for models needing runtime-generated mappings), then falls back
-    to the static registry, then to default mappings.
-
-    :param model: the model to infer mappings for
-    :return: list of AWQMapping for the model
-    """
-    model_name = model.__class__.__name__
-
-    if model_name in AWQ_DYNAMIC_MAPPING_REGISTRY:
-        mappings = AWQ_DYNAMIC_MAPPING_REGISTRY[model_name](model)
-        if mappings is not None:
-            return mappings
-
-    if model_name in AWQ_MAPPING_REGISTRY:
-        return AWQ_MAPPING_REGISTRY[model_name]
-
-    logger.info(
-        f"Architecture {model_name} not found in mappings. "
-        f"Using default mappings: {_default_mappings}"
-    )
-    return _default_mappings

@@ -3,12 +3,10 @@ import torch
 from torch.nn import Linear
 
 from llmcompressor.modifiers.awq.dynamic_mappings import (
+    AWQ_DYNAMIC_MAPPING_REGISTRY,
     _detect_linear_attn_projections,
     _get_hybrid_attention_config,
     build_hybrid_attention_mappings,
-)
-from llmcompressor.modifiers.awq.mappings import (
-    AWQ_DYNAMIC_MAPPING_REGISTRY,
     get_layer_mappings_from_model,
 )
 
@@ -23,9 +21,11 @@ def _make_hybrid_model(
 ):
     """Build a minimal hybrid attention model for testing."""
     layer_types = [
-        "full_attention"
-        if i % full_attention_interval == full_attention_interval - 1
-        else "linear_attention"
+        (
+            "full_attention"
+            if i % full_attention_interval == full_attention_interval - 1
+            else "linear_attention"
+        )
         for i in range(num_layers)
     ]
 
