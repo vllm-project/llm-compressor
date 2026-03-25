@@ -2,11 +2,13 @@ import pytest
 import torch
 from torch.nn import Linear
 
-from llmcompressor.modifiers.awq.mappings import (
-    AWQ_DYNAMIC_MAPPING_REGISTRY,
-    _build_hybrid_attention_mappings,
+from llmcompressor.modifiers.awq.dynamic_mappings import (
     _detect_linear_attn_projections,
     _get_hybrid_attention_config,
+    build_hybrid_attention_mappings,
+)
+from llmcompressor.modifiers.awq.mappings import (
+    AWQ_DYNAMIC_MAPPING_REGISTRY,
     get_layer_mappings_from_model,
 )
 
@@ -206,14 +208,14 @@ class TestDetectLinearAttnProjections:
 class TestMoeDetectionInMappings:
     def test_moe_model_gets_expert_mlp_mappings(self):
         model = _make_hybrid_model(moe=True, num_experts=4)
-        mappings = _build_hybrid_attention_mappings(model)
+        mappings = build_hybrid_attention_mappings(model)
         assert mappings is not None
         mlp_mapping = mappings[2]
         assert any("experts" in b for b in mlp_mapping.balance_layers)
 
     def test_dense_model_gets_simple_mlp_mappings(self):
         model = _make_hybrid_model(moe=False)
-        mappings = _build_hybrid_attention_mappings(model)
+        mappings = build_hybrid_attention_mappings(model)
         assert mappings is not None
         mlp_mapping = mappings[2]
         assert not any("experts" in b for b in mlp_mapping.balance_layers)
@@ -228,7 +230,7 @@ class TestBuildHybridAttentionMappings:
             linear_proj_names=("in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a"),
             moe=False,
         )
-        mappings = _build_hybrid_attention_mappings(model)
+        mappings = build_hybrid_attention_mappings(model)
         assert mappings is not None
         assert len(mappings) == 4
 
@@ -255,7 +257,7 @@ class TestBuildHybridAttentionMappings:
             moe=True,
             num_experts=4,
         )
-        mappings = _build_hybrid_attention_mappings(model)
+        mappings = build_hybrid_attention_mappings(model)
         assert mappings is not None
 
         linear_mapping = mappings[1]
@@ -267,13 +269,13 @@ class TestBuildHybridAttentionMappings:
 
     def test_returns_none_for_standard_model(self):
         model = _make_standard_model()
-        assert _build_hybrid_attention_mappings(model) is None
+        assert build_hybrid_attention_mappings(model) is None
 
     def test_layer_indices_scale_with_model_size(self):
         """Verify dynamic indices work for different layer counts."""
         for num_layers in (24, 48, 64):
             model = _make_hybrid_model(num_layers=num_layers)
-            mappings = _build_hybrid_attention_mappings(model)
+            mappings = build_hybrid_attention_mappings(model)
             assert mappings is not None
 
             full_re = mappings[0].smooth_layer
