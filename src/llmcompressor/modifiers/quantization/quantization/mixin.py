@@ -207,6 +207,7 @@ class QuantizationMixin(HooksMixin):
                 targets.add(target)
 
         if self.resolved_config.kv_cache_scheme is not None:
+            # TODO: decouple reliance on this regex for matching attention
             targets.add("re:.*(self_attn|attention)$")
 
         return targets
