@@ -1,3 +1,4 @@
+import contextlib
 import inspect
 from itertools import product
 from typing import Iterator, Literal
@@ -16,6 +17,7 @@ from compressed_tensors.utils import (
     getattr_chain,
     match_modules_set,
     match_named_modules,
+    patch_attr,
     patch_attrs,
     update_offload_parameter,
 )
@@ -185,10 +187,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: True on a successful run, False otherwise
         """
 
-        # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
-
         # Validate that duo_scaling is only used with per-channel quantization
         if self.duo_scaling is not False:
             for _, module in match_named_modules(
@@ -246,15 +244,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "for MoE layers from the AWQ configuration."
             )
 
-        # register quantization calibration hooks
-        # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
-        # AWQ performs forward passes during _apply_smoothing
-        # before any scales or zero points are updated
-        # Quantization must be disabled, otherwise NaNs will
-        # appear in quantized forward method
-        state.model.apply(disable_quantization)
-
         self._setup_activation_cache_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -281,25 +270,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         self._assert_all_activations_consumed()
 
         self.ended_ = True
-
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-
-        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
-        for _, module in tqdm(named_modules, desc="Updating global scales"):
-            update_weight_global_scale(module)
-
-        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # This is a requirement for vLLM inference.
-        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
-            update_fused_layer_weight_global_scales(module)
-
-        # Calculate scales and zero points using the fused global scales
-        for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
-
-        QuantizationMixin.end_calibration(self, state.model)
 
         # remove activation hooks
         self.remove_hooks()
@@ -673,27 +643,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 n_grid = self.n_grid
                 duo_scalings = [self.duo_scaling]
 
-        # Where appropriate, replace observers with memoryless_minmax
-        # for duration of grid search
-        balance_layers_to_patch = [
-            balance_layer
-            for balance_layer in mapping.balance_layers
-            if hasattr(balance_layer, "quantization_scheme")
-            and hasattr(balance_layer.quantization_scheme, "weights")
-        ]
-        with patch_attrs(
-            balance_layers_to_patch,
-            "weight_observer",
-            [
-                Observer.load_from_registry(
-                    "memoryless_minmax",
-                    base_name="weight",
-                    args=balance_layer.quantization_scheme.weights,
-                    module=balance_layer,
-                )
-                for balance_layer in balance_layers_to_patch
-            ],
-        ):
+        with self._patch_mapping_quant_config(mapping):
             total_iterations = n_grid * len(duo_scalings)
             pbar = tqdm(
                 product(range(n_grid), duo_scalings),
@@ -718,7 +668,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 _scalesview = scales.view(1, -1).to(device)
 
                 # Q(W * s)
-                for balance_layer in balance_layers_to_patch:
+                for balance_layer in mapping.balance_layers:
                     if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                         balance_layer.quantization_scheme, "weights"
                     ):
@@ -751,10 +701,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # Apply fused global scales for TENSOR_GROUP during grid search
                 # to match inference behavior
-                if balance_layers_to_patch and all(
+                if mapping.balance_layers and all(
                     getattr(layer.quantization_scheme.weights, "strategy", None)
                     == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
+                    for layer in mapping.balance_layers
                 ):
                     update_fused_layer_weight_global_scales(mapping.parent)
 
@@ -848,6 +798,44 @@ class AWQModifier(Modifier, QuantizationMixin):
             loss, num_elements = _allreduce_data_sum([loss, num_elements])
         # Normalize the loss by the total number of elements
         return (loss / num_elements).item()
+
+    @contextlib.contextmanager
+    def _patch_mapping_quant_config(self, mapping: ResolvedMapping):
+        with contextlib.ExitStack() as stack:
+            # Where appropriate, replace observers with memoryless_minmax
+            # for duration of grid search
+
+            balance_layers_to_patch = [
+                balance_layer
+                for balance_layer in mapping.balance_layers
+                if hasattr(balance_layer, "quantization_scheme")
+                and hasattr(balance_layer.quantization_scheme, "weights")
+            ]
+            stack.enter_context(
+                patch_attrs(
+                    balance_layers_to_patch,
+                    "weight_observer",
+                    [
+                        Observer.load_from_registry(
+                            "memoryless_minmax",
+                            base_name="weight",
+                            args=balance_layer.quantization_scheme.weights,
+                            module=balance_layer,
+                        )
+                        for balance_layer in balance_layers_to_patch
+                    ],
+                )
+            )
+            for name, module in match_named_modules(
+                mapping.parent,
+                self.resolved_targets,
+                self.ignore,
+                # NOTE: would have to add prefix
+                prefix=mapping.parent_name,
+            ):
+                stack.enter_context(patch_attr(module, "quantization_scheme", scheme))
+                # TODO repeat with everything added during apply_quantization_config
+            yield
 
     def _log_error_metrics(self):
         """
