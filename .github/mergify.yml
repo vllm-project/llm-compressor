@@ -47,6 +47,11 @@ pull_request_rules:
           - files~=^[^/]+\.md$
           - files~=^docs/
           - files~=^examples/
+      - -files~=^src/
+      - -files~=^tests/
+      - -files~=^\.github/
+      - -files~=^Makefile$
+      - -files~=^pyproject\.toml$
     actions:
       label:
         add:
