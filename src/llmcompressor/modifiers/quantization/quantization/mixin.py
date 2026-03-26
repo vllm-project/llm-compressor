@@ -19,6 +19,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.utils import match_named_modules, update_offload_parameter
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
@@ -208,7 +209,7 @@ class QuantizationMixin(HooksMixin):
 
         if self.resolved_config.kv_cache_scheme is not None:
             # TODO: decouple reliance on this regex for matching attention
-            targets.add("re:.*(self_attn|attention)$")
+            targets.update(KV_CACHE_TARGETS)
 
         return targets
 
