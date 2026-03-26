@@ -222,7 +222,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 oneshot(
     model=model,
     dataset=ds,
-    recipe=[QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head"])],
+    recipe=[QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head"])],
     num_calibration_samples=512,
     max_seq_length=2048,
 )
