@@ -208,7 +208,7 @@ class QuantizationMixin(HooksMixin):
 
         if self.resolved_config.kv_cache_scheme is not None:
             # TODO: also apply is_attention_module() fallback in initialize_quantization
-            targets.add("re:.*self_attn$")
+            targets.add("re:.*(self_attn|attention)$")
 
         return targets
 
