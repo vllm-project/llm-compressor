@@ -109,12 +109,60 @@ def test_actorder_resolution(
         assert resolved.config_groups["group_1"].weights.actorder == expected_1
 
 
+_CHANNEL_Q_CONFIG_KWARGS = dict(
+    config_groups=dict(
+        group_0=dict(
+            targets=["Linear"],
+            input_activations=dict(num_bits=8, symmetric=False, strategy="tensor"),
+            weights=dict(num_bits=4, symmetric=True, strategy="channel"),
+        ),
+        group_1=dict(
+            targets=["Linear"],
+            input_activations=dict(num_bits=8, symmetric=False, strategy="tensor"),
+            weights=dict(num_bits=4, symmetric=True, strategy="channel"),
+        ),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "has_actorder,actorder,expected_0,expected_1",
+    [
+        # defaults to "static" if nothing provided
+        (False, "N/A", "static", "static"),
+        # modifier overrides config if no config provided
+        (True, "static", "static", "static"),
+        (True, "weight", "weight", "weight"),
+        (True, None, None, None),
+    ],
+)
+def test_actorder_resolution_channel(has_actorder, actorder, expected_0, expected_1):
+    # CHANNEL strategy does not allow actorder set at construction time (upstream
+    # QuantizationArgs validator); actorder can only be provided at the modifier level
+    # and is applied via direct assignment in resolve_quantization_config.
+    with pytest.raises(ValueError) if expected_0 == "error" else nullcontext():
+        if has_actorder:
+            modifier = GPTQModifier(**_CHANNEL_Q_CONFIG_KWARGS, actorder=actorder)
+        else:
+            modifier = GPTQModifier(**_CHANNEL_Q_CONFIG_KWARGS)
+        resolved = modifier.resolve_quantization_config()
+
+    if expected_0 != "error":
+        assert resolved.config_groups["group_0"].input_activations.actorder is None
+        assert resolved.config_groups["group_0"].weights.actorder == expected_0
+        assert resolved.config_groups["group_1"].input_activations.actorder is None
+        assert resolved.config_groups["group_1"].weights.actorder == expected_1
+
+
 @pytest.mark.parametrize(
     "strategies,actorder",
     [
         (["group"], None),
         (["group"], "static"),
         (["group"], "group"),
+        (["channel"], None),
+        (["channel"], "static"),
+        (["channel"], "weight"),
         (["channel", "group"], None),
         (["channel", "group"], "static"),
         (["channel", "group"], "group"),
@@ -139,7 +187,7 @@ def test_config_resolution(strategies, actorder):
 
     # validate that actorder was applied
     for config_group in modifier.config_groups.values():
-        if config_group.weights.strategy == "group":
+        if config_group.weights.strategy in ("group", "channel"):
             assert config_group.weights.actorder == actorder
 
 
