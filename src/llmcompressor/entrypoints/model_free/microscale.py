@@ -1,6 +1,6 @@
-from collections import defaultdict
-import re
 import fnmatch
+import re
+from collections import defaultdict
 
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
 
