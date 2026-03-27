@@ -96,17 +96,18 @@ def test_set_resolved_mappings():
                 self_attn.k_proj,
                 self_attn.v_proj,
             }
-            assert mapping.parent_name == "decoder.self_attn"
-            assert mapping.parent == self_attn
+            assert mapping.parent_name == "decoder"
+            assert mapping.parent == model["decoder"]
         if "self_attn.v_proj" in mapping.smooth_name:
             assert set(mapping.balance_names) == {"decoder.self_attn.o_proj"}
-            assert mapping.parent_name == "decoder.self_attn.o_proj"
+            assert mapping.parent_name == "decoder.self_attn"
         if "mlp.experts" in mapping.smooth_name and "up_proj" in mapping.smooth_name:
             expert_idx = mapping.smooth_name.split(".")[-2]
-            expected_down_proj = f"decoder.mlp.experts.{expert_idx}.down_proj"
-            assert set(mapping.balance_names) == {expected_down_proj}
-            assert mapping.parent_name == expected_down_proj
-            assert mapping.parent == mlp["experts"][int(expert_idx)]["down_proj"]
+            assert set(mapping.balance_names) == {
+                f"decoder.mlp.experts.{expert_idx}.down_proj"
+            }
+            assert mapping.parent_name == f"decoder.mlp.experts.{expert_idx}"
+            assert mapping.parent == mlp["experts"][int(expert_idx)]
 
     awq = AWQModifier(
         mappings=[
