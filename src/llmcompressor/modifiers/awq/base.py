@@ -393,19 +393,21 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                     continue
 
-                ancestor_name, ancestor = get_lowest_common_ancestor_with_avoid(
-                    balance_names, model, torch.nn.ModuleList
+                # Parent should be most scoped module that contains the smooth layer
+                # and all balance layers
+                parent_name, parent = get_lowest_common_ancestor_with_avoid(
+                    [smooth_name, *balance_names], model, torch.nn.ModuleList
                 )
 
                 activation_hook_target = None
                 if mapping.activation_hook_target:
                     activation_hook_target = getattr_chain(
-                        ancestor, mapping.activation_hook_target
+                        parent, mapping.activation_hook_target
                     )
                     if activation_hook_target is None:
                         raise ValueError(
                             f"activation_hook_target '{mapping.activation_hook_target}'"
-                            f" not found on parent module '{ancestor_name}'"
+                            f" not found on parent module '{parent_name}'"
                         )
 
                 resolved_mappings.append(
@@ -414,8 +416,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_layer,
                         balance_layers,
                         balance_names=balance_names,
-                        parent=ancestor,
-                        parent_name=ancestor_name,
+                        parent=parent,
+                        parent_name=parent_name,
                         activation_hook_target=activation_hook_target,
                     )
                 )
