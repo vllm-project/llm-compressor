@@ -82,6 +82,7 @@ def initialize_observer(
             observer, base_name=base_name, args=args, module=module
         )
         module.register_module(f"{base_name}_observer", observer)
+        observer.attach(module)
 
 
 def call_observer(
@@ -264,6 +265,7 @@ def freeze_module_quantization(module: Module):
     for name in ("input", "weight", "output", "q", "k", "v"):
         obs_name = f"{name}_observer"
         if hasattr(module, obs_name):
+            getattr(module, obs_name).detach(module)
             delattr(module, obs_name)
 
     module.quantization_status = QuantizationStatus.FROZEN
