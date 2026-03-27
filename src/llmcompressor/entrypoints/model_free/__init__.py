@@ -9,14 +9,12 @@ from compressed_tensors.entrypoints.convert import (
     Converter,
     exec_jobs,
 )
-from compressed_tensors.entrypoints.convert.file_utils import (
+from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
     is_weights_file,
 )
-from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
-
-
 
 from llmcompressor.entrypoints.model_free.helpers import (
     find_safetensors_index_file,

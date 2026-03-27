@@ -1,4 +1,5 @@
 from collections import defaultdict
+
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
 
 from llmcompressor.entrypoints.model_free.helpers import (
@@ -6,19 +7,26 @@ from llmcompressor.entrypoints.model_free.helpers import (
     match_names_set_eager,
 )
 
+__all__ = [
+    "DEFAULT_FUSED_MAPPINGS",
+    "build_inverse_weights_map",
+    "is_microscale_scheme",
+    "get_fused_names",
+]
 
-def match_name(name: str, pattern: str) -> bool:
-    """Pattern matching for tensor names. Handles 're:' prefix for regex patterns."""
-    import re
-    if pattern.startswith('re:'):
-        # Regex pattern - strip 're:' prefix and match
-        regex = pattern[3:]
-        return re.match(regex, name) is not None
-    else:
-        # Glob-style pattern
-        import fnmatch
-        return fnmatch.fnmatch(name, pattern)
-
+DEFAULT_FUSED_MAPPINGS = [
+    [
+        r"re:.*(attn|attention)\.q_proj\.weight$",
+        r"re:.*(attn|attention)\.k_proj\.weight$",
+        r"re:.*(attn|attention)\.v_proj\.weight$",
+    ],
+    [
+        r"re:.*(attn|attention)\.wq_a\.weight$",
+        r"re:.*(attn|attention)\.wkv_a_with_mqa\.weight$",
+    ],
+    [r"re:.*mlp\.gate_proj\.weight$", r"re:.*mlp\.up_proj\.weight$"],
+    [r"re:.*w1\.weight$", r"re:.*w3\.weight$"],
+]
 
 
 def build_inverse_weights_map(
@@ -50,8 +58,8 @@ def build_inverse_weights_map(
     :param model_files: mapping of shard filename -> resolved absolute path
     :return: dict mapping resolved source file path -> list of tensor names to load
     """
-# These are now module-level since function is in microscale.py
-# DEFAULT_FUSED_MAPPINGS and get_fused_names are available at module scope
+    # These are now module-level since function is in microscale.py
+    # DEFAULT_FUSED_MAPPINGS and get_fused_names are available at module scope
 
     # Tensors natively belonging to this shard
     native_tensors = [t for t, s in weight_map.items() if s == shard_name]
@@ -83,35 +91,11 @@ def build_inverse_weights_map(
             candidate_prefix = tensor_name.rsplit(".", 2)[0]
             if candidate_prefix not in layer_prefixes:
                 continue
-            if any(match_name(tensor_name, p) for p in all_patterns):
+            if any(_match_name(tensor_name, p) for p in all_patterns):
                 if tensor_name not in result[resolved]:
                     result[resolved].append(tensor_name)
 
     return dict(result)
-
-
-
-__all__ = [
-    'build_inverse_weights_map',
-    'is_microscale_scheme',
-    'get_fused_names',
-    'DEFAULT_FUSED_MAPPINGS',
-]
-
-
-DEFAULT_FUSED_MAPPINGS = [
-    [
-        r"re:.*(attn|attention)\.q_proj\.weight$",
-        r"re:.*(attn|attention)\.k_proj\.weight$",
-        r"re:.*(attn|attention)\.v_proj\.weight$",
-    ],
-    [
-        r"re:.*(attn|attention)\.wq_a\.weight$",
-        r"re:.*(attn|attention)\.wkv_a_with_mqa\.weight$",
-    ],
-    [r"re:.*mlp\.gate_proj\.weight$", r"re:.*mlp\.up_proj\.weight$"],
-    [r"re:.*w1\.weight$", r"re:.*w3\.weight$"],
-]
 
 
 def is_microscale_scheme(scheme: QuantizationScheme) -> bool:
@@ -132,3 +116,18 @@ def get_fused_names(
             unmatched.append(_unmatched)
 
     return matched, unmatched
+
+
+def _match_name(name: str, pattern: str) -> bool:
+    """Pattern matching for tensor names. Handles 're:' prefix for regex patterns."""
+    import re
+
+    if pattern.startswith("re:"):
+        # Regex pattern - strip 're:' prefix and match
+        regex = pattern[3:]
+        return re.match(regex, name) is not None
+    else:
+        # Glob-style pattern
+        import fnmatch
+
+        return fnmatch.fnmatch(name, pattern)
