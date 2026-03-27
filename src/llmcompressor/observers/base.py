@@ -1,13 +1,15 @@
 from abc import abstractmethod
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from weakref import ref
 
 import torch
 from compressed_tensors import InternalModule
+from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import align_module_device
+from torch import distributed as dist
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
@@ -132,6 +134,65 @@ class Observer(InternalModule, RegistryMixin):
 
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
+
+    def synchronize(self) -> List[dist.Work]:
+        """All-reduce accumulated min/max statistics across DDP ranks.
+
+        Issues async all-reduce operations on any accumulated state
+        (``past_min_vals``, ``past_max_vals``, ``past_global_min_vals``,
+        ``past_global_max_vals``). Memoryless observers return an empty list.
+
+        :return: list of async communication handles
+        """
+        comms = []
+        for attr, op in [
+            ("past_min_vals", dist.ReduceOp.MIN),
+            ("past_max_vals", dist.ReduceOp.MAX),
+            ("past_global_min_vals", dist.ReduceOp.MIN),
+            ("past_global_max_vals", dist.ReduceOp.MAX),
+        ]:
+            val = getattr(self, attr, None)
+            if val is not None:
+                comms.append(
+                    dist.all_reduce(as_broadcastable(val), op=op, async_op=True)
+                )
+        return comms
+
+    def recompute_global_scale(self) -> Optional[torch.Tensor]:
+        """Recompute global scale from accumulated global min/max state.
+
+        Used after :meth:`synchronize` to update the global scale from
+        globally reduced statistics. Returns ``None`` for memoryless observers.
+
+        :return: global scale tensor or ``None``
+        """
+        global_min = getattr(self, "past_global_min_vals", None)
+        global_max = getattr(self, "past_global_max_vals", None)
+        if global_min is None or global_max is None:
+            return None
+        return generate_gparam(global_min, global_max)
+
+    def recompute_qparams(self) -> Optional[ScaleZpTuple]:
+        """Recompute scale and zero_point from accumulated min/max state.
+
+        Used after :meth:`synchronize` to update quantization parameters from
+        globally reduced statistics. Returns ``None`` for memoryless observers.
+
+        :return: (scale, zero_point) tuple or ``None``
+        """
+        min_vals = getattr(self, "past_min_vals", None)
+        max_vals = getattr(self, "past_max_vals", None)
+        if min_vals is None or max_vals is None:
+            return None
+
+        global_scale = self._get_module_param("global_scale")
+        self._check_has_global_scale(global_scale)
+        return calculate_qparams(
+            min_vals=min_vals,
+            max_vals=max_vals,
+            quantization_args=self.args,
+            global_scale=global_scale,
+        )
 
     def _check_has_global_scale(self, global_scale: Optional[torch.nn.Parameter]):
         if (
