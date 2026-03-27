@@ -1,4 +1,6 @@
 from collections import defaultdict
+import re
+import fnmatch
 
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
 
@@ -9,7 +11,7 @@ from llmcompressor.entrypoints.model_free.helpers import (
 
 __all__ = [
     "DEFAULT_FUSED_MAPPINGS",
-    "build_inverse_weights_map",
+    "build_microscale_inverse_weights_map",
     "is_microscale_scheme",
     "get_fused_names",
 ]
@@ -29,15 +31,15 @@ DEFAULT_FUSED_MAPPINGS = [
 ]
 
 
-def build_inverse_weights_map(
+def build_microscale_inverse_weights_map(
     shard_name: str,
     weight_map: dict[str, str],
     model_files: dict[str, str],
 ) -> dict[str, list[str]]:
     """
     For a given output shard, precompute exactly which tensors need to be
-    loaded from which source files — including fused partner tensors that
-    live in other shards.
+    loaded from which source files in order to run model_free_ptq with microscale
+    scheme — including fused partner tensors that live in other shards.
 
     This moves fused partner discovery out of the per-process runtime and
     into the job-building phase, avoiding redundant re-discovery and enabling
@@ -91,7 +93,7 @@ def build_inverse_weights_map(
             candidate_prefix = tensor_name.rsplit(".", 2)[0]
             if candidate_prefix not in layer_prefixes:
                 continue
-            if any(_match_name(tensor_name, p) for p in all_patterns):
+            if any(_match_regex_glob(tensor_name, p) for p in all_patterns):
                 if tensor_name not in result[resolved]:
                     result[resolved].append(tensor_name)
 
@@ -118,9 +120,15 @@ def get_fused_names(
     return matched, unmatched
 
 
-def _match_name(name: str, pattern: str) -> bool:
-    """Pattern matching for tensor names. Handles 're:' prefix for regex patterns."""
-    import re
+def _match_regex_glob(name: str, pattern: str) -> bool:
+    """
+    Pattern matching for tensor names.
+    Handles either 're:' prefix for regex patterns or glob patterns.
+
+    :param name: string to check
+    :param pattern: either a regex (with "re:" prefix) or a glob pattern
+    :returns: True if name matches regex or glob pattern, otherwise False
+    """
 
     if pattern.startswith("re:"):
         # Regex pattern - strip 're:' prefix and match
@@ -128,6 +136,5 @@ def _match_name(name: str, pattern: str) -> bool:
         return re.match(regex, name) is not None
     else:
         # Glob-style pattern
-        import fnmatch
 
         return fnmatch.fnmatch(name, pattern)
