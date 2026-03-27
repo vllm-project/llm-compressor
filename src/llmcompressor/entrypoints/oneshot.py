@@ -23,6 +23,7 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
@@ -217,8 +218,8 @@ class Oneshot:
         session.reset()
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
-        # Apply MoE calibration context for the entire calibration process
-        with moe_calibration_context(
+        # Apply calibration contexts for the entire calibration process
+        with norm_calibration_context(self.model), moe_calibration_context(
             self.model,
             calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
         ):

@@ -3,7 +3,11 @@ import os
 
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+)
+from compressed_tensors.utils.match import match_name
 from safetensors.torch import load_file
 
 from llmcompressor import model_free_ptq, oneshot
@@ -13,7 +17,7 @@ from tests.testing_utils import requires_gpu
 
 def _get_tiny_w4a16_quant():
     return QuantizationScheme(
-        targets=["Linear"],
+        targets=["re:.*self_attn.(q|k|o|v)_proj"],
         weights=QuantizationArgs(
             num_bits=4,
             type="int",
@@ -27,7 +31,7 @@ def _get_tiny_w4a16_quant():
 
 def _get_tiny_block_quant():
     return QuantizationScheme(
-        targets=["Linear"],
+        targets=["re:.*mlp.(down|gate|up)_proj"],
         weights=QuantizationArgs(
             num_bits=8,
             type="float",
@@ -84,6 +88,57 @@ def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
     _assert_config_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
 
 
+@requires_gpu
+@pytest.mark.parametrize(
+    "schemes",
+    [(_get_tiny_w4a16_quant(), _get_tiny_block_quant())],
+)
+def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
+    """
+    Test that model_free_ptq can be stacked, also tests that
+    model_free_ptq can be run on a pre-existing CT checkpoint
+    """
+
+    model = "Qwen/Qwen3-0.6B"
+    ignore = ["model.embed_tokens", "lm_head"]
+    device = "cuda:0"
+
+    ptq_outdirs = [tmp_path / f"weights_out_{idx}" for idx in range(len(schemes))]
+    oneshot_outdir = tmp_path / "oneshot_out"
+
+    for idx, scheme in enumerate(schemes):
+        model_free_ptq(
+            model if idx == 0 else ptq_outdirs[idx - 1],
+            ptq_outdirs[idx],
+            scheme=scheme,
+            max_workers=2,
+            device=device,
+            ignore=ignore,
+        )
+
+    config_groups = {
+        f"config_group_{idx}": scheme for idx, scheme in enumerate(schemes)
+    }
+    recipe = QuantizationModifier(config_groups=config_groups, ignore=ignore)
+
+    oneshot(
+        model=model,
+        precision="auto",
+        recipe=recipe,
+        output_dir=oneshot_outdir,
+    )
+
+    ptq_outdir = ptq_outdirs[-1]
+    ptq_st_files = _get_safetensors_files(ptq_outdir)
+    oneshot_st_files = _get_safetensors_files(oneshot_outdir)
+    assert set(ptq_st_files) == set(oneshot_st_files)
+
+    for file_name in ptq_st_files:
+        _assert_safetensors_equal(ptq_outdir / file_name, oneshot_outdir / file_name)
+
+    _assert_config_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
+
+
 def _get_safetensors_files(dir_path: str) -> list[str]:
     return [
         file_name
@@ -101,7 +156,10 @@ def _assert_safetensors_equal(a_path: str, b_path: str) -> bool:
     if "lm_head.weight" in a and "lm_head.weight" not in b:
         del a["lm_head.weight"]
 
-    assert a.keys() == b.keys(), (a.keys() - b.keys(), b.keys() - a.keys())
+    assert a.keys() == b.keys(), (
+        sorted(a.keys() - b.keys()),
+        sorted(b.keys() - a.keys()),
+    )
 
     for key in a.keys():
         value_equal = torch.equal(a[key].to(torch.bfloat16), b[key].to(torch.bfloat16))
@@ -135,17 +193,24 @@ def _assert_config_equal(a_path: str, b_path: str):
     a_ignore = a_qconfig.pop("ignore")
     b_ignore = b_qconfig.pop("ignore")
 
-    assert set(b_ignore).issubset(set(a_ignore))
+    # QuantizationModifier updates ignore lists with any non-targeted layers
+    # model_free_ptq does not. Rather than asserting sets are equal,
+    # confirm none conflict with targets
+    all_ignores = set(a_ignore).union(set(b_ignore))
 
-    assert len(a_config_groups) == 1
-    assert len(b_config_groups) == 1
-    a_scheme = list(a_config_groups.values())[0]
-    b_scheme = list(b_config_groups.values())[0]
+    assert len(a_config_groups) == len(b_config_groups)
+    a_schemes = list(a_config_groups.values())
+    b_schemes = list(b_config_groups.values())
 
-    # TODO: remove this pop after
-    # https://github.com/vllm-project/compressed-tensors/pull/489 lands and
-    # src/llmcompressor/entrypoints/weights_ptq/helpers.py:34 is removed
-    a_scheme["weights"].pop("observer")
-    b_scheme["weights"].pop("observer")
+    for a_scheme, b_scheme in zip(a_schemes, b_schemes):
+        # TODO: remove this pop after
+        # https://github.com/vllm-project/compressed-tensors/pull/489 lands and
+        # src/llmcompressor/entrypoints/weights_ptq/helpers.py:34 is removed
+        a_scheme["weights"].pop("observer")
+        b_scheme["weights"].pop("observer")
 
-    assert a_scheme == b_scheme
+        assert a_scheme == b_scheme
+
+        for ignore in all_ignores:
+            for target in a_scheme["targets"]:
+                assert not match_name(ignore, target)

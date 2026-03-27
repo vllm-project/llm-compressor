@@ -52,10 +52,12 @@ Use the table below to select the algorithm that best matches your deployment re
 | RTN | Fast and simple compression |
 | GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
 | SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
-| SparseGPT | 2:4 sparsity patterns |
+| SparseGPT | sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |
 
+!!! warning
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
 
 ### Mixed-precision quantization for accuracy recovery
 

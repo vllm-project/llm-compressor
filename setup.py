@@ -121,7 +121,7 @@ setup(
             else "requests>=2.32.2"
         ),
         ("tqdm>=4.66.3,<=4.67.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.9.0,<=2.10.0" if BUILD_TYPE == "release" else "torch>=2.9.0"),
+        ("torch>=2.9.0,<=2.10.0" if BUILD_TYPE == "release" else "torch>=2.9.0,<2.11"),
         (
             "transformers>=4.56.1,<=4.57.6"
             if BUILD_TYPE == "release"
@@ -165,23 +165,17 @@ setup(
             "torchvision",
             "librosa==0.11.0",
             "soundfile",
-            "torchcodec",
+            "torchcodec<0.11",
             # linting, formatting, and type checking
             "mypy~=1.10.0",
             "ruff~=0.4.8",
             # pre commit hooks
             "pre-commit",
-            # docs
-            "mkdocs",
-            "mkdocs-material[imaging]",
+            # docs - zensical
+            "mkdocstrings-python",
+            "zensical",
             "markdown",
             "pymdown-extensions",
-            "mkdocs-section-index",
-            "mkdocs-minify-plugin",
-            "mkdocs-api-autonav",
-            "mkdocstrings-python",
-            "mkdocs-gen-files",
-            "mkdocs-awesome-nav",
         ],
         "qwen": [
             "qwen_vl_utils",
