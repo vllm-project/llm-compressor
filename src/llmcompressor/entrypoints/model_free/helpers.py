@@ -12,8 +12,6 @@ __all__ = [
     "match_names_set_eager",
     "MatchedNamesSet",
     "invert_mapping",
-    "build_weights_map",
-    "build_inverse_weights_map",
 ]
 
 KeyType = TypeVar("K")
@@ -118,5 +116,3 @@ def build_weights_map(
         for tensor_name, shard_name in weight_map.items()
         if shard_name in model_files
     }
-
-

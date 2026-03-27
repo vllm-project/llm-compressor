@@ -10,7 +10,6 @@ from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.microscale import (
     build_inverse_weights_map,
-    build_inverse_weights_map,
 )
 from llmcompressor.entrypoints.model_free.process import (
     process_file_microscale_scheme,
@@ -46,10 +45,18 @@ class TestBuildWeightsMap:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_inverse_weights_map("shard-00001.safetensors", weight_map, model_files)
+        result = build_inverse_weights_map(
+            "shard-00001.safetensors", weight_map, model_files
+        )
         # result is {file_path: [tensor_names]}, check tensor is in the list
-        assert "model.layers.0.self_attn.q_proj.weight" in result[str(tmp_path / "shard-00001.safetensors")]
-        assert "model.layers.0.self_attn.k_proj.weight" in result[str(tmp_path / "shard-00002.safetensors")]
+        assert (
+            "model.layers.0.self_attn.q_proj.weight"
+            in result[str(tmp_path / "shard-00001.safetensors")]
+        )
+        assert (
+            "model.layers.0.self_attn.k_proj.weight"
+            in result[str(tmp_path / "shard-00002.safetensors")]
+        )
 
     def test_missing_shard_skipped(self, tmp_path):
         weight_map = {
@@ -59,8 +66,10 @@ class TestBuildWeightsMap:
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
-        result = build_inverse_weights_map("shard-00001.safetensors", weight_map, model_files)
-        # result is {file_path: [tensor_names]}, check that tensor.a is in any of the value lists
+        result = build_inverse_weights_map(
+            "shard-00001.safetensors", weight_map, model_files
+        )
+        # check tensor.a is in the result values
         assert any("tensor.a" in tensors for tensors in result.values())
         assert "tensor.b" not in result
 
