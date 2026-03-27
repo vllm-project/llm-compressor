@@ -264,10 +264,12 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             # Run smoothing in case of sequential pipeline
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self._apply_smoothing(state.model)
 
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
             # Run smoothing in case of basic pipeline
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self._apply_smoothing(state.model)
 
             if not self.ended_:
