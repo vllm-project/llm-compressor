@@ -174,6 +174,11 @@ def quantize_weight(
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259
+    block_width = (
+        quant_args.block_structure[1]
+        if strategy == QuantizationStrategy.BLOCK
+        else None
+    )
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
         count = i2 - i1
@@ -227,7 +232,6 @@ def quantize_weight(
                     global_scale=global_scale,
                 )
             elif strategy == QuantizationStrategy.BLOCK:
-                block_width = quant_args.block_structure[1]
                 block_column_idx = (i1 + i) // block_width
                 q = fake_quantize(
                     q.unsqueeze(1),
