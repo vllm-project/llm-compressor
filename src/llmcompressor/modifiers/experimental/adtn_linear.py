@@ -73,56 +73,59 @@ class ADTNLinear(nn.Module):
             return input_perm.to(input_activations.device)
 
         # Iterative grouping: find group_size most correlated, then next group_size, etc.
+        # Fully vectorized to avoid slow Python loops
         in_features = input_activations.shape[1]
-        remaining = set(range(in_features))
+        remaining_mask = torch.ones(in_features, dtype=torch.bool, device=correlation.device)
         permutation = []
 
-        while remaining:
-            current_group_size = min(group_size, len(remaining))
+        while remaining_mask.any():
+            remaining_indices = torch.where(remaining_mask)[0]
+            current_group_size = min(group_size, len(remaining_indices))
 
-            # Find the most correlated pair in remaining features as seed
-            best_pair = None
-            best_corr = -float('inf')
-            remaining_list = list(remaining)
-
-            for i in range(len(remaining_list)):
-                for j in range(i + 1, len(remaining_list)):
-                    idx_i, idx_j = remaining_list[i], remaining_list[j]
-                    corr = correlation[idx_i, idx_j].item()
-                    if corr > best_corr:
-                        best_corr = corr
-                        best_pair = (idx_i, idx_j)
-
-            # Start group with the most correlated pair (or single feature if only one left)
-            if best_pair and current_group_size >= 2:
-                group = list(best_pair)
-                available = remaining - set(best_pair)
-            elif remaining:
-                group = [remaining_list[0]]
-                available = remaining - {remaining_list[0]}
-            else:
+            if current_group_size == 1:
+                # Just take the last remaining feature
+                permutation.append(remaining_indices[0].item())
                 break
 
-            # Greedily add features most correlated with current group
-            while len(group) < current_group_size and available:
-                best_candidate = None
-                best_score = -float('inf')
+            # Find the most correlated pair in remaining features (vectorized)
+            remaining_corr = correlation[remaining_indices][:, remaining_indices]
+            # Get upper triangle only (excluding diagonal)
+            remaining_corr_triu = remaining_corr.triu(diagonal=1)
+            # Find max correlation
+            max_idx_flat = remaining_corr_triu.argmax()
+            i = max_idx_flat // len(remaining_indices)
+            j = max_idx_flat % len(remaining_indices)
 
-                for candidate in available:
-                    # Average correlation with group members
-                    score = sum(correlation[candidate, member].item() for member in group) / len(group)
-                    if score > best_score:
-                        best_score = score
-                        best_candidate = candidate
+            seed_idx1 = remaining_indices[i].item()
+            seed_idx2 = remaining_indices[j].item()
+            group = [seed_idx1, seed_idx2]
+            group_tensor = torch.tensor(group, dtype=torch.long, device=correlation.device)
 
-                if best_candidate is not None:
-                    group.append(best_candidate)
-                    available.remove(best_candidate)
-                else:
+            # Mark seeds as used
+            remaining_mask[seed_idx1] = False
+            remaining_mask[seed_idx2] = False
+
+            # Greedily add features most correlated with current group (vectorized)
+            while len(group) < current_group_size:
+                remaining_indices = torch.where(remaining_mask)[0]
+                if len(remaining_indices) == 0:
                     break
 
+                # Compute average correlation of each remaining feature with current group
+                # Shape: (num_remaining, group_size)
+                corr_with_group = correlation[remaining_indices][:, group_tensor]
+                # Average over group members: (num_remaining,)
+                avg_corr = corr_with_group.mean(dim=1)
+
+                # Find best candidate (no .item() in loop!)
+                best_idx_in_remaining = avg_corr.argmax()
+                best_candidate = remaining_indices[best_idx_in_remaining].item()
+
+                group.append(best_candidate)
+                group_tensor = torch.tensor(group, dtype=torch.long, device=correlation.device)
+                remaining_mask[best_candidate] = False
+
             permutation.extend(group)
-            remaining -= set(group)
 
         return torch.tensor(permutation, dtype=torch.long, device=input_activations.device)
 
