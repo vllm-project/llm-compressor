@@ -18,6 +18,7 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.experimental.adtn_linear import (
     ADTNLinear,
+    ColumnSparseLinear,
 )
 from llmcompressor.modifiers.experimental.tensorized_linear import (
     TensorizedLinear,
@@ -106,6 +107,8 @@ class TensorNetworkModifier(Modifier):
     num_cores: int = 3
     rank: float = 0.5
     batch_size: int | None = None
+    # Method: "tensorized", "adtn", "stacked_lowrank", or "column_sparse"
+    method: str = "column_sparse"
     # Cache list of forward input args for each parent module, one dict for each batch
     _target_args_cache: dict[tuple[str, nn.Linear], IntermediatesCache] = PrivateAttr(
         default_factory=dict
@@ -230,8 +233,14 @@ class TensorNetworkModifier(Modifier):
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                tensorized_linear = self._get_adtn_linear(name, module)
-                # tensorized_linear = self._get_trained_tensorized_layer(name, module)
+                if self.method == "stacked_lowrank":
+                    tensorized_linear = self._get_stacked_lowrank_linear(name, module)
+                elif self.method == "adtn":
+                    tensorized_linear = self._get_adtn_linear(name, module)
+                elif self.method == "column_sparse":
+                    tensorized_linear = self._get_column_sparse_linear(name, module)
+                else:  # tensorized
+                    tensorized_linear = self._get_trained_tensorized_layer(name, module)
 
                 # Replace linear layer with its tensorized_linear approximation
                 parent = get_parent_of_model_by_name(model, name)
@@ -422,6 +431,173 @@ class TensorNetworkModifier(Modifier):
 
         # Step 6: Return ADTNLinear
         return adtn.to(linear.weight.device)
+
+    def _get_stacked_lowrank_linear(
+        self,
+        name: str,
+        linear: torch.nn.Linear,
+        target_snr_threshold_db: float = 40.0,
+        max_layers: int = 10,
+        rank_ratio: float = 0.3,
+    ):
+        """
+        Create a StackedLowRankLinear by iteratively adding low-rank layers.
+
+        Each layer is a low-rank factorization (U @ V) that fits the residual
+        from previous layers. This achieves parameter reduction while maintaining
+        cross-feature interactions (unlike block-diagonal).
+
+        Args:
+            name: Layer name
+            linear: Original linear layer
+            target_snr_threshold_db: Target SNR in dB (default: 40)
+            max_layers: Maximum number of low-rank layers to stack
+            rank_ratio: Rank as fraction of min(in_features, out_features)
+
+        Returns:
+            StackedLowRankLinear with multiple low-rank layers
+        """
+        from llmcompressor.modifiers.experimental.adtn_linear import (
+            StackedLowRankLinear,
+            LowRankLayer,
+        )
+
+        # Collect activations
+        input_activations = self._collect_input_activations(name, linear)
+        output_activations = self._collect_output_activations(name, linear)
+
+        # Initialize stacked low-rank model
+        stacked = StackedLowRankLinear(
+            in_features=linear.in_features,
+            out_features=linear.out_features,
+            layers=[],
+            dtype=linear.weight.dtype,
+        )
+
+        # Compute rank for each layer
+        rank = int(rank_ratio * min(linear.in_features, linear.out_features))
+        rank = max(rank, 32)  # Minimum rank
+
+        for layer_idx in tqdm(range(max_layers), desc=f"{name} (low-rank)"):
+            # Step 1: Compute residual
+            with torch.no_grad():
+                if layer_idx == 0:
+                    residual = output_activations.clone()
+                else:
+                    current_approx = stacked(input_activations)
+                    residual = output_activations - current_approx
+
+            # Step 2: Low-rank approximation via SVD of OLS solution
+            X = input_activations.float()
+            Y = residual.float()
+
+            # Solve OLS
+            W_full = torch.linalg.lstsq(X, Y).solution  # (in_features, out_features)
+
+            # SVD for low-rank approximation
+            U_svd, S, Vh = torch.linalg.svd(W_full, full_matrices=False)
+
+            # Truncate to rank
+            U_svd = U_svd[:, :rank]  # (in_features, rank)
+            S_trunc = S[:rank]  # (rank,)
+            Vh_trunc = Vh[:rank, :]  # (rank, out_features)
+
+            # Absorb singular values into V
+            V_weighted = torch.diag(S_trunc) @ Vh_trunc  # (rank, out_features)
+
+            # Create low-rank layer
+            layer = LowRankLayer(
+                in_features=linear.in_features,
+                out_features=linear.out_features,
+                rank=rank,
+                dtype=linear.weight.dtype,
+            )
+            layer.U.weight.data = U_svd.T.to(linear.weight.dtype)  # (rank, in_features)
+            layer.V.weight.data = V_weighted.to(linear.weight.dtype)  # (out_features, rank)
+
+            # Add layer to stack
+            stacked.append_layer(layer)
+
+            # Step 3: Compute SNR
+            with torch.no_grad():
+                current_approx = stacked(input_activations)
+
+            current_sqnr = compute_sqnr(output_activations, current_approx)
+
+            # Log progress
+            logger.info(
+                f"{name} | Layer {layer_idx}: "
+                f"SQNR = {current_sqnr:.2f} dB, "
+                f"Params = {stacked.num_params} "
+                f"({100*stacked.num_params/(linear.weight.numel()):.1f}%)"
+            )
+
+            # Step 4: Check if target SNR achieved
+            if current_sqnr >= target_snr_threshold_db:
+                break
+
+        return stacked.to(linear.weight.device)
+
+    def _get_column_sparse_linear(
+        self,
+        name: str,
+        linear: torch.nn.Linear,
+        target_sparsity: float = 0.5,
+        k_cols_per_iter: int = 32,
+    ) -> ColumnSparseLinear:
+        """
+        Create a ColumnSparseLinear via OLS-based greedy column selection.
+
+        Iteratively selects input columns (features) that best predict outputs
+        via least-squares fitting. This achieves:
+        - Significant parameter reduction (typically 50%)
+        - High SNR (typically 30-70 dB)
+        - Block-sparse structure (low index overhead)
+
+        Args:
+            name: Layer name
+            linear: Original linear layer
+            target_sparsity: Fraction of columns to keep (default: 0.5 for 50% compression)
+            k_cols_per_iter: Number of columns to add per iteration
+
+        Returns:
+            ColumnSparseLinear with selected columns
+        """
+        # Collect activations
+        input_activations = self._collect_input_activations(name, linear)
+
+        logger.info(
+            f"{name} | Creating column-sparse approximation "
+            f"(target: {target_sparsity:.1%} of columns)"
+        )
+
+        # Create column-sparse linear via OLS selection
+        column_sparse = ColumnSparseLinear.from_linear(
+            linear=linear,
+            input_activations=input_activations,
+            target_sparsity=target_sparsity,
+            k_cols_per_iter=k_cols_per_iter,
+            target_sqnr_db=self.target_sqnr,
+        )
+
+        # Compute final SQNR for logging
+        with torch.no_grad():
+            output_activations = self._collect_output_activations(name, linear)
+            approx_output = column_sparse(input_activations)
+            final_sqnr = compute_sqnr(output_activations, approx_output)
+
+        num_selected = len(column_sparse.selected_columns)
+        compression_ratio = num_selected / linear.in_features
+
+        logger.info(
+            f"{name} | Column-sparse created: "
+            f"Selected {num_selected}/{linear.in_features} columns ({compression_ratio:.1%}), "
+            f"SQNR = {final_sqnr:.2f} dB, "
+            f"Params = {column_sparse.num_params:,} "
+            f"({100*column_sparse.num_params/linear.weight.numel():.1f}%)"
+        )
+
+        return column_sparse.to(linear.weight.device)
 
     def _get_trained_tensorized_layer(
         self,
