@@ -361,7 +361,7 @@ class TensorNetworkModifier(Modifier):
                 Y_group = current_residual
 
                 # Solve OLS: X @ W = Y  =>  W = lstsq(X, Y)
-                solution = torch.linalg.lstsq(X_group, Y_group).solution
+                solution = torch.linalg.lstsq(X_group.float(), Y_group.float()).solution
 
                 # Create linear layer with OLS solution
                 group_linear = nn.Linear(
@@ -809,7 +809,8 @@ def compute_sqnr(original_output: torch.Tensor, tensorized_output: torch.Tensor)
     signal_power = torch.var(y_true)
 
     # Noise Power: The Mean Squared Error of the approximation
-    mse_noise = torch.mean((y_true - y_pred) ** 2)
+    # mse_noise = torch.mean((y_true - y_pred) ** 2)
+    mse_noise = torch.nn.functional.mse_loss(y_true, y_pred)
 
     # SQNR calculation (10 * log10 of the power ratio)
     # 1e-10 added to denominator to prevent division by zero or log(0)
