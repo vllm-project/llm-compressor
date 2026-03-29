@@ -6,16 +6,17 @@ from llmcompressor.modifiers.experimental.adtn_linear import ADTNLinear, ADTNSub
 
 
 def test_adtn_sublayer_forward():
-    """Test that ADTNSublayer forward pass works correctly with permutation."""
+    """Test that ADTNSublayer forward pass works with concatenation architecture."""
     in_features = 128
     out_features = 64
     group_size = 32
     num_groups = in_features // group_size
+    group_out_features = out_features // num_groups
 
-    # Create group linear layers
+    # Create group linear layers (concatenation: each outputs out_features/num_groups)
     group_linears = []
     for _ in range(num_groups):
-        linear = torch.nn.Linear(group_size, out_features, bias=False)
+        linear = torch.nn.Linear(group_size, group_out_features, bias=False)
         group_linears.append(linear)
 
     # Create a simple permutation (just reverse for testing)
@@ -43,9 +44,14 @@ def test_adtn_sublayer_forward():
 
     assert output_3d.shape == (batch_size, seq_len, out_features), f"Expected shape {(batch_size, seq_len, out_features)}, got {output_3d.shape}"
 
+    # Verify parameter count (75% reduction with num_groups=4)
+    expected_params = in_features * out_features // num_groups
+    actual_params = sublayer.num_params
+    assert actual_params == expected_params, f"Expected {expected_params} params, got {actual_params}"
+
 
 def test_adtn_linear_approximates_linear():
-    """Test that ADTNLinear with residual fitting can approximate a linear layer."""
+    """Test that ADTNLinear with concatenation architecture can approximate a linear layer."""
     in_features = 256
     out_features = 128
     batch_size = 32
@@ -59,33 +65,33 @@ def test_adtn_linear_approximates_linear():
     with torch.no_grad():
         output_activations = linear(input_activations)
 
-    # Manually create ADTN with one sublayer using residual-based OLS
+    # Manually create ADTN with one sublayer using concatenation OLS
     group_size = 64
     input_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
     input_permuted = input_activations[:, input_perm]
 
     num_groups = in_features // group_size
+    group_out_features = out_features // num_groups
     group_linears = []
-    current_residual = output_activations.clone()
 
     for group_idx in range(num_groups):
-        start_idx = group_idx * group_size
-        end_idx = (group_idx + 1) * group_size
+        # Input slice
+        in_start = group_idx * group_size
+        in_end = (group_idx + 1) * group_size
 
-        X_group = input_permuted[:, start_idx:end_idx]
-        Y_group = current_residual  # Fit to residual
+        # Output slice (concatenation architecture)
+        out_start = group_idx * group_out_features
+        out_end = (group_idx + 1) * group_out_features
+
+        X_group = input_permuted[:, in_start:in_end]
+        Y_group_slice = output_activations[:, out_start:out_end]  # Fit to output SLICE
 
         # OLS solution
-        solution = torch.linalg.lstsq(X_group, Y_group).solution
+        solution = torch.linalg.lstsq(X_group, Y_group_slice).solution
 
-        group_linear = torch.nn.Linear(group_size, out_features, bias=False)
+        group_linear = torch.nn.Linear(group_size, group_out_features, bias=False)
         group_linear.weight.data = solution.T
         group_linears.append(group_linear)
-
-        # Update residual
-        with torch.no_grad():
-            group_output = group_linear(X_group)
-            current_residual = current_residual - group_output
 
     sublayer = ADTNSublayer(
         in_features=in_features,
@@ -99,6 +105,11 @@ def test_adtn_linear_approximates_linear():
         out_features=out_features,
         sublayers=[sublayer],
     )
+
+    # Verify parameter reduction (75% with 4 groups)
+    original_params = in_features * out_features
+    adtn_params = adtn.num_params
+    assert adtn_params == original_params // num_groups, "Expected 75% parameter reduction"
 
     # Test on training data first (should fit well)
     with torch.no_grad():
@@ -127,12 +138,12 @@ def test_adtn_linear_approximates_linear():
         dim=0
     )
 
-    # ADTN with single sublayer should have reasonable approximation
+    # Concatenation should achieve better SNR than old summation approach
     assert similarity > 0.7, f"ADTN approximation too poor: cosine similarity = {similarity:.3f}"
 
 
 def test_adtn_stacking_improves_fit():
-    """Test that stacking multiple ADTN sublayers improves approximation (additive)."""
+    """Test that stacking multiple ADTN sublayers improves approximation with concatenation."""
     in_features = 128
     out_features = 64
     num_samples = 500
@@ -145,7 +156,7 @@ def test_adtn_stacking_improves_fit():
     with torch.no_grad():
         output_activations = linear(input_activations)
 
-    # Create ADTN with 2 sublayers using additive strategy
+    # Create ADTN with 2 sublayers using concatenation and additive strategy
     adtn = ADTNLinear(
         in_features=in_features,
         out_features=out_features,
@@ -168,25 +179,26 @@ def test_adtn_stacking_improves_fit():
         input_permuted = input_activations[:, input_perm]
 
         num_groups = in_features // group_size
+        group_out_features = out_features // num_groups
         group_linears = []
-        group_residual = global_residual.clone()
 
         for group_idx in range(num_groups):
-            start_idx = group_idx * group_size
-            end_idx = (group_idx + 1) * group_size
+            # Input slice
+            in_start = group_idx * group_size
+            in_end = (group_idx + 1) * group_size
 
-            X_group = input_permuted[:, start_idx:end_idx]
-            Y_group = group_residual
+            # Output slice (concatenation architecture)
+            out_start = group_idx * group_out_features
+            out_end = (group_idx + 1) * group_out_features
 
-            solution = torch.linalg.lstsq(X_group, Y_group).solution
+            X_group = input_permuted[:, in_start:in_end]
+            Y_group_slice = global_residual[:, out_start:out_end]  # Fit to output SLICE
 
-            group_linear = torch.nn.Linear(group_size, out_features, bias=False)
+            solution = torch.linalg.lstsq(X_group, Y_group_slice).solution
+
+            group_linear = torch.nn.Linear(group_size, group_out_features, bias=False)
             group_linear.weight.data = solution.T
             group_linears.append(group_linear)
-
-            with torch.no_grad():
-                group_output = group_linear(X_group)
-                group_residual = group_residual - group_output
 
         sublayer = ADTNSublayer(
             in_features=in_features,
@@ -207,5 +219,10 @@ def test_adtn_stacking_improves_fit():
         dim=0
     )
 
-    # With 2 sublayers, should have good approximation
+    # With 2 sublayers and concatenation, should have excellent approximation
     assert similarity > 0.9, f"ADTN with 2 sublayers poor: cosine similarity = {similarity:.3f}"
+
+    # Verify total parameter count (2 sublayers, each with 75% reduction = 50% of original)
+    original_params = in_features * out_features
+    expected_params = 2 * (original_params // num_groups)
+    assert adtn.num_params == expected_params

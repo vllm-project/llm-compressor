@@ -342,43 +342,54 @@ class TensorNetworkModifier(Modifier):
                     current_approx = adtn(input_activations)
                     global_residual = output_activations - current_approx
 
-            # Step 2: Determine correlation and permute inputs (always use original inputs)
-            input_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
+            # Step 2: Determine permutation for this sublayer
+            # Each sublayer needs a DIFFERENT permutation so that connections missed by
+            # the block-diagonal structure in one sublayer can be captured by another
+            if sublayer_idx == 0:
+                # First sublayer: use spectral reordering based on input correlation
+                input_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
+            else:
+                # Subsequent sublayers: rotate permutation to create different block structure
+                # Shift by group_size/2 to maximize coverage of new connections
+                shift = (sublayer_idx * (group_size // 2)) % linear.in_features
+                base_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
+                input_perm = torch.roll(base_perm, shifts=shift)
 
             # Permute the inputs
             input_permuted = input_activations[:, input_perm]
 
-            # Step 3: Create ADTN sublayer with OLS-computed weights
-            # Each group fits to the same global residual, outputs sum within sublayer
+            # Step 3: Create ADTN sublayer with concatenation architecture
+            # Each group fits to a SLICE of the global residual (out_features/num_groups)
             num_groups = (linear.in_features + group_size - 1) // group_size
+            group_out_features = linear.out_features // num_groups
             group_linears = []
-            group_residual = global_residual.clone()
 
             for group_idx in range(num_groups):
-                start_idx = group_idx * group_size
-                end_idx = min((group_idx + 1) * group_size, linear.in_features)
-                actual_group_size = end_idx - start_idx
+                # Input slice for this group
+                in_start_idx = group_idx * group_size
+                in_end_idx = min((group_idx + 1) * group_size, linear.in_features)
+                actual_group_size = in_end_idx - in_start_idx
+
+                # Output slice for this group
+                out_start_idx = group_idx * group_out_features
+                out_end_idx = min((group_idx + 1) * group_out_features, linear.out_features)
+                actual_out_features = out_end_idx - out_start_idx
 
                 # Extract group inputs
-                X_group = input_permuted[:, start_idx:end_idx]
+                X_group = input_permuted[:, in_start_idx:in_end_idx]
 
-                # Fit to the residual (what hasn't been explained by previous groups in this sublayer)
-                Y_group = group_residual
+                # Fit to the corresponding OUTPUT SLICE of the global residual
+                Y_group_slice = global_residual[:, out_start_idx:out_end_idx]
 
                 # Solve OLS: X @ W = Y  =>  W = lstsq(X, Y)
-                solution = torch.linalg.lstsq(X_group.float(), Y_group.float()).solution
+                solution = torch.linalg.lstsq(X_group.float(), Y_group_slice.float()).solution
 
-                # Create linear layer with OLS solution
+                # Create linear layer with OLS solution (outputs slice, not full output)
                 group_linear = nn.Linear(
-                    actual_group_size, linear.out_features, bias=False
+                    actual_group_size, actual_out_features, bias=False
                 )
                 group_linear.weight.data = solution.T.to(linear.weight.dtype)
                 group_linears.append(group_linear)
-
-                # Update residual by subtracting this group's contribution
-                with torch.no_grad():
-                    group_output = group_linear(X_group)
-                    group_residual = group_residual - group_output
 
             # Create sublayer
             sublayer = ADTNSublayer(

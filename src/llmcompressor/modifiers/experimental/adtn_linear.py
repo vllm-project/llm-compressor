@@ -211,6 +211,7 @@ class ADTNSublayer(nn.Module):
         self.group_size = linears[0].in_features
         assert all(linear.in_features == self.group_size for linear in linears[:-1])
         assert in_features == sum(linear.in_features for linear in linears)
+        assert out_features == sum(linear.out_features for linear in linears)
         self.register_buffer("input_perm", input_perm)
 
     def forward(
@@ -218,27 +219,28 @@ class ADTNSublayer(nn.Module):
         x: torch.Tensor,  # shape (batch_size, seq_len, in_features) or (batch_size, in_features)
     ):
         """
-        Forward operation:
-        1. permute inputs so correlated features are grouped together
-        2. apply linear operations to each group of input activations
-        3. sum outputs from all groups (each group produces full output_features)
+        Forward operation with concatenation architecture:
+        1. Permute inputs so correlated features are grouped together
+        2. Apply linear operations to each group of input activations
+        3. Concatenate outputs from all groups (each group produces out_features/num_groups)
+
+        This eliminates the double summation issue and achieves parameter reduction.
         """
         # Step 1: Permute inputs - apply permutation to last dimension
         x_perm = x[..., self.input_perm]
 
-        # Step 2: Apply linear operations to each group and sum their outputs
-        # Each group linear maps (group_size,) -> (out_features,)
-        y = None
+        # Step 2: Apply linear operations to each group and collect outputs
+        # Each group linear maps (group_size,) -> (out_features/num_groups,)
+        outputs = []
         for i, linear in enumerate(self.linears):
             start_idx = i * self.group_size
             end_idx = start_idx + linear.in_features
             group_input = x_perm[..., start_idx:end_idx]
-            group_output = linear(group_input)
+            group_output = linear(group_input)  # (batch, ..., out_features/num_groups)
+            outputs.append(group_output)
 
-            if y is None:
-                y = group_output
-            else:
-                y = y + group_output
+        # Step 3: Concatenate group outputs along last dimension
+        y = torch.cat(outputs, dim=-1)  # (batch, ..., out_features)
 
         return y  # shape (batch_size, seq_len, out_features) or (batch_size, out_features)
 
