@@ -1,4 +1,3 @@
-from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -85,18 +84,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     moe_calibrate_all_experts=True,
 )
-
-
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
-
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"

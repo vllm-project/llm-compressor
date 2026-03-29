@@ -1,4 +1,3 @@
-from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -30,16 +29,6 @@ recipe = QuantizationModifier(
 
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
-
-# Confirm generations of the quantized model look sane.
-print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"

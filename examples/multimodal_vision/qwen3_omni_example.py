@@ -10,7 +10,7 @@ from transformers import (
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.patch.qwen3_omni_patch import fast_pos_embed_interpolate
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )

@@ -1,4 +1,4 @@
-# Quantizing Multimodal Vision-Language Models #
+# Multimodal Vision-Language Quantization #
 
 <p align="center" style="text-align: center;">
     <img src=http://images.cocodataset.org/train2017/000000231895.jpg alt="sample image from MS COCO dataset"/>

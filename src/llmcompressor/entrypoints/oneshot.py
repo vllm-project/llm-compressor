@@ -23,6 +23,7 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
@@ -217,8 +218,8 @@ class Oneshot:
         session.reset()
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
-        # Apply MoE calibration context for the entire calibration process
-        with moe_calibration_context(
+        # Apply calibration contexts for the entire calibration process
+        with norm_calibration_context(self.model), moe_calibration_context(
             self.model,
             calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
         ):
@@ -263,7 +264,7 @@ def oneshot(
     clear_sparse_session: bool = False,
     stage: str | None = None,
     # Dataset arguments
-    dataset: str | Dataset | DatasetDict | None = None,
+    dataset: str | Dataset | DatasetDict | DataLoader | None = None,
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
@@ -340,8 +341,10 @@ def oneshot(
     :param stage: The stage of the recipe to use for oneshot.
 
     # Dataset arguments
-    :param dataset: The name of the dataset to use (via the datasets
-        library).
+    :param dataset: The dataset to use for calibration. Can be a dataset name
+        (str, via the datasets library), a HuggingFace Dataset or DatasetDict,
+        or a pre-built PyTorch DataLoader. When a DataLoader is passed, the
+        internal dataset-to-dataloader conversion is skipped.
     :param dataset_config_name: The configuration name of the dataset
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
@@ -393,7 +396,6 @@ def oneshot(
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.
-
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.
