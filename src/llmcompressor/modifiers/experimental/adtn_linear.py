@@ -492,61 +492,81 @@ class ColumnSparseLinear(nn.Module):
         if max_iters is None:
             max_iters = (target_num_cols + k_cols_per_iter - 1) // k_cols_per_iter
 
-        # Greedy column selection
+        # Greedy column selection (vectorized for speed)
         selected_cols = []
+        selected_mask = torch.zeros(in_features, dtype=torch.bool, device=input_activations.device)
 
         for iter_idx in range(max_iters):
             if len(selected_cols) == 0:
-                # First iteration: find single best column
-                best_col = None
-                best_error = float("inf")
+                # First iteration: fully vectorized - find single best column
+                X_all = input_activations.float()  # (num_samples, in_features)
 
-                # Try each column
-                for col_idx in range(in_features):
-                    X_col = input_activations[:, col_idx : col_idx + 1].float()
-                    W_col = torch.linalg.lstsq(X_col, output_activations).solution
+                # Solve for each column independently: W_i = X_i^T Y / (X_i^T X_i)
+                X_norm_sq = (X_all ** 2).sum(dim=0)  # (in_features,)
+                X_dot_Y = X_all.T @ output_activations  # (in_features, out_features)
+                W_all = X_dot_Y / (X_norm_sq.unsqueeze(1) + 1e-10)  # (in_features, out_features)
 
-                    output_approx = X_col @ W_col
-                    error = torch.norm(output_activations - output_approx) ** 2
+                # Compute reconstruction errors for all columns at once
+                # Y_approx_i = X[:, i] * W[i, :] (broadcasting)
+                # Error_i = ||Y - Y_approx_i||^2 = ||Y||^2 - 2 * X[:, i]^T @ Y @ W[i, :] + ||X[:, i] * W[i, :]||^2
 
-                    if error < best_error:
-                        best_error = error
-                        best_col = col_idx
+                # More efficient: compute projection onto each column
+                # projection[i] = (X[:, i]^T @ Y) @ W[i, :] = X_dot_Y[i, :] @ W[i, :]
+                # Vectorized across all columns
+                projections = (X_dot_Y * W_all).sum(dim=1)  # (in_features,)
+
+                # Reconstruction error for column i: ||Y||^2 - projection[i]
+                # (we want to maximize projection, i.e., minimize error)
+                best_col = projections.argmax().item()
 
                 selected_cols = [best_col]
+                selected_mask[best_col] = True
             else:
-                # Subsequent iterations: add k_cols_per_iter via residual correlation
-                candidates = [c for c in range(in_features) if c not in selected_cols]
-
-                if len(candidates) == 0:
+                # Subsequent iterations: vectorized correlation computation
+                if selected_mask.all():
                     break
 
                 # Current reconstruction
                 X_current = input_activations[:, selected_cols].float()
                 W_current = torch.linalg.lstsq(X_current, output_activations).solution
                 current_output = X_current @ W_current
-                residual = output_activations - current_output
+                residual = output_activations - current_output  # (num_samples, out_features)
 
-                # Compute correlation of each candidate with residual
-                correlations = []
-                for col_idx in candidates:
-                    X_col = input_activations[:, col_idx].float()
-                    # Correlation: sum over samples and output dims
-                    corr = torch.abs((X_col.unsqueeze(1) * residual).sum(dim=0)).sum()
-                    correlations.append((corr.item(), col_idx))
+                # Get candidate columns (not yet selected)
+                candidate_mask = ~selected_mask
+                candidate_indices = torch.where(candidate_mask)[0]
 
-                # Sort by correlation and take top k
-                correlations.sort(reverse=True)
-                new_cols = [col for _, col in correlations[:k_cols_per_iter]]
+                if len(candidate_indices) == 0:
+                    break
+
+                # Vectorized correlation computation for all candidates
+                # Shape: (num_samples, num_candidates)
+                X_candidates = input_activations[:, candidate_indices].float()
+
+                # Compute correlation: |X_candidates^T @ residual|
+                # Shape: (num_candidates, out_features)
+                correlations = torch.abs(X_candidates.T @ residual)
+
+                # Sum over output features to get total correlation per candidate
+                # Shape: (num_candidates,)
+                correlations_sum = correlations.sum(dim=1)
+
+                # Select top-k candidates
+                k_actual = min(k_cols_per_iter, len(candidate_indices))
+                topk_indices = torch.topk(correlations_sum, k=k_actual).indices
+
+                # Convert to original column indices
+                new_cols = candidate_indices[topk_indices].tolist()
                 selected_cols.extend(new_cols)
+                selected_mask[new_cols] = True
 
             # Check stopping criteria
             if len(selected_cols) >= target_num_cols:
                 selected_cols = selected_cols[:target_num_cols]
                 break
 
-            # Check SNR if requested
-            if target_snr_db is not None:
+            # Check SNR if requested (only check periodically to save time)
+            if target_snr_db is not None and (iter_idx + 1) % 5 == 0:
                 X_selected = input_activations[:, selected_cols].float()
                 W_selected = torch.linalg.lstsq(X_selected, output_activations).solution
                 output_approx = X_selected @ W_selected

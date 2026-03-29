@@ -1,0 +1,37 @@
+# Example recipe for Column-Sparse compression
+# Achieves ~50% parameter reduction with 30-70 dB SNR
+#
+# Usage:
+#   Apply this recipe to compress a model using OLS-based column selection
+#
+# Key parameters:
+#   - method: "column_sparse" - Use column-sparse compression
+#   - rank: Controls target sparsity (0.5 = keep 50% of columns)
+#   - target_sqnr: Target SNR in dB (default: 30.0)
+#   - targets: Which layer types to compress
+#   - ignore: Which layers to skip (e.g., lm_head)
+
+TensorNetworkModifier:
+  # Compression method
+  method: "column_sparse"
+
+  # Target sparsity: 0.5 = keep 50% of input columns
+  # This parameter is reused from rank for column_sparse method
+  rank: 0.5
+
+  # Target SNR threshold in dB
+  # Compression stops early if this is achieved
+  target_sqnr: 30.0
+
+  # Target layer types
+  targets:
+    - "Linear"
+
+  # Layers to ignore (typically keep embedding and output layers)
+  ignore:
+    - "lm_head"
+    - "embed_tokens"
+
+  # Optional: device to offload activations during compression
+  # Set to "cpu" if encountering OOM errors
+  # offload_device: "cpu"
