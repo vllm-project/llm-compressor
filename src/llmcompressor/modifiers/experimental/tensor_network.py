@@ -114,12 +114,12 @@ class TensorNetworkModifier(Modifier):
         default_factory=dict
     )
 
-    # only reduce if this sqnr is reached (in dB)
+    # only reduce if this signal-to-noise ratio is reached (in dB)
     # Gemini:
     #    > 40 dB	Pristine	Identical to FP16/BF16.
     # 30 - 40 dB	Safe	Logic and grammar remain intact.
     # 20 - 30 dB	Risky	Noticeable drop in benchmarks; "stuttering" outputs.
-    target_sqnr: float = (30.0,)
+    target_snr_db: float = (40.0,)
     # When truncating, presereve this percentage of the total energy
     energy_threshold: float = 0.975  # 97.5%
 
@@ -304,7 +304,6 @@ class TensorNetworkModifier(Modifier):
         name: str,
         linear: torch.nn.Linear,
         group_size: int = 64,
-        target_snr_threshold_db: float = 40.0,
         max_sublayers=10,
     ) -> ADTNLinear:
         """
@@ -356,12 +355,16 @@ class TensorNetworkModifier(Modifier):
             # the block-diagonal structure in one sublayer can be captured by another
             if sublayer_idx == 0:
                 # First sublayer: use spectral reordering based on input correlation
-                input_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
+                input_perm = ADTNLinear._spectral_reordering(
+                    input_activations, group_size
+                )
             else:
                 # Subsequent sublayers: rotate permutation to create different block structure
                 # Shift by group_size/2 to maximize coverage of new connections
                 shift = (sublayer_idx * (group_size // 2)) % linear.in_features
-                base_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
+                base_perm = ADTNLinear._spectral_reordering(
+                    input_activations, group_size
+                )
                 input_perm = torch.roll(base_perm, shifts=shift)
 
             # Permute the inputs
@@ -381,7 +384,9 @@ class TensorNetworkModifier(Modifier):
 
                 # Output slice for this group
                 out_start_idx = group_idx * group_out_features
-                out_end_idx = min((group_idx + 1) * group_out_features, linear.out_features)
+                out_end_idx = min(
+                    (group_idx + 1) * group_out_features, linear.out_features
+                )
                 actual_out_features = out_end_idx - out_start_idx
 
                 # Extract group inputs
@@ -391,7 +396,9 @@ class TensorNetworkModifier(Modifier):
                 Y_group_slice = global_residual[:, out_start_idx:out_end_idx]
 
                 # Solve OLS: X @ W = Y  =>  W = lstsq(X, Y)
-                solution = torch.linalg.lstsq(X_group.float(), Y_group_slice.float()).solution
+                solution = torch.linalg.lstsq(
+                    X_group.float(), Y_group_slice.float()
+                ).solution
 
                 # Create linear layer with OLS solution (outputs slice, not full output)
                 group_linear = nn.Linear(
@@ -416,17 +423,17 @@ class TensorNetworkModifier(Modifier):
                 current_approx = adtn(input_activations)
 
             # Compute SNR
-            current_sqnr = compute_sqnr(output_activations, current_approx)
+            current_snr = compute_snr(output_activations, current_approx)
 
             # Print progress
             logger.info(
                 f"{name} | Sublayer {sublayer_idx}: "
-                f"SQNR = {current_sqnr:.2f} dB, "
-                f"Params = {adtn.num_params}"
+                f"SNR = {current_snr:.2f} dB, "
+                f"Compression = {(adtn.num_params/linear.weight.numel()):.1%}"
             )
 
             # Step 5: Check if target SNR achieved
-            if current_sqnr >= target_snr_threshold_db:
+            if current_snr >= self.target_snr_db:
                 break
 
         # Step 6: Return ADTNLinear
@@ -513,7 +520,9 @@ class TensorNetworkModifier(Modifier):
                 dtype=linear.weight.dtype,
             )
             layer.U.weight.data = U_svd.T.to(linear.weight.dtype)  # (rank, in_features)
-            layer.V.weight.data = V_weighted.to(linear.weight.dtype)  # (out_features, rank)
+            layer.V.weight.data = V_weighted.to(
+                linear.weight.dtype
+            )  # (out_features, rank)
 
             # Add layer to stack
             stacked.append_layer(layer)
@@ -522,18 +531,18 @@ class TensorNetworkModifier(Modifier):
             with torch.no_grad():
                 current_approx = stacked(input_activations)
 
-            current_sqnr = compute_sqnr(output_activations, current_approx)
+            current_snr = compute_snr(output_activations, current_approx)
 
             # Log progress
             logger.info(
                 f"{name} | Layer {layer_idx}: "
-                f"SQNR = {current_sqnr:.2f} dB, "
+                f"SNR = {current_snr:.2f} dB, "
                 f"Params = {stacked.num_params} "
                 f"({100*stacked.num_params/(linear.weight.numel()):.1f}%)"
             )
 
             # Step 4: Check if target SNR achieved
-            if current_sqnr >= target_snr_threshold_db:
+            if current_snr >= target_snr_threshold_db:
                 break
 
         return stacked.to(linear.weight.device)
@@ -577,14 +586,14 @@ class TensorNetworkModifier(Modifier):
             input_activations=input_activations,
             target_sparsity=target_sparsity,
             k_cols_per_iter=k_cols_per_iter,
-            target_sqnr_db=self.target_sqnr,
+            target_snr_db=self.target_snr_db,
         )
 
-        # Compute final SQNR for logging
+        # Compute final SNR for logging
         with torch.no_grad():
             output_activations = self._collect_output_activations(name, linear)
             approx_output = column_sparse(input_activations)
-            final_sqnr = compute_sqnr(output_activations, approx_output)
+            final_snr = compute_snr(output_activations, approx_output)
 
         num_selected = len(column_sparse.selected_columns)
         compression_ratio = num_selected / linear.in_features
@@ -592,7 +601,7 @@ class TensorNetworkModifier(Modifier):
         logger.info(
             f"{name} | Column-sparse created: "
             f"Selected {num_selected}/{linear.in_features} columns ({compression_ratio:.1%}), "
-            f"SQNR = {final_sqnr:.2f} dB, "
+            f"SNR = {final_snr:.2f} dB, "
             f"Params = {column_sparse.num_params:,} "
             f"({100*column_sparse.num_params/linear.weight.numel():.1f}%)"
         )
@@ -610,7 +619,7 @@ class TensorNetworkModifier(Modifier):
 
         Strategy:
         1. Start with rank=1.0 (full rank, lossless reconstruction)
-        2. Train until sqnr >= threshold target_sqnr
+        2. Train until snr >= threshold target_snr_db
         3. If achieved, re-decompose with reduced rank
         4. Retrain and check if threshold can still be maintained
         5. Repeat until threshold can no longer be met
@@ -643,14 +652,14 @@ class TensorNetworkModifier(Modifier):
         total_num_epochs = 0
         while True:
             # Train this rank level
-            final_sqnr, total_num_epochs = self._train_tensorized_layer(
+            final_snr, total_num_epochs = self._train_tensorized_layer(
                 tensorized_linear,
                 name,
                 linear,
                 total_num_epochs=total_num_epochs,
             )
 
-            if final_sqnr >= self.target_sqnr:
+            if final_snr >= self.target_snr_db:
                 best_tensorized_linear = tensorized_linear
 
                 # Compute input covariance matrix for data-aware truncation (V-SVD)
@@ -716,10 +725,10 @@ class TensorNetworkModifier(Modifier):
         """
         Train a tensorized layer and return final average cosine similarity.
 
-        Early exits if target_sqnr achieved.
+        Early exits if target_snr_db achieved.
 
         Returns:
-            Average sqnr across all batches after training
+            Average snr across all batches after training
             Accumulated total_num_epochs
         """
         original_params = sum(p.numel() for p in linear.parameters())
@@ -746,8 +755,8 @@ class TensorNetworkModifier(Modifier):
         # MSE forces the model to get the physical scale right
         # loss_criterion = torch.nn.MSELoss()
         # Cosine similarity encourages vectors to align in the same direction
-        # Use SQNR loss
-        loss_criterion = SQNRLoss()
+        # Use SNR loss
+        loss_criterion = SNRLoss()
 
         # Training loop with early stopping
         max_total_num_epochs = 100
@@ -759,7 +768,7 @@ class TensorNetworkModifier(Modifier):
 
         best_loss = float("inf")
         epochs_without_improvement = 0
-        final_avg_sqnr = 0.0
+        final_avg_snr = 0.0
 
         pbar = tqdm(
             total=max_total_num_epochs,
@@ -770,7 +779,7 @@ class TensorNetworkModifier(Modifier):
             total_loss = 0.0
             num_batches = 0
             cosine_similarities = []
-            sqnrs = []
+            snrs = []
             mses = []
             matching_signs = []
             sign_norms = []
@@ -800,7 +809,7 @@ class TensorNetworkModifier(Modifier):
                         dense_output, tensorized_batch_output, dim=-1
                     ).mean()
                 )
-                sqnrs.append(compute_sqnr(dense_output, tensorized_batch_output))
+                snrs.append(compute_snr(dense_output, tensorized_batch_output))
                 mses.append(F.mse_loss(dense_output, tensorized_batch_output).item())
                 matching_signs.append(
                     count_matching_signs(dense_output, tensorized_batch_output)
@@ -814,7 +823,7 @@ class TensorNetworkModifier(Modifier):
             epoch_loss = total_loss / num_batches
 
             # Calculate average cosine similarity for this epoch
-            final_avg_sqnr = sum(sqnrs) / len(sqnrs) if sqnrs else 0.0
+            final_avg_snr = sum(snrs) / len(snrs) if snrs else 0.0
 
             # Early stopping check
             if len(loss_history) > 0:
@@ -832,7 +841,7 @@ class TensorNetworkModifier(Modifier):
                 f"{name} | # : "
                 f"{tensorized_params:.1e} ({compression_pct}) | "
                 f"mse: {sum(mses)/len(mses):.2e} | "
-                f"sqnr: {final_avg_sqnr:.2e} | "
+                f"snr: {final_avg_snr:.2e} | "
                 f"signs: {sum(matching_signs)/len(matching_signs):.3f} | "
                 f"sign norm: {sum(sign_norms)/len(sign_norms):.3f} | "
                 f"cos(): {sum(cosine_similarities)/len(cosine_similarities):.3f}"
@@ -842,14 +851,14 @@ class TensorNetworkModifier(Modifier):
 
             # Check early stopping conditions
             if (
-                (epoch > 2 and final_avg_sqnr > self.target_sqnr)
+                (epoch > 2 and final_avg_snr > self.target_snr_db)
                 or epochs_without_improvement >= patience
                 or epoch > 10
             ):
                 break
 
-        # Return final average sqnr
-        return final_avg_sqnr, total_num_epochs
+        # Return final average snr
+        return final_avg_snr, total_num_epochs
 
     @staticmethod
     def get_batch_inputs_outputs(
@@ -979,10 +988,10 @@ def get_parent_of_model_by_name(
 #     return 20 * torch.log10(Ps / Pn)
 
 
-# activation-based sqnr
-def compute_sqnr(original_output: torch.Tensor, tensorized_output: torch.Tensor):
+# activation-based snr
+def compute_snr(original_output: torch.Tensor, tensorized_output: torch.Tensor):
     """
-    Calculates SQNR in dB using activation tensors directly.
+    Calculates SNR in dB using activation tensors directly.
 
     Args:
         original_output (torch.Tensor): The output from the original nn.Linear layer.
@@ -1000,12 +1009,12 @@ def compute_sqnr(original_output: torch.Tensor, tensorized_output: torch.Tensor)
     # mse_noise = torch.mean((y_true - y_pred) ** 2)
     mse_noise = torch.nn.functional.mse_loss(y_true, y_pred)
 
-    # SQNR calculation (10 * log10 of the power ratio)
+    # SNR calculation (10 * log10 of the power ratio)
     # 1e-10 added to denominator to prevent division by zero or log(0)
-    sqnr_linear = signal_power / (mse_noise + 1e-10)
-    sqnr_db = 10 * torch.log10(sqnr_linear)
+    snr_linear = signal_power / (mse_noise + 1e-10)
+    snr_db = 10 * torch.log10(snr_linear)
 
-    return sqnr_db.item()
+    return snr_db.item()
 
 
 def count_matching_signs(a: torch.Tensor, b: torch.Tensor):
@@ -1030,7 +1039,7 @@ def compute_sign_norm(a: torch.Tensor, b: torch.Tensor):
     return mismatch_magnitude / total_magnitude
 
 
-class SQNRLoss(nn.Module):
+class SNRLoss(nn.Module):
     def __init__(self, eps=1e-10):
         super().__init__()
         self.eps = eps
@@ -1042,11 +1051,11 @@ class SQNRLoss(nn.Module):
         # Calculate Mean Squared Error (The "Noise Power")
         mse_noise = torch.mean((y_true - y_pred) ** 2)
 
-        # Linear SQNR
-        sqnr_linear = signal_var / (mse_noise + self.eps)
+        # Linear SNR
+        snr_linear = signal_var / (mse_noise + self.eps)
 
-        # We want to maximize 10 * log10(sqnr_linear),
-        # so we minimize -10 * log10(sqnr_linear)
-        loss_db = -10 * torch.log10(sqnr_linear)
+        # We want to maximize 10 * log10(snr_linear),
+        # so we minimize -10 * log10(snr_linear)
+        loss_db = -10 * torch.log10(snr_linear)
 
         return loss_db

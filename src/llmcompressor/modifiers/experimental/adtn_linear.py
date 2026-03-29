@@ -4,7 +4,13 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-__all__ = ["ADTNLinear", "ADTNSublayer", "StackedLowRankLinear", "LowRankLayer", "ColumnSparseLinear"]
+__all__ = [
+    "ADTNLinear",
+    "ADTNSublayer",
+    "StackedLowRankLinear",
+    "LowRankLayer",
+    "ColumnSparseLinear",
+]
 
 
 class ADTNLinear(nn.Module):
@@ -75,7 +81,9 @@ class ADTNLinear(nn.Module):
         # Iterative grouping: find group_size most correlated, then next group_size, etc.
         # Fully vectorized to avoid slow Python loops
         in_features = input_activations.shape[1]
-        remaining_mask = torch.ones(in_features, dtype=torch.bool, device=correlation.device)
+        remaining_mask = torch.ones(
+            in_features, dtype=torch.bool, device=correlation.device
+        )
         permutation = []
 
         while remaining_mask.any():
@@ -99,7 +107,9 @@ class ADTNLinear(nn.Module):
             seed_idx1 = remaining_indices[i].item()
             seed_idx2 = remaining_indices[j].item()
             group = [seed_idx1, seed_idx2]
-            group_tensor = torch.tensor(group, dtype=torch.long, device=correlation.device)
+            group_tensor = torch.tensor(
+                group, dtype=torch.long, device=correlation.device
+            )
 
             # Mark seeds as used
             remaining_mask[seed_idx1] = False
@@ -122,12 +132,16 @@ class ADTNLinear(nn.Module):
                 best_candidate = remaining_indices[best_idx_in_remaining].item()
 
                 group.append(best_candidate)
-                group_tensor = torch.tensor(group, dtype=torch.long, device=correlation.device)
+                group_tensor = torch.tensor(
+                    group, dtype=torch.long, device=correlation.device
+                )
                 remaining_mask[best_candidate] = False
 
             permutation.extend(group)
 
-        return torch.tensor(permutation, dtype=torch.long, device=input_activations.device)
+        return torch.tensor(
+            permutation, dtype=torch.long, device=input_activations.device
+        )
 
     @classmethod
     def from_linear(
@@ -168,9 +182,7 @@ class ADTNLinear(nn.Module):
         """
         if len(self.sublayers) == 0:
             return torch.zeros(
-                (*x.shape[:-1], self.out_features),
-                dtype=x.dtype,
-                device=x.device
+                (*x.shape[:-1], self.out_features), dtype=x.dtype, device=x.device
             )
 
         output = None
@@ -253,7 +265,9 @@ class ADTNSublayer(nn.Module):
                 start_idx = i * self.group_size
                 end_idx = start_idx + linear.in_features
                 group_input = x_perm[..., start_idx:end_idx]
-                group_output = linear(group_input)  # (batch, ..., out_features/num_groups)
+                group_output = linear(
+                    group_input
+                )  # (batch, ..., out_features/num_groups)
                 outputs.append(group_output)
 
             # Step 3: Concatenate group outputs along last dimension
@@ -271,7 +285,9 @@ class ADTNSublayer(nn.Module):
         if self.mode == "concat":
             return sum([p.numel() for p in self.linears.parameters()])
         else:  # low-rank
-            return sum([p.numel() for p in self.U.parameters()]) + sum([p.numel() for p in self.V.parameters()])
+            return sum([p.numel() for p in self.U.parameters()]) + sum(
+                [p.numel() for p in self.V.parameters()]
+            )
 
 
 class LowRankLayer(nn.Module):
@@ -279,6 +295,7 @@ class LowRankLayer(nn.Module):
     Single low-rank factorization layer: x @ U @ V
     where U: (in_features, rank), V: (rank, out_features)
     """
+
     def __init__(
         self,
         in_features: int,
@@ -318,6 +335,7 @@ class StackedLowRankLinear(nn.Module):
     - Better SNR than block-diagonal (captures cross-feature interactions)
     - Iterative residual fitting for high accuracy
     """
+
     def __init__(
         self,
         in_features: int,
@@ -335,9 +353,7 @@ class StackedLowRankLinear(nn.Module):
         """Sum outputs from all low-rank layers (additive residuals)"""
         if len(self.layers) == 0:
             return torch.zeros(
-                (*x.shape[:-1], self.out_features),
-                dtype=x.dtype,
-                device=x.device
+                (*x.shape[:-1], self.out_features), dtype=x.dtype, device=x.device
             )
 
         output = None
@@ -444,7 +460,7 @@ class ColumnSparseLinear(nn.Module):
         target_sparsity: float = 0.5,
         k_cols_per_iter: int = 32,
         max_iters: int | None = None,
-        target_sqnr_db: float | None = None,
+        target_snr_db: float | None = None,
     ) -> "ColumnSparseLinear":
         """
         Create ColumnSparseLinear from a torch.nn.Linear layer.
@@ -458,7 +474,7 @@ class ColumnSparseLinear(nn.Module):
             target_sparsity: Target fraction of columns to keep (0.0-1.0)
             k_cols_per_iter: Number of columns to add per iteration
             max_iters: Maximum number of iterations (default: auto from target_sparsity)
-            target_sqnr_db: Optional SQNR target in dB (stops early if reached)
+            target_snr_db: Optional SNR target in dB (stops early if reached)
 
         Returns:
             ColumnSparseLinear approximation of the linear layer
@@ -483,11 +499,11 @@ class ColumnSparseLinear(nn.Module):
             if len(selected_cols) == 0:
                 # First iteration: find single best column
                 best_col = None
-                best_error = float('inf')
+                best_error = float("inf")
 
                 # Try each column
                 for col_idx in range(in_features):
-                    X_col = input_activations[:, col_idx:col_idx+1]
+                    X_col = input_activations[:, col_idx : col_idx + 1]
                     W_col = torch.linalg.lstsq(X_col, output_activations).solution
 
                     output_approx = X_col @ W_col
@@ -529,19 +545,19 @@ class ColumnSparseLinear(nn.Module):
                 selected_cols = selected_cols[:target_num_cols]
                 break
 
-            # Check SQNR if requested
-            if target_sqnr_db is not None:
+            # Check SNR if requested
+            if target_snr_db is not None:
                 X_selected = input_activations[:, selected_cols]
                 W_selected = torch.linalg.lstsq(X_selected, output_activations).solution
                 output_approx = X_selected @ W_selected
 
-                # Compute SQNR
+                # Compute SNR
                 signal_power = torch.var(output_activations)
                 mse_noise = torch.mean((output_activations - output_approx) ** 2)
-                sqnr_linear = signal_power / (mse_noise + 1e-10)
-                sqnr_db = 10 * torch.log10(sqnr_linear)
+                snr_linear = signal_power / (mse_noise + 1e-10)
+                snr_db = 10 * torch.log10(snr_linear)
 
-                if sqnr_db >= target_sqnr_db:
+                if snr_db >= target_snr_db:
                     break
 
         # Final refit with selected columns
@@ -566,14 +582,16 @@ class ColumnSparseLinear(nn.Module):
             self.out_features,
             self.in_features,
             dtype=self.weight.dtype,
-            device=self.weight.device
+            device=self.weight.device,
         )
 
         # Fill in selected columns
         full_weight[:, self.selected_columns] = self.weight
 
         # Create linear layer
-        linear = nn.Linear(self.in_features, self.out_features, bias=self.bias is not None)
+        linear = nn.Linear(
+            self.in_features, self.out_features, bias=self.bias is not None
+        )
         linear.weight.data = full_weight
         if self.bias is not None:
             linear.bias.data = self.bias
