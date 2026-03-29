@@ -296,6 +296,7 @@ class TensorNetworkModifier(Modifier):
         linear: torch.nn.Linear,
         group_size: int = 64,
         target_snr_threshold_db: float = 40.0,
+        max_sublayers=10,
     ) -> ADTNLinear:
         """
         Create an ADTN equivalent of the input Linear matrix that matches the
@@ -335,8 +336,7 @@ class TensorNetworkModifier(Modifier):
         # Start with current input as the original input activations
         current_input = input_activations.clone()
 
-        sublayer_idx = 0
-        while True:
+        for sublayer_idx in tqdm(range(max_sublayers), desc=name):
             # Step 1-2: Determine correlation and permute inputs
             input_perm = ADTNLinear._spectral_reordering(current_input, group_size)
 
@@ -407,15 +407,6 @@ class TensorNetworkModifier(Modifier):
             # Update current_input for next sublayer: apply current sublayer
             with torch.no_grad():
                 current_input = sublayer(current_input)
-
-            sublayer_idx += 1
-
-            # Safety check to prevent infinite loop
-            if sublayer_idx >= 10:
-                logger.warning(
-                    f"{name}: Reached max sublayers (10) without achieving target SNR"
-                )
-                break
 
         # Step 6: Return ADTNLinear
         return adtn.to(linear.weight.device)
