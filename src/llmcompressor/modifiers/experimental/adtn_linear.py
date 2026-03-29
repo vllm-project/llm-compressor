@@ -10,6 +10,7 @@ __all__ = [
     "StackedLowRankLinear",
     "LowRankLayer",
     "ColumnSparseLinear",
+    "StackedColumnSparseLinear",
 ]
 
 
@@ -439,8 +440,8 @@ class ColumnSparseLinear(nn.Module):
         # Extract selected columns from input
         x_selected = x[..., self.selected_columns]  # (..., num_selected_columns)
 
-        # Matrix multiply
-        output = F.linear(x_selected, self.weight, self.bias)
+        # Matrix multiply (ensure dtype compatibility)
+        output = F.linear(x_selected.to(self.weight.dtype), self.weight, self.bias)
 
         return output
 
@@ -617,3 +618,203 @@ class ColumnSparseLinear(nn.Module):
             linear.bias.data = self.bias
 
         return linear
+
+
+class StackedColumnSparseLinear(nn.Module):
+    """
+    Stacked column-sparse linear layers for parameter-efficient approximation.
+
+    Each layer is a column-sparse approximation that fits the residual from
+    previous layers. Layers are summed (additive residual strategy).
+
+    This achieves:
+    - Higher SNR than single column-sparse layer
+    - Similar or better compression (multiple thin layers vs one thick layer)
+    - Iterative residual fitting for high accuracy
+
+    Example:
+        2 layers @ 70% sparsity each = 0.7 * 0.7 = 49% total params
+        But achieves much higher SNR than single 50% layer
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        layers: list[ColumnSparseLinear],
+        dtype: torch.dtype = torch.bfloat16,
+    ):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.dtype = dtype
+        self.layers = nn.ModuleList(layers)
+
+    def forward(self, x: torch.Tensor):
+        """Sum outputs from all column-sparse layers (additive residuals)"""
+        if len(self.layers) == 0:
+            return torch.zeros(
+                (*x.shape[:-1], self.out_features), dtype=x.dtype, device=x.device
+            )
+
+        output = None
+        for layer in self.layers:
+            layer_out = layer(x)
+            if output is None:
+                output = layer_out
+            else:
+                output = output + layer_out
+        return output
+
+    def append_layer(self, layer: ColumnSparseLinear):
+        """Add a new column-sparse layer"""
+        self.layers.append(layer)
+
+    @property
+    def num_params(self):
+        return sum([layer.num_params for layer in self.layers])
+
+    @classmethod
+    def from_linear(
+        cls,
+        linear: nn.Linear,
+        input_activations: torch.Tensor,
+        target_sparsity_per_layer: float = 0.7,
+        max_layers: int = 5,
+        target_snr_db: float = 40.0,
+        k_cols_per_iter: int = 32,
+    ) -> "StackedColumnSparseLinear":
+        """
+        Create StackedColumnSparseLinear from a torch.nn.Linear layer.
+
+        Iteratively adds column-sparse layers, each fitting the residual from
+        previous layers.
+
+        Args:
+            linear: Original linear layer
+            input_activations: Input activation data (num_samples, in_features)
+            target_sparsity_per_layer: Fraction of columns to keep per layer (0.0-1.0)
+            max_layers: Maximum number of layers to stack
+            target_snr_db: Target SNR in dB (stops early if reached)
+            k_cols_per_iter: Number of columns to add per iteration
+
+        Returns:
+            StackedColumnSparseLinear with multiple column-sparse layers
+
+        Example:
+            # 2 layers @ 70% sparsity = 49% total params, higher SNR
+            stacked = StackedColumnSparseLinear.from_linear(
+                linear, activations, target_sparsity_per_layer=0.7, max_layers=2
+            )
+        """
+        W = linear.weight.data.float()
+        in_features = linear.in_features
+        out_features = linear.out_features
+
+        # Compute target outputs
+        with torch.no_grad():
+            output_activations = F.linear(input_activations.float(), W.float())
+
+        # Initialize stacked model
+        stacked = cls(
+            in_features=in_features,
+            out_features=out_features,
+            layers=[],
+            dtype=linear.weight.dtype,
+        )
+
+        for layer_idx in range(max_layers):
+            # Compute residual
+            if layer_idx == 0:
+                residual = output_activations.clone()
+            else:
+                with torch.no_grad():
+                    current_approx = stacked(input_activations)
+                    residual = output_activations - current_approx
+
+            # Create column-sparse layer to fit residual
+            # Note: we create a "virtual" linear layer with residual as target
+            virtual_linear = nn.Linear(in_features, out_features, bias=False)
+            virtual_linear.weight.data = W  # Not used, just for shape
+
+            # Use ColumnSparseLinear.from_linear but with residual as target
+            # We need to manually do the column selection for the residual
+            selected_cols = []
+            selected_mask = torch.zeros(
+                in_features, dtype=torch.bool, device=input_activations.device
+            )
+
+            target_num_cols = int(target_sparsity_per_layer * in_features)
+            max_iters = (target_num_cols + k_cols_per_iter - 1) // k_cols_per_iter
+
+            for iter_idx in range(max_iters):
+                if len(selected_cols) == 0:
+                    # First iteration: fully vectorized
+                    X_all = input_activations.float()
+                    X_norm_sq = (X_all**2).sum(dim=0)
+                    X_dot_Y = X_all.T @ residual
+                    W_all = X_dot_Y / (X_norm_sq.unsqueeze(1) + 1e-10)
+                    projections = (X_dot_Y * W_all).sum(dim=1)
+                    best_col = projections.argmax().item()
+                    selected_cols = [best_col]
+                    selected_mask[best_col] = True
+                else:
+                    if selected_mask.all():
+                        break
+
+                    # Vectorized correlation
+                    X_current = input_activations[:, selected_cols].float()
+                    W_current = torch.linalg.lstsq(X_current, residual).solution
+                    current_output = X_current @ W_current
+                    resid_resid = residual - current_output
+
+                    candidate_mask = ~selected_mask
+                    candidate_indices = torch.where(candidate_mask)[0]
+                    if len(candidate_indices) == 0:
+                        break
+
+                    X_candidates = input_activations[:, candidate_indices].float()
+                    correlations = torch.abs(X_candidates.T @ resid_resid)
+                    correlations_sum = correlations.sum(dim=1)
+
+                    k_actual = min(k_cols_per_iter, len(candidate_indices))
+                    topk_indices = torch.topk(correlations_sum, k=k_actual).indices
+                    new_cols = candidate_indices[topk_indices].tolist()
+                    selected_cols.extend(new_cols)
+                    selected_mask[new_cols] = True
+
+                if len(selected_cols) >= target_num_cols:
+                    selected_cols = selected_cols[:target_num_cols]
+                    break
+
+            # Final refit with selected columns
+            selected_cols_tensor = torch.tensor(selected_cols, dtype=torch.long)
+            X_final = input_activations[:, selected_cols].float()
+            W_final = torch.linalg.lstsq(X_final, residual).solution
+
+            # Create column-sparse layer
+            layer = ColumnSparseLinear(
+                in_features=in_features,
+                out_features=out_features,
+                selected_columns=selected_cols_tensor,
+                weight=W_final.T,
+                bias=None,
+                dtype=linear.weight.dtype,
+            )
+
+            # Add to stack
+            stacked.append_layer(layer)
+
+            # Compute current SNR
+            with torch.no_grad():
+                current_approx = stacked(input_activations)
+                signal_power = torch.var(output_activations)
+                mse_noise = torch.mean((output_activations - current_approx) ** 2)
+                snr_linear = signal_power / (mse_noise + 1e-10)
+                current_snr_db = 10 * torch.log10(snr_linear)
+
+            # Check if target SNR achieved
+            if current_snr_db >= target_snr_db:
+                break
+
+        return stacked

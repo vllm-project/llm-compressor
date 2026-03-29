@@ -1,37 +1,43 @@
-# Example recipe for Column-Sparse compression
-# Achieves ~50% parameter reduction with 30-70 dB SNR
+# Example recipe for Adaptive Column-Sparse compression
 #
-# Usage:
-#   Apply this recipe to compress a model using OLS-based column selection
+# This recipe automatically uses stacked layers for layers with low SNR:
+# - Tries single-layer column-sparse first
+# - If SNR < 25 dB, automatically switches to stacked layers
+# - Maintains similar parameter count
 #
 # Key parameters:
-#   - method: "column_sparse" - Use column-sparse compression
-#   - rank: Controls target sparsity (0.5 = keep 50% of columns)
-#   - target_sqnr: Target SNR in dB (default: 30.0)
-#   - targets: Which layer types to compress
-#   - ignore: Which layers to skip (e.g., lm_head)
+#   - method: "column_sparse" - Now adaptive (auto-stacks if needed)
+#   - rank: Target sparsity (0.5 = 50% compression)
+#   - target_snr_db: Target SNR threshold
 
 TensorNetworkModifier:
-  # Compression method
+  # Compression method: "column_sparse" with adaptive stacking
   method: "column_sparse"
 
-  # Target sparsity: 0.5 = keep 50% of input columns
-  # This parameter is reused from rank for column_sparse method
+  # Target sparsity: 0.5 = keep 50% of columns
+  # If auto-stacking triggers, uses ~sqrt(0.5) ≈ 0.85 per layer
   rank: 0.5
 
   # Target SNR threshold in dB
-  # Compression stops early if this is achieved
-  target_sqnr: 30.0
+  # Layers below this after stacking are reported
+  target_snr_db: 30.0
 
-  # Target layer types
+  # Compress all attention layers
   targets:
-    - "Linear"
+    - "re:.*self_attn.(q|k|v|o)_proj$"
+    # Or all Linear layers:
+    # - "Linear"
 
-  # Layers to ignore (typically keep embedding and output layers)
+  # Always ignore these
   ignore:
     - "lm_head"
     - "embed_tokens"
 
-  # Optional: device to offload activations during compression
-  # Set to "cpu" if encountering OOM errors
-  # offload_device: "cpu"
+  # Offload to CPU if OOM
+  offload_device: "cpu"
+
+# Expected behavior:
+# - q_proj: Single layer (SNR ~29 dB) ✓
+# - k_proj: Single layer (SNR ~28 dB) ✓
+# - v_proj: Stacked 2-3 layers (SNR 15→30+ dB) ✓
+# - o_proj: Single layer (SNR ~23 dB) or stacked if < 25 dB

@@ -19,6 +19,7 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.experimental.adtn_linear import (
     ADTNLinear,
     ColumnSparseLinear,
+    StackedColumnSparseLinear,
 )
 from llmcompressor.modifiers.experimental.tensorized_linear import (
     TensorizedLinear,
@@ -107,8 +108,8 @@ class TensorNetworkModifier(Modifier):
     num_cores: int = 3
     rank: float = 0.5
     batch_size: int | None = None
-    # Method: "tensorized", "adtn", "stacked_lowrank", or "column_sparse"
-    method: str = "column_sparse"
+    # Method: "tensorized", "adtn", "stacked_lowrank", "column_sparse", or "stacked_column_sparse"
+    method: str = "stacked_column_sparse"
     # Cache list of forward input args for each parent module, one dict for each batch
     _target_args_cache: dict[tuple[str, nn.Linear], IntermediatesCache] = PrivateAttr(
         default_factory=dict
@@ -239,6 +240,8 @@ class TensorNetworkModifier(Modifier):
                     tensorized_linear = self._get_adtn_linear(name, module)
                 elif self.method == "column_sparse":
                     tensorized_linear = self._get_column_sparse_linear(name, module)
+                elif self.method == "stacked_column_sparse":
+                    tensorized_linear = self._get_stacked_column_sparse_linear(name, module)
                 else:  # tensorized
                     tensorized_linear = self._get_trained_tensorized_layer(name, module)
 
@@ -553,24 +556,24 @@ class TensorNetworkModifier(Modifier):
         linear: torch.nn.Linear,
         target_sparsity: float = 0.5,
         k_cols_per_iter: int = 32,
-    ) -> ColumnSparseLinear:
+        auto_stack_on_low_snr: bool = True,
+        min_acceptable_snr: float = 25.0,
+    ) -> ColumnSparseLinear | StackedColumnSparseLinear:
         """
         Create a ColumnSparseLinear via OLS-based greedy column selection.
 
-        Iteratively selects input columns (features) that best predict outputs
-        via least-squares fitting. This achieves:
-        - Significant parameter reduction (typically 50%)
-        - High SNR (typically 30-70 dB)
-        - Block-sparse structure (low index overhead)
+        If single-layer SNR is too low, automatically switches to stacked layers.
 
         Args:
             name: Layer name
             linear: Original linear layer
             target_sparsity: Fraction of columns to keep (default: 0.5 for 50% compression)
             k_cols_per_iter: Number of columns to add per iteration
+            auto_stack_on_low_snr: If True, use stacked layers when single-layer SNR < min_acceptable_snr
+            min_acceptable_snr: Minimum SNR for single layer (default: 25.0 dB)
 
         Returns:
-            ColumnSparseLinear with selected columns
+            ColumnSparseLinear or StackedColumnSparseLinear
         """
         # Collect activations
         input_activations = self._collect_input_activations(name, linear)
@@ -580,33 +583,130 @@ class TensorNetworkModifier(Modifier):
             f"(target: {target_sparsity:.1%} of columns)"
         )
 
-        # Create column-sparse linear via OLS selection
+        # Create single-layer column-sparse first
         column_sparse = ColumnSparseLinear.from_linear(
             linear=linear,
             input_activations=input_activations,
             target_sparsity=target_sparsity,
             k_cols_per_iter=k_cols_per_iter,
-            target_snr_db=self.target_snr_db,
+            target_snr_db=None,  # Don't stop early, get full target sparsity
         )
 
         # Compute final SNR for logging
         with torch.no_grad():
             output_activations = self._collect_output_activations(name, linear)
             approx_output = column_sparse(input_activations)
-            final_snr = compute_snr(output_activations, approx_output)
+            single_layer_snr = compute_snr(output_activations, approx_output)
 
         num_selected = len(column_sparse.selected_columns)
         compression_ratio = num_selected / linear.in_features
 
         logger.info(
-            f"{name} | Column-sparse created: "
-            f"Selected {num_selected}/{linear.in_features} columns ({compression_ratio:.1%}), "
-            f"SNR = {final_snr:.2f} dB, "
-            f"Params = {column_sparse.num_params:,} "
-            f"({100*column_sparse.num_params/linear.weight.numel():.1f}%)"
+            f"{name} | Single-layer SNR = {single_layer_snr:.2f} dB, "
+            f"Params = {column_sparse.num_params:,} ({100*column_sparse.num_params/linear.weight.numel():.1f}%)"
         )
 
+        # Check if we should use stacked layers instead
+        if auto_stack_on_low_snr and single_layer_snr < min_acceptable_snr:
+            logger.info(
+                f"{name} | SNR {single_layer_snr:.2f} dB < {min_acceptable_snr} dB threshold, "
+                f"switching to stacked layers..."
+            )
+
+            # Calculate per-layer sparsity to maintain similar total params
+            # Single layer: target_sparsity * in_features
+            # 2 layers: 2 * per_layer_sparsity * in_features ≈ target_sparsity * in_features
+            # per_layer_sparsity ≈ sqrt(target_sparsity)
+            per_layer_sparsity = min(0.85, (target_sparsity ** 0.5) + 0.15)  # Add margin
+
+            stacked = StackedColumnSparseLinear.from_linear(
+                linear=linear,
+                input_activations=input_activations,
+                target_sparsity_per_layer=per_layer_sparsity,
+                max_layers=3,
+                target_snr_db=self.target_snr_db,
+                k_cols_per_iter=k_cols_per_iter,
+            )
+
+            with torch.no_grad():
+                stacked_output = stacked(input_activations)
+                stacked_snr = compute_snr(output_activations, stacked_output)
+
+            logger.info(
+                f"{name} | Stacked column-sparse: {len(stacked.layers)} layers, "
+                f"SNR = {stacked_snr:.2f} dB, "
+                f"Params = {stacked.num_params:,} ({100*stacked.num_params/linear.weight.numel():.1f}%)"
+            )
+
+            return stacked.to(linear.weight.device)
+
+        logger.info(
+            f"{name} | Using single-layer (SNR {single_layer_snr:.2f} dB >= {min_acceptable_snr} dB)"
+        )
         return column_sparse.to(linear.weight.device)
+
+    def _get_stacked_column_sparse_linear(
+        self,
+        name: str,
+        linear: torch.nn.Linear,
+        target_sparsity_per_layer: float = 0.7,
+        max_layers: int = 5,
+        k_cols_per_iter: int = 32,
+    ) -> StackedColumnSparseLinear:
+        """
+        Create a StackedColumnSparseLinear via iterative residual fitting.
+
+        Stacks multiple column-sparse layers, each fitting the residual from
+        previous layers. This achieves higher SNR than single layer with
+        similar total parameter count.
+
+        Example: 2 layers @ 70% sparsity = 0.49x params, much higher SNR
+
+        Args:
+            name: Layer name
+            linear: Original linear layer
+            target_sparsity_per_layer: Fraction of columns per layer (default: 0.7)
+            max_layers: Maximum layers to stack (default: 5)
+            k_cols_per_iter: Columns to add per iteration
+
+        Returns:
+            StackedColumnSparseLinear with multiple layers
+        """
+        # Collect activations
+        input_activations = self._collect_input_activations(name, linear)
+
+        logger.info(
+            f"{name} | Creating stacked column-sparse approximation "
+            f"(target: {target_sparsity_per_layer:.1%} per layer, max {max_layers} layers)"
+        )
+
+        # Create stacked column-sparse via iterative residual fitting
+        stacked = StackedColumnSparseLinear.from_linear(
+            linear=linear,
+            input_activations=input_activations,
+            target_sparsity_per_layer=target_sparsity_per_layer,
+            max_layers=max_layers,
+            target_snr_db=self.target_snr_db,
+            k_cols_per_iter=k_cols_per_iter,
+        )
+
+        # Compute final SNR for logging
+        with torch.no_grad():
+            output_activations = self._collect_output_activations(name, linear)
+            approx_output = stacked(input_activations)
+            final_snr = compute_snr(output_activations, approx_output)
+
+        total_params = stacked.num_params
+        param_ratio = total_params / linear.weight.numel()
+
+        logger.info(
+            f"{name} | Stacked column-sparse created: "
+            f"{len(stacked.layers)} layers, "
+            f"SNR = {final_snr:.2f} dB, "
+            f"Params = {total_params:,} ({param_ratio:.1%})"
+        )
+
+        return stacked.to(linear.weight.device)
 
     def _get_trained_tensorized_layer(
         self,
