@@ -333,21 +333,26 @@ class TensorNetworkModifier(Modifier):
             dtype=linear.weight.dtype,
         )
 
-        # Start with current input as the original input activations
-        current_input = input_activations.clone()
-
         for sublayer_idx in tqdm(range(max_sublayers), desc=name):
-            # Step 1-2: Determine correlation and permute inputs
-            input_perm = ADTNLinear._spectral_reordering(current_input, group_size)
+            # Step 1: Compute global residual (what ADTN hasn't explained yet)
+            with torch.no_grad():
+                if sublayer_idx == 0:
+                    global_residual = output_activations.clone()
+                else:
+                    current_approx = adtn(input_activations)
+                    global_residual = output_activations - current_approx
+
+            # Step 2: Determine correlation and permute inputs (always use original inputs)
+            input_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
 
             # Permute the inputs
-            input_permuted = current_input[:, input_perm]
+            input_permuted = input_activations[:, input_perm]
 
             # Step 3: Create ADTN sublayer with OLS-computed weights
-            # Each group fits the residual after accounting for previous groups
+            # Each group fits to the same global residual, outputs sum within sublayer
             num_groups = (linear.in_features + group_size - 1) // group_size
             group_linears = []
-            current_residual = output_activations.clone()
+            group_residual = global_residual.clone()
 
             for group_idx in range(num_groups):
                 start_idx = group_idx * group_size
@@ -357,8 +362,8 @@ class TensorNetworkModifier(Modifier):
                 # Extract group inputs
                 X_group = input_permuted[:, start_idx:end_idx]
 
-                # Fit to the residual (what hasn't been explained by previous groups)
-                Y_group = current_residual
+                # Fit to the residual (what hasn't been explained by previous groups in this sublayer)
+                Y_group = group_residual
 
                 # Solve OLS: X @ W = Y  =>  W = lstsq(X, Y)
                 solution = torch.linalg.lstsq(X_group.float(), Y_group.float()).solution
@@ -373,7 +378,7 @@ class TensorNetworkModifier(Modifier):
                 # Update residual by subtracting this group's contribution
                 with torch.no_grad():
                     group_output = group_linear(X_group)
-                    current_residual = current_residual - group_output
+                    group_residual = group_residual - group_output
 
             # Create sublayer
             sublayer = ADTNSublayer(
@@ -403,10 +408,6 @@ class TensorNetworkModifier(Modifier):
             # Step 5: Check if target SNR achieved
             if current_sqnr >= target_snr_threshold_db:
                 break
-
-            # Update current_input for next sublayer: apply current sublayer
-            with torch.no_grad():
-                current_input = sublayer(current_input)
 
         # Step 6: Return ADTNLinear
         return adtn.to(linear.weight.device)

@@ -164,11 +164,23 @@ class ADTNLinear(nn.Module):
 
     def forward(self, x: torch.Tensor):
         """
-        Forward pass through each sublayer
+        Forward pass: sum outputs from all sublayers (additive residuals)
         """
+        if len(self.sublayers) == 0:
+            return torch.zeros(
+                (*x.shape[:-1], self.out_features),
+                dtype=x.dtype,
+                device=x.device
+            )
+
+        output = None
         for sublayer in self.sublayers:
-            x = sublayer(x)
-        return x
+            sublayer_out = sublayer(x)
+            if output is None:
+                output = sublayer_out
+            else:
+                output = output + sublayer_out
+        return output
 
     def dense_forward(self, x):
         """Forward pass using dense weight matrix reconstruction."""

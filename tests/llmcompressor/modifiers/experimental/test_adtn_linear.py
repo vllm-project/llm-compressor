@@ -132,7 +132,7 @@ def test_adtn_linear_approximates_linear():
 
 
 def test_adtn_stacking_improves_fit():
-    """Test that stacking multiple ADTN sublayers improves approximation."""
+    """Test that stacking multiple ADTN sublayers improves approximation (additive)."""
     in_features = 128
     out_features = 64
     num_samples = 500
@@ -145,30 +145,38 @@ def test_adtn_stacking_improves_fit():
     with torch.no_grad():
         output_activations = linear(input_activations)
 
-    # Create ADTN with 2 sublayers
+    # Create ADTN with 2 sublayers using additive strategy
     adtn = ADTNLinear(
         in_features=in_features,
         out_features=out_features,
         sublayers=[],
     )
 
-    current_input = input_activations.clone()
     group_size = 32
 
     for sublayer_idx in range(2):
-        input_perm = ADTNLinear._spectral_reordering(current_input, group_size)
-        input_permuted = current_input[:, input_perm]
+        # Compute global residual
+        with torch.no_grad():
+            if sublayer_idx == 0:
+                global_residual = output_activations.clone()
+            else:
+                current_approx = adtn(input_activations)
+                global_residual = output_activations - current_approx
+
+        # Always use original inputs for permutation
+        input_perm = ADTNLinear._spectral_reordering(input_activations, group_size)
+        input_permuted = input_activations[:, input_perm]
 
         num_groups = in_features // group_size
         group_linears = []
-        current_residual = output_activations.clone()
+        group_residual = global_residual.clone()
 
         for group_idx in range(num_groups):
             start_idx = group_idx * group_size
             end_idx = (group_idx + 1) * group_size
 
             X_group = input_permuted[:, start_idx:end_idx]
-            Y_group = current_residual
+            Y_group = group_residual
 
             solution = torch.linalg.lstsq(X_group, Y_group).solution
 
@@ -178,7 +186,7 @@ def test_adtn_stacking_improves_fit():
 
             with torch.no_grad():
                 group_output = group_linear(X_group)
-                current_residual = current_residual - group_output
+                group_residual = group_residual - group_output
 
         sublayer = ADTNSublayer(
             in_features=in_features,
@@ -188,10 +196,6 @@ def test_adtn_stacking_improves_fit():
         )
 
         adtn.append_sublayer(sublayer)
-
-        # Update current_input for next sublayer
-        with torch.no_grad():
-            current_input = sublayer(current_input)
 
     # Check that ADTN approximates the linear layer
     with torch.no_grad():
