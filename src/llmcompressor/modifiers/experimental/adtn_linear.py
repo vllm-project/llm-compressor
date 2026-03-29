@@ -503,7 +503,7 @@ class ColumnSparseLinear(nn.Module):
 
                 # Try each column
                 for col_idx in range(in_features):
-                    X_col = input_activations[:, col_idx : col_idx + 1]
+                    X_col = input_activations[:, col_idx : col_idx + 1].float()
                     W_col = torch.linalg.lstsq(X_col, output_activations).solution
 
                     output_approx = X_col @ W_col
@@ -522,7 +522,7 @@ class ColumnSparseLinear(nn.Module):
                     break
 
                 # Current reconstruction
-                X_current = input_activations[:, selected_cols]
+                X_current = input_activations[:, selected_cols].float()
                 W_current = torch.linalg.lstsq(X_current, output_activations).solution
                 current_output = X_current @ W_current
                 residual = output_activations - current_output
@@ -530,7 +530,7 @@ class ColumnSparseLinear(nn.Module):
                 # Compute correlation of each candidate with residual
                 correlations = []
                 for col_idx in candidates:
-                    X_col = input_activations[:, col_idx]
+                    X_col = input_activations[:, col_idx].float()
                     # Correlation: sum over samples and output dims
                     corr = torch.abs((X_col.unsqueeze(1) * residual).sum(dim=0)).sum()
                     correlations.append((corr.item(), col_idx))
@@ -547,7 +547,7 @@ class ColumnSparseLinear(nn.Module):
 
             # Check SNR if requested
             if target_snr_db is not None:
-                X_selected = input_activations[:, selected_cols]
+                X_selected = input_activations[:, selected_cols].float()
                 W_selected = torch.linalg.lstsq(X_selected, output_activations).solution
                 output_approx = X_selected @ W_selected
 
@@ -562,7 +562,7 @@ class ColumnSparseLinear(nn.Module):
 
         # Final refit with selected columns
         selected_cols_tensor = torch.tensor(selected_cols, dtype=torch.long)
-        X_final = input_activations[:, selected_cols]
+        X_final = input_activations[:, selected_cols].float()
         W_final = torch.linalg.lstsq(X_final, output_activations).solution
 
         # Create ColumnSparseLinear
