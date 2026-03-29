@@ -16,6 +16,9 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.experimental.adtn_linear import (
+    ADTNLinear,
+)
 from llmcompressor.modifiers.experimental.tensorized_linear import (
     TensorizedLinear,
 )
@@ -227,7 +230,8 @@ class TensorNetworkModifier(Modifier):
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
-                tensorized_linear = self._get_trained_tensorized_layer(name, module)
+                tensorized_linear = self._get_adtn_linear(name, module)
+                # tensorized_linear = self._get_trained_tensorized_layer(name, module)
 
                 # Replace linear layer with its tensorized_linear approximation
                 parent = get_parent_of_model_by_name(model, name)
@@ -261,6 +265,37 @@ class TensorNetworkModifier(Modifier):
         # Concatenate all batches
         all_inputs = torch.cat(input_batches, dim=0)
         return all_inputs
+
+    def _get_adtn_linear(
+        self,
+        name: str,
+        linear: torch.nn.Linear,
+        group_size: int = 128,
+        target_snr_threshold_db: float = 40.0,
+    ) -> ADTNLinear:
+        """
+        Create an ADTN equivalent of the input Linear matrix that matches the
+        target inputs/outputs
+
+        Strategy:
+        1. Determine which inputs are most correlated with one another
+        2. Permute inputs so the most correlated inputs are grouped together
+        3. Create ADTN sublayer which mimics the original linear operation as much as
+            possible. The ADTN sublayer performs smaller matrix multiplications each
+            group of correlated inputs, i.e. one matrix operation on the first group of
+            inputs, of size group_size (defaults to 128), another matrix operation on
+            the second group of inputs, and so on. Rather than being trained, each
+            matrix is calculated analytically with the ordinary least squares solution,
+            (i.e. with `torch.linalg.lstsq(X, Y).solution` for input and output
+            activations X and Y).
+        4. Add the sublayer to ADTNLinear, printing out the signal-to-noise ratio
+            achieved and number of parameters in ADTNLinear.
+        5. Repeat Steps 1-4 to add additional sublayers to ADTNLinear until the signal-
+            to-noise ratio is higher than target_snr_threshold_db (defaults to 40 dB).
+        6. Returns ADTNLinear
+        """
+
+        pass
 
     def _get_trained_tensorized_layer(
         self,
