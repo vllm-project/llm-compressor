@@ -266,11 +266,35 @@ class TensorNetworkModifier(Modifier):
         all_inputs = torch.cat(input_batches, dim=0)
         return all_inputs
 
+    def _collect_output_activations(
+        self, name: str, linear: torch.nn.Linear
+    ) -> torch.Tensor:
+        """
+        Collect and concatenate all output activations from the cache for a given layer.
+
+        Args:
+            name: Name of the layer
+            linear: Linear layer module
+
+        Returns:
+            Tensor of shape (num_samples, out_features) containing all output activations
+        """
+        output_batches = []
+        for batch in self._target_args_cache[(name, linear)].iter():
+            batch_output = batch["output"]
+            # Flatten all batch dimensions: (..., out_features) -> (batch_total, out_features)
+            batch_flat = batch_output.reshape(-1, batch_output.shape[-1])
+            output_batches.append(batch_flat)
+
+        # Concatenate all batches
+        all_outputs = torch.cat(output_batches, dim=0)
+        return all_outputs
+
     def _get_adtn_linear(
         self,
         name: str,
         linear: torch.nn.Linear,
-        group_size: int = 128,
+        group_size: int = 64,
         target_snr_threshold_db: float = 40.0,
     ) -> ADTNLinear:
         """
@@ -283,7 +307,7 @@ class TensorNetworkModifier(Modifier):
         3. Create ADTN sublayer which mimics the original linear operation as much as
             possible. The ADTN sublayer performs smaller matrix multiplications each
             group of correlated inputs, i.e. one matrix operation on the first group of
-            inputs, of size group_size (defaults to 128), another matrix operation on
+            inputs, of size group_size (defaults to 64), another matrix operation on
             the second group of inputs, and so on. Rather than being trained, each
             matrix is calculated analytically with the ordinary least squares solution,
             (i.e. with `torch.linalg.lstsq(X, Y).solution` for input and output
@@ -294,8 +318,107 @@ class TensorNetworkModifier(Modifier):
             to-noise ratio is higher than target_snr_threshold_db (defaults to 40 dB).
         6. Returns ADTNLinear
         """
+        from llmcompressor.modifiers.experimental.adtn_linear import ADTNSublayer
 
-        pass
+        # Collect all input and output activations
+        input_activations = self._collect_input_activations(name, linear)
+        output_activations = self._collect_output_activations(name, linear)
+
+        # Initialize ADTN with empty sublayers
+        adtn = ADTNLinear(
+            in_features=linear.in_features,
+            out_features=linear.out_features,
+            sublayers=[],
+            dtype=linear.weight.dtype,
+        )
+
+        # Start with current input as the original input activations
+        current_input = input_activations.clone()
+
+        sublayer_idx = 0
+        while True:
+            # Step 1-2: Determine correlation and permute inputs
+            input_perm = ADTNLinear._spectral_reordering(current_input, group_size)
+
+            # Permute the inputs
+            input_permuted = current_input[:, input_perm]
+
+            # Step 3: Create ADTN sublayer with OLS-computed weights
+            # Each group fits the residual after accounting for previous groups
+            num_groups = (linear.in_features + group_size - 1) // group_size
+            group_linears = []
+            current_residual = output_activations.clone()
+
+            for group_idx in range(num_groups):
+                start_idx = group_idx * group_size
+                end_idx = min((group_idx + 1) * group_size, linear.in_features)
+                actual_group_size = end_idx - start_idx
+
+                # Extract group inputs
+                X_group = input_permuted[:, start_idx:end_idx]
+
+                # Fit to the residual (what hasn't been explained by previous groups)
+                Y_group = current_residual
+
+                # Solve OLS: X @ W = Y  =>  W = lstsq(X, Y)
+                solution = torch.linalg.lstsq(X_group, Y_group).solution
+
+                # Create linear layer with OLS solution
+                group_linear = nn.Linear(
+                    actual_group_size, linear.out_features, bias=False
+                )
+                group_linear.weight.data = solution.T.to(linear.weight.dtype)
+                group_linears.append(group_linear)
+
+                # Update residual by subtracting this group's contribution
+                with torch.no_grad():
+                    group_output = group_linear(X_group)
+                    current_residual = current_residual - group_output
+
+            # Create sublayer
+            sublayer = ADTNSublayer(
+                in_features=linear.in_features,
+                out_features=linear.out_features,
+                linears=group_linears,
+                input_perm=input_perm,
+            )
+
+            # Step 4: Add sublayer and compute SNR
+            adtn.append_sublayer(sublayer)
+
+            # Compute current approximation by applying full ADTN to original inputs
+            with torch.no_grad():
+                current_approx = adtn(input_activations)
+
+            # Compute SNR
+            current_sqnr = compute_sqnr(output_activations, current_approx)
+
+            # Print progress
+            logger.info(
+                f"{name} | Sublayer {sublayer_idx}: "
+                f"SQNR = {current_sqnr:.2f} dB, "
+                f"Params = {adtn.num_params}"
+            )
+
+            # Step 5: Check if target SNR achieved
+            if current_sqnr >= target_snr_threshold_db:
+                break
+
+            # Update current_input for next sublayer: apply current sublayer
+            with torch.no_grad():
+                current_input = sublayer(current_input)
+
+            sublayer_idx += 1
+
+            # Safety check to prevent infinite loop
+            if sublayer_idx >= 10:
+                logger.warning(
+                    f"{name}: Reached max sublayers (10) without achieving target SNR"
+                )
+                break
+
+        # Step 6: Return ADTNLinear
+        return adtn.to(linear.weight.device)
 
     def _get_trained_tensorized_layer(
         self,

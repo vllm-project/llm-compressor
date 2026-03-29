@@ -42,14 +42,15 @@ class ADTNLinear(nn.Module):
     @staticmethod
     def _spectral_reordering(
         input_activations: torch.Tensor,
+        group_size: int | None = None,
     ) -> torch.Tensor:
         """
-        Compute optimal channel permutation using Spectral Reordering.
-        Same as TensorizedLinear implementation.
+        Compute optimal channel permutation.
 
-        TODO make iterative -- find group_size most correlated to add to permutation,
-            then find next group_size most correlated from remaining inputs, and so on.
+        If group_size is provided, iteratively finds groups of most correlated features.
+        Otherwise, uses global spectral reordering (Fiedler vector).
         """
+        # Compute correlation matrix
         activations_centered = input_activations - input_activations.mean(
             dim=0, keepdim=True
         )
@@ -58,16 +59,72 @@ class ADTNLinear(nn.Module):
         num_samples = activations_normalized.shape[0]
         correlation = (activations_normalized.T @ activations_normalized) / num_samples
 
-        affinity = torch.exp(correlation - 1.0)
-        degree = torch.diag(affinity.sum(dim=1))
-        laplacian = degree - affinity
+        # If no group_size specified, use global spectral reordering
+        if group_size is None:
+            affinity = torch.exp(correlation - 1.0)
+            degree = torch.diag(affinity.sum(dim=1))
+            laplacian = degree - affinity
 
-        laplacian_f32 = laplacian.to(torch.float32)
-        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
-        fiedler_vector = eigenvectors[:, 1]
-        input_perm = torch.argsort(fiedler_vector)
+            laplacian_f32 = laplacian.to(torch.float32)
+            eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
+            fiedler_vector = eigenvectors[:, 1]
+            input_perm = torch.argsort(fiedler_vector)
 
-        return input_perm.to(input_activations.device)
+            return input_perm.to(input_activations.device)
+
+        # Iterative grouping: find group_size most correlated, then next group_size, etc.
+        in_features = input_activations.shape[1]
+        remaining = set(range(in_features))
+        permutation = []
+
+        while remaining:
+            current_group_size = min(group_size, len(remaining))
+
+            # Find the most correlated pair in remaining features as seed
+            best_pair = None
+            best_corr = -float('inf')
+            remaining_list = list(remaining)
+
+            for i in range(len(remaining_list)):
+                for j in range(i + 1, len(remaining_list)):
+                    idx_i, idx_j = remaining_list[i], remaining_list[j]
+                    corr = correlation[idx_i, idx_j].item()
+                    if corr > best_corr:
+                        best_corr = corr
+                        best_pair = (idx_i, idx_j)
+
+            # Start group with the most correlated pair (or single feature if only one left)
+            if best_pair and current_group_size >= 2:
+                group = list(best_pair)
+                available = remaining - set(best_pair)
+            elif remaining:
+                group = [remaining_list[0]]
+                available = remaining - {remaining_list[0]}
+            else:
+                break
+
+            # Greedily add features most correlated with current group
+            while len(group) < current_group_size and available:
+                best_candidate = None
+                best_score = -float('inf')
+
+                for candidate in available:
+                    # Average correlation with group members
+                    score = sum(correlation[candidate, member].item() for member in group) / len(group)
+                    if score > best_score:
+                        best_score = score
+                        best_candidate = candidate
+
+                if best_candidate is not None:
+                    group.append(best_candidate)
+                    available.remove(best_candidate)
+                else:
+                    break
+
+            permutation.extend(group)
+            remaining -= set(group)
+
+        return torch.tensor(permutation, dtype=torch.long, device=input_activations.device)
 
     @classmethod
     def from_linear(
@@ -137,27 +194,38 @@ class ADTNSublayer(nn.Module):
         self.out_features = out_features
         self.linears = nn.ModuleList(linears)
         self.group_size = linears[0].in_features
-        assert all(linear.group_size == self.group_size for linear in linears)
-        assert in_features == self.group_size * len(self.linears)
-        self.input_perm = input_perm
-        self.input_inv_perm = torch.argsort(input_perm.detach())
+        assert all(linear.in_features == self.group_size for linear in linears[:-1])
+        assert in_features == sum(linear.in_features for linear in linears)
+        self.register_buffer("input_perm", input_perm)
 
     def forward(
         self,
-        x: torch.Tensor,  # shape (batch_size, seq_len, in_features)
+        x: torch.Tensor,  # shape (batch_size, seq_len, in_features) or (batch_size, in_features)
     ):
         """
         Forward operation:
-        1. permute inputs
+        1. permute inputs so correlated features are grouped together
         2. apply linear operations to each group of input activations
-        3. un-permute outputs
+        3. sum outputs from all groups (each group produces full output_features)
         """
-        xperm = self.input_perm[x]
+        # Step 1: Permute inputs - apply permutation to last dimension
+        x_perm = x[..., self.input_perm]
 
-        # TODO vectorized apply of linears
-        yperm = xperm
+        # Step 2: Apply linear operations to each group and sum their outputs
+        # Each group linear maps (group_size,) -> (out_features,)
+        y = None
+        for i, linear in enumerate(self.linears):
+            start_idx = i * self.group_size
+            end_idx = start_idx + linear.in_features
+            group_input = x_perm[..., start_idx:end_idx]
+            group_output = linear(group_input)
 
-        return self.input_inv_perm[yperm]  # shape (batch_size, seq_len, out_features)
+            if y is None:
+                y = group_output
+            else:
+                y = y + group_output
+
+        return y  # shape (batch_size, seq_len, out_features) or (batch_size, out_features)
 
     @property
     def num_params(self):
