@@ -2,6 +2,7 @@
 
 Below are the most frequently asked questions when using LLM Compressor. If you do not see your question here, please file an issue: [LLM Compressor Issues](https://github.com/vllm-project/llm-compressor/issues).
 
+
 **1. Why doesn't my model run any faster after I compress it?**
 
 This is usually the case when loading your model through transformers, not an inference server that supports models in the compressed-tensors format. Loading the model through transformers does not provide an inference benefit, as forward passes of the model are done with the model decompressed. There is no support for optimized compression inference during runtime. Instead, the model should be run in vLLM or another inference server that supports optimized inference for the quantized models.
