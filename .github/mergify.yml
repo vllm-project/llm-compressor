@@ -1,27 +1,4 @@
 pull_request_rules:
-  - name: Automatically merge when ready
-    conditions:
-      - base=main
-      - label=ready
-      - "#approved-reviews-by>=2"
-      - check-success=DCO
-      - check-success=quality-check
-      - or:
-          - check-success=transformers-tests
-          - check-neutral=transformers-tests
-          - check-skipped=transformers-tests
-      - check-success=base-tests (3.10)
-      - check-success=base-tests (3.13)
-      - check-success=pytorch-tests (3.10)
-      - check-success=pytorch-tests (3.13)
-      - check-success=markdown-link-check
-      - check-success=ready-label-check
-      - -conflict
-      - -draft
-    actions:
-      merge:
-        method: squash
-
   - name: label-documentation
     description: Automatically apply documentation label
     conditions:
