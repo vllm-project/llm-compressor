@@ -3,15 +3,19 @@ merge_queue:
 
 queue_rules:
   - name: default
-    merge_method: rebase
+    merge_method: squash
     batch_size: 1
+    commit_message_template: |
+      {{ title }} (#{{ number }})
+
+      {{ body }}
     queue_conditions:
       - check-success=DCO
       - check-success=quality-check
       - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
+          - check-success=transformers-tests
+          - check-neutral=transformers-tests
+          - check-skipped=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -21,9 +25,9 @@ queue_rules:
       - check-success=DCO
       - check-success=quality-check
       - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
+          - check-success=transformers-tests
+          - check-neutral=transformers-tests
+          - check-skipped=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -36,18 +40,6 @@ pull_request_rules:
       - base=main
       - label=ready
       - "#approved-reviews-by>=2"
-      - check-success=DCO
-      - check-success=quality-check
-      - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
-      - check-success=base-tests (3.10)
-      - check-success=base-tests (3.13)
-      - check-success=pytorch-tests (3.10)
-      - check-success=pytorch-tests (3.13)
-      - check-success=markdown-link-check
-      - check-success=ready-label-check
       - -conflict
       - -draft
     actions:
