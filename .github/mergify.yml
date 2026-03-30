@@ -1,35 +1,3 @@
-merge_queue:
-  max_parallel_checks: 1
-
-queue_rules:
-  - name: default
-    merge_method: rebase
-    batch_size: 1
-    queue_conditions:
-      - check-success=DCO
-      - check-success=quality-check
-      - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
-      - check-success=base-tests (3.10)
-      - check-success=base-tests (3.13)
-      - check-success=pytorch-tests (3.10)
-      - check-success=pytorch-tests (3.13)
-      - check-success=markdown-link-check
-    merge_conditions:
-      - check-success=DCO
-      - check-success=quality-check
-      - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
-      - check-success=base-tests (3.10)
-      - check-success=base-tests (3.13)
-      - check-success=pytorch-tests (3.10)
-      - check-success=pytorch-tests (3.13)
-      - check-success=markdown-link-check
-
 pull_request_rules:
   - name: Automatically merge when ready
     conditions:
@@ -39,9 +7,9 @@ pull_request_rules:
       - check-success=DCO
       - check-success=quality-check
       - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
+          - check-success=transformers-tests
+          - check-neutral=transformers-tests
+          - check-skipped=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -51,8 +19,8 @@ pull_request_rules:
       - -conflict
       - -draft
     actions:
-      queue:
-        name: default
+      merge:
+        method: squash
 
   - name: label-documentation
     description: Automatically apply documentation label
