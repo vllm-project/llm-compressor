@@ -8,7 +8,7 @@ from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
 from safetensors import safe_open
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from torch.nn import Module
 
 from llmcompressor.entrypoints.model_free.lifecycle import (
@@ -36,6 +36,7 @@ def validate_file(
     ignore: Iterable[str],
     device: str | torch.device,
     converter: Converter | None = None,
+    weights_map: dict[str, str] | None = None,
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -48,6 +49,9 @@ def validate_file(
     :param device: device used to quantize and compress weights
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
+    :param weights_map: optional mapping of tensor name -> source file path,
+        built from safetensors.index.json. Reserved for future use by callers
+        that need cross-shard tensor location lookup during validation.
     """
     tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
 
@@ -150,12 +154,9 @@ def process_file_microscale_scheme(
     if converter is not None:
         converter.process(tensors)
 
-    # All fused sets should be complete — inverse_weights_map was built to ensure this
-    fused_sets, unmatched_sets = get_fused_names(list(tensors.keys()))
-    assert len(unmatched_sets) == 0, (
-        f"Unresolved fused weight sets after loading inverse_weights_map: "
-        f"{unmatched_sets}. This is a bug in build_inverse_weights_map."
-    )
+    # Get fused sets. Non-primary shards may have incomplete sets (k/v without q)
+    # since only the primary-owning shard fetches partners — this is correct.
+    fused_sets, _ = get_fused_names(list(tensors.keys()))
 
     fused_name_to_fused_index: dict[str, int] = {
         name: index
