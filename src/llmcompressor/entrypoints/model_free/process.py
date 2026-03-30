@@ -8,7 +8,7 @@ from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
 from safetensors import safe_open
-from safetensors.torch import load_file, save_file
+from safetensors.torch import save_file
 from torch.nn import Module
 
 from llmcompressor.entrypoints.model_free.lifecycle import (
