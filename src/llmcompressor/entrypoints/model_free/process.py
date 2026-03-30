@@ -36,7 +36,6 @@ def validate_file(
     ignore: Iterable[str],
     device: str | torch.device,
     converter: Converter | None = None,
-    weights_map: dict[str, str] | None = None,
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -49,9 +48,6 @@ def validate_file(
     :param device: device used to quantize and compress weights
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
-    :param weights_map: optional mapping of tensor name -> source file path,
-        built from safetensors.index.json. Reserved for future use by callers
-        that need cross-shard tensor location lookup during validation.
     """
     tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
 
