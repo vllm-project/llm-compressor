@@ -224,7 +224,7 @@ def _load_tensors_from_inverse_weights_map(
     device: str | torch.device,
 ) -> dict[str, torch.Tensor]:
     """
-    Given an invsere_weights_map, which is a dictionary of file name to list of
+    Given an inverse_weights_map, which is a dictionary of file name to list of
     tensor names, load up all listed tensor names
 
     :param inverse_weights_map: mapping of resolved source file path ->
