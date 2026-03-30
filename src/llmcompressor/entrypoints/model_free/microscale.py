@@ -2,6 +2,7 @@ import re
 from collections import defaultdict
 
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
+from loguru import logger
 
 from llmcompressor.entrypoints.model_free.helpers import (
     MatchedNamesSet,
@@ -121,12 +122,23 @@ def build_inverse_weights_map(
                 partner_name = partner_template.format(**match.groupdict())
 
                 partner_shard = weight_map.get(partner_name)
-                if partner_shard is None or partner_shard == shard_name:
-                    continue  # same shard or not found
+                if partner_shard is None:
+                    logger.warning(
+                        f"Expected partner tensor {partner_name!r} not found "
+                        f"in weight_map — skipping. This may indicate an "
+                        f"unexpected model architecture."
+                    )
+                    continue
+                if partner_shard == shard_name:
+                    continue  # partner is in the same shard
 
                 partner_resolved = model_files.get(partner_shard)
                 if partner_resolved is None:
-                    continue
+                    raise ValueError(
+                        f"Partner shard {partner_shard!r} for tensor "
+                        f"{partner_name!r} not found in model_files. "
+                        "This indicates a corrupt or incomplete checkpoint."
+                    )
 
                 if partner_name not in inverse_weights_map[partner_resolved]:
                     inverse_weights_map[partner_resolved].append(partner_name)
