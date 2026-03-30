@@ -55,6 +55,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = Path(model_id).name + "-W4A4-MXFP8-AutoRound"
+SAVE_DIR = Path(model_id).name + "-W8A8-MXFP8-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
