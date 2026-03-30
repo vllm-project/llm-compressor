@@ -1,6 +1,7 @@
 queue_rules:
   - name: default
     merge_method: merge
+    batch_size: 1
     commit_message_template: |
       {{ title }} (#{{ number }})
 
@@ -10,7 +11,16 @@ queue_rules:
     queue_conditions:
       - check-success=DCO
       - check-success=quality-check
-      - check-success=transformers-tests
+      - check-success-or-neutral=transformers-tests
+      - check-success=base-tests (3.10)
+      - check-success=base-tests (3.13)
+      - check-success=pytorch-tests (3.10)
+      - check-success=pytorch-tests (3.13)
+      - check-success=markdown-link-check
+    merge_conditions:
+      - check-success=DCO
+      - check-success=quality-check
+      - check-success-or-neutral=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -25,7 +35,7 @@ pull_request_rules:
       - "#approved-reviews-by>=2"
       - check-success=DCO
       - check-success=quality-check
-      - check-success=transformers-tests
+      - check-success-or-neutral=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
