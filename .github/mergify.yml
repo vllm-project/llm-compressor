@@ -3,14 +3,8 @@ merge_queue:
 
 queue_rules:
   - name: default
-    merge_method: squash
+    merge_method: rebase
     batch_size: 1
-    commit_message_template: |
-      {{ title }} (#{{ number }})
-
-      {{ body }}
-
-      Signed-off-by: Mergify <noreply@mergify.com>
     queue_conditions:
       - check-success=DCO
       - check-success=quality-check
