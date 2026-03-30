@@ -241,11 +241,12 @@ def _load_tensors_from_inverse_weights_map(
     tensors: dict[str, torch.Tensor] = {}
     for source_file, tensor_names in inverse_weights_map.items():
         with safe_open(source_file, framework="pt", device=str(device)) as f:
+            keys = f.keys()
             # if tensor_names is empty, pull all tensors
             if tensor_names is None or len(tensor_names) == 0:
-                tensor_names = f.keys()
+                tensor_names = keys
             for tensor_name in tensor_names:
-                if tensor_name not in f.keys():
+                if tensor_name not in keys:
                     raise ValueError(
                         f"Expected to find tensor {tensor_name} in "
                         f"{source_file}, but tensor was not found."
