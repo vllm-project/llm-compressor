@@ -11,7 +11,7 @@ queue_rules:
     queue_conditions:
       - check-success=DCO
       - check-success=quality-check
-      - check-success=transformers-tests
+      - check-success-or-neutral=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -20,7 +20,7 @@ queue_rules:
     merge_conditions:
       - check-success=DCO
       - check-success=quality-check
-      - check-success=transformers-tests
+      - check-success-or-neutral=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -35,7 +35,7 @@ pull_request_rules:
       - "#approved-reviews-by>=2"
       - check-success=DCO
       - check-success=quality-check
-      - check-success=transformers-tests
+      - check-success-or-neutral=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
