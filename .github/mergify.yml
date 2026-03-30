@@ -9,9 +9,9 @@ queue_rules:
       - check-success=DCO
       - check-success=quality-check
       - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
+          - check-success=transformers-tests
+          - check-neutral=transformers-tests
+          - check-skipped=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -21,9 +21,9 @@ queue_rules:
       - check-success=DCO
       - check-success=quality-check
       - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
+          - check-success=transformers-tests
+          - check-neutral=transformers-tests
+          - check-skipped=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
@@ -39,9 +39,9 @@ pull_request_rules:
       - check-success=DCO
       - check-success=quality-check
       - or:
-        - check-success=transformers-tests
-        - check-neutral=transformers-tests
-        - check-skipped=transformers-tests
+          - check-success=transformers-tests
+          - check-neutral=transformers-tests
+          - check-skipped=transformers-tests
       - check-success=base-tests (3.10)
       - check-success=base-tests (3.13)
       - check-success=pytorch-tests (3.10)
