@@ -9,7 +9,6 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
-from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -109,7 +108,6 @@ def quantize_weight(
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
-
 
     scale, zero_point = observer(W)
     # handle g_idx and activation ordering

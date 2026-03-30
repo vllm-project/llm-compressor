@@ -1,6 +1,10 @@
 import pytest
 import torch
-from compressed_tensors.quantization import ActivationOrdering, QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    ActivationOrdering,
+    QuantizationArgs,
+    QuantizationScheme,
+)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -163,14 +167,14 @@ def test_oneshot_application(recipe, tmp_path):
     # Verify g_idx behavior for activation ordering
     if weight_args.actorder == ActivationOrdering.GROUP:
         # GROUP actorder should save g_idx
-        assert hasattr(targetted_linear_layer, "weight_g_idx"), (
-            "GROUP actorder should have g_idx"
-        )
+        assert hasattr(
+            targetted_linear_layer, "weight_g_idx"
+        ), "GROUP actorder should have g_idx"
     elif weight_args.actorder == ActivationOrdering.WEIGHT:
         # WEIGHT actorder should NOT save g_idx (identity mapping)
-        assert not hasattr(targetted_linear_layer, "weight_g_idx"), (
-            "WEIGHT actorder should not have g_idx"
-        )
+        assert not hasattr(
+            targetted_linear_layer, "weight_g_idx"
+        ), "WEIGHT actorder should not have g_idx"
 
     # Numerical validation: check MSE
     with torch.no_grad():
