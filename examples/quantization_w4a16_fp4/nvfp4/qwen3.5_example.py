@@ -1,4 +1,5 @@
 from compressed_tensors.offload import dispatch_model
+from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
 from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
 
 from llmcompressor import oneshot
@@ -14,8 +15,11 @@ processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp4 with per group 16 via ptq
-#   * skip the visual encoder, lm_head, linear attention (Gated DeltaNet
-#     fused projections are incompatible with NVFP4), and MTP modules
+#   * skip the visual encoder, lm_head, linear attention
+#   (Gated DeltaNet fused projections are incompatible with microscale formats)
+
+# No need to include mtp layers as they are not loaded
+# through Qwen3_5ForConditionalGeneration
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="NVFP4A16",
@@ -23,7 +27,6 @@ recipe = QuantizationModifier(
         "lm_head",
         "re:.*visual.*",
         "re:.*linear_attn.*",
-        "re:.*mtp.*",
     ],
 )
 
@@ -45,3 +48,7 @@ print("==========================================\n\n")
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)
+
+# MTP layers are excluded from the model through Qwen3_5ForConditionalGeneration
+# Save them as-is from the original checkpoint into the quantized output.
+save_mtp_tensors_to_checkpoint(source_model=MODEL_ID, dest_dir=SAVE_DIR)

@@ -19,19 +19,23 @@ nav:
     - Qwen3:
       - key-models/qwen3/index.md
       - FP8 Example: key-models/qwen3/fp8-example.md
+    - Qwen3.5:
+      - key-models/qwen3.5/index.md
+      - NVFP4A16 VL Example: key-models/qwen3.5/nvfp4-vl-example.md
+      - NVFP4 MoE Example: key-models/qwen3.5/nvfp4-moe-example.md
     - Kimi-K2:
       - key-models/kimi-k2/index.md
       - FP8 Example: key-models/kimi-k2/fp8-example.md
     - Mistral Large 3:
       - key-models/mistral-large-3/index.md
       - FP8 Example: key-models/mistral-large-3/fp8-example.md
-  - Guides:
+  - User Guides:
     - Big Models and Distributed Support:
       - Model Loading: guides/big_models_and_distributed/model_loading.md
       - Sequential Onloading: guides/big_models_and_distributed/sequential_onloading.md
       - Distributed Oneshot: guides/big_models_and_distributed/distributed_oneshot.md
     - Compression Schemes: guides/compression_schemes.md
-    - Saving a Model: guides/saving_a_model.md
+    - Saving a Compressed Model: guides/saving_a_model.md
     - Observers: guides/observers.md
     - Memory Requirements: guides/memory.md
     - Runtime Performance: guides/runtime.md
