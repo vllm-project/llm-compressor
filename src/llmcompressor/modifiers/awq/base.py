@@ -1,4 +1,3 @@
-import contextlib
 import inspect
 from itertools import product
 from typing import Iterator, Literal
@@ -7,7 +6,6 @@ import torch
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
-    disable_quantization,
     forward_quantize,
 )
 from compressed_tensors.utils import (
@@ -16,13 +14,11 @@ from compressed_tensors.utils import (
     get_lowest_common_ancestor_name,
     getattr_chain,
     match_modules_set,
-    match_named_modules,
-    patch_attr,
     patch_attrs,
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr, field_validator, Field
+from pydantic import ConfigDict, PrivateAttr, field_validator
 from torch import distributed as dist
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
@@ -37,10 +33,7 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
-    update_weight_global_scale,
-    update_weight_zp_scale,
 )
-from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
