@@ -1,7 +1,6 @@
 queue_rules:
   - name: default
     merge_method: merge
-    max_parallel_checks: 1
     batch_size: 1
     commit_message_template: |
       {{ title }} (#{{ number }})
