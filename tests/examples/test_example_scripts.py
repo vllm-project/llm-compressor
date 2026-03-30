@@ -132,12 +132,6 @@ class TestCase(NamedTuple):
             prefix="MXFP4A16",
         ),
         TestCase(
-            "sparse_2of4_quantization_fp8/llama3_8b_2of4.py",
-            flags=["--fp8"],
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="W8A8-FP8-Dynamic-Per-Token",
-        ),
-        TestCase(
             "quantization_w4a4_fp4/llama4_example.py",
             compressed_format=CompressionFormat.nvfp4_pack_quantized,
             prefix="NVFP4",

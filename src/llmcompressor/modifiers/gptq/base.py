@@ -224,9 +224,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self.compress_modules()
 
             if not self.ended_:
@@ -302,7 +304,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             num_samples = self._num_samples[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name} using {num_samples} samples")
+            logger.info(f"Quantizing {name} using {int(num_samples)} samples")
             with (
                 torch.no_grad(),
                 align_module_device(module),
@@ -316,7 +318,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
-                comp_logger.set_loss(loss)
+                comp_logger.set_results(name="GPTQ", loss=loss)
 
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)

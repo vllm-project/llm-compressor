@@ -21,7 +21,7 @@ For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md
 
 ## New in this release
 
-Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.9.0) for details about new features. Highlights include:
+Review the [LLM Compressor v0.10.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.10.0) for details about new features. Highlights include:
 
 !!! info "Updated offloading and model loading support"
     Loading transformers models that are offloaded to disk and/or offloaded across distributed process ranks is now supported. Disk offloading allows users to load and compress very large models which normally would not fit in CPU memory. Offloading functionality is no longer supported through accelerate but through model loading utilities added to compressed-tensors. For a full summary of updated loading and offloading functionality, for both single-process and distributed flows, see the [Big Models and Distributed Support guide](guides/big_models_and_distributed/model_loading.md)
@@ -47,7 +47,7 @@ Review the [LLM Compressor v0.9.0 release notes](https://github.com/vllm-project
 | **GPTQ** | Weighted quantization with calibration | High-accuracy 4 and 8 bit weight quantization |
 | **AWQ** | Activation-aware weight quantization | Preserves accuracy for important weights |
 | **SmoothQuant** | Outlier handling for W8A8 | Improved activation quantization |
-| **SparseGPT** | Pruning with quantization | 2:4 sparsity patterns |
+| **SparseGPT** | Pruning with quantization | sparsity patterns |
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
@@ -65,7 +65,6 @@ LLM Compressor supports applying multiple formats in a given model.
 | **NVFP4/MXFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
 | **W4AFP8** | Weights and activations  | 8.9 (Hopper and up) | Low-bit weights with dynamic FP8 activations |
 | **W4AINT8** | Weights and activations  | 7.5 (Turing and up) | Low-bit weights with dynamic INT8 activations |
-| **2:4 Sparse** | Weights | 8.0 (Ampere and up) | Sparsity-accelerated inference |
 
-!!! note
-    Listed compute capability indicates the minimum architecture required for hardware acceleration.
+!!! warning
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.

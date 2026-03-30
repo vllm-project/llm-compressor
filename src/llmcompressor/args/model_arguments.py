@@ -75,9 +75,9 @@ class ModelArguments:
         },
     )
     # TODO: potentialy separate out/expand to additional saving args
-    save_compressed: bool | None = field(
+    save_compressed: bool = field(
         default=True,
-        metadata={"help": "Whether to compress sparse models during save"},
+        metadata={"help": "Whether to compress models during save"},
     )
     model_revision: str = field(
         default="main",
