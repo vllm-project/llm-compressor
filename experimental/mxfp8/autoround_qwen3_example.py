@@ -9,7 +9,6 @@ from compressed_tensors.offload import dispatch_model
 
 # Select model and load it.
 model_id = "Qwen/Qwen3-8B"
-model_id = "Qwen/Qwen3-8B/"
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
