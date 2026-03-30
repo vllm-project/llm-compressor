@@ -22,7 +22,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr, field_validator
+from pydantic import ConfigDict, PrivateAttr, field_validator, Field
 from torch import distributed as dist
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
@@ -56,7 +56,7 @@ from llmcompressor.utils.pytorch.module import (
 __all__ = ["AWQModifier"]
 
 
-class AWQModifier(Modifier, QuantizationMixin):
+class AWQModifier(Modifier):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
     as described in https://arxiv.org/pdf/2306.00978. The algorithm
@@ -85,19 +85,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         # for activation caching.
         # This change is only useful for MoE models with parallel transformer blocks,
         # and one should use the default value (None) in most cases.
-      ignore: ["lm_head"]
-      config_groups:
-        group_0:
-          targets:
-            - "Linear"
-          input_activations: null
-          output_activations: null
-          weights:
-            num_bits: 4
-            type: int
-            symmetric: false
-            strategy: group
-            group_size: 128
     ```
 
     Lifecycle:
@@ -136,9 +123,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         specifying which submodule to hook for activation caching. This is useful
         for parallel transformer blocks where the default (hooking
         ``balance_layers[0]``) would capture the wrong activations.
-    :param ignore: list of layers to ignore during quantization (not smoothed).
-        It should match the name of layers whose outputs are scaled to achieve
-        smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
@@ -187,24 +171,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: True on a successful run, False otherwise
         """
 
-        # Validate that duo_scaling is only used with per-channel quantization
-        if self.duo_scaling is not False:
-            for _, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            ):
-                if (
-                    hasattr(module, "quantization_scheme")
-                    and hasattr(module.quantization_scheme, "weights")
-                    and module.quantization_scheme.weights.strategy
-                    == QuantizationStrategy.TENSOR
-                ):
-                    raise ValueError(
-                        "duo_scaling is only supported with per-channel quantization "
-                        "strategies (group or channel), but found TENSOR strategy. "
-                        "Please set duo_scaling=False or use a per-channel "
-                        "quantization strategy."
-                    )
-
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
             self.mappings = get_layer_mappings_from_architecture(
@@ -243,6 +209,29 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "disable token masking or exclude the up_proj -> down_proj mapping "
                 "for MoE layers from the AWQ configuration."
             )
+
+        # Validate that duo_scaling is only used with per-channel quantization
+        if self.duo_scaling is not False:
+
+            def _validate_balance_layer(name, module):
+                if (
+                    hasattr(module, "quantization_scheme")
+                    and hasattr(module.quantization_scheme, "weights")
+                    and module.quantization_scheme.weights.strategy
+                    == QuantizationStrategy.TENSOR
+                ):
+                    raise ValueError(
+                        "duo_scaling is only supported with per-channel quantization "
+                        "strategies (group or channel), but found TENSOR strategy on "
+                        f"layer {name}. Please set duo_scaling=False or use a "
+                        "per-channel quantization strategy."
+                    )
+
+            for mapping in self._resolved_mappings:
+                for balance_name, balance_layer in zip(
+                    mapping.balance_names, mapping.balance_layers
+                ):
+                    _validate_balance_layer(balance_name, balance_layer)
 
         self._setup_activation_cache_hooks()
 
@@ -307,17 +296,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
-        # Get names of modules targeted for quantization (excludes ignored)
-        targeted_names = set(
-            name
-            for name, _ in match_named_modules(
-                model, self.resolved_targets, self.ignore
-            )
-        )
+
         for mapping in self.mappings:
-            # we deliberately don't use the ignore list when matching mappings,
-            # so that we can handle layers that need smoothing but not quantization
-            # we only skip if no layers in mapping are targeted for quantization.
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
@@ -339,8 +319,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                 ]
 
                 # Check if at least one layer is targeted for quantization
-                any_targeted = smooth_name in targeted_names or any(
-                    bn in targeted_names for bn in balance_names
+                any_targeted = hasattr(smooth_layer, "quantization_scheme") or any(
+                    [
+                        hasattr(balance_layer, "quantization_scheme")
+                        for balance_layer in balance_layers
+                    ]
                 )
 
                 all_compatible = _check_layers_are_compatible(
@@ -643,7 +626,27 @@ class AWQModifier(Modifier, QuantizationMixin):
                 n_grid = self.n_grid
                 duo_scalings = [self.duo_scaling]
 
-        with self._patch_mapping_quant_config(mapping):
+        # Where appropriate, replace observers with memoryless_minmax
+        # for duration of grid search
+        balance_layers_to_patch = [
+            balance_layer
+            for balance_layer in mapping.balance_layers
+            if hasattr(balance_layer, "quantization_scheme")
+            and hasattr(balance_layer.quantization_scheme, "weights")
+        ]
+        with patch_attrs(
+            balance_layers_to_patch,
+            "weight_observer",
+            [
+                Observer.load_from_registry(
+                    "memoryless_minmax",
+                    base_name="weight",
+                    args=balance_layer.quantization_scheme.weights,
+                    module=balance_layer,
+                )
+                for balance_layer in balance_layers_to_patch
+            ],
+        ):
             total_iterations = n_grid * len(duo_scalings)
             pbar = tqdm(
                 product(range(n_grid), duo_scalings),
@@ -668,12 +671,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 _scalesview = scales.view(1, -1).to(device)
 
                 # Q(W * s)
-                for balance_layer in mapping.balance_layers:
-                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
-                        balance_layer.quantization_scheme, "weights"
-                    ):
-                        continue
-
+                for balance_layer in balance_layers_to_patch:
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.data.copy_(
                         orig_layer_weights[balance_layer].to(_scalesview.device)
@@ -798,44 +796,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             loss, num_elements = _allreduce_data_sum([loss, num_elements])
         # Normalize the loss by the total number of elements
         return (loss / num_elements).item()
-
-    @contextlib.contextmanager
-    def _patch_mapping_quant_config(self, mapping: ResolvedMapping):
-        with contextlib.ExitStack() as stack:
-            # Where appropriate, replace observers with memoryless_minmax
-            # for duration of grid search
-
-            balance_layers_to_patch = [
-                balance_layer
-                for balance_layer in mapping.balance_layers
-                if hasattr(balance_layer, "quantization_scheme")
-                and hasattr(balance_layer.quantization_scheme, "weights")
-            ]
-            stack.enter_context(
-                patch_attrs(
-                    balance_layers_to_patch,
-                    "weight_observer",
-                    [
-                        Observer.load_from_registry(
-                            "memoryless_minmax",
-                            base_name="weight",
-                            args=balance_layer.quantization_scheme.weights,
-                            module=balance_layer,
-                        )
-                        for balance_layer in balance_layers_to_patch
-                    ],
-                )
-            )
-            for name, module in match_named_modules(
-                mapping.parent,
-                self.resolved_targets,
-                self.ignore,
-                # NOTE: would have to add prefix
-                prefix=mapping.parent_name,
-            ):
-                stack.enter_context(patch_attr(module, "quantization_scheme", scheme))
-                # TODO repeat with everything added during apply_quantization_config
-            yield
 
     def _log_error_metrics(self):
         """
@@ -975,7 +935,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
 
 def _check_layers_are_compatible(
-    smooth_layer, smooth_name, balance_layers, balance_names
+    smooth_layer: Module,
+    smooth_name: str,
+    balance_layers: list[Module],
+    balance_names: list[str],
 ):
     """
     returns True if they are all compatible
