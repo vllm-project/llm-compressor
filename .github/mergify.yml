@@ -3,7 +3,7 @@ merge_queue:
 
 queue_rules:
   - name: default
-    merge_method: merge
+    merge_method: squash
     batch_size: 1
     commit_message_template: |
       {{ title }} (#{{ number }})
