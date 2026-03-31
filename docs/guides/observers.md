@@ -64,6 +64,44 @@ Best used when:
 - Calibration accuracy is critical across multiple batches
 - Quantization error needs to be tightly controlled (e.g., 4-bit weight quantization)
 
+### IMatrix Observer
+
+The IMatrix observer weights quantization error by per-input-channel activation importance (E[x²]), so channels that carry more signal get more careful range optimization.
+
+#### [imatrix_mse](../../src/llmcompressor/observers/imatrix.py)
+Extends the MSE grid search with importance weighting: `err = sum(importance * |Q(w) - w|^p)`. Importance scores (E[x²] per input channel) are collected by a preceding `IMatrixGatherer` modifier during a dedicated calibration pass.
+
+Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` modules. Falls back silently to uniform MSE (i.e., standard `memoryless_mse` behavior) whenever importance data is unavailable — for example, when no `IMatrixGatherer` preceded the quantization step — unless `strict=True` is set.
+
+Best used when:
+- 4-bit weight quantization accuracy is critical
+- You want to combine with GPTQ for further improvement
+
+**Requires `IMatrixGatherer`** as the first modifier in your recipe to trigger the calibration pass that collects E[x²]. See [IMatrixGatherer](#imatrixgatherer) below.
+
+**Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
+
+| Config | PPL |
+|---|---|
+| FP16 baseline | 6.24 |
+| RTN `memoryless_minmax` | 6.96 |
+| GPTQ | 6.92 |
+| AWQ | 6.89 |
+| RTN `imatrix_mse` | 6.85 |
+| GPTQ + `imatrix_mse` | 6.83 |
+
+### IMatrixGatherer
+
+[`IMatrixGatherer`](../../src/llmcompressor/modifiers/transform/imatrix/base.py) is a modifier (not an observer) that must precede `QuantizationModifier` or `GPTQModifier` in your recipe when using `imatrix_mse`. It orchestrates a dedicated calibration pass during which the observer collects E[x²] per input channel via forward pre-hooks. It does **not** quantize weights.
+
+At the end of the calibration epoch, it calls `observer.detach()` on each instrumented module, which computes `_imatrix_importance` and leaves it on the module for the subsequent quantization pass.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `targets` | `["Linear"]` | Module types to instrument for importance collection. |
+| `ignore` | `["lm_head"]` | Layer name patterns to skip. |
+| `weight_observer` | `"imatrix_mse"` | Observer to attach during the calibration pass. |
+
 ## Quantization Strategies
 
 Observers support multiple quantization strategies via the `QuantizationArgs.strategy` field:
@@ -93,6 +131,16 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 | `grid`               | `100.0` | Resolution of the shrink search. Higher values give finer granularity. |
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
+
+### IMatrix observer (`imatrix_mse`)
+
+| Argument      | Default | Description |
+|---------------|---------|-------------|
+| `maxshrink`   | `0.95`  | Maximum shrink factor for the grid search. The search evaluates `int(maxshrink * grid)` shrink steps. |
+| `patience`    | `5`     | Number of consecutive steps without improvement before early stopping. |
+| `grid`        | `20`    | Number of grid steps. Higher values give finer granularity at the cost of speed. |
+| `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
+| `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
 
 ## Example Usage
 
