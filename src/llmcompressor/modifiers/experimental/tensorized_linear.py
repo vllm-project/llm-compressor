@@ -320,8 +320,9 @@ class TensorizedLinear(nn.Module):
         shape = output_shape + input_shape
 
         # upconvert to float32 before svd, no bfloat16 implementation
+        # Detach to avoid gradient tracking warnings from tensorly
         orig_dtype = weight.dtype
-        weight_permuted = weight_permuted.to(torch.float32)
+        weight_permuted = weight_permuted.to(torch.float32).detach()
         tt_matrix = tl.decomposition.tensor_train_matrix(
             tl.reshape(weight_permuted, shape),
             rank=rank,
