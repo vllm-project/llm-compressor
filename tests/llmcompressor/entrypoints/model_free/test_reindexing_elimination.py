@@ -9,7 +9,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.microscale import (
-    build_inverse_weights_map,
+    build_microscale_inverse_weights_map,
 )
 from llmcompressor.entrypoints.model_free.process import (
     process_file_microscale_scheme,
@@ -45,7 +45,7 @@ class TestBuildWeightsMap:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_inverse_weights_map(
+        result = build_microscale_inverse_weights_map(
             "shard-00001.safetensors", weight_map, model_files
         )
         # result is {file_path: [tensor_names]}, check tensor is in the list
@@ -66,7 +66,7 @@ class TestBuildWeightsMap:
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
-        result = build_inverse_weights_map(
+        result = build_microscale_inverse_weights_map(
             "shard-00001.safetensors", weight_map, model_files
         )
         # check tensor.a is in the result values
@@ -84,7 +84,7 @@ class TestBuildInverseWeightsMap:
             "model.layers.0.self_attn.v_proj.weight": shard,
         }
         model_files = {shard: str(tmp_path / shard)}
-        result = build_inverse_weights_map(shard, weight_map, model_files)
+        result = build_microscale_inverse_weights_map(shard, weight_map, model_files)
         assert len(result) == 1
         assert str(tmp_path / shard) in result
 
@@ -99,7 +99,7 @@ class TestBuildInverseWeightsMap:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_inverse_weights_map(
+        result = build_microscale_inverse_weights_map(
             "shard-00001.safetensors", weight_map, model_files
         )
         # Should include both shards
@@ -174,10 +174,10 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
             "shard-00002.safetensors": str(shard2_path),
         }
         # Precompute inverse_weights_map for each shard
-        iwm1 = build_inverse_weights_map(
+        iwm1 = build_microscale_inverse_weights_map(
             "shard-00001.safetensors", weight_map, model_files
         )
-        iwm2 = build_inverse_weights_map(
+        iwm2 = build_microscale_inverse_weights_map(
             "shard-00002.safetensors", weight_map, model_files
         )
         return shard1_path, shard2_path, iwm1, iwm2
