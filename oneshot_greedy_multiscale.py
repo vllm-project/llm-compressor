@@ -22,12 +22,18 @@ SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
 TARGET_SNR_DB = 30.0  # Target activation SNR
-MAX_STAGES = 15  # Maximum Tucker+Sparse+BlockDiagLR stages
+MAX_STAGES = 15  # Maximum cascade iterations
 TUCKER_NUM_MODES = 3  # Number of modes for Tucker decomposition
 TUCKER_RANK = 0.3  # Rank ratio for Tucker core (low for small components)
+KRONECKER_FACTOR_SIZE = None  # Kronecker factor size (None = auto)
+BLOCKTT_BLOCK_SIZE = 512  # Block size for Block Tensor Train
+BLOCKTT_NUM_CORES = 3  # Number of TT cores per block
+BLOCKTT_RANK = 0.5  # Rank ratio for Block TT
 BLOCKDIAG_NUM_BLOCKS = 16  # Number of diagonal blocks (local clusters)
 BLOCKDIAG_RANK = 64  # Low-rank component rank (global communication)
 SPARSE_SPARSITY = 0.1  # Column sparsity (0.1 = keep 90% of columns)
+USE_KRONECKER = True  # Include Kronecker decomposition
+USE_BLOCKTT = True  # Include Block Tensor Train
 USE_SPARSE = True  # Include column-sparse stages in cascade
 
 # Calibration settings
@@ -124,6 +130,8 @@ def compress_model_greedy_multiscale(
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
     print(f"  Max stages: {MAX_STAGES}")
     print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
+    print(f"  Kronecker: factor_size={KRONECKER_FACTOR_SIZE}, enabled={USE_KRONECKER}")
+    print(f"  BlockTT: block_size={BLOCKTT_BLOCK_SIZE}, num_cores={BLOCKTT_NUM_CORES}, rank={BLOCKTT_RANK}, enabled={USE_BLOCKTT}")
     print(f"  Sparse: sparsity={SPARSE_SPARSITY}, enabled={USE_SPARSE}")
     print(f"  BlockDiag+LR: num_blocks={BLOCKDIAG_NUM_BLOCKS}, rank={BLOCKDIAG_RANK}")
     print()
@@ -201,9 +209,15 @@ def compress_model_greedy_multiscale(
             max_stages=MAX_STAGES,
             tucker_num_modes=TUCKER_NUM_MODES,
             tucker_rank=TUCKER_RANK,
+            kronecker_factor_size=KRONECKER_FACTOR_SIZE,
+            blocktt_block_size=BLOCKTT_BLOCK_SIZE,
+            blocktt_num_cores=BLOCKTT_NUM_CORES,
+            blocktt_rank=BLOCKTT_RANK,
             blockdiag_num_blocks=BLOCKDIAG_NUM_BLOCKS,
             blockdiag_rank=BLOCKDIAG_RANK,
             sparse_sparsity=SPARSE_SPARSITY,
+            use_kronecker=USE_KRONECKER,
+            use_blocktt=USE_BLOCKTT,
             use_sparse=USE_SPARSE,
             verbose=True,
         )

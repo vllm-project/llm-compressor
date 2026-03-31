@@ -1,31 +1,34 @@
-"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Sparse + BlockDiag+LowRank.
+"""Greedy Multi-Scale Decomposition: 5-Component Cascade.
 
 Mathematical form:
-    y = Tucker_1(x) + Sparse_1(x) + BlockDiagLR_1(x) + Tucker_2(x) + ...
+    y = Tucker(x) + Kronecker(x) + BlockTT(x) + Sparse(x) + BlockDiagLR(x) + ...
 
 Strategy (per stage):
-    1. Tucker: Captures global multi-dimensional structure (dual spectral reordering)
-    2. Sparse: Captures outlier features and sharp edges
-    3. Block-Diagonal + Low-Rank: Local clusters (dense blocks) + global communication
+    1. Tucker: Global multi-dimensional structure (dual spectral reordering)
+    2. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
+    3. Block Tensor Train: Block-wise structured tensor decomposition
+    4. Sparse: Outlier features and sharp edges
+    5. Block-Diagonal + Low-Rank: Local clusters + global communication
 
 Geometric perspectives:
-    - Tucker: Dual spectral reordering for locally-coherent multi-dimensional structure
+    - Tucker: Multi-dimensional correlations with spectral reordering
+    - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
+    - Block TT: Divide matrix into blocks, tensor train per block
     - Sparse: Greedy column selection for outliers
-    - BlockDiag+LR: Local neuron clusters (dense) + global coordination (low-rank)
+    - BlockDiag+LR: Dense local clusters + low-rank global communication
 
-Why Block-Diagonal + Low-Rank last:
-    - Tucker handles global structure first
-    - Sparse captures outliers Tucker misses
-    - BlockDiag+LR is BETTER than plain low-rank because:
-      * Dense blocks preserve LOCAL features perfectly (stable SNR)
-      * Low-rank component handles GLOBAL communication between blocks
-      * Covers both local AND global (plain low-rank only does global)
-    - Inspired by Monarch decompositions
+Why this order:
+    - Tucker: Captures global structure first (benefits most from clean signal)
+    - Kronecker: Super efficient (0.1-1% params), captures repeating structure
+    - Block TT: Structured decomposition of remaining blocks
+    - Sparse: Handles outliers the structured methods miss
+    - BlockDiag+LR: Mops up local + global in residual (stable SNR)
 
 Benefits:
-    - Each decomposition attacks error from different geometric perspective
-    - BlockDiag+LR more stable SNR than plain low-rank
-    - More memory efficient than single large decomposition
+    - Each component attacks error from different geometric perspective
+    - Kronecker leaves massive parameter budget for residuals
+    - Block TT provides structured compression without full MPO
+    - BlockDiag+LR more stable than plain low-rank
     - Numerically stable (small components)
 """
 
@@ -34,6 +37,8 @@ import torch.nn as nn
 from typing import Optional
 
 from llmcompressor.modifiers.experimental.tucker_linear import TuckerLinear
+from llmcompressor.modifiers.experimental.kronecker_linear import KroneckerLinear
+from llmcompressor.modifiers.experimental.block_tensorized_linear import BlockTensorizedLinear
 from llmcompressor.modifiers.experimental.blockdiag_lowrank_linear import BlockDiagonalLowRankLinear
 from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
@@ -132,9 +137,15 @@ class GreedyMultiScaleLinear(nn.Module):
         max_stages: int = 5,
         tucker_num_modes: int = 3,
         tucker_rank: float = 0.3,  # Low rank for small Tucker cores
+        kronecker_factor_size: Optional[int] = None,  # Auto: sqrt of dims
+        blocktt_block_size: int = 512,  # Block size for Block TT
+        blocktt_num_cores: int = 3,  # Number of cores per block
+        blocktt_rank: float = 0.5,  # Rank for Block TT
         blockdiag_num_blocks: int = 16,  # Number of diagonal blocks
         blockdiag_rank: int = 64,  # Low-rank component rank
         sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
+        use_kronecker: bool = True,  # Include Kronecker stages
+        use_blocktt: bool = True,  # Include Block TT stages
         use_sparse: bool = True,  # Include column-sparse stages
         verbose: bool = True,
     ):
@@ -144,19 +155,27 @@ class GreedyMultiScaleLinear(nn.Module):
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages (Tucker + Sparse + BlockDiagLR triplets)
+            max_stages: Maximum number of stages
             tucker_num_modes: Number of modes for Tucker decomposition
             tucker_rank: Rank ratio for Tucker core (low for small components)
+            kronecker_factor_size: Factor size for Kronecker (default: sqrt of dims)
+            blocktt_block_size: Block size for Block Tensor Train
+            blocktt_num_cores: Number of TT cores per block
+            blocktt_rank: Rank ratio for Block TT
             blockdiag_num_blocks: Number of diagonal blocks (local clusters)
             blockdiag_rank: Rank of low-rank component (global communication)
             sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
+            use_kronecker: Include Kronecker stages (super parameter-efficient)
+            use_blocktt: Include Block Tensor Train stages
             use_sparse: Include column-sparse stages in cascade
             verbose: Print progress
 
         Stage order per iteration:
             1. Tucker (global structure with dual spectral reordering)
-            2. Sparse (outlier features and sharp edges)
-            3. Block-Diagonal + Low-Rank (local clusters + global communication)
+            2. Kronecker (repeating patterns, super efficient)
+            3. Block Tensor Train (block-wise structured decomposition)
+            4. Sparse (outlier features and sharp edges)
+            5. Block-Diagonal + Low-Rank (local clusters + global communication)
         """
 
         def compute_snr(original, approx):
@@ -193,9 +212,11 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"\nGreedy Multi-Scale Decomposition:")
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
-            print(f"  Tucker config: num_modes={tucker_num_modes}, rank={tucker_rank}")
-            print(f"  Sparse config: sparsity={sparse_sparsity}, enabled={use_sparse}")
-            print(f"  BlockDiag+LR config: num_blocks={blockdiag_num_blocks}, rank={blockdiag_rank}\n")
+            print(f"  Tucker: num_modes={tucker_num_modes}, rank={tucker_rank}")
+            print(f"  Kronecker: factor_size={kronecker_factor_size or 'auto'}, enabled={use_kronecker}")
+            print(f"  BlockTT: block_size={blocktt_block_size}, num_cores={blocktt_num_cores}, rank={blocktt_rank}, enabled={use_blocktt}")
+            print(f"  Sparse: sparsity={sparse_sparsity}, enabled={use_sparse}")
+            print(f"  BlockDiag+LR: num_blocks={blockdiag_num_blocks}, rank={blockdiag_rank}\n")
 
         for stage_idx in range(max_stages):
             # Compute current SNR
@@ -248,14 +269,90 @@ class GreedyMultiScaleLinear(nn.Module):
                 if verbose:
                     print(f"  Tucker: failed ({str(e)[:60]})")
 
-            # Step 2: Column-sparse to capture important features/outliers
-            if use_sparse:
+            # Step 2: Kronecker to capture repeating/block-periodic patterns
+            if use_kronecker:
                 residual_output_2 = original_output - current_output
                 residual_weight_2 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
+                temp_linear_kron = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_kron.weight.data = residual_weight_2.to(dtype)
+
+                try:
+                    # Create KroneckerLinear (verbose=False)
+                    kronecker = KroneckerLinear.from_linear(
+                        temp_linear_kron,
+                        factor_size=kronecker_factor_size,
+                        verbose=False,
+                    )
+
+                    # Move to correct device
+                    kronecker = kronecker.to(device)
+
+                    with torch.no_grad():
+                        kronecker_output = kronecker(input_activations.to(dtype)).float()
+
+                    kronecker_weight = kronecker.to_matrix().float().to(device)
+                    kronecker_snr = compute_snr(residual_output_2, kronecker_output)
+
+                    stages.append(kronecker)
+                    current_output = current_output + kronecker_output
+                    current_weight_approx = current_weight_approx + kronecker_weight
+
+                    if verbose:
+                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR +{kronecker_snr:.2f} dB")
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  Kronecker: failed ({str(e)[:60]})")
+
+            # Step 3: Block Tensor Train for block-wise structured decomposition
+            if use_blocktt:
+                residual_output_3 = original_output - current_output
+                residual_weight_3 = W - current_weight_approx
+
+                # Create temporary linear with residual weights
+                temp_linear_btt = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_btt.weight.data = residual_weight_3.to(dtype)
+
+                try:
+                    # Create BlockTensorizedLinear (verbose=False)
+                    blocktt = BlockTensorizedLinear.from_linear(
+                        temp_linear_btt,
+                        block_size=blocktt_block_size,
+                        num_cores=blocktt_num_cores,
+                        rank=blocktt_rank,
+                        input_activations=input_activations,
+                    )
+
+                    # Move to correct device
+                    blocktt = blocktt.to(device)
+
+                    with torch.no_grad():
+                        blocktt_output = blocktt(input_activations.to(dtype)).float()
+
+                    blocktt_weight = blocktt.to_matrix().float().to(device)
+                    blocktt_snr = compute_snr(residual_output_3, blocktt_output)
+
+                    stages.append(blocktt)
+                    current_output = current_output + blocktt_output
+                    current_weight_approx = current_weight_approx + blocktt_weight
+
+                    if verbose:
+                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR +{blocktt_snr:.2f} dB")
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  BlockTT: failed ({str(e)[:60]})")
+
+            # Step 4: Column-sparse to capture important features/outliers
+            if use_sparse:
+                residual_output_4 = original_output - current_output
+                residual_weight_4 = W - current_weight_approx
+
+                # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_2.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight_4.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -277,7 +374,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_2, sparse_output)
+                    sparse_snr = compute_snr(residual_output_4, sparse_output)
 
                     stages.append(sparse)
                     current_output = current_output + sparse_output
@@ -290,13 +387,13 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse: failed ({str(e)[:60]})")
 
-            # Step 3: Fit Block-Diagonal + Low-Rank to remaining residual
-            residual_output_3 = original_output - current_output
-            residual_weight_3 = W - current_weight_approx
+            # Step 5: Fit Block-Diagonal + Low-Rank to remaining residual
+            residual_output_5 = original_output - current_output
+            residual_weight_5 = W - current_weight_approx
 
             # Create temporary linear with residual weights
             temp_linear_bdlr = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_bdlr.weight.data = residual_weight_3.to(dtype)
+            temp_linear_bdlr.weight.data = residual_weight_5.to(dtype)
 
             try:
                 # Create BlockDiagonalLowRankLinear (verbose=False to avoid cluttering output)
