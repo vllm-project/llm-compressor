@@ -1,25 +1,31 @@
-"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Butterfly + Sparse + Low-Rank.
+"""Greedy Multi-Scale Decomposition: Cascaded Butterfly + Tucker + Sparse + Low-Rank.
 
 Mathematical form:
-    y = Tucker_1(x) + Butterfly_1(x) + Sparse_1(x) + LR_1(x) + ...
+    y = Butterfly_1(x) + Tucker_1(x) + Sparse_1(x) + LR_1(x) + ...
 
 Strategy (per stage):
-    1. Tucker: Captures structured multi-dimensional correlations (global structure)
-    2. Butterfly: Captures high-frequency details via FFT-like hierarchical patterns
+    1. Butterfly: Captures high-frequency details via FFT-like hierarchical patterns
+    2. Tucker: Captures structured multi-dimensional correlations (global structure)
     3. Sparse: Captures outlier features and sharp edges
     4. Low-rank: Mops up remaining flat, low-frequency correlations
 
 Geometric perspectives:
+    - Butterfly: Hierarchical (log N layers) preserves high-frequency info FIRST
     - Tucker: Dual spectral reordering for locally-coherent structure
-    - Butterfly: Hierarchical (log N layers) preserves high-frequency info
     - Sparse: Greedy column selection for outliers
     - Low-rank: SVD for flat correlations
 
 Frequency spectrum coverage:
-    - Tucker: Global multi-dimensional structure
-    - Butterfly: High-frequency preservation (unlike low-rank which kills it)
-    - Sparse: Sharp features and edges
+    - Butterfly FIRST: Preserves high-frequency before anything else (critical!)
+    - Tucker: Captures remaining global multi-dimensional structure
+    - Sparse: Sharp features and edges Tucker/Butterfly miss
     - Low-rank: Low-frequency, flat correlations
+
+Rationale for Butterfly first:
+    - High-frequency info is fragile - capture it first on clean signal
+    - Low-rank kills high-freq → must come after Butterfly
+    - Tucker benefits from remaining structure after high-freq extracted
+    - Butterfly's O(N log N) is efficient enough to go first
 
 Benefits:
     - Each decomposition attacks error from different geometric perspective
@@ -155,8 +161,8 @@ class GreedyMultiScaleLinear(nn.Module):
             verbose: Print progress
 
         Stage order per iteration:
-            1. Tucker (global structure with dual spectral reordering)
-            2. Butterfly (high-frequency preservation via FFT-like structure)
+            1. Butterfly (high-frequency preservation via FFT-like structure) - FIRST!
+            2. Tucker (global structure with dual spectral reordering)
             3. Sparse (outlier features and sharp edges)
             4. Low-rank (flat, low-frequency correlations)
         """
@@ -213,13 +219,50 @@ class GreedyMultiScaleLinear(nn.Module):
                     print(f"  ✓ Target SNR reached!")
                 break
 
-            # Step 1: Fit Tucker to current residual (with spectral reordering)
-            residual_weight = W - current_weight_approx
-            residual_output = original_output - current_output
+            # Step 1: Butterfly to capture high-frequency details FIRST
+            if use_butterfly:
+                residual_weight = W - current_weight_approx
+                residual_output = original_output - current_output
+
+                # Create temporary linear with residual weights
+                temp_linear_butterfly = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_butterfly.weight.data = residual_weight.to(dtype)
+
+                try:
+                    # Create ButterflyLinear
+                    butterfly = ButterflyLinear.from_linear(
+                        temp_linear_butterfly,
+                        num_factors=butterfly_num_factors,
+                        verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                    )
+
+                    # Move to correct device
+                    butterfly = butterfly.to(device)
+
+                    with torch.no_grad():
+                        butterfly_output = butterfly(input_activations.to(dtype)).float()
+
+                    butterfly_weight = butterfly.to_matrix().float().to(device)
+                    butterfly_snr = compute_snr(residual_output, butterfly_output)
+
+                    stages.append(butterfly)
+                    current_output = current_output + butterfly_output
+                    current_weight_approx = current_weight_approx + butterfly_weight
+
+                    if verbose:
+                        print(f"  Butterfly: {butterfly.num_params:,} params, SNR improvement: {butterfly_snr:.2f} dB")
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  Butterfly failed: {str(e)[:80]}, skipping")
+
+            # Step 2: Fit Tucker to remaining residual (with spectral reordering)
+            residual_output_2 = original_output - current_output
+            residual_weight_2 = W - current_weight_approx
 
             # Create temporary linear with residual weights
             temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_tucker.weight.data = residual_weight.to(dtype)
+            temp_linear_tucker.weight.data = residual_weight_2.to(dtype)
 
             try:
                 # Create TuckerLinear
@@ -238,7 +281,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     tucker_output = tucker(input_activations.to(dtype)).float()
 
                 tucker_weight = tucker.to_matrix().float().to(device)
-                tucker_snr = compute_snr(residual_output, tucker_output)
+                tucker_snr = compute_snr(residual_output_2, tucker_output)
 
                 stages.append(tucker)
                 current_output = current_output + tucker_output
@@ -250,43 +293,6 @@ class GreedyMultiScaleLinear(nn.Module):
             except Exception as e:
                 if verbose:
                     print(f"  Tucker failed: {str(e)[:80]}, skipping")
-
-            # Step 2: Butterfly to capture high-frequency details
-            if use_butterfly:
-                residual_output_2 = original_output - current_output
-                residual_weight_2 = W - current_weight_approx
-
-                # Create temporary linear with residual weights
-                temp_linear_butterfly = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_butterfly.weight.data = residual_weight_2.to(dtype)
-
-                try:
-                    # Create ButterflyLinear
-                    butterfly = ButterflyLinear.from_linear(
-                        temp_linear_butterfly,
-                        num_factors=butterfly_num_factors,
-                        verbose=verbose and stage_idx == 0,  # Only print details for first stage
-                    )
-
-                    # Move to correct device
-                    butterfly = butterfly.to(device)
-
-                    with torch.no_grad():
-                        butterfly_output = butterfly(input_activations.to(dtype)).float()
-
-                    butterfly_weight = butterfly.to_matrix().float().to(device)
-                    butterfly_snr = compute_snr(residual_output_2, butterfly_output)
-
-                    stages.append(butterfly)
-                    current_output = current_output + butterfly_output
-                    current_weight_approx = current_weight_approx + butterfly_weight
-
-                    if verbose:
-                        print(f"  Butterfly: {butterfly.num_params:,} params, SNR improvement: {butterfly_snr:.2f} dB")
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  Butterfly failed: {str(e)[:80]}, skipping")
 
             # Step 3: Column-sparse to capture important features/outliers
             if use_sparse:
