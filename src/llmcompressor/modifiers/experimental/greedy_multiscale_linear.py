@@ -59,9 +59,10 @@ class LowRankLinear(nn.Module):
     def from_svd(cls, weight: torch.Tensor, rank: int):
         """Create low-rank approximation from SVD."""
         device = weight.device
-        dtype = weight.dtype
+        # Store as float32 for numerical precision, convert to input dtype in forward()
+        target_dtype = torch.float32
 
-        # Perform SVD on CPU for numerical stability, then move back
+        # Perform SVD on CPU for numerical stability
         weight_cpu = weight.float().cpu()
         U_full, S, Vh = torch.linalg.svd(weight_cpu, full_matrices=False)
 
@@ -74,9 +75,9 @@ class LowRankLinear(nn.Module):
         out_features, in_features = weight.shape
         layer = cls(in_features, out_features, rank)
 
-        # Set parameters: U @ S, V^T and move to correct device
-        layer.U.data = (U_r @ torch.diag(S_r)).to(dtype=dtype, device=device)
-        layer.V.data = Vh_r.T.to(dtype=dtype, device=device)
+        # Set parameters: U @ S, V^T in float32, move to correct device
+        layer.U.data = (U_r @ torch.diag(S_r)).to(dtype=target_dtype, device=device)
+        layer.V.data = Vh_r.T.to(dtype=target_dtype, device=device)
 
         return layer
 
@@ -103,7 +104,10 @@ class LowRankLinear(nn.Module):
         # x: (..., in_features)
         # V^T @ x: (..., rank)
         # U @ (V^T @ x): (..., out_features)
-        return x @ self.V @ self.U.T
+        # Ensure dtype matches input
+        V = self.V.to(x.dtype)
+        U = self.U.to(x.dtype)
+        return x @ V @ U.T
 
     @property
     def num_params(self):
@@ -204,20 +208,25 @@ class GreedyMultiScaleLinear(nn.Module):
             residual_weight = W - current_weight_approx
             residual_output = original_output - current_output
 
-            # Create temporary linear with residual weights on correct device
-            temp_linear = nn.Linear(in_features, out_features, bias=False).to(device)
-            temp_linear.weight.data = residual_weight.to(dtype)
+            # Create temporary linear with residual weights
+            # Create on CPU for BlockTensorizedLinear (it has device issues), then move to device
+            temp_linear = nn.Linear(in_features, out_features, bias=False)
+            temp_linear.weight.data = residual_weight.cpu().to(dtype)
 
             # Check if block_size divides dimensions
             if out_features % mpo_block_size == 0 and in_features % mpo_block_size == 0:
                 try:
+                    # Create MPO on CPU (BlockTensorizedLinear has device issues)
                     mpo = BlockTensorizedLinear.from_linear(
                         temp_linear,
                         block_size=mpo_block_size,
                         rank=mpo_rank,
                         num_cores=mpo_num_cores,
-                        input_activations=input_activations,
+                        input_activations=input_activations.cpu(),
                     )
+
+                    # Move MPO to correct device
+                    mpo = mpo.to(device)
 
                     with torch.no_grad():
                         mpo_output = mpo(input_activations.to(dtype)).float()
