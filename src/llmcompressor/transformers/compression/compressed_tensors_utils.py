@@ -3,6 +3,7 @@ import weakref
 from functools import wraps
 
 import torch
+import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.offload import from_accelerate, is_rank0, to_accelerate
@@ -85,6 +86,9 @@ def modify_save_pretrained(model: PreTrainedModel):
                 # copy python files from cache dir to save_path if any
                 copy_python_files_from_model_cache(model, save_directory)
 
+            # synchronize before converting back from accelerate
+            if dist.is_initialized():
+                dist.barrier()
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
 
