@@ -20,27 +20,8 @@ Benefits:
 import torch
 import torch.nn as nn
 from typing import Optional
-import sys
-import importlib.util
 
-# Load modules dynamically to avoid import issues
-spec_tn = importlib.util.spec_from_file_location(
-    "tensorized_linear",
-    "src/llmcompressor/modifiers/experimental/tensorized_linear.py"
-)
-tensorized_module = importlib.util.module_from_spec(spec_tn)
-sys.modules['llmcompressor.modifiers.experimental.tensorized_linear'] = tensorized_module
-spec_tn.loader.exec_module(tensorized_module)
-
-spec_perm = importlib.util.spec_from_file_location(
-    "permuted_tensorized_linear",
-    "src/llmcompressor/modifiers/experimental/permuted_tensorized_linear.py"
-)
-perm_tn_module = importlib.util.module_from_spec(spec_perm)
-sys.modules['llmcompressor.modifiers.experimental.permuted_tensorized_linear'] = perm_tn_module
-spec_perm.loader.exec_module(perm_tn_module)
-
-PermutedTensorizedLinear = perm_tn_module.PermutedTensorizedLinear
+from llmcompressor.modifiers.experimental.permuted_tensorized_linear import PermutedTensorizedLinear
 
 
 class LowRankLinear(nn.Module):

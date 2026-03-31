@@ -10,18 +10,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn as nn
 from typing import Optional
-import sys
-import importlib.util
+import re
 
-# Load greedy multiscale module
-spec = importlib.util.spec_from_file_location(
-    "greedy_multiscale_linear",
-    "src/llmcompressor/modifiers/experimental/greedy_multiscale_linear.py"
-)
-gms_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(gms_module)
-
-GreedyMultiScaleLinear = gms_module.GreedyMultiScaleLinear
+from llmcompressor.modifiers.experimental import GreedyMultiScaleLinear
 
 
 # Configuration

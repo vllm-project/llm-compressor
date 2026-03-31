@@ -13,7 +13,7 @@ from typing import Optional
 import numpy as np
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 
-from .tensorized_linear import TensorizedLinear
+from llmcompressor.modifiers.experimental.tensorized_linear import TensorizedLinear
 
 
 def compute_feature_correlations(activations: torch.Tensor) -> torch.Tensor:
