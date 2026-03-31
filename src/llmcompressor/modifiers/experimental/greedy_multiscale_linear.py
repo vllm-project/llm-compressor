@@ -1,35 +1,30 @@
-"""Greedy Multi-Scale Decomposition: Cascaded Butterfly + Tucker + Sparse + Low-Rank.
+"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Sparse + BlockDiag+LowRank.
 
 Mathematical form:
-    y = Butterfly_1(x) + Tucker_1(x) + Sparse_1(x) + LR_1(x) + ...
+    y = Tucker_1(x) + Sparse_1(x) + BlockDiagLR_1(x) + Tucker_2(x) + ...
 
 Strategy (per stage):
-    1. Butterfly: Captures high-frequency details via FFT-like hierarchical patterns
-    2. Tucker: Captures structured multi-dimensional correlations (global structure)
-    3. Sparse: Captures outlier features and sharp edges
-    4. Low-rank: Mops up remaining flat, low-frequency correlations
+    1. Tucker: Captures global multi-dimensional structure (dual spectral reordering)
+    2. Sparse: Captures outlier features and sharp edges
+    3. Block-Diagonal + Low-Rank: Local clusters (dense blocks) + global communication
 
 Geometric perspectives:
-    - Butterfly: Hierarchical (log N layers) preserves high-frequency info FIRST
-    - Tucker: Dual spectral reordering for locally-coherent structure
+    - Tucker: Dual spectral reordering for locally-coherent multi-dimensional structure
     - Sparse: Greedy column selection for outliers
-    - Low-rank: SVD for flat correlations
+    - BlockDiag+LR: Local neuron clusters (dense) + global coordination (low-rank)
 
-Frequency spectrum coverage:
-    - Butterfly FIRST: Preserves high-frequency before anything else (critical!)
-    - Tucker: Captures remaining global multi-dimensional structure
-    - Sparse: Sharp features and edges Tucker/Butterfly miss
-    - Low-rank: Low-frequency, flat correlations
-
-Rationale for Butterfly first:
-    - High-frequency info is fragile - capture it first on clean signal
-    - Low-rank kills high-freq → must come after Butterfly
-    - Tucker benefits from remaining structure after high-freq extracted
-    - Butterfly's O(N log N) is efficient enough to go first
+Why Block-Diagonal + Low-Rank last:
+    - Tucker handles global structure first
+    - Sparse captures outliers Tucker misses
+    - BlockDiag+LR is BETTER than plain low-rank because:
+      * Dense blocks preserve LOCAL features perfectly (stable SNR)
+      * Low-rank component handles GLOBAL communication between blocks
+      * Covers both local AND global (plain low-rank only does global)
+    - Inspired by Monarch decompositions
 
 Benefits:
     - Each decomposition attacks error from different geometric perspective
-    - Complementary frequency coverage (Butterfly + Low-rank cover full spectrum)
+    - BlockDiag+LR more stable SNR than plain low-rank
     - More memory efficient than single large decomposition
     - Numerically stable (small components)
 """
@@ -39,7 +34,7 @@ import torch.nn as nn
 from typing import Optional
 
 from llmcompressor.modifiers.experimental.tucker_linear import TuckerLinear
-from llmcompressor.modifiers.experimental.butterfly_linear import ButterflyLinear
+from llmcompressor.modifiers.experimental.blockdiag_lowrank_linear import BlockDiagonalLowRankLinear
 from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
 
@@ -137,11 +132,10 @@ class GreedyMultiScaleLinear(nn.Module):
         max_stages: int = 5,
         tucker_num_modes: int = 3,
         tucker_rank: float = 0.3,  # Low rank for small Tucker cores
-        butterfly_num_factors: Optional[int] = None,  # Auto: log2(max_dim)
-        lr_rank: int = 64,      # Low-rank correction rank
+        blockdiag_num_blocks: int = 16,  # Number of diagonal blocks
+        blockdiag_rank: int = 64,  # Low-rank component rank
         sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
         use_sparse: bool = True,  # Include column-sparse stages
-        use_butterfly: bool = True,  # Include butterfly stages
         verbose: bool = True,
     ):
         """Greedily build cascade to reach target SNR.
@@ -150,21 +144,19 @@ class GreedyMultiScaleLinear(nn.Module):
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages (Tucker + Butterfly + Sparse + LR)
+            max_stages: Maximum number of stages (Tucker + Sparse + BlockDiagLR triplets)
             tucker_num_modes: Number of modes for Tucker decomposition
             tucker_rank: Rank ratio for Tucker core (low for small components)
-            butterfly_num_factors: Number of butterfly factors (default: log2(max_dim))
-            lr_rank: Rank for low-rank corrections
+            blockdiag_num_blocks: Number of diagonal blocks (local clusters)
+            blockdiag_rank: Rank of low-rank component (global communication)
             sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
             use_sparse: Include column-sparse stages in cascade
-            use_butterfly: Include butterfly stages (preserves high-freq)
             verbose: Print progress
 
         Stage order per iteration:
-            1. Butterfly (high-frequency preservation via FFT-like structure) - FIRST!
-            2. Tucker (global structure with dual spectral reordering)
-            3. Sparse (outlier features and sharp edges)
-            4. Low-rank (flat, low-frequency correlations)
+            1. Tucker (global structure with dual spectral reordering)
+            2. Sparse (outlier features and sharp edges)
+            3. Block-Diagonal + Low-Rank (local clusters + global communication)
         """
 
         def compute_snr(original, approx):
@@ -202,9 +194,8 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
             print(f"  Tucker config: num_modes={tucker_num_modes}, rank={tucker_rank}")
-            print(f"  Butterfly config: num_factors={butterfly_num_factors or 'auto'}, enabled={use_butterfly}")
             print(f"  Sparse config: sparsity={sparse_sparsity}, enabled={use_sparse}")
-            print(f"  LR rank: {lr_rank}\n")
+            print(f"  BlockDiag+LR config: num_blocks={blockdiag_num_blocks}, rank={blockdiag_rank}\n")
 
         for stage_idx in range(max_stages):
             # Compute current SNR
@@ -219,50 +210,13 @@ class GreedyMultiScaleLinear(nn.Module):
                     print(f"  ✓ Target SNR reached!")
                 break
 
-            # Step 1: Butterfly to capture high-frequency details FIRST
-            if use_butterfly:
-                residual_weight = W - current_weight_approx
-                residual_output = original_output - current_output
-
-                # Create temporary linear with residual weights
-                temp_linear_butterfly = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_butterfly.weight.data = residual_weight.to(dtype)
-
-                try:
-                    # Create ButterflyLinear
-                    butterfly = ButterflyLinear.from_linear(
-                        temp_linear_butterfly,
-                        num_factors=butterfly_num_factors,
-                        verbose=verbose and stage_idx == 0,  # Only print details for first stage
-                    )
-
-                    # Move to correct device
-                    butterfly = butterfly.to(device)
-
-                    with torch.no_grad():
-                        butterfly_output = butterfly(input_activations.to(dtype)).float()
-
-                    butterfly_weight = butterfly.to_matrix().float().to(device)
-                    butterfly_snr = compute_snr(residual_output, butterfly_output)
-
-                    stages.append(butterfly)
-                    current_output = current_output + butterfly_output
-                    current_weight_approx = current_weight_approx + butterfly_weight
-
-                    if verbose:
-                        print(f"  Butterfly: {butterfly.num_params:,} params, SNR improvement: {butterfly_snr:.2f} dB")
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  Butterfly failed: {str(e)[:80]}, skipping")
-
-            # Step 2: Fit Tucker to remaining residual (with spectral reordering)
-            residual_output_2 = original_output - current_output
-            residual_weight_2 = W - current_weight_approx
+            # Step 1: Fit Tucker to current residual (with spectral reordering)
+            residual_weight = W - current_weight_approx
+            residual_output = original_output - current_output
 
             # Create temporary linear with residual weights
             temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_tucker.weight.data = residual_weight_2.to(dtype)
+            temp_linear_tucker.weight.data = residual_weight.to(dtype)
 
             try:
                 # Create TuckerLinear
@@ -281,7 +235,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     tucker_output = tucker(input_activations.to(dtype)).float()
 
                 tucker_weight = tucker.to_matrix().float().to(device)
-                tucker_snr = compute_snr(residual_output_2, tucker_output)
+                tucker_snr = compute_snr(residual_output, tucker_output)
 
                 stages.append(tucker)
                 current_output = current_output + tucker_output
@@ -294,14 +248,14 @@ class GreedyMultiScaleLinear(nn.Module):
                 if verbose:
                     print(f"  Tucker failed: {str(e)[:80]}, skipping")
 
-            # Step 3: Column-sparse to capture important features/outliers
+            # Step 2: Column-sparse to capture important features/outliers
             if use_sparse:
-                residual_output_3 = original_output - current_output
-                residual_weight_3 = W - current_weight_approx
+                residual_output_2 = original_output - current_output
+                residual_weight_2 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_3.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight_2.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -323,7 +277,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_3, sparse_output)
+                    sparse_snr = compute_snr(residual_output_2, sparse_output)
 
                     stages.append(sparse)
                     current_output = current_output + sparse_output
@@ -336,25 +290,42 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse failed: {e}, skipping")
 
-            # Step 4: Fit low-rank to remaining residual
-            residual_output_4 = original_output - current_output
-            residual_weight_4 = W - current_weight_approx
+            # Step 3: Fit Block-Diagonal + Low-Rank to remaining residual
+            residual_output_3 = original_output - current_output
+            residual_weight_3 = W - current_weight_approx
 
-            # Fit low-rank via SVD of weight residual (already handles device in from_svd)
-            lr = LowRankLinear.from_svd(residual_weight_4, rank=lr_rank)
+            # Create temporary linear with residual weights
+            temp_linear_bdlr = nn.Linear(in_features, out_features, bias=False)
+            temp_linear_bdlr.weight.data = residual_weight_3.to(dtype)
 
-            with torch.no_grad():
-                lr_output = lr(input_activations).float()
+            try:
+                # Create BlockDiagonalLowRankLinear
+                bdlr = BlockDiagonalLowRankLinear.from_linear(
+                    temp_linear_bdlr,
+                    num_blocks=blockdiag_num_blocks,
+                    rank=blockdiag_rank,
+                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                )
 
-            lr_weight = (lr.U.data @ lr.V.data.T).float()
-            lr_snr = compute_snr(residual_output_4, lr_output)
+                # Move to correct device
+                bdlr = bdlr.to(device)
 
-            stages.append(lr)
-            current_output = current_output + lr_output
-            current_weight_approx = current_weight_approx + lr_weight
+                with torch.no_grad():
+                    bdlr_output = bdlr(input_activations.to(dtype)).float()
 
-            if verbose:
-                print(f"  LR:  {lr.num_params:,} params, SNR improvement: {lr_snr:.2f} dB")
+                bdlr_weight = bdlr.to_matrix().float().to(device)
+                bdlr_snr = compute_snr(residual_output_3, bdlr_output)
+
+                stages.append(bdlr)
+                current_output = current_output + bdlr_output
+                current_weight_approx = current_weight_approx + bdlr_weight
+
+                if verbose:
+                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR improvement: {bdlr_snr:.2f} dB")
+
+            except Exception as e:
+                if verbose:
+                    print(f"  BlockDiag+LR failed: {str(e)[:80]}, skipping")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
