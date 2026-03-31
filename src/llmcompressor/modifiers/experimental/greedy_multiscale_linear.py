@@ -1,34 +1,34 @@
 """Greedy Multi-Scale Decomposition: 5-Component Cascade.
 
 Mathematical form:
-    y = Tucker(x) + BlockTT(x) + Sparse(x) + BlockDiagLR(x) + Kronecker(x) + ...
+    y = Sparse(x) + Tucker(x) + BlockTT(x) + BlockDiagLR(x) + Kronecker(x) + ...
 
 Strategy (per stage):
-    1. Tucker: Global multi-dimensional structure (dual spectral reordering)
-    2. Block Tensor Train: Block-wise structured tensor decomposition
-    3. Sparse: Outlier features and sharp edges
+    1. Sparse: Outlier features and sharp edges (easy wins first)
+    2. Tucker: Global multi-dimensional structure (dual spectral reordering)
+    3. Block Tensor Train: Block-wise structured tensor decomposition
     4. Block-Diagonal + Low-Rank: Local clusters + global communication
     5. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
 
 Geometric perspectives:
+    - Sparse: Greedy column selection for outliers
     - Tucker: Multi-dimensional correlations with spectral reordering
     - Block TT: Divide matrix into blocks, tensor train per block
-    - Sparse: Greedy column selection for outliers
     - BlockDiag+LR: Dense local clusters + low-rank global communication
     - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
 
 Why this order:
-    - Tucker: Captures global structure first (benefits most from clean signal)
-    - Block TT: Structured decomposition of remaining blocks
-    - Sparse: Handles outliers the structured methods miss
+    - Sparse FIRST: Removes outliers that would contaminate structured methods
+    - Tucker: Captures global structure on cleaner residual after outliers removed
+    - Block TT: Structured decomposition works better on well-behaved residual
     - BlockDiag+LR: Mops up local + global in residual (stable SNR)
     - Kronecker: Last resort for repeating patterns (super efficient fallback)
 
 Benefits:
+    - Sparse removes "hard cases" first, making residual more compressible
+    - Structured methods (Tucker, BlockTT) work better on cleaned signal
     - Each component attacks error from different geometric perspective
     - Kronecker at end can exploit remaining periodic structure
-    - Block TT provides structured compression without full MPO
-    - BlockDiag+LR more stable than plain low-rank
     - Numerically stable (small components)
 """
 
@@ -171,9 +171,9 @@ class GreedyMultiScaleLinear(nn.Module):
             verbose: Print progress
 
         Stage order per iteration:
-            1. Tucker (global structure with dual spectral reordering)
-            2. Block Tensor Train (block-wise structured decomposition)
-            3. Sparse (outlier features and sharp edges)
+            1. Sparse (outlier features - easy wins, cleans signal)
+            2. Tucker (global structure with dual spectral reordering)
+            3. Block Tensor Train (block-wise structured decomposition)
             4. Block-Diagonal + Low-Rank (local clusters + global communication)
             5. Kronecker (repeating patterns, super efficient)
         """
@@ -231,105 +231,14 @@ class GreedyMultiScaleLinear(nn.Module):
                     print(f"  ✓ Target SNR reached!")
                 break
 
-            # Step 1: Fit Tucker to current residual (with spectral reordering)
-            residual_weight = W - current_weight_approx
+            # Step 1: Column-sparse to capture important features/outliers first
             residual_output = original_output - current_output
+            residual_weight = W - current_weight_approx
 
-            # Create temporary linear with residual weights
-            temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_tucker.weight.data = residual_weight.to(dtype)
-
-            try:
-                # Create TuckerLinear (verbose=False to avoid cluttering output)
-                tucker = TuckerLinear.from_linear(
-                    temp_linear_tucker,
-                    rank=tucker_rank,
-                    num_modes=tucker_num_modes,
-                    input_activations=input_activations,
-                    verbose=False,
-                )
-
-                # Move Tucker to correct device
-                tucker = tucker.to(device)
-
-                with torch.no_grad():
-                    tucker_output = tucker(input_activations.to(dtype)).float()
-
-                tucker_weight = tucker.to_matrix().float().to(device)
-                tucker_snr = compute_snr(residual_output, tucker_output)
-
-                if verbose:
-                    status = ""
-                    if tucker_snr > 0.01:  # Only keep if it improves SNR
-                        status = " ✓"
-                    else:
-                        status = " (skipped)"
-                    print(f"  Tucker: {tucker.num_params:,} params, SNR {tucker_snr:+.2f} dB{status}")
-
-                # Only add if it improves SNR
-                if tucker_snr > 0.01:
-                    stages.append(tucker)
-                    current_output = current_output + tucker_output
-                    current_weight_approx = current_weight_approx + tucker_weight
-
-            except Exception as e:
-                if verbose:
-                    print(f"  Tucker: failed ({str(e)[:60]})")
-
-            # Step 2: Block Tensor Train for block-wise structured decomposition
-            if use_blocktt:
-                residual_output_2 = original_output - current_output
-                residual_weight_2 = W - current_weight_approx
-
-                # Create temporary linear with residual weights
-                temp_linear_btt = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_btt.weight.data = residual_weight_2.to(dtype)
-
-                try:
-                    # Create BlockTensorizedLinear (verbose=False)
-                    blocktt = BlockTensorizedLinear.from_linear(
-                        temp_linear_btt,
-                        block_size=blocktt_block_size,
-                        num_cores=blocktt_num_cores,
-                        rank=blocktt_rank,
-                        input_activations=input_activations,
-                    )
-
-                    # Move to correct device
-                    blocktt = blocktt.to(device)
-
-                    with torch.no_grad():
-                        blocktt_output = blocktt(input_activations.to(dtype)).float()
-
-                    blocktt_weight = blocktt.to_matrix().float().to(device)
-                    blocktt_snr = compute_snr(residual_output_2, blocktt_output)
-
-                    if verbose:
-                        status = ""
-                        if blocktt_snr > 0.01:
-                            status = " ✓"
-                        else:
-                            status = " (skipped)"
-                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR {blocktt_snr:+.2f} dB{status}")
-
-                    # Only add if it improves SNR
-                    if blocktt_snr > 0.01:
-                        stages.append(blocktt)
-                        current_output = current_output + blocktt_output
-                        current_weight_approx = current_weight_approx + blocktt_weight
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  BlockTT: failed ({str(e)[:60]})")
-
-            # Step 3: Column-sparse to capture important features/outliers
             if use_sparse:
-                residual_output_3 = original_output - current_output
-                residual_weight_3 = W - current_weight_approx
-
                 # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_3.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -351,7 +260,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_3, sparse_output)
+                    sparse_snr = compute_snr(residual_output, sparse_output)
 
                     if verbose:
                         status = ""
@@ -370,6 +279,97 @@ class GreedyMultiScaleLinear(nn.Module):
                 except Exception as e:
                     if verbose:
                         print(f"  Sparse: failed ({str(e)[:60]})")
+
+            # Step 2: Fit Tucker to current residual (with spectral reordering)
+            residual_weight_2 = W - current_weight_approx
+            residual_output_2 = original_output - current_output
+
+            # Create temporary linear with residual weights
+            temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
+            temp_linear_tucker.weight.data = residual_weight_2.to(dtype)
+
+            try:
+                # Create TuckerLinear (verbose=False to avoid cluttering output)
+                tucker = TuckerLinear.from_linear(
+                    temp_linear_tucker,
+                    rank=tucker_rank,
+                    num_modes=tucker_num_modes,
+                    input_activations=input_activations,
+                    verbose=False,
+                )
+
+                # Move Tucker to correct device
+                tucker = tucker.to(device)
+
+                with torch.no_grad():
+                    tucker_output = tucker(input_activations.to(dtype)).float()
+
+                tucker_weight = tucker.to_matrix().float().to(device)
+                tucker_snr = compute_snr(residual_output_2, tucker_output)
+
+                if verbose:
+                    status = ""
+                    if tucker_snr > 0.01:  # Only keep if it improves SNR
+                        status = " ✓"
+                    else:
+                        status = " (skipped)"
+                    print(f"  Tucker: {tucker.num_params:,} params, SNR {tucker_snr:+.2f} dB{status}")
+
+                # Only add if it improves SNR
+                if tucker_snr > 0.01:
+                    stages.append(tucker)
+                    current_output = current_output + tucker_output
+                    current_weight_approx = current_weight_approx + tucker_weight
+
+            except Exception as e:
+                if verbose:
+                    print(f"  Tucker: failed ({str(e)[:60]})")
+
+            # Step 3: Block Tensor Train for block-wise structured decomposition
+            if use_blocktt:
+                residual_output_3 = original_output - current_output
+                residual_weight_3 = W - current_weight_approx
+
+                # Create temporary linear with residual weights
+                temp_linear_btt = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_btt.weight.data = residual_weight_3.to(dtype)
+
+                try:
+                    # Create BlockTensorizedLinear (verbose=False)
+                    blocktt = BlockTensorizedLinear.from_linear(
+                        temp_linear_btt,
+                        block_size=blocktt_block_size,
+                        num_cores=blocktt_num_cores,
+                        rank=blocktt_rank,
+                        input_activations=input_activations,
+                    )
+
+                    # Move to correct device
+                    blocktt = blocktt.to(device)
+
+                    with torch.no_grad():
+                        blocktt_output = blocktt(input_activations.to(dtype)).float()
+
+                    blocktt_weight = blocktt.to_matrix().float().to(device)
+                    blocktt_snr = compute_snr(residual_output_3, blocktt_output)
+
+                    if verbose:
+                        status = ""
+                        if blocktt_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR {blocktt_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if blocktt_snr > 0.01:
+                        stages.append(blocktt)
+                        current_output = current_output + blocktt_output
+                        current_weight_approx = current_weight_approx + blocktt_weight
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  BlockTT: failed ({str(e)[:60]})")
 
             # Step 4: Fit Block-Diagonal + Low-Rank to remaining residual
             residual_output_4 = original_output - current_output
