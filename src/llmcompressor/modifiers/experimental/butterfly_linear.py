@@ -174,17 +174,20 @@ class ButterflyLinear(nn.Module):
             factor.data[:, 1, 1] += 1.0
 
         # Fit butterfly factors to approximate weight matrix via gradient descent
+        # Do optimization in float32 for numerical stability
         if verbose:
             print(f"  Fitting butterfly factors ({num_iters} iterations)...")
 
-        optimizer = torch.optim.Adam(butterfly.parameters(), lr=lr)
+        # Convert to float32 for optimization
+        butterfly_float = butterfly.float()
+        optimizer = torch.optim.Adam(butterfly_float.parameters(), lr=lr)
         weight_float = weight.float()
 
         for iter_idx in range(num_iters):
             optimizer.zero_grad()
 
             # Reconstruct weight and compute loss
-            W_approx = butterfly.to_matrix()
+            W_approx = butterfly_float.to_matrix()
             loss = torch.nn.functional.mse_loss(W_approx, weight_float)
 
             # Backprop and update
@@ -199,10 +202,15 @@ class ButterflyLinear(nn.Module):
 
         if verbose:
             with torch.no_grad():
-                W_final = butterfly.to_matrix()
+                W_final = butterfly_float.to_matrix()
                 final_mse = torch.nn.functional.mse_loss(W_final, weight_float).item()
                 final_rel_error = (final_mse / weight_float.var().item()) ** 0.5
                 print(f"  Final relative error: {final_rel_error:.4f}")
+
+        # Copy optimized parameters back to original dtype
+        with torch.no_grad():
+            for orig_param, opt_param in zip(butterfly.parameters(), butterfly_float.parameters()):
+                orig_param.data.copy_(opt_param.data.to(orig_dtype))
 
         return butterfly
 
