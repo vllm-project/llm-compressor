@@ -258,12 +258,19 @@ class GreedyMultiScaleLinear(nn.Module):
                 tucker_weight = tucker.to_matrix().float().to(device)
                 tucker_snr = compute_snr(residual_output, tucker_output)
 
-                stages.append(tucker)
-                current_output = current_output + tucker_output
-                current_weight_approx = current_weight_approx + tucker_weight
-
                 if verbose:
-                    print(f"  Tucker: {tucker.num_params:,} params, SNR {tucker_snr:+.2f} dB")
+                    status = ""
+                    if tucker_snr > 0.01:  # Only keep if it improves SNR
+                        status = " ✓"
+                    else:
+                        status = " (skipped)"
+                    print(f"  Tucker: {tucker.num_params:,} params, SNR {tucker_snr:+.2f} dB{status}")
+
+                # Only add if it improves SNR
+                if tucker_snr > 0.01:
+                    stages.append(tucker)
+                    current_output = current_output + tucker_output
+                    current_weight_approx = current_weight_approx + tucker_weight
 
             except Exception as e:
                 if verbose:
@@ -295,12 +302,19 @@ class GreedyMultiScaleLinear(nn.Module):
                     kronecker_weight = kronecker.to_matrix().float().to(device)
                     kronecker_snr = compute_snr(residual_output_2, kronecker_output)
 
-                    stages.append(kronecker)
-                    current_output = current_output + kronecker_output
-                    current_weight_approx = current_weight_approx + kronecker_weight
-
                     if verbose:
-                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR {kronecker_snr:+.2f} dB")
+                        status = ""
+                        if kronecker_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR {kronecker_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if kronecker_snr > 0.01:
+                        stages.append(kronecker)
+                        current_output = current_output + kronecker_output
+                        current_weight_approx = current_weight_approx + kronecker_weight
 
                 except Exception as e:
                     if verbose:
@@ -334,12 +348,19 @@ class GreedyMultiScaleLinear(nn.Module):
                     blocktt_weight = blocktt.to_matrix().float().to(device)
                     blocktt_snr = compute_snr(residual_output_3, blocktt_output)
 
-                    stages.append(blocktt)
-                    current_output = current_output + blocktt_output
-                    current_weight_approx = current_weight_approx + blocktt_weight
-
                     if verbose:
-                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR {blocktt_snr:+.2f} dB")
+                        status = ""
+                        if blocktt_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR {blocktt_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if blocktt_snr > 0.01:
+                        stages.append(blocktt)
+                        current_output = current_output + blocktt_output
+                        current_weight_approx = current_weight_approx + blocktt_weight
 
                 except Exception as e:
                     if verbose:
@@ -376,12 +397,19 @@ class GreedyMultiScaleLinear(nn.Module):
 
                     sparse_snr = compute_snr(residual_output_4, sparse_output)
 
-                    stages.append(sparse)
-                    current_output = current_output + sparse_output
-                    current_weight_approx = current_weight_approx + sparse_weight_full
-
                     if verbose:
-                        print(f"  Sparse: {sparse.num_params:,} params, SNR {sparse_snr:+.2f} dB")
+                        status = ""
+                        if sparse_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  Sparse: {sparse.num_params:,} params, SNR {sparse_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if sparse_snr > 0.01:
+                        stages.append(sparse)
+                        current_output = current_output + sparse_output
+                        current_weight_approx = current_weight_approx + sparse_weight_full
 
                 except Exception as e:
                     if verbose:
@@ -413,12 +441,19 @@ class GreedyMultiScaleLinear(nn.Module):
                 bdlr_weight = bdlr.to_matrix().float().to(device)
                 bdlr_snr = compute_snr(residual_output_5, bdlr_output)
 
-                stages.append(bdlr)
-                current_output = current_output + bdlr_output
-                current_weight_approx = current_weight_approx + bdlr_weight
-
                 if verbose:
-                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR {bdlr_snr:+.2f} dB")
+                    status = ""
+                    if bdlr_snr > 0.01:
+                        status = " ✓"
+                    else:
+                        status = " (skipped)"
+                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR {bdlr_snr:+.2f} dB{status}")
+
+                # Only add if it improves SNR
+                if bdlr_snr > 0.01:
+                    stages.append(bdlr)
+                    current_output = current_output + bdlr_output
+                    current_weight_approx = current_weight_approx + bdlr_weight
 
             except Exception as e:
                 if verbose:
