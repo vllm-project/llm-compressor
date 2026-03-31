@@ -263,7 +263,7 @@ class GreedyMultiScaleLinear(nn.Module):
                 current_weight_approx = current_weight_approx + tucker_weight
 
                 if verbose:
-                    print(f"  Tucker: {tucker.num_params:,} params, SNR +{tucker_snr:.2f} dB")
+                    print(f"  Tucker: {tucker.num_params:,} params, SNR {tucker_snr:+.2f} dB")
 
             except Exception as e:
                 if verbose:
@@ -300,7 +300,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     current_weight_approx = current_weight_approx + kronecker_weight
 
                     if verbose:
-                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR +{kronecker_snr:.2f} dB")
+                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR {kronecker_snr:+.2f} dB")
 
                 except Exception as e:
                     if verbose:
@@ -339,7 +339,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     current_weight_approx = current_weight_approx + blocktt_weight
 
                     if verbose:
-                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR +{blocktt_snr:.2f} dB")
+                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR {blocktt_snr:+.2f} dB")
 
                 except Exception as e:
                     if verbose:
@@ -381,7 +381,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     current_weight_approx = current_weight_approx + sparse_weight_full
 
                     if verbose:
-                        print(f"  Sparse: {sparse.num_params:,} params, SNR +{sparse_snr:.2f} dB")
+                        print(f"  Sparse: {sparse.num_params:,} params, SNR {sparse_snr:+.2f} dB")
 
                 except Exception as e:
                     if verbose:
@@ -411,14 +411,14 @@ class GreedyMultiScaleLinear(nn.Module):
                     bdlr_output = bdlr(input_activations.to(dtype)).float()
 
                 bdlr_weight = bdlr.to_matrix().float().to(device)
-                bdlr_snr = compute_snr(residual_output_3, bdlr_output)
+                bdlr_snr = compute_snr(residual_output_5, bdlr_output)
 
                 stages.append(bdlr)
                 current_output = current_output + bdlr_output
                 current_weight_approx = current_weight_approx + bdlr_weight
 
                 if verbose:
-                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR +{bdlr_snr:.2f} dB")
+                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR {bdlr_snr:+.2f} dB")
 
             except Exception as e:
                 if verbose:
