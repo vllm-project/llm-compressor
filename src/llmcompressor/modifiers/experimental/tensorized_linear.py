@@ -317,16 +317,16 @@ class TensorizedLinear(nn.Module):
         # Reshape input to expose individual dimensions: (batch, m_0, m_1, ..., m_{d-1})
         x = x.reshape(batch_total, *input_shape)
 
-        # Build einsum string using single-character labels (torch.einsum requirement)
-        # Assign characters: a-z for various indices
+        # Build einsum string using labels that support many cores
+        # Use multi-character labels for cores > 26 to avoid running out of single chars
         # 'b' = batch
-        # Next num_cores chars for input dims (m_i)
-        # Next num_cores chars for output dims (n_i)
-        # Next num_cores+1 chars for rank dims (r_i)
+        # i0, i1, i2, ... for input dims
+        # o0, o1, o2, ... for output dims
+        # r0, r1, r2, ... for rank dims
 
-        input_chars = [chr(ord("c") + i) for i in range(num_cores)]  # c, d, e, ...
-        output_chars = [chr(ord("C") + i) for i in range(num_cores)]  # C, D, E, ...
-        rank_chars = [chr(ord("p") + i) for i in range(num_cores + 1)]  # p, q, r, ...
+        input_chars = [f"i{i}" for i in range(num_cores)]
+        output_chars = [f"o{i}" for i in range(num_cores)]
+        rank_chars = [f"r{i}" for i in range(num_cores + 1)]
 
         # Input: batch + input dimensions
         input_subscripts = "b" + "".join(input_chars)

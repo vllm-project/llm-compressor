@@ -192,60 +192,18 @@ class GreedyMultiScaleLinear(nn.Module):
                     print(f"  ✓ Target SNR reached!")
                 break
 
-            # Step 1: Fit MPO to current residual
+            # Step 1: Fit low-rank to current residual
             residual_weight = W - current_weight_approx
             residual_output = original_output - current_output
 
-            # Create temporary linear with residual weights
-            # Create on CPU for TensorizedLinear, then move to device
-            temp_linear = nn.Linear(in_features, out_features, bias=False)
-            temp_linear.weight.data = residual_weight.cpu().to(dtype)
-
-            # Try MPO with spectral reordering
-            try:
-                # Create PermutedTensorizedLinear on CPU
-                mpo = PermutedTensorizedLinear.from_linear(
-                    temp_linear,
-                    input_activations=input_activations.cpu(),
-                    num_cores=mpo_num_cores,
-                    rank=mpo_rank,
-                    permute_inputs=permute_mpo,
-                    permute_outputs=False,  # Output permutation less important
-                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
-                )
-
-                # Move MPO to correct device
-                mpo = mpo.to(device)
-
-                with torch.no_grad():
-                    mpo_output = mpo(input_activations.to(dtype)).float()
-
-                mpo_weight = mpo.to_matrix().float().to(device)
-                mpo_snr = compute_snr(residual_output, mpo_output)
-
-                stages.append(mpo)
-                current_output = current_output + mpo_output
-                current_weight_approx = current_weight_approx + mpo_weight
-
-                if verbose:
-                    print(f"  MPO: {mpo.num_params:,} params, SNR improvement: {mpo_snr:.2f} dB")
-
-            except Exception as e:
-                if verbose:
-                    print(f"  MPO failed: {e}, skipping to LR")
-
-            # Step 2: Fit low-rank to remaining residual
-            residual_output_2 = original_output - current_output
-            residual_weight_2 = W - current_weight_approx
-
             # Fit low-rank via SVD of weight residual (already handles device in from_svd)
-            lr = LowRankLinear.from_svd(residual_weight_2, rank=lr_rank)
+            lr = LowRankLinear.from_svd(residual_weight, rank=lr_rank)
 
             with torch.no_grad():
                 lr_output = lr(input_activations).float()
 
             lr_weight = (lr.U.data @ lr.V.data.T).float()
-            lr_snr = compute_snr(residual_output_2, lr_output)
+            lr_snr = compute_snr(residual_output, lr_output)
 
             stages.append(lr)
             current_output = current_output + lr_output
@@ -254,14 +212,14 @@ class GreedyMultiScaleLinear(nn.Module):
             if verbose:
                 print(f"  LR:  {lr.num_params:,} params, SNR improvement: {lr_snr:.2f} dB")
 
-            # Step 3: Column-sparse to capture important features/outliers
+            # Step 2: Column-sparse to capture important features/outliers
             if use_sparse:
-                residual_output_3 = original_output - current_output
-                residual_weight_3 = W - current_weight_approx
+                residual_output_2 = original_output - current_output
+                residual_weight_2 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_3.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight_2.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -283,7 +241,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_3, sparse_output)
+                    sparse_snr = compute_snr(residual_output_2, sparse_output)
 
                     stages.append(sparse)
                     current_output = current_output + sparse_output
@@ -295,6 +253,47 @@ class GreedyMultiScaleLinear(nn.Module):
                 except Exception as e:
                     if verbose:
                         print(f"  Sparse failed: {e}, skipping")
+
+            # Step 3: Fit MPO to remaining residual (with spectral reordering)
+            residual_output_3 = original_output - current_output
+            residual_weight_3 = W - current_weight_approx
+
+            # Create temporary linear with residual weights
+            # Create on CPU for TensorizedLinear, then move to device
+            temp_linear_mpo = nn.Linear(in_features, out_features, bias=False)
+            temp_linear_mpo.weight.data = residual_weight_3.cpu().to(dtype)
+
+            try:
+                # Create PermutedTensorizedLinear on CPU
+                mpo = PermutedTensorizedLinear.from_linear(
+                    temp_linear_mpo,
+                    input_activations=input_activations.cpu(),
+                    num_cores=mpo_num_cores,
+                    rank=mpo_rank,
+                    permute_inputs=permute_mpo,
+                    permute_outputs=False,  # Output permutation less important
+                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                )
+
+                # Move MPO to correct device
+                mpo = mpo.to(device)
+
+                with torch.no_grad():
+                    mpo_output = mpo(input_activations.to(dtype)).float()
+
+                mpo_weight = mpo.to_matrix().float().to(device)
+                mpo_snr = compute_snr(residual_output_3, mpo_output)
+
+                stages.append(mpo)
+                current_output = current_output + mpo_output
+                current_weight_approx = current_weight_approx + mpo_weight
+
+                if verbose:
+                    print(f"  MPO: {mpo.num_params:,} params, SNR improvement: {mpo_snr:.2f} dB")
+
+            except Exception as e:
+                if verbose:
+                    print(f"  MPO failed: {str(e)[:80]}, skipping")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
