@@ -331,13 +331,14 @@ class TensorizedLinear(nn.Module):
 
             def get_char(i):
                 """Get character for index i (skip 'b' for batch):
-                0-24: c-z (skip a,b)
-                25-50: A-Z
+                0-23: c-z (24 chars, skip a,b)
+                24-49: A-Z (26 chars)
+                Total: 50 chars available
                 """
-                if i < 25:
-                    return chr(ord('c') + i)  # c-z (skip a,b)
+                if i < 24:
+                    return chr(ord('c') + i)  # c-z: 24 chars (indices 0-23)
                 else:
-                    return chr(ord('A') + (i - 25))  # A-Z
+                    return chr(ord('A') + (i - 24))  # A-Z: 26 chars (indices 24-49)
 
             # Assign characters for different indices
             # 'b' = batch
