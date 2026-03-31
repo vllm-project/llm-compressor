@@ -219,13 +219,13 @@ class GreedyMultiScaleLinear(nn.Module):
             temp_linear_tucker.weight.data = residual_weight.to(dtype)
 
             try:
-                # Create TuckerLinear
+                # Create TuckerLinear (verbose=False to avoid cluttering output)
                 tucker = TuckerLinear.from_linear(
                     temp_linear_tucker,
                     rank=tucker_rank,
                     num_modes=tucker_num_modes,
                     input_activations=input_activations,
-                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                    verbose=False,
                 )
 
                 # Move Tucker to correct device
@@ -242,11 +242,11 @@ class GreedyMultiScaleLinear(nn.Module):
                 current_weight_approx = current_weight_approx + tucker_weight
 
                 if verbose:
-                    print(f"  Tucker: {tucker.num_params:,} params, SNR improvement: {tucker_snr:.2f} dB")
+                    print(f"  Tucker: {tucker.num_params:,} params, SNR +{tucker_snr:.2f} dB")
 
             except Exception as e:
                 if verbose:
-                    print(f"  Tucker failed: {str(e)[:80]}, skipping")
+                    print(f"  Tucker: failed ({str(e)[:60]})")
 
             # Step 2: Column-sparse to capture important features/outliers
             if use_sparse:
@@ -284,11 +284,11 @@ class GreedyMultiScaleLinear(nn.Module):
                     current_weight_approx = current_weight_approx + sparse_weight_full
 
                     if verbose:
-                        print(f"  Sparse: {sparse.num_params:,} params, SNR improvement: {sparse_snr:.2f} dB")
+                        print(f"  Sparse: {sparse.num_params:,} params, SNR +{sparse_snr:.2f} dB")
 
                 except Exception as e:
                     if verbose:
-                        print(f"  Sparse failed: {e}, skipping")
+                        print(f"  Sparse: failed ({str(e)[:60]})")
 
             # Step 3: Fit Block-Diagonal + Low-Rank to remaining residual
             residual_output_3 = original_output - current_output
@@ -299,12 +299,12 @@ class GreedyMultiScaleLinear(nn.Module):
             temp_linear_bdlr.weight.data = residual_weight_3.to(dtype)
 
             try:
-                # Create BlockDiagonalLowRankLinear
+                # Create BlockDiagonalLowRankLinear (verbose=False to avoid cluttering output)
                 bdlr = BlockDiagonalLowRankLinear.from_linear(
                     temp_linear_bdlr,
                     num_blocks=blockdiag_num_blocks,
                     rank=blockdiag_rank,
-                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                    verbose=False,
                 )
 
                 # Move to correct device
@@ -321,11 +321,11 @@ class GreedyMultiScaleLinear(nn.Module):
                 current_weight_approx = current_weight_approx + bdlr_weight
 
                 if verbose:
-                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR improvement: {bdlr_snr:.2f} dB")
+                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR +{bdlr_snr:.2f} dB")
 
             except Exception as e:
                 if verbose:
-                    print(f"  BlockDiag+LR failed: {str(e)[:80]}, skipping")
+                    print(f"  BlockDiag+LR: failed ({str(e)[:60]})")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
