@@ -9,7 +9,7 @@ from llmcompressor.entrypoints.model_free.helpers import (
 )
 
 __all__ = [
-    "build_inverse_weights_map",
+    "build_microscale_inverse_weights_map",
     "is_microscale_scheme",
     "get_fused_names",
     "DEFAULT_FUSED_MAPPINGS",
@@ -78,7 +78,7 @@ def get_fused_names(
     return matched, unmatched
 
 
-def build_inverse_weights_map(
+def build_microscale_inverse_weights_map(
     shard_name: str,
     weight_map: dict[str, str],
     model_files: dict[str, str],
