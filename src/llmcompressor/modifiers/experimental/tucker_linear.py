@@ -241,15 +241,10 @@ class TuckerLinear(nn.Module):
         ).to(device)
 
     def forward(self, x):
-        """Forward pass using Tucker contraction.
+        """Forward pass using Tucker contraction via tensorly.
 
-        Strategy:
-            1. Apply input permutation
-            2. Reshape input to expose modes
-            3. Contract with input factors
-            4. Contract with core
-            5. Contract with output factors
-            6. Reshape and apply scaling
+        Uses tensorly's tucker_to_tensor to reconstruct weight matrix,
+        similar to how TensorizedLinear uses tt_matrix_to_tensor.
         """
         # Store original shape
         original_shape = x.shape
@@ -260,88 +255,25 @@ class TuckerLinear(nn.Module):
             x = x[..., self.input_perm]
 
         # Flatten batch dimensions
-        x = x.reshape(-1, self.in_features)
-        batch_total = x.shape[0]
+        x_flat = x.reshape(-1, self.in_features)
+        batch_total = x_flat.shape[0]
 
-        # Reshape to expose input modes: (batch, m_0, m_1, ..., m_k)
-        x = x.reshape(batch_total, *self.input_shape)
+        # Reconstruct weight matrix from Tucker decomposition
+        # Combine output and input factors
+        factors = list(self.factors_out) + list(self.factors_in)
 
-        # Contract with input factor matrices
-        # x: (batch, m_0, m_1, ..., m_k)
-        # factors_in[i]: (m_i, r_i) where r_i is core dim
-        # Result after all contractions: (batch, r_0, r_1, ..., r_k)
+        # Reconstruct full tensor
+        W_tensor = tl.tucker_to_tensor((self.core.to(x.dtype), [f.to(x.dtype) for f in factors]))
 
-        result = x
-        for i, factor in enumerate(self.factors_in):
-            # result: (batch, ..., m_i, ...)
-            # factor: (m_i, r_i)
-            # Contract over m_i dimension
+        # Reshape to matrix: (out_features, in_features)
+        W = W_tensor.reshape(self.out_features, self.in_features)
 
-            # Move m_i to last position
-            num_dims = result.ndim
-            axis = i + 1  # Skip batch dimension
-            if axis != num_dims - 1:
-                perm = list(range(num_dims))
-                perm[axis], perm[-1] = perm[-1], perm[axis]
-                result = result.permute(*perm)
+        # Apply scaling
+        scale = (self.per_dim_scale * self.alpha).to(x.dtype)
+        W_scaled = W * scale.view(-1, 1)
 
-            # Contract: (..., m_i) @ (m_i, r_i) = (..., r_i)
-            result = result @ factor.to(x.dtype)
-
-            # Move r_i back to position axis
-            if axis != num_dims - 1:
-                result = result.permute(*perm)
-
-        # Now result: (batch, r_in_0, r_in_1, ..., r_in_k)
-        # Contract with core: (r_out_0, ..., r_out_k, r_in_0, ..., r_in_k)
-
-        # Use einsum for core contraction
-        num_in_modes = len(self.input_shape)
-        num_out_modes = len(self.output_shape)
-
-        # Build einsum string
-        batch_char = 'b'
-        in_chars = [chr(ord('a') + i) for i in range(num_in_modes)]
-        out_chars = [chr(ord('A') + i) for i in range(num_out_modes)]
-
-        # result: (batch, r_in_0, r_in_1, ...)
-        result_str = batch_char + ''.join(in_chars)
-
-        # core: (r_out_0, ..., r_out_k, r_in_0, ..., r_in_k)
-        core_str = ''.join(out_chars) + ''.join(in_chars)
-
-        # output: (batch, r_out_0, r_out_1, ...)
-        output_str = batch_char + ''.join(out_chars)
-
-        einsum_str = f"{result_str},{core_str}->{output_str}"
-        result = torch.einsum(einsum_str, result, self.core.to(x.dtype))
-
-        # Contract with output factor matrices
-        # result: (batch, r_out_0, r_out_1, ..., r_out_k)
-        # factors_out[i]: (n_i, r_out_i)
-        # Result: (batch, n_0, n_1, ..., n_k)
-
-        for i, factor in enumerate(self.factors_out):
-            # Move r_out_i to last position
-            num_dims = result.ndim
-            axis = i + 1  # Skip batch
-            if axis != num_dims - 1:
-                perm = list(range(num_dims))
-                perm[axis], perm[-1] = perm[-1], perm[axis]
-                result = result.permute(*perm)
-
-            # Contract: (..., r_i) @ (n_i, r_i)^T = (..., n_i)
-            result = result @ factor.to(x.dtype).T
-
-            # Move n_i back
-            if axis != num_dims - 1:
-                result = result.permute(*perm)
-
-        # Reshape to (batch, out_features)
-        result = result.reshape(batch_total, self.out_features)
-
-        # Apply learnable scaling
-        result = result * self.per_dim_scale * self.alpha
+        # Apply linear transformation: x @ W^T
+        result = x_flat @ W_scaled.T
 
         # Add bias
         if self.bias is not None:
