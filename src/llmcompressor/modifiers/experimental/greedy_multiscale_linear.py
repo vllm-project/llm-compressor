@@ -1,19 +1,29 @@
-"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Sparse + Low-Rank Corrections.
+"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Butterfly + Sparse + Low-Rank.
 
 Mathematical form:
-    y = Tucker_1(x) + Sparse_1(x) + LR_1(x) + Tucker_2(x) + Sparse_2(x) + LR_2(x) + ...
+    y = Tucker_1(x) + Butterfly_1(x) + Sparse_1(x) + LR_1(x) + ...
 
 Strategy (per stage):
-    1. Fit small Tucker (captures structured, multi-dimensional correlations)
-    2. Fit column-sparse to residual (captures important features/outliers)
-    3. Fit low-rank to residual (captures remaining flat correlations)
-    4. Repeat until target SNR achieved
+    1. Tucker: Captures structured multi-dimensional correlations (global structure)
+    2. Butterfly: Captures high-frequency details via FFT-like hierarchical patterns
+    3. Sparse: Captures outlier features and sharp edges
+    4. Low-rank: Mops up remaining flat, low-frequency correlations
+
+Geometric perspectives:
+    - Tucker: Dual spectral reordering for locally-coherent structure
+    - Butterfly: Hierarchical (log N layers) preserves high-frequency info
+    - Sparse: Greedy column selection for outliers
+    - Low-rank: SVD for flat correlations
+
+Frequency spectrum coverage:
+    - Tucker: Global multi-dimensional structure
+    - Butterfly: High-frequency preservation (unlike low-rank which kills it)
+    - Sparse: Sharp features and edges
+    - Low-rank: Low-frequency, flat correlations
 
 Benefits:
-    - Tucker first: captures global structure with dual spectral reordering
-    - Sparse second: captures outlier features missed by Tucker
-    - Low-rank last: mops up remaining unstructured correlations
-    - Attacks error from different geometric perspectives
+    - Each decomposition attacks error from different geometric perspective
+    - Complementary frequency coverage (Butterfly + Low-rank cover full spectrum)
     - More memory efficient than single large decomposition
     - Numerically stable (small components)
 """
@@ -23,6 +33,7 @@ import torch.nn as nn
 from typing import Optional
 
 from llmcompressor.modifiers.experimental.tucker_linear import TuckerLinear
+from llmcompressor.modifiers.experimental.butterfly_linear import ButterflyLinear
 from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
 
@@ -120,9 +131,11 @@ class GreedyMultiScaleLinear(nn.Module):
         max_stages: int = 5,
         tucker_num_modes: int = 3,
         tucker_rank: float = 0.3,  # Low rank for small Tucker cores
+        butterfly_num_factors: Optional[int] = None,  # Auto: log2(max_dim)
         lr_rank: int = 64,      # Low-rank correction rank
         sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
         use_sparse: bool = True,  # Include column-sparse stages
+        use_butterfly: bool = True,  # Include butterfly stages
         verbose: bool = True,
     ):
         """Greedily build cascade to reach target SNR.
@@ -131,18 +144,21 @@ class GreedyMultiScaleLinear(nn.Module):
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages (Tucker + Sparse + LR triplets)
+            max_stages: Maximum number of stages (Tucker + Butterfly + Sparse + LR)
             tucker_num_modes: Number of modes for Tucker decomposition
             tucker_rank: Rank ratio for Tucker core (low for small components)
+            butterfly_num_factors: Number of butterfly factors (default: log2(max_dim))
             lr_rank: Rank for low-rank corrections
             sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
             use_sparse: Include column-sparse stages in cascade
+            use_butterfly: Include butterfly stages (preserves high-freq)
             verbose: Print progress
 
         Stage order per iteration:
-            1. Tucker (structured multi-dimensional with dual spectral reordering)
-            2. Sparse (outlier features)
-            3. Low-rank (flat correlations)
+            1. Tucker (global structure with dual spectral reordering)
+            2. Butterfly (high-frequency preservation via FFT-like structure)
+            3. Sparse (outlier features and sharp edges)
+            4. Low-rank (flat, low-frequency correlations)
         """
 
         def compute_snr(original, approx):
@@ -180,8 +196,9 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
             print(f"  Tucker config: num_modes={tucker_num_modes}, rank={tucker_rank}")
-            print(f"  LR rank: {lr_rank}")
-            print(f"  Sparse config: sparsity={sparse_sparsity}, enabled={use_sparse}\n")
+            print(f"  Butterfly config: num_factors={butterfly_num_factors or 'auto'}, enabled={use_butterfly}")
+            print(f"  Sparse config: sparsity={sparse_sparsity}, enabled={use_sparse}")
+            print(f"  LR rank: {lr_rank}\n")
 
         for stage_idx in range(max_stages):
             # Compute current SNR
@@ -234,14 +251,51 @@ class GreedyMultiScaleLinear(nn.Module):
                 if verbose:
                     print(f"  Tucker failed: {str(e)[:80]}, skipping")
 
-            # Step 2: Column-sparse to capture important features/outliers
-            if use_sparse:
+            # Step 2: Butterfly to capture high-frequency details
+            if use_butterfly:
                 residual_output_2 = original_output - current_output
                 residual_weight_2 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
+                temp_linear_butterfly = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_butterfly.weight.data = residual_weight_2.to(dtype)
+
+                try:
+                    # Create ButterflyLinear
+                    butterfly = ButterflyLinear.from_linear(
+                        temp_linear_butterfly,
+                        num_factors=butterfly_num_factors,
+                        verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                    )
+
+                    # Move to correct device
+                    butterfly = butterfly.to(device)
+
+                    with torch.no_grad():
+                        butterfly_output = butterfly(input_activations.to(dtype)).float()
+
+                    butterfly_weight = butterfly.to_matrix().float().to(device)
+                    butterfly_snr = compute_snr(residual_output_2, butterfly_output)
+
+                    stages.append(butterfly)
+                    current_output = current_output + butterfly_output
+                    current_weight_approx = current_weight_approx + butterfly_weight
+
+                    if verbose:
+                        print(f"  Butterfly: {butterfly.num_params:,} params, SNR improvement: {butterfly_snr:.2f} dB")
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  Butterfly failed: {str(e)[:80]}, skipping")
+
+            # Step 3: Column-sparse to capture important features/outliers
+            if use_sparse:
+                residual_output_3 = original_output - current_output
+                residual_weight_3 = W - current_weight_approx
+
+                # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_2.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight_3.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -263,7 +317,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_2, sparse_output)
+                    sparse_snr = compute_snr(residual_output_3, sparse_output)
 
                     stages.append(sparse)
                     current_output = current_output + sparse_output
@@ -276,18 +330,18 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse failed: {e}, skipping")
 
-            # Step 3: Fit low-rank to remaining residual
-            residual_output_3 = original_output - current_output
-            residual_weight_3 = W - current_weight_approx
+            # Step 4: Fit low-rank to remaining residual
+            residual_output_4 = original_output - current_output
+            residual_weight_4 = W - current_weight_approx
 
             # Fit low-rank via SVD of weight residual (already handles device in from_svd)
-            lr = LowRankLinear.from_svd(residual_weight_3, rank=lr_rank)
+            lr = LowRankLinear.from_svd(residual_weight_4, rank=lr_rank)
 
             with torch.no_grad():
                 lr_output = lr(input_activations).float()
 
             lr_weight = (lr.U.data @ lr.V.data.T).float()
-            lr_snr = compute_snr(residual_output_3, lr_output)
+            lr_snr = compute_snr(residual_output_4, lr_output)
 
             stages.append(lr)
             current_output = current_output + lr_output

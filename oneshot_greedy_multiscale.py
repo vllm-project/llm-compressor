@@ -22,11 +22,13 @@ SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
 TARGET_SNR_DB = 30.0  # Target activation SNR
-MAX_STAGES = 15  # Maximum Tucker+LR+Sparse stages
+MAX_STAGES = 15  # Maximum Tucker+Butterfly+Sparse+LR stages
 TUCKER_NUM_MODES = 3  # Number of modes for Tucker decomposition
 TUCKER_RANK = 0.3  # Rank ratio for Tucker core (low for small components)
+BUTTERFLY_NUM_FACTORS = None  # Auto: log2(max_dim)
 LR_RANK = 64  # Rank for low-rank corrections
 SPARSE_SPARSITY = 0.1  # Column sparsity (0.1 = keep 90% of columns)
+USE_BUTTERFLY = True  # Include butterfly stages (high-frequency preservation)
 USE_SPARSE = True  # Include column-sparse stages in cascade
 
 # Calibration settings
@@ -123,6 +125,8 @@ def compress_model_greedy_multiscale(
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
     print(f"  Max stages: {MAX_STAGES}")
     print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
+    print(f"  Butterfly: num_factors={BUTTERFLY_NUM_FACTORS or 'auto'}, enabled={USE_BUTTERFLY}")
+    print(f"  Sparse: sparsity={SPARSE_SPARSITY}, enabled={USE_SPARSE}")
     print(f"  LR: rank={LR_RANK}")
     print()
 
@@ -199,9 +203,11 @@ def compress_model_greedy_multiscale(
             max_stages=MAX_STAGES,
             tucker_num_modes=TUCKER_NUM_MODES,
             tucker_rank=TUCKER_RANK,
+            butterfly_num_factors=BUTTERFLY_NUM_FACTORS,
             lr_rank=LR_RANK,
             sparse_sparsity=SPARSE_SPARSITY,
             use_sparse=USE_SPARSE,
+            use_butterfly=USE_BUTTERFLY,
             verbose=True,
         )
 
