@@ -22,6 +22,7 @@ import torch.nn as nn
 from typing import Optional
 
 from llmcompressor.modifiers.experimental.permuted_tensorized_linear import PermutedTensorizedLinear
+from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
 
 class LowRankLinear(nn.Module):
@@ -119,7 +120,9 @@ class GreedyMultiScaleLinear(nn.Module):
         mpo_num_cores: int = 3,
         mpo_rank: float = 0.3,  # Low rank for small MPOs
         lr_rank: int = 64,      # Low-rank correction rank
+        sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
         permute_mpo: bool = True,  # Use spectral reordering for MPO
+        use_sparse: bool = True,  # Include column-sparse stages
         verbose: bool = True,
     ):
         """Greedily build cascade to reach target SNR.
@@ -128,11 +131,13 @@ class GreedyMultiScaleLinear(nn.Module):
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages (MPO + LR pairs)
+            max_stages: Maximum number of stages (MPO + LR + Sparse triplets)
             mpo_num_cores: Number of cores for MPO tensor train
             mpo_rank: Rank ratio for each MPO (low for small components)
             lr_rank: Rank for low-rank corrections
+            sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
             permute_mpo: Use spectral reordering to group entangled features
+            use_sparse: Include column-sparse stages in cascade
             verbose: Print progress
         """
 
@@ -171,7 +176,8 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
             print(f"  MPO config: num_cores={mpo_num_cores}, rank={mpo_rank}, permute={permute_mpo}")
-            print(f"  LR rank: {lr_rank}\n")
+            print(f"  LR rank: {lr_rank}")
+            print(f"  Sparse config: sparsity={sparse_sparsity}, enabled={use_sparse}\n")
 
         for stage_idx in range(max_stages):
             # Compute current SNR
@@ -247,6 +253,44 @@ class GreedyMultiScaleLinear(nn.Module):
 
             if verbose:
                 print(f"  LR:  {lr.num_params:,} params, SNR improvement: {lr_snr:.2f} dB")
+
+            # Step 3: Column-sparse to capture important features/outliers
+            if use_sparse:
+                residual_output_3 = original_output - current_output
+                residual_weight_3 = W - current_weight_approx
+
+                # Create temporary linear with residual weights
+                temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_sparse.weight.data = residual_weight_3.cpu().to(dtype)
+
+                try:
+                    # Create column-sparse layer
+                    sparse = ColumnSparseLinear.from_linear(
+                        temp_linear_sparse,
+                        input_activations=input_activations.cpu(),
+                        target_sparsity=sparse_sparsity,
+                        k_cols_per_iter=32,  # Greedy column selection
+                    )
+
+                    # Move to correct device
+                    sparse = sparse.to(device)
+
+                    with torch.no_grad():
+                        sparse_output = sparse(input_activations.to(dtype)).float()
+
+                    sparse_weight = sparse.to_matrix().float().to(device)
+                    sparse_snr = compute_snr(residual_output_3, sparse_output)
+
+                    stages.append(sparse)
+                    current_output = current_output + sparse_output
+                    current_weight_approx = current_weight_approx + sparse_weight
+
+                    if verbose:
+                        print(f"  Sparse: {sparse.num_params:,} params, SNR improvement: {sparse_snr:.2f} dB")
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  Sparse failed: {e}, skipping")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
