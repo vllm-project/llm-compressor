@@ -1,32 +1,32 @@
 """Greedy Multi-Scale Decomposition: 5-Component Cascade.
 
 Mathematical form:
-    y = Tucker(x) + Kronecker(x) + BlockTT(x) + Sparse(x) + BlockDiagLR(x) + ...
+    y = Tucker(x) + BlockTT(x) + Sparse(x) + BlockDiagLR(x) + Kronecker(x) + ...
 
 Strategy (per stage):
     1. Tucker: Global multi-dimensional structure (dual spectral reordering)
-    2. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
-    3. Block Tensor Train: Block-wise structured tensor decomposition
-    4. Sparse: Outlier features and sharp edges
-    5. Block-Diagonal + Low-Rank: Local clusters + global communication
+    2. Block Tensor Train: Block-wise structured tensor decomposition
+    3. Sparse: Outlier features and sharp edges
+    4. Block-Diagonal + Low-Rank: Local clusters + global communication
+    5. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
 
 Geometric perspectives:
     - Tucker: Multi-dimensional correlations with spectral reordering
-    - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
     - Block TT: Divide matrix into blocks, tensor train per block
     - Sparse: Greedy column selection for outliers
     - BlockDiag+LR: Dense local clusters + low-rank global communication
+    - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
 
 Why this order:
     - Tucker: Captures global structure first (benefits most from clean signal)
-    - Kronecker: Super efficient (0.1-1% params), captures repeating structure
     - Block TT: Structured decomposition of remaining blocks
     - Sparse: Handles outliers the structured methods miss
     - BlockDiag+LR: Mops up local + global in residual (stable SNR)
+    - Kronecker: Last resort for repeating patterns (super efficient fallback)
 
 Benefits:
     - Each component attacks error from different geometric perspective
-    - Kronecker leaves massive parameter budget for residuals
+    - Kronecker at end can exploit remaining periodic structure
     - Block TT provides structured compression without full MPO
     - BlockDiag+LR more stable than plain low-rank
     - Numerically stable (small components)
@@ -172,10 +172,10 @@ class GreedyMultiScaleLinear(nn.Module):
 
         Stage order per iteration:
             1. Tucker (global structure with dual spectral reordering)
-            2. Kronecker (repeating patterns, super efficient)
-            3. Block Tensor Train (block-wise structured decomposition)
-            4. Sparse (outlier features and sharp edges)
-            5. Block-Diagonal + Low-Rank (local clusters + global communication)
+            2. Block Tensor Train (block-wise structured decomposition)
+            3. Sparse (outlier features and sharp edges)
+            4. Block-Diagonal + Low-Rank (local clusters + global communication)
+            5. Kronecker (repeating patterns, super efficient)
         """
 
         def compute_snr(original, approx):
@@ -276,58 +276,14 @@ class GreedyMultiScaleLinear(nn.Module):
                 if verbose:
                     print(f"  Tucker: failed ({str(e)[:60]})")
 
-            # Step 2: Kronecker to capture repeating/block-periodic patterns
-            if use_kronecker:
+            # Step 2: Block Tensor Train for block-wise structured decomposition
+            if use_blocktt:
                 residual_output_2 = original_output - current_output
                 residual_weight_2 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
-                temp_linear_kron = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_kron.weight.data = residual_weight_2.to(dtype)
-
-                try:
-                    # Create KroneckerLinear (verbose=False)
-                    kronecker = KroneckerLinear.from_linear(
-                        temp_linear_kron,
-                        factor_size=kronecker_factor_size,
-                        verbose=False,
-                    )
-
-                    # Move to correct device
-                    kronecker = kronecker.to(device)
-
-                    with torch.no_grad():
-                        kronecker_output = kronecker(input_activations.to(dtype)).float()
-
-                    kronecker_weight = kronecker.to_matrix().float().to(device)
-                    kronecker_snr = compute_snr(residual_output_2, kronecker_output)
-
-                    if verbose:
-                        status = ""
-                        if kronecker_snr > 0.01:
-                            status = " ✓"
-                        else:
-                            status = " (skipped)"
-                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR {kronecker_snr:+.2f} dB{status}")
-
-                    # Only add if it improves SNR
-                    if kronecker_snr > 0.01:
-                        stages.append(kronecker)
-                        current_output = current_output + kronecker_output
-                        current_weight_approx = current_weight_approx + kronecker_weight
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  Kronecker: failed ({str(e)[:60]})")
-
-            # Step 3: Block Tensor Train for block-wise structured decomposition
-            if use_blocktt:
-                residual_output_3 = original_output - current_output
-                residual_weight_3 = W - current_weight_approx
-
-                # Create temporary linear with residual weights
                 temp_linear_btt = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_btt.weight.data = residual_weight_3.to(dtype)
+                temp_linear_btt.weight.data = residual_weight_2.to(dtype)
 
                 try:
                     # Create BlockTensorizedLinear (verbose=False)
@@ -346,7 +302,7 @@ class GreedyMultiScaleLinear(nn.Module):
                         blocktt_output = blocktt(input_activations.to(dtype)).float()
 
                     blocktt_weight = blocktt.to_matrix().float().to(device)
-                    blocktt_snr = compute_snr(residual_output_3, blocktt_output)
+                    blocktt_snr = compute_snr(residual_output_2, blocktt_output)
 
                     if verbose:
                         status = ""
@@ -366,14 +322,14 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  BlockTT: failed ({str(e)[:60]})")
 
-            # Step 4: Column-sparse to capture important features/outliers
+            # Step 3: Column-sparse to capture important features/outliers
             if use_sparse:
-                residual_output_4 = original_output - current_output
-                residual_weight_4 = W - current_weight_approx
+                residual_output_3 = original_output - current_output
+                residual_weight_3 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_4.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight_3.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -395,7 +351,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_4, sparse_output)
+                    sparse_snr = compute_snr(residual_output_3, sparse_output)
 
                     if verbose:
                         status = ""
@@ -415,13 +371,13 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse: failed ({str(e)[:60]})")
 
-            # Step 5: Fit Block-Diagonal + Low-Rank to remaining residual
-            residual_output_5 = original_output - current_output
-            residual_weight_5 = W - current_weight_approx
+            # Step 4: Fit Block-Diagonal + Low-Rank to remaining residual
+            residual_output_4 = original_output - current_output
+            residual_weight_4 = W - current_weight_approx
 
             # Create temporary linear with residual weights
             temp_linear_bdlr = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_bdlr.weight.data = residual_weight_5.to(dtype)
+            temp_linear_bdlr.weight.data = residual_weight_4.to(dtype)
 
             try:
                 # Create BlockDiagonalLowRankLinear (verbose=False to avoid cluttering output)
@@ -439,7 +395,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     bdlr_output = bdlr(input_activations.to(dtype)).float()
 
                 bdlr_weight = bdlr.to_matrix().float().to(device)
-                bdlr_snr = compute_snr(residual_output_5, bdlr_output)
+                bdlr_snr = compute_snr(residual_output_4, bdlr_output)
 
                 if verbose:
                     status = ""
@@ -458,6 +414,50 @@ class GreedyMultiScaleLinear(nn.Module):
             except Exception as e:
                 if verbose:
                     print(f"  BlockDiag+LR: failed ({str(e)[:60]})")
+
+            # Step 5: Kronecker to capture repeating/block-periodic patterns
+            if use_kronecker:
+                residual_output_5 = original_output - current_output
+                residual_weight_5 = W - current_weight_approx
+
+                # Create temporary linear with residual weights
+                temp_linear_kron = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_kron.weight.data = residual_weight_5.to(dtype)
+
+                try:
+                    # Create KroneckerLinear (verbose=False)
+                    kronecker = KroneckerLinear.from_linear(
+                        temp_linear_kron,
+                        factor_size=kronecker_factor_size,
+                        verbose=False,
+                    )
+
+                    # Move to correct device
+                    kronecker = kronecker.to(device)
+
+                    with torch.no_grad():
+                        kronecker_output = kronecker(input_activations.to(dtype)).float()
+
+                    kronecker_weight = kronecker.to_matrix().float().to(device)
+                    kronecker_snr = compute_snr(residual_output_5, kronecker_output)
+
+                    if verbose:
+                        status = ""
+                        if kronecker_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR {kronecker_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if kronecker_snr > 0.01:
+                        stages.append(kronecker)
+                        current_output = current_output + kronecker_output
+                        current_weight_approx = current_weight_approx + kronecker_weight
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  Kronecker: failed ({str(e)[:60]})")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
