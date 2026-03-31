@@ -1,21 +1,21 @@
-"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Low-Rank Residual Corrections.
+"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Sparse + Low-Rank Corrections.
 
 Mathematical form:
-    y = Tucker_1(x) + LR_1(x) + Tucker_2(x) + LR_2(x) + ...
+    y = Tucker_1(x) + Sparse_1(x) + LR_1(x) + Tucker_2(x) + Sparse_2(x) + LR_2(x) + ...
 
-Strategy:
-    1. Fit small Tucker_1 (captures global structure)
-    2. Compute residual R_1 = Y_true - Tucker_1(X)
-    3. Fit low-rank LR_1 to R_1 (captures flat correlations)
-    4. Compute residual R_2 = R_1 - LR_1(X)
-    5. Repeat until target SNR achieved
+Strategy (per stage):
+    1. Fit small Tucker (captures structured, multi-dimensional correlations)
+    2. Fit column-sparse to residual (captures important features/outliers)
+    3. Fit low-rank to residual (captures remaining flat correlations)
+    4. Repeat until target SNR achieved
 
 Benefits:
-    - Tucker is more compact than tensor train for same accuracy
+    - Tucker first: captures global structure with dual spectral reordering
+    - Sparse second: captures outlier features missed by Tucker
+    - Low-rank last: mops up remaining unstructured correlations
     - Attacks error from different geometric perspectives
-    - More memory efficient than single large Tucker
+    - More memory efficient than single large decomposition
     - Numerically stable (small components)
-    - Can achieve high SNR with fewer total parameters
 """
 
 import torch
@@ -131,13 +131,18 @@ class GreedyMultiScaleLinear(nn.Module):
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages (Tucker + LR + Sparse triplets)
+            max_stages: Maximum number of stages (Tucker + Sparse + LR triplets)
             tucker_num_modes: Number of modes for Tucker decomposition
             tucker_rank: Rank ratio for Tucker core (low for small components)
             lr_rank: Rank for low-rank corrections
             sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
             use_sparse: Include column-sparse stages in cascade
             verbose: Print progress
+
+        Stage order per iteration:
+            1. Tucker (structured multi-dimensional with dual spectral reordering)
+            2. Sparse (outlier features)
+            3. Low-rank (flat correlations)
         """
 
         def compute_snr(original, approx):
@@ -191,25 +196,43 @@ class GreedyMultiScaleLinear(nn.Module):
                     print(f"  ✓ Target SNR reached!")
                 break
 
-            # Step 1: Fit low-rank to current residual
+            # Step 1: Fit Tucker to current residual (with spectral reordering)
             residual_weight = W - current_weight_approx
             residual_output = original_output - current_output
 
-            # Fit low-rank via SVD of weight residual (already handles device in from_svd)
-            lr = LowRankLinear.from_svd(residual_weight, rank=lr_rank)
+            # Create temporary linear with residual weights
+            temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
+            temp_linear_tucker.weight.data = residual_weight.to(dtype)
 
-            with torch.no_grad():
-                lr_output = lr(input_activations).float()
+            try:
+                # Create TuckerLinear
+                tucker = TuckerLinear.from_linear(
+                    temp_linear_tucker,
+                    rank=tucker_rank,
+                    num_modes=tucker_num_modes,
+                    input_activations=input_activations,
+                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                )
 
-            lr_weight = (lr.U.data @ lr.V.data.T).float()
-            lr_snr = compute_snr(residual_output, lr_output)
+                # Move Tucker to correct device
+                tucker = tucker.to(device)
 
-            stages.append(lr)
-            current_output = current_output + lr_output
-            current_weight_approx = current_weight_approx + lr_weight
+                with torch.no_grad():
+                    tucker_output = tucker(input_activations.to(dtype)).float()
 
-            if verbose:
-                print(f"  LR:  {lr.num_params:,} params, SNR improvement: {lr_snr:.2f} dB")
+                tucker_weight = tucker.to_matrix().float().to(device)
+                tucker_snr = compute_snr(residual_output, tucker_output)
+
+                stages.append(tucker)
+                current_output = current_output + tucker_output
+                current_weight_approx = current_weight_approx + tucker_weight
+
+                if verbose:
+                    print(f"  Tucker: {tucker.num_params:,} params, SNR improvement: {tucker_snr:.2f} dB")
+
+            except Exception as e:
+                if verbose:
+                    print(f"  Tucker failed: {str(e)[:80]}, skipping")
 
             # Step 2: Column-sparse to capture important features/outliers
             if use_sparse:
@@ -253,43 +276,25 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse failed: {e}, skipping")
 
-            # Step 3: Fit Tucker to remaining residual (with spectral reordering)
+            # Step 3: Fit low-rank to remaining residual
             residual_output_3 = original_output - current_output
             residual_weight_3 = W - current_weight_approx
 
-            # Create temporary linear with residual weights
-            temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_tucker.weight.data = residual_weight_3.to(dtype)
+            # Fit low-rank via SVD of weight residual (already handles device in from_svd)
+            lr = LowRankLinear.from_svd(residual_weight_3, rank=lr_rank)
 
-            try:
-                # Create TuckerLinear
-                tucker = TuckerLinear.from_linear(
-                    temp_linear_tucker,
-                    rank=tucker_rank,
-                    num_modes=tucker_num_modes,
-                    input_activations=input_activations,
-                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
-                )
+            with torch.no_grad():
+                lr_output = lr(input_activations).float()
 
-                # Move Tucker to correct device
-                tucker = tucker.to(device)
+            lr_weight = (lr.U.data @ lr.V.data.T).float()
+            lr_snr = compute_snr(residual_output_3, lr_output)
 
-                with torch.no_grad():
-                    tucker_output = tucker(input_activations.to(dtype)).float()
+            stages.append(lr)
+            current_output = current_output + lr_output
+            current_weight_approx = current_weight_approx + lr_weight
 
-                tucker_weight = tucker.to_matrix().float().to(device)
-                tucker_snr = compute_snr(residual_output_3, tucker_output)
-
-                stages.append(tucker)
-                current_output = current_output + tucker_output
-                current_weight_approx = current_weight_approx + tucker_weight
-
-                if verbose:
-                    print(f"  Tucker: {tucker.num_params:,} params, SNR improvement: {tucker_snr:.2f} dB")
-
-            except Exception as e:
-                if verbose:
-                    print(f"  Tucker failed: {str(e)[:80]}, skipping")
+            if verbose:
+                print(f"  LR:  {lr.num_params:,} params, SNR improvement: {lr_snr:.2f} dB")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
