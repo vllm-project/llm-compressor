@@ -30,6 +30,8 @@ class TensorizedLinear(nn.Module):
         per_dim_scale: torch.Tensor | None = None,
         input_perm: torch.Tensor | None = None,
         input_inv_perm: torch.Tensor | None = None,
+        output_perm: torch.Tensor | None = None,
+        output_inv_perm: torch.Tensor | None = None,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
     ):
@@ -67,13 +69,22 @@ class TensorizedLinear(nn.Module):
 
         # Channel permutation indices for importance-based ordering
         # input_perm: permutation to apply to inputs (sort by importance)
-        # input_inv_perm: inverse permutation to apply to outputs (restore original order)
+        # input_inv_perm: inverse permutation to restore original input order
         if input_perm is not None:
             self.register_buffer("input_perm", input_perm.long())
             self.register_buffer("input_inv_perm", input_inv_perm.long())
         else:
             self.input_perm = None
             self.input_inv_perm = None
+
+        # output_perm: permutation to apply to outputs (sort by importance)
+        # output_inv_perm: inverse permutation to restore original output order
+        if output_perm is not None:
+            self.register_buffer("output_perm", output_perm.long())
+            self.register_buffer("output_inv_perm", output_inv_perm.long())
+        else:
+            self.output_perm = None
+            self.output_inv_perm = None
 
     @staticmethod
     def _spectral_reordering(
@@ -143,6 +154,74 @@ class TensorizedLinear(nn.Module):
 
         return input_perm.to(weight.device)
 
+    @staticmethod
+    def _spectral_reordering_output(
+        weight: torch.Tensor,
+        output_activations: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Compute optimal output channel permutation using Spectral Reordering via Laplacian Eigenmaps.
+
+        This finds the permutation that maximizes local coherence for output dimensions by:
+        1. Computing correlation matrix between output channels from activations or weights
+        2. Building graph Laplacian from correlations
+        3. Finding Fiedler vector (eigenvector of 2nd smallest eigenvalue)
+        4. Sorting channels by Fiedler vector to group similar channels together
+
+        Args:
+            weight: Weight matrix of shape (out_features, in_features)
+            output_activations: Optional output activation data of shape (num_samples, out_features).
+                              If provided, computes correlations from activation patterns instead of weights.
+
+        Returns:
+            Permutation indices that maximize local coherence for output dimensions
+        """
+        if output_activations is not None:
+            # Compute correlation from activation data
+            # Center activations (subtract mean) for proper correlation
+            activations_centered = output_activations - output_activations.mean(dim=0, keepdim=True)
+
+            # Normalize each channel to unit variance for correlation computation
+            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
+            activations_normalized = activations_centered / activations_std
+
+            # Correlation matrix: Corr[i,j] = correlation between output channel i and j
+            # Shape: (out_features, out_features)
+            num_samples = activations_normalized.shape[0]
+            correlation = (activations_normalized.T @ activations_normalized) / num_samples
+        else:
+            # Compute correlation matrix between output channels (rows of weight)
+            # Normalize each row to unit norm for cosine similarity
+            weight_normalized = weight / (torch.norm(weight, dim=1, keepdim=True) + 1e-10)
+
+            # Correlation/affinity matrix: C[i,j] = cosine similarity between output channels i and j
+            # Shape: (out_features, out_features)
+            correlation = weight_normalized @ weight_normalized.T
+
+        # Make affinity matrix non-negative and apply exponential kernel for stronger locality
+        # A[i,j] = exp(correlation[i,j]) gives higher weight to similar channels
+        affinity = torch.exp(correlation - 1.0)  # Subtract 1 so diagonal ≈ 1 after exp
+
+        # Construct graph Laplacian: L = D - A
+        # where D is degree matrix (diagonal with row sums of A)
+        degree = torch.diag(affinity.sum(dim=1))
+        laplacian = degree - affinity
+
+        # Compute eigendecomposition of Laplacian
+        # Use float32 for eigendecomposition (more stable than bfloat16)
+        laplacian_f32 = laplacian.to(torch.float32)
+        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
+
+        # Fiedler vector: eigenvector corresponding to 2nd smallest eigenvalue
+        # This vector provides a 1D embedding that preserves graph structure
+        fiedler_vector = eigenvectors[:, 1]  # Index 1 = second smallest eigenvalue
+
+        # Sort channels by Fiedler vector values
+        # This groups strongly connected channels together, maximizing local coherence
+        output_perm = torch.argsort(fiedler_vector)
+
+        return output_perm.to(weight.device)
+
     @classmethod
     def from_linear(
         cls,
@@ -203,22 +282,33 @@ class TensorizedLinear(nn.Module):
             assert weight.shape[0] == bias.shape[0], "incompatible weight/bias"
             bias = bias.clone(memory_format=torch.contiguous_format)
 
+        # Compute output activations if input activations provided
+        output_activations = None
         if input_activations is not None:
             assert input_activations.ndim == 2, "invalid input_activations, expected (num_samples, in_features)"
             assert input_activations.shape[1] == weight.shape[1], (
                 f"input_activations feature dim {input_activations.shape[1]} doesn't match "
                 f"weight in_features {weight.shape[1]}"
             )
+            # Compute output activations: output = weight @ input^T
+            # Shape: (num_samples, out_features)
+            with torch.no_grad():
+                output_activations = (weight @ input_activations.T).T
 
-        # Use spectral reordering to find optimal channel permutation
+        # Use spectral reordering to find optimal input channel permutation
         # This maximizes local coherence for MPO decomposition using Laplacian Eigenmaps
         input_perm = cls._spectral_reordering(weight, input_activations)
-
-        # Compute inverse permutation for output reconstruction
         input_inv_perm = torch.argsort(input_perm)
 
-        # Apply permutation to weight matrix (permute columns = input channels)
-        weight_permuted = weight[:, input_perm]
+        # Use spectral reordering to find optimal output channel permutation
+        output_perm = cls._spectral_reordering_output(weight, output_activations)
+        output_inv_perm = torch.argsort(output_perm)
+
+        # Apply both permutations to weight matrix
+        # Permute rows (output channels) and columns (input channels)
+        weight_permuted = weight[output_perm, :][:, input_perm]
+
+        # Note: bias is kept in original order, will be added after unpermuting outputs
 
         output_shape = cls.get_shape(weight.shape[0], num_cores)
         input_shape = cls.get_shape(weight.shape[1], num_cores)
@@ -238,9 +328,11 @@ class TensorizedLinear(nn.Module):
             shape,
             rank,
             tt_matrix.factors,
-            bias,
+            bias,  # Keep bias in original order
             input_perm=input_perm,
             input_inv_perm=input_inv_perm,
+            output_perm=output_perm,
+            output_inv_perm=output_inv_perm,
             dtype=orig_dtype,
         )
 
@@ -274,16 +366,21 @@ class TensorizedLinear(nn.Module):
         """
         Return tensorized weights expanded into a single weight matrix,
         including learned scaling parameters (alpha and per_dim_scale).
-        Returns the matrix in the original channel ordering (applies inverse permutation).
+        Returns the matrix in the original channel ordering (applies inverse permutations).
         """
         W = tl.tt_matrix.tt_matrix_to_matrix(self.factors)
         # Apply learned scaling: W_scaled[i, :] = per_dim_scale[i] * alpha * W[i, :]
         scale = self.per_dim_scale * self.alpha
         W_scaled = W * scale.view(-1, 1)
 
-        # Apply inverse permutation to restore original input channel ordering
+        # Apply inverse permutations to restore original channel ordering
+        # First restore input channels (columns)
         if self.input_inv_perm is not None:
             W_scaled = W_scaled[:, self.input_inv_perm]
+
+        # Then restore output channels (rows)
+        if self.output_inv_perm is not None:
+            W_scaled = W_scaled[self.output_inv_perm, :]
 
         return W_scaled
 
@@ -448,7 +545,11 @@ class TensorizedLinear(nn.Module):
         # This preserves direction while correcting magnitude per dimension
         result = result * self.per_dim_scale * self.alpha
 
-        # Add bias if present
+        # Apply inverse output permutation to restore original output channel order
+        if self.output_inv_perm is not None:
+            result = result[:, self.output_inv_perm]
+
+        # Add bias if present (bias is already in permuted order, so add after unpermuting)
         if self.bias is not None:
             result = result + self.bias
 

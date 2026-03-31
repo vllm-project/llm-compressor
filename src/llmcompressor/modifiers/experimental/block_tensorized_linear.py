@@ -76,7 +76,9 @@ class BlockTensorizedLinear(nn.Module):
         rank: same as TensorizedLinear.from_linear
         num_cores: same as TensorizedLinear.from_linear
         input_activations: Optional input activation data of shape (num_samples, in_features)
-                          for activation-based spectral reordering. Will be sliced per block.
+                          for activation-based dual spectral reordering (both input AND output).
+                          Will be sliced per block for input dims, and each block computes its own
+                          output activations from its weight slice.
         """
         assert (
             linear.in_features % block_size == 0
