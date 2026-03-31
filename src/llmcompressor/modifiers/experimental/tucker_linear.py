@@ -47,6 +47,8 @@ class TuckerLinear(nn.Module):
         bias: Optional[torch.Tensor] = None,
         input_perm: Optional[torch.Tensor] = None,
         input_inv_perm: Optional[torch.Tensor] = None,
+        output_perm: Optional[torch.Tensor] = None,
+        output_inv_perm: Optional[torch.Tensor] = None,
         dtype: torch.dtype = torch.float32,
     ):
         """
@@ -59,6 +61,8 @@ class TuckerLinear(nn.Module):
             bias: Optional bias term
             input_perm: Optional input channel permutation (for spectral reordering)
             input_inv_perm: Inverse of input_perm
+            output_perm: Optional output channel permutation (for spectral reordering)
+            output_inv_perm: Inverse of output_perm
             dtype: Data type for parameters
         """
         super().__init__()
@@ -90,6 +94,13 @@ class TuckerLinear(nn.Module):
             self.register_buffer('input_perm', None)
             self.register_buffer('input_inv_perm', None)
 
+        if output_perm is not None:
+            self.register_buffer('output_perm', output_perm)
+            self.register_buffer('output_inv_perm', output_inv_perm)
+        else:
+            self.register_buffer('output_perm', None)
+            self.register_buffer('output_inv_perm', None)
+
     @property
     def num_params(self):
         """Count parameters (excluding permutations)."""
@@ -103,13 +114,13 @@ class TuckerLinear(nn.Module):
         return total
 
     @staticmethod
-    def _spectral_reordering(
+    def _spectral_reordering_input(
         weight: torch.Tensor,
         input_activations: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Use spectral reordering to find optimal input channel permutation.
 
-        Same approach as TensorizedLinear - groups correlated channels together.
+        Groups correlated input channels together using Laplacian eigenmaps.
         """
         if input_activations is not None:
             # Use activation-based correlation
@@ -119,7 +130,7 @@ class TuckerLinear(nn.Module):
             num_samples = activations_normalized.shape[0]
             correlation = (activations_normalized.T @ activations_normalized) / num_samples
         else:
-            # Use weight-based correlation
+            # Use weight-based correlation (input features)
             weight_normalized = weight / (torch.norm(weight, dim=0, keepdim=True) + 1e-10)
             correlation = weight_normalized.T @ weight_normalized
 
@@ -141,6 +152,46 @@ class TuckerLinear(nn.Module):
         input_perm = torch.argsort(fiedler_vector)
 
         return input_perm.to(weight.device)
+
+    @staticmethod
+    def _spectral_reordering_output(
+        weight: torch.Tensor,
+        output_activations: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Use spectral reordering to find optimal output channel permutation.
+
+        Groups correlated output channels together using Laplacian eigenmaps.
+        """
+        if output_activations is not None:
+            # Use output activation-based correlation
+            activations_centered = output_activations - output_activations.mean(dim=0, keepdim=True)
+            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
+            activations_normalized = activations_centered / activations_std
+            num_samples = activations_normalized.shape[0]
+            correlation = (activations_normalized.T @ activations_normalized) / num_samples
+        else:
+            # Use weight-based correlation (output features = rows of W)
+            weight_normalized = weight / (torch.norm(weight, dim=1, keepdim=True) + 1e-10)
+            correlation = weight_normalized @ weight_normalized.T
+
+        # Exponential kernel for stronger locality
+        affinity = torch.exp(correlation - 1.0)
+
+        # Graph Laplacian
+        degree = torch.diag(affinity.sum(dim=1))
+        laplacian = degree - affinity
+
+        # Eigendecomposition
+        laplacian_f32 = laplacian.to(torch.float32)
+        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
+
+        # Fiedler vector (2nd smallest eigenvalue)
+        fiedler_vector = eigenvectors[:, 1]
+
+        # Sort by Fiedler vector
+        output_perm = torch.argsort(fiedler_vector)
+
+        return output_perm.to(weight.device)
 
     @staticmethod
     def get_shape(num_features: int, num_modes: int) -> tuple[int, ...]:
@@ -189,10 +240,22 @@ class TuckerLinear(nn.Module):
         orig_dtype = weight.dtype
         device = weight.device
 
-        # Spectral reordering
-        input_perm = cls._spectral_reordering(weight, input_activations)
+        # Spectral reordering for BOTH input and output dimensions
+        # This is critical for Tucker - we factorize both dimensions
+        input_perm = cls._spectral_reordering_input(weight, input_activations)
         input_inv_perm = torch.argsort(input_perm)
-        weight_permuted = weight[:, input_perm]
+
+        # For output, we don't have output activations, so use weight-based correlation
+        output_perm = cls._spectral_reordering_output(weight, None)
+        output_inv_perm = torch.argsort(output_perm)
+
+        # Apply both permutations
+        weight_permuted = weight[output_perm, :][:, input_perm]
+
+        if verbose:
+            print(f"Spectral reordering:")
+            print(f"  Input permutation computed (groups correlated input features)")
+            print(f"  Output permutation computed (groups correlated output features)")
 
         # Get factorization shapes
         output_shape = cls.get_shape(out_features, num_modes)
@@ -237,6 +300,8 @@ class TuckerLinear(nn.Module):
             bias=bias,
             input_perm=input_perm,
             input_inv_perm=input_inv_perm,
+            output_perm=output_perm,
+            output_inv_perm=output_inv_perm,
             dtype=orig_dtype,
         ).to(device)
 
@@ -273,7 +338,12 @@ class TuckerLinear(nn.Module):
         W_scaled = W * scale.view(-1, 1)
 
         # Apply linear transformation: x @ W^T
+        # W is in permuted space, so result will be in permuted output space
         result = x_flat @ W_scaled.T
+
+        # Apply inverse output permutation to restore original output ordering
+        if self.output_inv_perm is not None:
+            result = result[..., self.output_inv_perm]
 
         # Add bias
         if self.bias is not None:
@@ -297,9 +367,14 @@ class TuckerLinear(nn.Module):
         scale = self.per_dim_scale * self.alpha
         W_scaled = W * scale.view(-1, 1)
 
-        # Apply inverse permutation
+        # Apply inverse permutations to restore original ordering
+        # W is in (permuted_output, permuted_input) space
+        # Need to unpermute both dimensions
         if self.input_inv_perm is not None:
             W_scaled = W_scaled[:, self.input_inv_perm]
+
+        if self.output_inv_perm is not None:
+            W_scaled = W_scaled[self.output_inv_perm, :]
 
         return W_scaled
 
