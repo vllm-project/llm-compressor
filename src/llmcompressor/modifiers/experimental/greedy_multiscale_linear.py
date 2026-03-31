@@ -58,7 +58,12 @@ class LowRankLinear(nn.Module):
     @classmethod
     def from_svd(cls, weight: torch.Tensor, rank: int):
         """Create low-rank approximation from SVD."""
-        U_full, S, Vh = torch.linalg.svd(weight.float(), full_matrices=False)
+        device = weight.device
+        dtype = weight.dtype
+
+        # Perform SVD on CPU for numerical stability, then move back
+        weight_cpu = weight.float().cpu()
+        U_full, S, Vh = torch.linalg.svd(weight_cpu, full_matrices=False)
 
         # Truncate to rank
         U_r = U_full[:, :rank]
@@ -69,9 +74,9 @@ class LowRankLinear(nn.Module):
         out_features, in_features = weight.shape
         layer = cls(in_features, out_features, rank)
 
-        # Set parameters: U @ S, V^T
-        layer.U.data = (U_r @ torch.diag(S_r)).to(weight.dtype)
-        layer.V.data = Vh_r.T.to(weight.dtype)
+        # Set parameters: U @ S, V^T and move to correct device
+        layer.U.data = (U_r @ torch.diag(S_r)).to(dtype=dtype, device=device)
+        layer.V.data = Vh_r.T.to(dtype=dtype, device=device)
 
         return layer
 
@@ -153,19 +158,23 @@ class GreedyMultiScaleLinear(nn.Module):
 
         stages = nn.ModuleList()
 
-        W = linear.weight.data.float()
+        # Track device and dtype
+        device = linear.weight.device
+        dtype = linear.weight.dtype
+
+        W = linear.weight.data.float().to(device)
         in_features = linear.in_features
         out_features = linear.out_features
 
         # Generate activations if not provided
         if input_activations is None:
-            input_activations = torch.randn(256, in_features) * 0.02
+            input_activations = torch.randn(256, in_features, device=device) * 0.02
 
-        input_activations = input_activations.float()
+        input_activations = input_activations.float().to(device)
 
         # Compute original outputs
         with torch.no_grad():
-            original_output = linear(input_activations.to(linear.weight.dtype)).float()
+            original_output = linear(input_activations.to(dtype)).float()
 
         # Start with zero approximation
         current_output = torch.zeros_like(original_output)
@@ -195,9 +204,9 @@ class GreedyMultiScaleLinear(nn.Module):
             residual_weight = W - current_weight_approx
             residual_output = original_output - current_output
 
-            # Create temporary linear with residual weights
-            temp_linear = nn.Linear(in_features, out_features, bias=False)
-            temp_linear.weight.data = residual_weight
+            # Create temporary linear with residual weights on correct device
+            temp_linear = nn.Linear(in_features, out_features, bias=False).to(device)
+            temp_linear.weight.data = residual_weight.to(dtype)
 
             # Check if block_size divides dimensions
             if out_features % mpo_block_size == 0 and in_features % mpo_block_size == 0:
@@ -211,9 +220,9 @@ class GreedyMultiScaleLinear(nn.Module):
                     )
 
                     with torch.no_grad():
-                        mpo_output = mpo(input_activations.to(temp_linear.weight.dtype)).float()
+                        mpo_output = mpo(input_activations.to(dtype)).float()
 
-                    mpo_weight = mpo.to_matrix().float()
+                    mpo_weight = mpo.to_matrix().float().to(device)
                     mpo_snr = compute_snr(residual_output, mpo_output)
 
                     stages.append(mpo)
@@ -234,13 +243,13 @@ class GreedyMultiScaleLinear(nn.Module):
             residual_output_2 = original_output - current_output
             residual_weight_2 = W - current_weight_approx
 
-            # Fit low-rank via SVD of weight residual
+            # Fit low-rank via SVD of weight residual (already handles device in from_svd)
             lr = LowRankLinear.from_svd(residual_weight_2, rank=lr_rank)
 
             with torch.no_grad():
                 lr_output = lr(input_activations).float()
 
-            lr_weight = (lr.U @ lr.V.T).float()
+            lr_weight = (lr.U.data @ lr.V.data.T).float()
             lr_snr = compute_snr(residual_output_2, lr_output)
 
             stages.append(lr)
@@ -264,7 +273,10 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"  Total params: {total_params:,} ({total_params/original_params:.2f}x)")
             print(f"  Compression: {100*(1-total_params/original_params):.1f}%")
 
-        return cls(stages)
+        # Create module and ensure it's on the correct device
+        module = cls(stages)
+        module.to(device)
+        return module
 
     def forward(self, x):
         """Sum outputs of all stages."""
