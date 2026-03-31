@@ -15,7 +15,7 @@ LLM Compressor provides two entrypoints for post-training quantization (PTQ), ea
 
 ## oneshot
 
-Use `oneshot` when your quantization algorithm or scheme **requires calibration data**, such as GPTQ, AWQ, SmoothQuant, or static activation quantization (FP8 per-tensor, INT8). It loads the model through Hugging Face `transformers`, runs calibration forward passes, and applies recipe-defined modifiers.
+Use `oneshot` when your quantization algorithm or scheme **requires calibration data**, such as GPTQ, AWQ, SmoothQuant, or static activation quantization (FP8 or INT8 with static per tensor activations). It loads the model through Hugging Face `transformers`, runs calibration forward passes, and applies recipe-defined modifiers.
 
 [:octicons-arrow-right-24: oneshot documentation](oneshot.md)
 
