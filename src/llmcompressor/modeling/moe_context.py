@@ -16,7 +16,12 @@ from abc import ABC
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import is_distributed
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    is_distributed,
+)
+from compressed_tensors.offload.cache import OffloadCache
+from compressed_tensors.offload.module import offload_module
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from tqdm import tqdm
@@ -111,8 +116,18 @@ def moe_calibration_context(
                 config=model.config,
                 calibrate_all_experts=calibrate_all_experts,
             )
+            # Apply the same offloading settings as the original module
+            _apply_offloading_to_replacement(module, replacement)
+
             model.set_submodule(name, replacement)
-            replaced[name] = (module, replacement)
+
+            # Only store original if we need to restore it later
+            if replacement.is_permanent:
+                replaced[name] = (None, replacement)
+                del module
+            else:
+                replaced[name] = (module, replacement)
+
             if is_distributed():
                 dist.barrier()
 
@@ -145,3 +160,42 @@ def moe_calibration_context(
 
 def _is_registered(name: str, subclass: RegistryMixin):
     return standardize_lookup_name(name) in subclass.registered_names()
+
+
+def _find_ancestor_with_offload_cache(module):
+    if isinstance(module._parameters, OffloadCache):
+        return module
+
+    for child in module.children():
+        child_val = _find_ancestor_with_offload_cache(child)
+        if child_val is not None:
+            return child_val
+    return None
+
+
+def _apply_offloading_to_replacement(
+    original: torch.nn.Module, replacement: torch.nn.Module
+):
+    """
+    Apply the same offloading configuration from original to replacement module.
+
+    If the original module or ANY of its children use OffloadCache, this recursively
+    applies the same offloading settings to all submodules of the replacement that
+    have parameters.
+    """
+
+    module_with_cache = _find_ancestor_with_offload_cache(original)
+    if module_with_cache is None:
+        return
+
+    kwargs = get_cache_init_kwargs(module_with_cache)
+
+    # Apply offloading to all submodules that have parameters
+    # and are not already offloaded
+    for module in replacement.modules():
+        if isinstance(module._parameters, OffloadCache):
+            continue
+        if len(list(module.parameters(recurse=False))) == 0:
+            continue
+
+        offload_module(module, **kwargs)
