@@ -278,12 +278,16 @@ class GreedyMultiScaleLinear(nn.Module):
                     with torch.no_grad():
                         sparse_output = sparse(input_activations.to(dtype)).float()
 
-                    sparse_weight = sparse.to_matrix().float().to(device)
+                    # Reconstruct sparse weight matrix for tracking
+                    # ColumnSparseLinear stores selected_columns and partial weight
+                    sparse_weight_full = torch.zeros(out_features, in_features, device=device)
+                    sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
+
                     sparse_snr = compute_snr(residual_output_3, sparse_output)
 
                     stages.append(sparse)
                     current_output = current_output + sparse_output
-                    current_weight_approx = current_weight_approx + sparse_weight
+                    current_weight_approx = current_weight_approx + sparse_weight_full
 
                     if verbose:
                         print(f"  Sparse: {sparse.num_params:,} params, SNR improvement: {sparse_snr:.2f} dB")
@@ -324,12 +328,40 @@ class GreedyMultiScaleLinear(nn.Module):
 
     def to_matrix(self):
         """Reconstruct full weight matrix."""
-        total = 0
+        # Determine shape from first stage
+        if not self.stages:
+            return None
+
+        # Get dimensions
+        first_stage = self.stages[0]
+        if hasattr(first_stage, 'tensorized_linear'):
+            # PermutedTensorizedLinear
+            out_features = first_stage.tensorized_linear.out_features
+            in_features = first_stage.tensorized_linear.in_features
+        elif isinstance(first_stage, LowRankLinear):
+            out_features = first_stage.out_features
+            in_features = first_stage.in_features
+        elif hasattr(first_stage, 'out_features'):
+            out_features = first_stage.out_features
+            in_features = first_stage.in_features
+        else:
+            return None
+
+        # Reconstruct
+        device = first_stage.weight.device if hasattr(first_stage, 'weight') else 'cpu'
+        total = torch.zeros(out_features, in_features, device=device)
+
         for stage in self.stages:
             if hasattr(stage, 'to_matrix'):
                 total = total + stage.to_matrix()
             elif isinstance(stage, LowRankLinear):
-                total = total + (stage.U @ stage.V.T)
+                total = total + (stage.U.data @ stage.V.data.T)
+            elif hasattr(stage, 'selected_columns'):
+                # ColumnSparseLinear - reconstruct sparse matrix
+                sparse_weight = torch.zeros(out_features, in_features, device=device)
+                sparse_weight[:, stage.selected_columns] = stage.weight.data
+                total = total + sparse_weight
+
         return total
 
 
