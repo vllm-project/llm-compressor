@@ -216,6 +216,16 @@ def quantize_weight(
                     altered_qargs,
                     global_scale=global_scale,
                 )
+            elif strategy == QuantizationStrategy.BLOCK:
+                block_width = quant_args.block_structure[1]
+                block_column_idx = (i1 + i) // block_width
+                q = fake_quantize(
+                    q.unsqueeze(1),
+                    scale[:, block_column_idx : block_column_idx + 1],
+                    zero_point[:, block_column_idx : block_column_idx + 1],
+                    quant_args,
+                    global_scale=global_scale,
+                ).squeeze(1)
             else:
                 raise ValueError(
                     f"Quantization strategy is not supported for GPTQ: {strategy}"
