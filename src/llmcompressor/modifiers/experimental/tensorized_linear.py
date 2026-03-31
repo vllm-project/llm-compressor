@@ -370,32 +370,73 @@ class TensorizedLinear(nn.Module):
 
         else:
             # Sequential contraction for >16 cores
-            # Contract one core at a time from left to right
+            # Use a simple loop-based contraction
 
+            # Initialize: add dummy leading rank dimension
             result = x.unsqueeze(1)  # (batch, 1, m_0, m_1, ..., m_{d-1})
+            batch_size = result.shape[0]
 
             for i, core in enumerate(self.factors):
                 # core: (r_i, n_i, m_i, r_{i+1})
-                # result: (batch, r_i, n_0, ..., n_{i-1}, m_i, ..., m_{d-1})
+                r_i, n_i, m_i, r_ip1 = core.shape
 
-                # Move m_i to position after r_i for contraction
-                ndim = result.ndim
-                m_i_pos = 2 + i
-                if m_i_pos != 2:
-                    # Permute to move m_i right after r_i
-                    perm = [0, 1, m_i_pos] + list(range(2, m_i_pos)) + list(range(m_i_pos + 1, ndim))
-                    result = result.permute(*perm)
+                # result: (batch, r_i, *out_dims_so_far, *in_dims_remaining)
+                # where out_dims_so_far = output_shape[:i], in_dims_remaining = input_shape[i:]
 
-                # Contract: result (batch, r_i, m_i, ...) with core (r_i, n_i, m_i, r_{i+1})
-                result = torch.einsum('bra...,rnac->bcn...a', result, core)
+                # Flatten everything for simple contraction
+                out_so_far = list(output_shape[:i]) if i > 0 else []
+                in_remaining = list(input_shape[i:])
 
-                # result: (batch, r_{i+1}, n_i, n_0, ..., n_{i-1}, ...)
-                # Permute n_i to correct position
-                if i > 0:
-                    perm = [0, 1] + list(range(3, 3 + i)) + [2] + list(range(3 + i, result.ndim))
-                    result = result.permute(*perm)
+                # Reshape to (batch, r_i, prod(out_so_far), m_i, prod(in_remaining[1:]))
+                out_flat = math.prod(out_so_far) if out_so_far else 1
+                in_rest_flat = math.prod(in_remaining[1:]) if len(in_remaining) > 1 else 1
 
-            # Squeeze final rank dimension
+                result = result.reshape(batch_size, r_i, out_flat, m_i, in_rest_flat)
+
+                # Contract using simple operations
+                # result: (batch, r_i, O, m_i, I)
+                # core: (r_i, n_i, m_i, r')
+                # Want: (batch, r', O, n_i, I)
+
+                # Permute to group dims for bmm: (batch, O, I, r_i, m_i)
+                result = result.permute(0, 2, 4, 1, 3)
+                # Reshape: (batch * O * I, r_i, m_i)
+                bOI = batch_size * out_flat * in_rest_flat
+                result = result.reshape(bOI, r_i, m_i)
+
+                # Reshape core: (r_i, n_i * r', m_i)
+                core_reshaped = core.permute(0, 3, 1, 2).reshape(r_i, r_ip1 * n_i, m_i)
+
+                # Batch matrix multiply: (bOI, r_i, m_i) @ (r_i, m_i, n_i*r')^T
+                #   = (bOI, r_i, m_i) @ (r_i, n_i*r', m_i).transpose(-2, -1)
+                # First: for each sample in bOI, contract over r_i and m_i
+                # result[k, :, :] is (r_i, m_i)
+                # core_reshaped[:, :, :] is (r_i, n_i*r', m_i)
+                # Want to contract: result[k, r, m] * core[r, p, m] -> output[k, p]
+                # This is: einsum('rm,rpm->p', result[k], core_reshaped)
+
+                outputs = []
+                for k in range(bOI):
+                    # Contract (r_i, m_i) with (r_i, n_i*r', m_i)
+                    out_k = torch.einsum('ra,rba->b', result[k], core_reshaped)  # (n_i * r')
+                    outputs.append(out_k)
+                result = torch.stack(outputs, dim=0)  # (bOI, n_i * r')
+
+                # Reshape: (batch, O, I, n_i * r')
+                result = result.reshape(batch_size, out_flat, in_rest_flat, n_i * r_ip1)
+
+                # Split n_i * r': (batch, O, I, n_i, r')
+                result = result.reshape(batch_size, out_flat, in_rest_flat, n_i, r_ip1)
+
+                # Rearrange to (batch, r', O, n_i, I)
+                result = result.permute(0, 4, 1, 3, 2)
+
+                # Unflatten O and I
+                new_out_dims = list(out_so_far) + [n_i]
+                new_in_dims = list(in_remaining[1:])
+                result = result.reshape(batch_size, r_ip1, *new_out_dims, *new_in_dims)
+
+            # Final: (batch, r_final=1, *output_shape)
             result = result.squeeze(1)
 
         # Reshape output to (batch_total, out_features)
