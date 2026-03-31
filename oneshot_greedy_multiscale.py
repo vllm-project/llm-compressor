@@ -5,6 +5,7 @@ to compress model weights while targeting activation SNR.
 
 Run on GPU for best performance.
 """
+
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
@@ -20,14 +21,14 @@ MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
-TARGET_SNR_DB = 30.0          # Target activation SNR
-MAX_STAGES = 5                # Maximum MPO+LR+Sparse stages
-MPO_NUM_CORES = 3             # Number of cores for MPO tensor train
-MPO_RANK = 0.3                # Rank for each MPO (low for small components)
-LR_RANK = 64                  # Rank for low-rank corrections
-SPARSE_SPARSITY = 0.7         # Column sparsity (0.7 = keep 30% of columns)
-PERMUTE_MPO = True            # Use spectral reordering for MPO (groups entangled features)
-USE_SPARSE = True             # Include column-sparse stages in cascade
+TARGET_SNR_DB = 30.0  # Target activation SNR
+MAX_STAGES = 15  # Maximum MPO+LR+Sparse stages
+MPO_NUM_CORES = 32  # Number of cores for MPO tensor train
+MPO_RANK = 0.1  # Rank for each MPO (low for small components)
+LR_RANK = 64  # Rank for low-rank corrections
+SPARSE_SPARSITY = 0.1  # Column sparsity (0.7 = keep 30% of columns)
+PERMUTE_MPO = True  # Use spectral reordering for MPO (groups entangled features)
+USE_SPARSE = True  # Include column-sparse stages in cascade
 
 # Calibration settings
 DATASET_ID = "mit-han-lab/pile-val-backup"
@@ -38,7 +39,7 @@ MAX_SEQUENCE_LENGTH = 2048
 # Layer targeting
 COMPRESS_TARGETS = [
     "re:.*self_attn.(q|k|v|o)_proj$",  # All attention projections
-    # "re:.*mlp.(gate|up|down)_proj$",   # Uncomment to include MLP layers
+    "re:.*mlp.(gate|up|down)_proj$",  # Uncomment to include MLP layers
 ]
 
 IGNORE_LAYERS = [
@@ -55,7 +56,9 @@ def get_calib_dataset(tokenizer):
     )
 
     def preprocess(example):
-        return {"input_ids": tokenizer.encode(example["text"].strip()[:MAX_SEQUENCE_LENGTH])}
+        return {
+            "input_ids": tokenizer.encode(example["text"].strip()[:MAX_SEQUENCE_LENGTH])
+        }
 
     ds = (
         ds.shuffle(seed=42)
@@ -71,7 +74,7 @@ def collect_layer_activations(model, layer_name, dataloader, device="cuda"):
     activations = []
 
     # Navigate to layer
-    parts = layer_name.split('.')
+    parts = layer_name.split(".")
     layer = model
     for part in parts:
         if part.isdigit():
@@ -114,13 +117,13 @@ def compress_model_greedy_multiscale(
     """Apply greedy multi-scale compression to model."""
     import re
 
-    print("\n" + "="*100)
+    print("\n" + "=" * 100)
     print("Greedy Multi-Scale Compression")
-    print("="*100)
+    print("=" * 100)
     print(f"\nConfiguration:")
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
     print(f"  Max stages: {MAX_STAGES}")
-    print(f"  MPO: block_size={MPO_BLOCK_SIZE}, num_cores={MPO_NUM_CORES}, rank={MPO_RANK}")
+    print(f"  MPO: num_cores={MPO_NUM_CORES}, rank={MPO_RANK}")
     print(f"  LR: rank={LR_RANK}")
     print()
 
@@ -152,7 +155,10 @@ def compress_model_greedy_multiscale(
                     if re.match(target_pattern[3:], full_name):
                         should_compress = True
                         break
-                elif target_pattern in full_name or target_pattern == type(child).__name__:
+                elif (
+                    target_pattern in full_name
+                    or target_pattern == type(child).__name__
+                ):
                     should_compress = True
                     break
 
@@ -181,7 +187,9 @@ def compress_model_greedy_multiscale(
 
         # Collect activations for this layer
         print("Collecting activations...")
-        input_activations = collect_layer_activations(model, layer_name, dataloader, device)
+        input_activations = collect_layer_activations(
+            model, layer_name, dataloader, device
+        )
         print(f"Collected {input_activations.shape[0]} activation samples")
 
         # Create greedy multiscale decomposition
@@ -242,7 +250,9 @@ def main():
 
     def collate_fn(batch):
         input_ids = [torch.tensor(item["input_ids"]) for item in batch]
-        input_ids = pad_sequence(input_ids, batch_first=True, padding_value=tokenizer.pad_token_id or 0)
+        input_ids = pad_sequence(
+            input_ids, batch_first=True, padding_value=tokenizer.pad_token_id or 0
+        )
         return {"input_ids": input_ids}
 
     dataloader = DataLoader(calib_dataset, batch_size=4, collate_fn=collate_fn)
@@ -257,16 +267,16 @@ def main():
     )
 
     # Test generation
-    print("\n" + "="*100)
+    print("\n" + "=" * 100)
     print("SAMPLE GENERATION")
-    print("="*100)
+    print("=" * 100)
 
     model.eval()
     input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
     with torch.no_grad():
         output = model.generate(input_ids, max_new_tokens=100)
     print(tokenizer.decode(output[0]))
-    print("="*100 + "\n")
+    print("=" * 100 + "\n")
 
     # Save compressed model
     print(f"Saving compressed model to {SAVE_DIR}...")
