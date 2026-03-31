@@ -9,6 +9,22 @@ from llmcompressor.modeling.moe_context import (
 )
 
 
+class MockOffloadCache(OffloadCache):
+    """Mock implementation of OffloadCache for testing."""
+
+    offload_device = "cpu"
+
+    def onload(self, offloaded):
+        return offloaded
+
+    def offload(self, tensor):
+        return tensor
+
+    def update_offload(self, offloaded, data):
+        if offloaded is not None and data is not None:
+            offloaded.copy_(data)
+
+
 def test_find_ancestor_with_offload_cache():
     """Test finding ancestor modules with OffloadCache."""
     # Module without offload cache
@@ -17,7 +33,7 @@ def test_find_ancestor_with_offload_cache():
 
     # Module with offload cache
     module_with_cache = torch.nn.Linear(10, 10)
-    module_with_cache._parameters = OffloadCache()
+    module_with_cache._parameters = MockOffloadCache(onload_device="cpu")
     assert _find_ancestor_with_offload_cache(module_with_cache) is module_with_cache
 
     # Parent with child that has cache
@@ -33,7 +49,7 @@ def test_apply_offloading_to_replacement(mock_offload, mock_get_kwargs):
 
     # Original with offload cache
     original = torch.nn.Sequential(torch.nn.Linear(10, 10))
-    original[0]._parameters = OffloadCache()
+    original[0]._parameters = MockOffloadCache(onload_device="cpu")
 
     # Replacement without cache
     replacement = torch.nn.Sequential(torch.nn.Linear(10, 10))
