@@ -317,35 +317,52 @@ class TensorizedLinear(nn.Module):
         # Reshape input to expose individual dimensions: (batch, m_0, m_1, ..., m_{d-1})
         x = x.reshape(batch_total, *input_shape)
 
-        # Build einsum string using labels that support many cores
-        # Use multi-character labels for cores > 26 to avoid running out of single chars
-        # 'b' = batch
-        # i0, i1, i2, ... for input dims
-        # o0, o1, o2, ... for output dims
-        # r0, r1, r2, ... for rank dims
+        # For many cores (>26), einsum single-char labels run out.
+        # Use sequential contractions instead.
+        #
+        # Standard tensor train forward pass: contract cores left-to-right
+        # Maintain intermediate result and contract one core at a time
 
-        input_chars = [f"i{i}" for i in range(num_cores)]
-        output_chars = [f"o{i}" for i in range(num_cores)]
-        rank_chars = [f"r{i}" for i in range(num_cores + 1)]
+        # Start with dummy rank dimension
+        result = x.unsqueeze(1)  # (batch, 1, m_0, m_1, ..., m_{d-1})
 
-        # Input: batch + input dimensions
-        input_subscripts = "b" + "".join(input_chars)
+        for i, core in enumerate(self.factors):
+            # core: (r_i, n_i, m_i, r_{i+1})
+            # result: (batch, r_i, n_0, ..., n_{i-1}, m_i, ..., m_{d-1})
 
-        # Each core: rank_i + output_i + input_i + rank_{i+1}
-        core_subscripts = [
-            f"{rank_chars[i]}{output_chars[i]}{input_chars[i]}{rank_chars[i+1]}"
-            for i in range(num_cores)
-        ]
+            # Contract over r_i and m_i dimensions
+            # Result dims: batch=0, r_i=1, outputs=2...(1+i), m_i=(2+i), remaining_m=(3+i)...
+            # Core dims: r_i=0, n_i=1, m_i=2, r_{i+1}=3
 
-        # Output: batch + output dimensions
-        output_subscripts = "b" + "".join(output_chars)
+            # Use einsum to contract r_i (result dim 1) with core r_i (core dim 0)
+            # and m_i (result dim 2+i) with core m_i (core dim 2)
 
-        einsum_string = (
-            f"{input_subscripts},{','.join(core_subscripts)}->{output_subscripts}"
-        )
+            # Move m_i to be right after r_i for cleaner contraction
+            ndim = result.ndim
+            m_i_pos = 2 + i
+            if m_i_pos != 2:
+                # Permute: (batch, r_i, n_0, ..., n_{i-1}, m_i, ...)
+                #       -> (batch, r_i, m_i, n_0, ..., n_{i-1}, ...)
+                perm = [0, 1, m_i_pos] + list(range(2, m_i_pos)) + list(range(m_i_pos + 1, ndim))
+                result = result.permute(*perm)
 
-        # Contract using einsum
-        result = torch.einsum(einsum_string, x, *self.factors)
+            # Now: result (batch, r_i, m_i, n_0, ..., n_{i-1}, m_{i+1}, ...)
+            #      core   (r_i, n_i, m_i, r_{i+1})
+            # Contract on r_i and m_i
+            result = torch.einsum('bra...,rnac->bcn...a', result, core)
+
+            # result now: (batch, r_{i+1}, n_i, n_0, ..., n_{i-1}, m_{i+1}, ...)
+            # Permute n_i to correct position (after n_0, ..., n_{i-1})
+            # Target: (batch, r_{i+1}, n_0, ..., n_{i-1}, n_i, m_{i+1}, ...)
+            if i > 0:
+                # Permute: (batch, r, n_i, n_0, ..., n_{i-1}, m_{i+1}, ...)
+                #       -> (batch, r, n_0, ..., n_{i-1}, n_i, m_{i+1}, ...)
+                perm = [0, 1] + list(range(3, 3 + i)) + [2] + list(range(3 + i, result.ndim))
+                result = result.permute(*perm)
+
+        # Final: (batch, r_d, n_0, ..., n_{d-1})
+        # Squeeze final rank (should be 1)
+        result = result.squeeze(1)
 
         # Reshape output to (batch_total, out_features)
         out_features = math.prod(output_shape)
