@@ -136,6 +136,19 @@ def quantize_weight(
 
         else:
             scale, zero_point = observer(W)
+    elif strategy == QuantizationStrategy.CHANNEL:
+        if actorder == ActivationOrdering.GROUP:
+            raise ValueError(
+                "ActivationOrdering.GROUP is not supported for per-channel "
+                "quantization (strategy=CHANNEL). Use ActivationOrdering.WEIGHT "
+                "instead."
+            )
+        elif actorder == ActivationOrdering.WEIGHT:
+            # compute per-channel scale first, then permute columns
+            scale, zero_point = observer(W)
+            W, H, perm = _apply_activation_ordering(W, H)
+        else:
+            scale, zero_point = observer(W)
     else:
         scale, zero_point = observer(W)
 
@@ -268,6 +281,11 @@ def quantize_weight(
 
             # only save g_idx if mapping is not identity
             has_gidx = True
+    elif strategy == QuantizationStrategy.CHANNEL:
+        if actorder == ActivationOrdering.WEIGHT:
+            # restore original permutation
+            invperm = torch.argsort(perm)
+            W = W[:, invperm]
 
     if not has_gidx:
         g_idx = None

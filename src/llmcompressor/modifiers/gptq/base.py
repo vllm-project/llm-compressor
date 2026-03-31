@@ -155,9 +155,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if (
-                getattr_chain(scheme, "weights.strategy", None)
-                == QuantizationStrategy.GROUP
+            if getattr_chain(scheme, "weights.strategy", None) in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.CHANNEL,
             ):
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
         return config
