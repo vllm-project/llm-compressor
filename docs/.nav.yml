@@ -30,13 +30,17 @@ nav:
       - key-models/mistral-large-3/index.md
       - FP8 Example: key-models/mistral-large-3/fp8-example.md
   - User Guides:
+    - Entrypoints:
+      - guides/entrypoints/index.md
+      - oneshot: guides/entrypoints/oneshot.md
+      - model-free-ptq: guides/entrypoints/model-free-ptq.md
+    - Compression Schemes: guides/compression_schemes.md
+    - Observers: guides/observers.md
     - Big Models and Distributed Support:
       - Model Loading: guides/big_models_and_distributed/model_loading.md
       - Sequential Onloading: guides/big_models_and_distributed/sequential_onloading.md
       - Distributed Oneshot: guides/big_models_and_distributed/distributed_oneshot.md
-    - Compression Schemes: guides/compression_schemes.md
     - Saving a Compressed Model: guides/saving_a_model.md
-    - Observers: guides/observers.md
     - Memory Requirements: guides/memory.md
     - Runtime Performance: guides/runtime.md
   - Examples:
