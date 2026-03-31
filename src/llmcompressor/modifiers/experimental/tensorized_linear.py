@@ -292,8 +292,10 @@ class TensorizedLinear(nn.Module):
             )
             # Compute output activations: output = weight @ input^T
             # Shape: (num_samples, out_features)
+            # Ensure dtype compatibility
             with torch.no_grad():
-                output_activations = (weight @ input_activations.T).T
+                input_acts_dtype = input_activations.to(weight.dtype)
+                output_activations = (weight @ input_acts_dtype.T).T
 
         # Use spectral reordering to find optimal input channel permutation
         # This maximizes local coherence for MPO decomposition using Laplacian Eigenmaps
