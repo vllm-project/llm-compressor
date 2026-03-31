@@ -118,6 +118,8 @@ class ButterflyLinear(nn.Module):
         cls,
         linear: nn.Linear,
         num_factors: Optional[int] = None,
+        num_iters: int = 100,
+        lr: float = 0.01,
         verbose: bool = False,
     ):
         """Create ButterflyLinear from standard Linear layer.
@@ -125,6 +127,8 @@ class ButterflyLinear(nn.Module):
         Args:
             linear: Original linear layer
             num_factors: Number of butterfly factors (default: log2(max_dim))
+            num_iters: Number of optimization iterations to fit factors
+            lr: Learning rate for fitting
             verbose: Print decomposition info
         """
         weight = linear.weight.detach().clone()
@@ -161,13 +165,44 @@ class ButterflyLinear(nn.Module):
             dtype=orig_dtype,
         ).to(device)
 
-        # Initialize factors to approximate the original weight
-        # Use a simple initialization: random with small magnitude
-        # (Could use more sophisticated initialization like matching moments)
+        # Initialize factors with random values
         for factor in butterfly.factors:
-            # Initialize blocks to be close to identity with small perturbation
-            factor.data = torch.eye(2, dtype=orig_dtype, device=device).unsqueeze(0).repeat(factor.shape[0], 1, 1)
-            factor.data += torch.randn_like(factor.data) * 0.01
+            # Initialize with small random values
+            factor.data = torch.randn_like(factor) * 0.01
+            # Add identity component for stability
+            factor.data[:, 0, 0] += 1.0
+            factor.data[:, 1, 1] += 1.0
+
+        # Fit butterfly factors to approximate weight matrix via gradient descent
+        if verbose:
+            print(f"  Fitting butterfly factors ({num_iters} iterations)...")
+
+        optimizer = torch.optim.Adam(butterfly.parameters(), lr=lr)
+        weight_float = weight.float()
+
+        for iter_idx in range(num_iters):
+            optimizer.zero_grad()
+
+            # Reconstruct weight and compute loss
+            W_approx = butterfly.to_matrix()
+            loss = torch.nn.functional.mse_loss(W_approx, weight_float)
+
+            # Backprop and update
+            loss.backward()
+            optimizer.step()
+
+            if verbose and (iter_idx + 1) % 20 == 0:
+                with torch.no_grad():
+                    # Compute reconstruction error
+                    rel_error = (loss.item() / weight_float.var().item()) ** 0.5
+                    print(f"    Iter {iter_idx + 1}/{num_iters}: loss={loss.item():.6f}, rel_error={rel_error:.4f}")
+
+        if verbose:
+            with torch.no_grad():
+                W_final = butterfly.to_matrix()
+                final_mse = torch.nn.functional.mse_loss(W_final, weight_float).item()
+                final_rel_error = (final_mse / weight_float.var().item()) ** 0.5
+                print(f"  Final relative error: {final_rel_error:.4f}")
 
         return butterfly
 
