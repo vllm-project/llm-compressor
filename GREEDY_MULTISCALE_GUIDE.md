@@ -2,13 +2,16 @@
 
 ## Overview
 
-Greedy Multi-Scale Decomposition implements a cascaded compression approach:
+Greedy Multi-Scale Decomposition implements a cascaded compression approach with intelligent feature reordering:
 
 ```
-y = MPO_1(x) + LR_1(x) + MPO_2(x) + LR_2(x) + ...
+y = MPO_1(x_perm) + LR_1(x) + MPO_2(x_perm) + LR_2(x) + ...
 ```
 
-**Key Idea:** Instead of fitting one massive Tensor-Train, build a "ladder" of approximations where each stage captures residual information missed by previous stages.
+**Key Ideas:**
+1. **Spectral Reordering**: Permute input features so highly correlated (entangled) features are adjacent in the MPO
+2. **Greedy Cascade**: Build a "ladder" of approximations where each stage captures residual information
+3. **Mixed Decompositions**: Alternate between MPO (structured) and low-rank (flat) to attack errors from different angles
 
 ## Implementation
 

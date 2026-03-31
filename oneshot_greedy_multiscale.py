@@ -31,10 +31,10 @@ SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 # Compression settings
 TARGET_SNR_DB = 30.0          # Target activation SNR
 MAX_STAGES = 5                # Maximum MPO+LR stages
-MPO_BLOCK_SIZE = 512          # Block size for MPO (8^3 = 512)
-MPO_NUM_CORES = 3             # Number of cores for MPO
+MPO_NUM_CORES = 3             # Number of cores for MPO tensor train
 MPO_RANK = 0.3                # Rank for each MPO (low for small components)
 LR_RANK = 64                  # Rank for low-rank corrections
+PERMUTE_MPO = True            # Use spectral reordering for MPO (groups entangled features)
 
 # Calibration settings
 DATASET_ID = "mit-han-lab/pile-val-backup"
@@ -197,10 +197,10 @@ def compress_model_greedy_multiscale(
             input_activations=input_activations,
             target_snr_db=TARGET_SNR_DB,
             max_stages=MAX_STAGES,
-            mpo_block_size=MPO_BLOCK_SIZE,
             mpo_num_cores=MPO_NUM_CORES,
             mpo_rank=MPO_RANK,
             lr_rank=LR_RANK,
+            permute_mpo=PERMUTE_MPO,
             verbose=True,
         )
 

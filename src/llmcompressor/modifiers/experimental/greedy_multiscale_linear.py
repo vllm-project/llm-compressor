@@ -23,7 +23,7 @@ from typing import Optional
 import sys
 import importlib.util
 
-# Load block_tensorized_linear dynamically to avoid import issues
+# Load modules dynamically to avoid import issues
 spec_tn = importlib.util.spec_from_file_location(
     "tensorized_linear",
     "src/llmcompressor/modifiers/experimental/tensorized_linear.py"
@@ -32,14 +32,15 @@ tensorized_module = importlib.util.module_from_spec(spec_tn)
 sys.modules['llmcompressor.modifiers.experimental.tensorized_linear'] = tensorized_module
 spec_tn.loader.exec_module(tensorized_module)
 
-spec_bt = importlib.util.spec_from_file_location(
-    "block_tensorized_linear",
-    "src/llmcompressor/modifiers/experimental/block_tensorized_linear.py"
+spec_perm = importlib.util.spec_from_file_location(
+    "permuted_tensorized_linear",
+    "src/llmcompressor/modifiers/experimental/permuted_tensorized_linear.py"
 )
-block_tn_module = importlib.util.module_from_spec(spec_bt)
-spec_bt.loader.exec_module(block_tn_module)
+perm_tn_module = importlib.util.module_from_spec(spec_perm)
+sys.modules['llmcompressor.modifiers.experimental.permuted_tensorized_linear'] = perm_tn_module
+spec_perm.loader.exec_module(perm_tn_module)
 
-BlockTensorizedLinear = block_tn_module.BlockTensorizedLinear
+PermutedTensorizedLinear = perm_tn_module.PermutedTensorizedLinear
 
 
 class LowRankLinear(nn.Module):
@@ -134,10 +135,10 @@ class GreedyMultiScaleLinear(nn.Module):
         input_activations: Optional[torch.Tensor] = None,
         target_snr_db: float = 30.0,
         max_stages: int = 5,
-        mpo_block_size: int = 512,
         mpo_num_cores: int = 3,
         mpo_rank: float = 0.3,  # Low rank for small MPOs
         lr_rank: int = 64,      # Low-rank correction rank
+        permute_mpo: bool = True,  # Use spectral reordering for MPO
         verbose: bool = True,
     ):
         """Greedily build cascade to reach target SNR.
@@ -147,10 +148,10 @@ class GreedyMultiScaleLinear(nn.Module):
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
             max_stages: Maximum number of stages (MPO + LR pairs)
-            mpo_block_size: Block size for MPO (should be x^num_cores)
-            mpo_num_cores: Number of cores for MPO
+            mpo_num_cores: Number of cores for MPO tensor train
             mpo_rank: Rank ratio for each MPO (low for small components)
             lr_rank: Rank for low-rank corrections
+            permute_mpo: Use spectral reordering to group entangled features
             verbose: Print progress
         """
 
@@ -188,7 +189,7 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"\nGreedy Multi-Scale Decomposition:")
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
-            print(f"  MPO config: block_size={mpo_block_size}, num_cores={mpo_num_cores}, rank={mpo_rank}")
+            print(f"  MPO config: num_cores={mpo_num_cores}, rank={mpo_rank}, permute={permute_mpo}")
             print(f"  LR rank: {lr_rank}\n")
 
         for stage_idx in range(max_stages):
@@ -209,44 +210,42 @@ class GreedyMultiScaleLinear(nn.Module):
             residual_output = original_output - current_output
 
             # Create temporary linear with residual weights
-            # Create on CPU for BlockTensorizedLinear (it has device issues), then move to device
+            # Create on CPU for TensorizedLinear, then move to device
             temp_linear = nn.Linear(in_features, out_features, bias=False)
             temp_linear.weight.data = residual_weight.cpu().to(dtype)
 
-            # Check if block_size divides dimensions
-            if out_features % mpo_block_size == 0 and in_features % mpo_block_size == 0:
-                try:
-                    # Create MPO on CPU (BlockTensorizedLinear has device issues)
-                    mpo = BlockTensorizedLinear.from_linear(
-                        temp_linear,
-                        block_size=mpo_block_size,
-                        rank=mpo_rank,
-                        num_cores=mpo_num_cores,
-                        input_activations=input_activations.cpu(),
-                    )
+            # Try MPO with spectral reordering
+            try:
+                # Create PermutedTensorizedLinear on CPU
+                mpo = PermutedTensorizedLinear.from_linear(
+                    temp_linear,
+                    input_activations=input_activations.cpu(),
+                    num_cores=mpo_num_cores,
+                    rank=mpo_rank,
+                    permute_inputs=permute_mpo,
+                    permute_outputs=False,  # Output permutation less important
+                    verbose=verbose and stage_idx == 0,  # Only print details for first stage
+                )
 
-                    # Move MPO to correct device
-                    mpo = mpo.to(device)
+                # Move MPO to correct device
+                mpo = mpo.to(device)
 
-                    with torch.no_grad():
-                        mpo_output = mpo(input_activations.to(dtype)).float()
+                with torch.no_grad():
+                    mpo_output = mpo(input_activations.to(dtype)).float()
 
-                    mpo_weight = mpo.to_matrix().float().to(device)
-                    mpo_snr = compute_snr(residual_output, mpo_output)
+                mpo_weight = mpo.to_matrix().float().to(device)
+                mpo_snr = compute_snr(residual_output, mpo_output)
 
-                    stages.append(mpo)
-                    current_output = current_output + mpo_output
-                    current_weight_approx = current_weight_approx + mpo_weight
+                stages.append(mpo)
+                current_output = current_output + mpo_output
+                current_weight_approx = current_weight_approx + mpo_weight
 
-                    if verbose:
-                        print(f"  MPO: {mpo.num_params:,} params, SNR improvement: {mpo_snr:.2f} dB")
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  MPO failed: {e}, skipping to LR")
-            else:
                 if verbose:
-                    print(f"  MPO skipped (block_size doesn't divide dimensions)")
+                    print(f"  MPO: {mpo.num_params:,} params, SNR improvement: {mpo_snr:.2f} dB")
+
+            except Exception as e:
+                if verbose:
+                    print(f"  MPO failed: {e}, skipping to LR")
 
             # Step 2: Fit low-rank to remaining residual
             residual_output_2 = original_output - current_output
