@@ -1,18 +1,19 @@
-"""Greedy Multi-Scale Decomposition: Cascaded MPO + Low-Rank Residual Corrections.
+"""Greedy Multi-Scale Decomposition: Cascaded Tucker + Low-Rank Residual Corrections.
 
 Mathematical form:
-    y = MPO_1(x) + LR_1(x) + MPO_2(x) + LR_2(x) + ...
+    y = Tucker_1(x) + LR_1(x) + Tucker_2(x) + LR_2(x) + ...
 
 Strategy:
-    1. Fit small MPO_1 (captures global structure)
-    2. Compute residual R_1 = Y_true - MPO_1(X)
+    1. Fit small Tucker_1 (captures global structure)
+    2. Compute residual R_1 = Y_true - Tucker_1(X)
     3. Fit low-rank LR_1 to R_1 (captures flat correlations)
     4. Compute residual R_2 = R_1 - LR_1(X)
     5. Repeat until target SNR achieved
 
 Benefits:
+    - Tucker is more compact than tensor train for same accuracy
     - Attacks error from different geometric perspectives
-    - More memory efficient than single large MPO
+    - More memory efficient than single large Tucker
     - Numerically stable (small components)
     - Can achieve high SNR with fewer total parameters
 """
@@ -21,7 +22,7 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-from llmcompressor.modifiers.experimental.permuted_tensorized_linear import PermutedTensorizedLinear
+from llmcompressor.modifiers.experimental.tucker_linear import TuckerLinear
 from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
 
@@ -117,11 +118,10 @@ class GreedyMultiScaleLinear(nn.Module):
         input_activations: Optional[torch.Tensor] = None,
         target_snr_db: float = 30.0,
         max_stages: int = 5,
-        mpo_num_cores: int = 3,
-        mpo_rank: float = 0.3,  # Low rank for small MPOs
+        tucker_num_modes: int = 3,
+        tucker_rank: float = 0.3,  # Low rank for small Tucker cores
         lr_rank: int = 64,      # Low-rank correction rank
         sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
-        permute_mpo: bool = True,  # Use spectral reordering for MPO
         use_sparse: bool = True,  # Include column-sparse stages
         verbose: bool = True,
     ):
@@ -131,12 +131,11 @@ class GreedyMultiScaleLinear(nn.Module):
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages (MPO + LR + Sparse triplets)
-            mpo_num_cores: Number of cores for MPO tensor train
-            mpo_rank: Rank ratio for each MPO (low for small components)
+            max_stages: Maximum number of stages (Tucker + LR + Sparse triplets)
+            tucker_num_modes: Number of modes for Tucker decomposition
+            tucker_rank: Rank ratio for Tucker core (low for small components)
             lr_rank: Rank for low-rank corrections
             sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
-            permute_mpo: Use spectral reordering to group entangled features
             use_sparse: Include column-sparse stages in cascade
             verbose: Print progress
         """
@@ -175,7 +174,7 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"\nGreedy Multi-Scale Decomposition:")
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
-            print(f"  MPO config: num_cores={mpo_num_cores}, rank={mpo_rank}, permute={permute_mpo}")
+            print(f"  Tucker config: num_modes={tucker_num_modes}, rank={tucker_rank}")
             print(f"  LR rank: {lr_rank}")
             print(f"  Sparse config: sparsity={sparse_sparsity}, enabled={use_sparse}\n")
 
@@ -254,46 +253,43 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse failed: {e}, skipping")
 
-            # Step 3: Fit MPO to remaining residual (with spectral reordering)
+            # Step 3: Fit Tucker to remaining residual (with spectral reordering)
             residual_output_3 = original_output - current_output
             residual_weight_3 = W - current_weight_approx
 
             # Create temporary linear with residual weights
-            # Create on CPU for TensorizedLinear, then move to device
-            temp_linear_mpo = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_mpo.weight.data = residual_weight_3.cpu().to(dtype)
+            temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
+            temp_linear_tucker.weight.data = residual_weight_3.to(dtype)
 
             try:
-                # Create PermutedTensorizedLinear on CPU
-                mpo = PermutedTensorizedLinear.from_linear(
-                    temp_linear_mpo,
-                    input_activations=input_activations.cpu(),
-                    num_cores=mpo_num_cores,
-                    rank=mpo_rank,
-                    permute_inputs=permute_mpo,
-                    permute_outputs=False,  # Output permutation less important
+                # Create TuckerLinear
+                tucker = TuckerLinear.from_linear(
+                    temp_linear_tucker,
+                    rank=tucker_rank,
+                    num_modes=tucker_num_modes,
+                    input_activations=input_activations,
                     verbose=verbose and stage_idx == 0,  # Only print details for first stage
                 )
 
-                # Move MPO to correct device
-                mpo = mpo.to(device)
+                # Move Tucker to correct device
+                tucker = tucker.to(device)
 
                 with torch.no_grad():
-                    mpo_output = mpo(input_activations.to(dtype)).float()
+                    tucker_output = tucker(input_activations.to(dtype)).float()
 
-                mpo_weight = mpo.to_matrix().float().to(device)
-                mpo_snr = compute_snr(residual_output_3, mpo_output)
+                tucker_weight = tucker.to_matrix().float().to(device)
+                tucker_snr = compute_snr(residual_output_3, tucker_output)
 
-                stages.append(mpo)
-                current_output = current_output + mpo_output
-                current_weight_approx = current_weight_approx + mpo_weight
+                stages.append(tucker)
+                current_output = current_output + tucker_output
+                current_weight_approx = current_weight_approx + tucker_weight
 
                 if verbose:
-                    print(f"  MPO: {mpo.num_params:,} params, SNR improvement: {mpo_snr:.2f} dB")
+                    print(f"  Tucker: {tucker.num_params:,} params, SNR improvement: {tucker_snr:.2f} dB")
 
             except Exception as e:
                 if verbose:
-                    print(f"  MPO failed: {str(e)[:80]}, skipping")
+                    print(f"  Tucker failed: {str(e)[:80]}, skipping")
 
         # Final SNR
         final_snr = compute_snr(original_output, current_output)
@@ -333,14 +329,11 @@ class GreedyMultiScaleLinear(nn.Module):
 
         # Get dimensions
         first_stage = self.stages[0]
-        if hasattr(first_stage, 'tensorized_linear'):
-            # PermutedTensorizedLinear
-            out_features = first_stage.tensorized_linear.out_features
-            in_features = first_stage.tensorized_linear.in_features
-        elif isinstance(first_stage, LowRankLinear):
+        if isinstance(first_stage, LowRankLinear):
             out_features = first_stage.out_features
             in_features = first_stage.in_features
         elif hasattr(first_stage, 'out_features'):
+            # TuckerLinear, ColumnSparseLinear, etc.
             out_features = first_stage.out_features
             in_features = first_stage.in_features
         else:

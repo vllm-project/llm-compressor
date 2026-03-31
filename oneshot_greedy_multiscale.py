@@ -22,12 +22,11 @@ SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
 TARGET_SNR_DB = 30.0  # Target activation SNR
-MAX_STAGES = 15  # Maximum MPO+LR+Sparse stages
-MPO_NUM_CORES = 32  # Number of cores for MPO tensor train
-MPO_RANK = 0.1  # Rank for each MPO (low for small components)
+MAX_STAGES = 15  # Maximum Tucker+LR+Sparse stages
+TUCKER_NUM_MODES = 3  # Number of modes for Tucker decomposition
+TUCKER_RANK = 0.3  # Rank ratio for Tucker core (low for small components)
 LR_RANK = 64  # Rank for low-rank corrections
-SPARSE_SPARSITY = 0.1  # Column sparsity (0.7 = keep 30% of columns)
-PERMUTE_MPO = True  # Use spectral reordering for MPO (groups entangled features)
+SPARSE_SPARSITY = 0.1  # Column sparsity (0.1 = keep 90% of columns)
 USE_SPARSE = True  # Include column-sparse stages in cascade
 
 # Calibration settings
@@ -123,7 +122,7 @@ def compress_model_greedy_multiscale(
     print(f"\nConfiguration:")
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
     print(f"  Max stages: {MAX_STAGES}")
-    print(f"  MPO: num_cores={MPO_NUM_CORES}, rank={MPO_RANK}")
+    print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
     print(f"  LR: rank={LR_RANK}")
     print()
 
@@ -198,11 +197,10 @@ def compress_model_greedy_multiscale(
             input_activations=input_activations,
             target_snr_db=TARGET_SNR_DB,
             max_stages=MAX_STAGES,
-            mpo_num_cores=MPO_NUM_CORES,
-            mpo_rank=MPO_RANK,
+            tucker_num_modes=TUCKER_NUM_MODES,
+            tucker_rank=TUCKER_RANK,
             lr_rank=LR_RANK,
             sparse_sparsity=SPARSE_SPARSITY,
-            permute_mpo=PERMUTE_MPO,
             use_sparse=USE_SPARSE,
             verbose=True,
         )
