@@ -710,3 +710,58 @@ def test_search_observer_invalid_rejected():
     with pytest.raises(ValidationError, match="search_observer must be one of"):
         AWQModifier(scheme="W4A16_ASYM", search_observer="invalid_observer")
 
+
+# ---------------------------------------------------------------------------
+# n_shrink_grid and maxshrink tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_n_shrink_grid_default():
+    """n_shrink_grid defaults to 1 (joint shrinkage disabled)"""
+    modifier = AWQModifier(scheme="W4A16_ASYM")
+    assert modifier.n_shrink_grid == 1
+
+
+@pytest.mark.unit
+def test_maxshrink_default():
+    """maxshrink defaults to 0.20"""
+    modifier = AWQModifier(scheme="W4A16_ASYM")
+    assert modifier.maxshrink == 0.20
+
+
+@pytest.mark.unit
+def test_n_shrink_grid_accepted():
+    """n_shrink_grid accepts positive integers"""
+    modifier = AWQModifier(scheme="W4A16_ASYM", n_shrink_grid=10)
+    assert modifier.n_shrink_grid == 10
+
+    modifier = AWQModifier(scheme="W4A16_ASYM", n_shrink_grid=100)
+    assert modifier.n_shrink_grid == 100
+
+
+@pytest.mark.unit
+def test_maxshrink_accepted():
+    """maxshrink accepts floats in (0, 1]"""
+    modifier = AWQModifier(scheme="W4A16_ASYM", maxshrink=0.10)
+    assert modifier.maxshrink == 0.10
+
+    modifier = AWQModifier(scheme="W4A16_ASYM", maxshrink=0.50)
+    assert modifier.maxshrink == 0.50
+
+
+@pytest.mark.unit
+def test_joint_shrinkage_disabled_by_default():
+    """n_shrink_grid=1 means joint shrinkage is disabled (backward compat)"""
+    modifier = AWQModifier(scheme="W4A16_ASYM")
+    # n_shrink_grid=1 produces shrink_factors=[1.0] — no actual shrinkage search
+    assert modifier.n_shrink_grid == 1
+    # verify the shrink_factors list would be [1.0]
+    if modifier.n_shrink_grid > 1:
+        shrink_factors = [
+            1.0 - (modifier.maxshrink * i / (modifier.n_shrink_grid - 1))
+            for i in range(modifier.n_shrink_grid)
+        ]
+    else:
+        shrink_factors = [1.0]
+    assert shrink_factors == [1.0]

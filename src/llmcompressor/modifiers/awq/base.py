@@ -672,6 +672,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         history = []
         best_ratio = -1
+        best_shrink_p = 1.0
         best_scales = None
         best_error = float("inf")
         initial_error = None
@@ -743,7 +744,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # Build shrink factor candidates:
                 # n_shrink_grid=1 means no shrinkage search (p=1.0, minmax behaviour)
-                # n_shrink_grid>1 sweeps p from 1.0 down to (1 - maxshrink)
+                # n_shrink_grid>1: compute per-group optimal shrinkage analytically
+                # using output MSE as the objective (output_mse_shrinkage)
                 if self.n_shrink_grid > 1:
                     shrink_factors = [
                         1.0 - (self.maxshrink * i / (self.n_shrink_grid - 1))
@@ -752,47 +754,36 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     shrink_factors = [1.0]
 
-                for shrink_p in shrink_factors:
-                    # Q(W * s) with optional shrinkage applied to observer range
+                # Apply per-group shrinkage analytically when enabled,
+                # otherwise fall back to single global shrink_p=1.0
+                if self.n_shrink_grid > 1:
+                    # Per-group shrinkage: find best shrink_p per group via output MSE
+                    # This avoids O(n_shrink * forward_passes) — instead compute
+                    # group-level output error analytically from W and X
                     for balance_layer in balance_layers_to_patch:
                         if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
                             balance_layer.quantization_scheme, "weights"
                         ):
                             continue
-
                         w_qscheme = balance_layer.quantization_scheme.weights
-                        balance_layer.weight.data.copy_(
+                        w_scaled = (
                             orig_layer_weights[balance_layer].to(_scalesview.device)
                             * _scalesview
                         )
+                        balance_layer.weight.data.copy_(w_scaled)
 
-                        should_calculate_gparam = (
-                            w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                        # Get x_mean for activation-weighted error estimate
+                        # x_mean shape: (in_channels,)
+                        x_mean_local = x_mean.to(device)
+
+                        self._apply_output_mse_shrinkage(
+                            balance_layer,
+                            w_scaled,
+                            x_mean_local,
+                            shrink_factors,
+                            w_qscheme,
+                            mapping,
                         )
-
-                        if shrink_p < 1.0:
-                            # Joint shrinkage: override observer min/max with shrunk range
-                            # using output MSE as the objective (not weight MSE)
-                            w = balance_layer.weight.data
-                            w_min = w.amin(dim=-1, keepdim=True) * shrink_p
-                            w_max = w.amax(dim=-1, keepdim=True) * shrink_p
-                            from compressed_tensors.quantization.utils import calculate_qparams
-                            scale, zp = calculate_qparams(
-                                min_vals=w_min.squeeze(-1),
-                                max_vals=w_max.squeeze(-1),
-                                quantization_args=w_qscheme,
-                            )
-                            # store directly into the layer's weight_scale / weight_zero_point
-                            from compressed_tensors.utils import update_parameter_data
-                            update_parameter_data(balance_layer, scale, "weight_scale")
-                            update_parameter_data(balance_layer, zp, "weight_zero_point")
-                        else:
-                            call_observer(
-                                balance_layer,
-                                "weight",
-                                balance_layer.weight,
-                                should_calculate_gparam=should_calculate_gparam,
-                            )
 
                         balance_layer.weight.data = (
                             forward_quantize(
@@ -804,8 +795,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             / _scalesview
                         ).to(balance_layer.weight.dtype)
 
-                    # Apply fused global scales for TENSOR_GROUP during grid search
-                    # to match inference behavior
+                    shrink_p = 1.0  # sentinel — actual shrinkage is per-group
+
+                    # Apply fused global scales for TENSOR_GROUP
                     if balance_layers_to_patch and all(
                         getattr(layer.quantization_scheme.weights, "strategy", None)
                         == QuantizationStrategy.TENSOR_GROUP
@@ -813,17 +805,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                     ):
                         update_fused_layer_weight_global_scales(mapping.parent)
 
-                    # W * X
                     int_w_outputs = self._run_samples(mapping.parent)
-
-                    # compute mean squared error (L2 norm)
                     loss = self._compute_loss(fp16_outputs, int_w_outputs)
                     del int_w_outputs
 
-                    # skip non-finite losses (can occur with aggressive MSE clipping)
                     if not math.isfinite(loss):
                         history.append(
-                            {"ratio": ratio, "shrink": shrink_p, "duo_scaling": use_duo_scaling, "error": loss}
+                            {"ratio": ratio, "shrink": "per-group", "duo_scaling": use_duo_scaling, "error": loss}
                         )
                         continue
 
@@ -831,13 +819,80 @@ class AWQModifier(Modifier, QuantizationMixin):
                         initial_error = loss
 
                     history.append(
-                        {"ratio": ratio, "shrink": shrink_p, "duo_scaling": use_duo_scaling, "error": loss}
+                        {"ratio": ratio, "shrink": "per-group", "duo_scaling": use_duo_scaling, "error": loss}
                     )
                     if loss < best_error:
                         best_error = loss
                         best_ratio = ratio
+                        best_shrink_p = shrink_p
                         best_scales = scales.clone()
                     pbar.set_postfix({"best_error": f"{best_error:.3e}"})
+
+                else:
+                    # Original path: single global shrink_p=1.0 (no joint shrinkage)
+                    for shrink_p in shrink_factors:
+                        # Q(W * s)
+                        for balance_layer in balance_layers_to_patch:
+                            if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
+                                balance_layer.quantization_scheme, "weights"
+                            ):
+                                continue
+
+                            w_qscheme = balance_layer.quantization_scheme.weights
+                            balance_layer.weight.data.copy_(
+                                orig_layer_weights[balance_layer].to(_scalesview.device)
+                                * _scalesview
+                            )
+
+                            should_calculate_gparam = (
+                                w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+                            )
+                            call_observer(
+                                balance_layer,
+                                "weight",
+                                balance_layer.weight,
+                                should_calculate_gparam=should_calculate_gparam,
+                            )
+                            balance_layer.weight.data = (
+                                forward_quantize(
+                                    balance_layer,
+                                    balance_layer.weight,
+                                    "weight",
+                                    w_qscheme,
+                                )
+                                / _scalesview
+                            ).to(balance_layer.weight.dtype)
+
+                        # Apply fused global scales for TENSOR_GROUP
+                        if balance_layers_to_patch and all(
+                            getattr(layer.quantization_scheme.weights, "strategy", None)
+                            == QuantizationStrategy.TENSOR_GROUP
+                            for layer in balance_layers_to_patch
+                        ):
+                            update_fused_layer_weight_global_scales(mapping.parent)
+
+                        int_w_outputs = self._run_samples(mapping.parent)
+                        loss = self._compute_loss(fp16_outputs, int_w_outputs)
+                        del int_w_outputs
+
+                        if not math.isfinite(loss):
+                            history.append(
+                                {"ratio": ratio, "shrink": shrink_p, "duo_scaling": use_duo_scaling, "error": loss}
+                            )
+                            continue
+
+                        if initial_error is None:
+                            initial_error = loss
+
+                        history.append(
+                            {"ratio": ratio, "shrink": shrink_p, "duo_scaling": use_duo_scaling, "error": loss}
+                        )
+                        if loss < best_error:
+                            best_error = loss
+                            best_ratio = ratio
+                            best_shrink_p = shrink_p
+                            best_scales = scales.clone()
+                        pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
         if best_ratio == -1:
             logger.debug(history)
@@ -853,7 +908,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             f"AWQ grid search for {mapping.smooth_name}: "
             f"initial error = {initial_error:.3e}, "
             f"best error = {best_error:.3e}, "
-            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
+            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%, "
+            f"best_ratio = {best_ratio:.3f}, "
+            f"best_shrink_p = {best_shrink_p:.3f}"
         )
 
         # Store error metrics for this layer
@@ -864,6 +921,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "initial_error": initial_error,
                 "best_error": best_error,
                 "reduction": err_reduction,
+                "best_ratio": best_ratio,
+                "best_shrink_p": best_shrink_p,
             }
         )
 
@@ -872,6 +931,130 @@ class AWQModifier(Modifier, QuantizationMixin):
         ), f"Nan found in scales: {best_scales}"
 
         return best_scales.detach().cpu()
+
+    @torch.no_grad()
+    def _apply_output_mse_shrinkage(
+        self,
+        layer: Module,
+        w_scaled: torch.Tensor,
+        x_mean: torch.Tensor,
+        shrink_factors: list[float],
+        w_qscheme,
+        mapping: "ResolvedMapping",
+    ):
+        """
+        Find the best shrinkage factor per quantization group using output MSE
+        as the objective (per-group output MSE shrinkage optimization).
+
+        For each shrink factor p:
+          1. Fake-quantize W_scaled with clipping range shrunk to p*[min,max] per group
+          2. Compute (W_quant - W) @ X for each calibration sample X
+          3. Square and sum over samples → output error per (out_ch, group)
+          4. Pick best p per group independently
+
+        Cost: O(n_shrink) matmul operations per layer — no extra forward passes.
+
+        :param layer: balance layer with quantization scheme attached
+        :param w_scaled: weight after AWQ scaling, shape (out_channels, in_channels)
+        :param x_mean: per-channel activation mean (fallback only), shape (in_channels,)
+        :param shrink_factors: list of shrink factors to search over
+        :param w_qscheme: QuantizationArgs for the layer weights
+        :param mapping: ResolvedMapping for accessing parent args cache
+        """
+        from compressed_tensors.quantization.lifecycle import fake_quantize
+        from compressed_tensors.quantization.utils import calculate_qparams
+        from compressed_tensors.utils import update_parameter_data, patch_attr
+
+        device = w_scaled.device
+        group_size = w_qscheme.group_size or w_scaled.shape[1]
+        out_ch, in_ch = w_scaled.shape
+        num_groups = in_ch // group_size
+
+        # Collect actual activation samples X by hooking the balance layer input
+        X_samples = []
+
+        def _capture_input(_module, args, _output):
+            if args and isinstance(args[0], torch.Tensor):
+                X_samples.append(args[0].detach().float().flatten(0, -2))
+
+        handle = layer.register_forward_hook(_capture_input)
+        try:
+            cache = self._parent_args_cache[mapping.parent]
+            for batch_kwargs in cache:
+                mapping.parent(**batch_kwargs)
+        finally:
+            handle.remove()
+
+        if X_samples:
+            # X: (n_tokens, in_ch) — cap to 2048 tokens to control memory
+            X = torch.cat(X_samples, dim=0).to(device)
+            if X.shape[0] > 2048:
+                X = X[:2048]
+        else:
+            # Fallback: use x_mean as a single pseudo-sample
+            X = x_mean.unsqueeze(0).to(device)
+
+        # Reshape for group-level computation
+        # X_grouped: (n_tokens, num_groups, group_size)
+        X_grouped = X.view(X.shape[0], num_groups, group_size)
+        # w_grouped: (out_ch, num_groups, group_size)
+        w_grouped = w_scaled.view(out_ch, num_groups, group_size)
+
+        best_scale = None
+        best_zp = None
+        best_group_error = torch.full(
+            (out_ch, num_groups), float("inf"),
+            dtype=torch.float32, device=device
+        )
+
+        for p in shrink_factors:
+            # Shrunk min/max per group: (out_ch, num_groups)
+            w_min = w_grouped.amin(dim=-1) * p
+            w_max = w_grouped.amax(dim=-1) * p
+
+            scale_p, zp_p = calculate_qparams(
+                min_vals=w_min,
+                max_vals=w_max,
+                quantization_args=w_qscheme,
+            )
+
+            # Fake-quantize: (out_ch, num_groups, group_size)
+            with patch_attr(w_qscheme, "strategy", "group"):
+                w_q = fake_quantize(
+                    w_grouped,
+                    scale_p.unsqueeze(-1),
+                    zp_p.unsqueeze(-1),
+                    w_qscheme,
+                ).to(w_grouped.dtype)
+
+            # Output MSE per-group error — chunked over out_ch to avoid OOM
+            # w_err: (out_ch, G, gs), X_grouped: (n, G, gs)
+            # out_err[o, g, n] = sum_gs(w_err[o,g,gs] * X_grouped[n,g,gs])
+            # err[o, g] = sum_n(out_err[o,g,n]^2)
+            w_err = (w_q - w_grouped).float()  # (out_ch, G, gs)
+            chunk_size = max(1, 256 * 1024 * 1024 // (num_groups * X_grouped.shape[0] * 4))
+            err = torch.zeros(out_ch, num_groups, dtype=torch.float32, device=device)
+            for start in range(0, out_ch, chunk_size):
+                end = min(start + chunk_size, out_ch)
+                out_err_chunk = torch.einsum(
+                    "ogs,ngs->ogn",
+                    w_err[start:end],
+                    X_grouped.float(),
+                )  # (chunk, G, n_tokens)
+                err[start:end] = out_err_chunk.pow(2).sum(dim=-1)
+
+            improved = err < best_group_error
+            best_group_error[improved] = err[improved]
+
+            if best_scale is None:
+                best_scale = scale_p.clone()
+                best_zp = zp_p.clone()
+            else:
+                best_scale[improved] = scale_p[improved]
+                best_zp[improved] = zp_p[improved]
+
+        update_parameter_data(layer, best_scale, "weight_scale")
+        update_parameter_data(layer, best_zp, "weight_zero_point")
 
     @torch.no_grad()
     def _compute_loss(
@@ -913,7 +1096,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _log_error_metrics(self):
         """
-        Log the error metrics (initial error, best error, reduction).
+        Log the error metrics (initial error, best error, reduction,
+        best_ratio, best_shrink_p).
         """
 
         # Prepare data for saving
@@ -921,15 +1105,16 @@ class AWQModifier(Modifier, QuantizationMixin):
             "quantization_config": {
                 "duo_scaling": self.duo_scaling,
                 "n_grid": self.n_grid,
+                "n_shrink_grid": self.n_shrink_grid,
+                "maxshrink": self.maxshrink,
             },
             "total_layers": len(self._error_metrics),
             "metrics": self._error_metrics,
         }
 
-        # Save to disk
         logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
 
-        # Also print summary statistics
+        # Summary statistics
         reductions = [m["reduction"] for m in self._error_metrics]
         avg_reduction = sum(reductions) / len(reductions)
         min_reduction = min(reductions)
@@ -941,6 +1126,32 @@ class AWQModifier(Modifier, QuantizationMixin):
             f"avg={avg_reduction:.4f}, median={median_reduction:.4f}, "
             f"min={min_reduction:.4f}, max={max_reduction:.4f}"
         )
+
+        # Per-layer shrinkage table (only printed when joint search is enabled)
+        if self.n_shrink_grid > 1:
+            header = f"{'Layer':<55} {'ratio':>6} {'shrink_p':>9} {'reduction':>10}"
+            logger.info("AWQ per-layer best (ratio, shrink_p):")
+            logger.info(header)
+            logger.info("-" * len(header))
+            for m in self._error_metrics:
+                shrink_p = m.get("best_shrink_p", 1.0)
+                ratio = m.get("best_ratio", -1)
+                shrunk = shrink_p < 1.0
+                marker = " <-- shrunk" if shrunk else ""
+                logger.info(
+                    f"{m['layer_name']:<55} {ratio:>6.3f} {shrink_p:>9.3f} "
+                    f"{m['reduction']:>10.4f}{marker}"
+                )
+            # Summary: how many layers used non-trivial shrinkage
+            n_shrunk = sum(
+                1 for m in self._error_metrics
+                if m.get("best_shrink_p", 1.0) < 1.0
+            )
+            logger.info(
+                f"\nLayers using shrinkage (p < 1.0): "
+                f"{n_shrunk}/{len(self._error_metrics)} "
+                f"({100*n_shrunk/len(self._error_metrics):.1f}%)"
+            )
 
     def _assert_all_activations_consumed(self):
         """
