@@ -1,8 +1,10 @@
 from abc import abstractmethod
-from typing import Optional
+from typing import List, Optional
 
 import torch
+from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from torch import distributed as dist
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
 
@@ -96,6 +98,33 @@ class MovingAverageObserverBase(Observer):
         self.past_global_max_vals = max_vals
 
         return min_vals, max_vals
+
+    def synchronize(self) -> List[dist.Work]:
+        """Average accumulated moving-average min/max statistics across DDP ranks.
+
+        Unlike :class:`StaticMinMaxObserver` which reduces via MIN/MAX,
+        moving-average observers divide by world_size first and then SUM
+        so that the result is the average across ranks.
+
+        :return: list of async communication handles
+        """
+        comms = []
+        world_size = dist.get_world_size()
+        for attr in (
+            "past_min_vals",
+            "past_max_vals",
+            "past_global_min_vals",
+            "past_global_max_vals",
+        ):
+            val = getattr(self, attr, None)
+            if val is not None:
+                val.div_(world_size)
+                comms.append(
+                    dist.all_reduce(
+                        as_broadcastable(val), op=dist.ReduceOp.AVG, async_op=True
+                    )
+                )
+        return comms
 
     def _lerp(
         self, input: torch.Tensor, end: torch.Tensor, weight: float
