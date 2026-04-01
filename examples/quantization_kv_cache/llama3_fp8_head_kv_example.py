@@ -1,5 +1,5 @@
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import QuantizationArgs
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -52,14 +52,10 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="tensor"
-            ),
-        )
-    }
+    targets="Linear",
+    scheme="FP8_DYNAMIC",
+    ignore=["lm_head"],
+    kv_cache_scheme=QuantizationArgs(num_bits=8, type="float", strategy="attn_head"),
 )
 
 # Apply algorithms.
