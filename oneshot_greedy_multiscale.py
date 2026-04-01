@@ -17,18 +17,20 @@ from llmcompressor.modifiers.experimental import GreedyMultiScaleLinear
 
 
 # Configuration
-MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
+# MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
-TARGET_SNR_DB = 30.0  # Target activation SNR
-MAX_STAGES = 15  # Maximum cascade iterations
-TUCKER_NUM_MODES = 3  # Number of modes for Tucker decomposition
-TUCKER_RANK = 0.3  # Rank ratio for Tucker core (low for small components)
+TARGET_SNR_DB = 25.0  # Target activation SNR
+MAX_STAGES = 10  # Maximum cascade iterations
+TUCKER_NUM_MODES = 8  # Number of modes for Tucker decomposition
+TUCKER_RANK = 2  # Rank ratio for Tucker core (low for small components)
 KRONECKER_FACTOR_SIZE = None  # Kronecker factor size (None = auto)
 BLOCKTT_BLOCK_SIZE = 512  # Block size for Block Tensor Train
 BLOCKTT_NUM_CORES = 3  # Number of TT cores per block
-BLOCKTT_RANK = 0.5  # Rank ratio for Block TT
+BLOCKTT_RANK = 0.2  # Rank ratio for Block TT
 BLOCKDIAG_NUM_BLOCKS = 16  # Number of diagonal blocks (local clusters)
 BLOCKDIAG_RANK = 64  # Low-rank component rank (global communication)
 SPARSE_SPARSITY = 0.1  # Column sparsity (0.1 = keep 90% of columns)
@@ -44,6 +46,7 @@ MAX_SEQUENCE_LENGTH = 2048
 
 # Layer targeting
 COMPRESS_TARGETS = [
+    # "model.layers.0.self_attn.q_proj",  # All attention projections
     "re:.*self_attn.(q|k|v|o)_proj$",  # All attention projections
     "re:.*mlp.(gate|up|down)_proj$",  # Uncomment to include MLP layers
 ]
@@ -131,7 +134,9 @@ def compress_model_greedy_multiscale(
     print(f"  Max stages: {MAX_STAGES}")
     print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
     print(f"  Kronecker: factor_size={KRONECKER_FACTOR_SIZE}, enabled={USE_KRONECKER}")
-    print(f"  BlockTT: block_size={BLOCKTT_BLOCK_SIZE}, num_cores={BLOCKTT_NUM_CORES}, rank={BLOCKTT_RANK}, enabled={USE_BLOCKTT}")
+    print(
+        f"  BlockTT: block_size={BLOCKTT_BLOCK_SIZE}, num_cores={BLOCKTT_NUM_CORES}, rank={BLOCKTT_RANK}, enabled={USE_BLOCKTT}"
+    )
     print(f"  Sparse: sparsity={SPARSE_SPARSITY}, enabled={USE_SPARSE}")
     print(f"  BlockDiag+LR: num_blocks={BLOCKDIAG_NUM_BLOCKS}, rank={BLOCKDIAG_RANK}")
     print()
