@@ -1,7 +1,7 @@
 # Attention Quantization in LLM Compressor #
 LLM Compressor supports applying static attention quantization to models
 
-## FP8 Attention Example ##
+## Per-Head FP8 Attention Example ##
 For an example applying attention quantization, see [llama3_attention.py](/examples/quantization_attention/llama3_attention.py).
 
 ```python
