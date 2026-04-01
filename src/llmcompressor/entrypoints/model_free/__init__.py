@@ -13,11 +13,11 @@ from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
     is_weights_file,
+    find_safetensors_index_file,
 )
 from loguru import logger
 
 from llmcompressor.entrypoints.model_free.helpers import (
-    find_safetensors_index_file,
     gpu_if_available,
 )
 from llmcompressor.entrypoints.model_free.microscale import (
@@ -116,7 +116,7 @@ def _build_jobs(
     converter: Converter | None,
 ) -> list[tuple]:
     """
-    Build microscale jobs with precomputed inverse_weights_map per shard.
+    Build jobs with precomputed inverse_weights_map per shard.
 
     For each output shard, build_inverse_weights_map() determines exactly which
     tensors to load from which source files — including any fused partner tensors
