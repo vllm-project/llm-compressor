@@ -224,9 +224,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self.compress_modules()
 
             if not self.ended_:
