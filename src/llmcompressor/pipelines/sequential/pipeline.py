@@ -8,7 +8,15 @@ from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.pipelines.cache import (
+    IntermediateBatches,
+    build_batches_from_dataloader,
+    delete_from_batch,
+    fetch_batch,
+    iter_batches,
+    maybe_prefetch,
+    update_batch,
+)
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
@@ -30,23 +38,16 @@ __all__ = ["SequentialPipeline"]
 
 
 def _get_batches(
-    activations: IntermediatesCache,
+    activations: IntermediateBatches,
     num_batches: int,
     input_names: list[str],
     desc: str,
-    sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
-    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
-    background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass. Delegates to
-    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
+    Yield ``(batch_idx, inputs)`` from the cached activations, optionally
+    prefetching according to the active session state.
     """
-    batch_source = (
-        activations.iter_prefetch(input_names)
-        if sequential_prefetch
-        else activations.iter(input_names)
-    )
+    batch_source = maybe_prefetch(iter_batches(activations, input_names))
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -117,7 +118,7 @@ class SequentialPipeline(CalibrationPipeline):
                 stack.enter_context(DisableQuantization(model))
 
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(
+            activations = build_batches_from_dataloader(
                 dataloader, onload_device, offload_device
             )
 
@@ -125,14 +126,15 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations.fetch(batch_idx, ["loss_mask"]).get("loss_mask")
+                    fetch_batch(activations[batch_idx], ["loss_mask"]).get("loss_mask")
                     for batch_idx in range(len(dataloader))
                 ]
             else:
                 session.state.loss_masks = None
 
-            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
-            session.state.sequential_prefetch = sequential_prefetch
+            session.state.sequential_prefetch = getattr(
+                dataset_args, "sequential_prefetch", False
+            )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
@@ -148,7 +150,6 @@ class SequentialPipeline(CalibrationPipeline):
                         num_batches,
                         subgraph.input_names,
                         calib_desc,
-                        sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
                         subgraph.forward(model, **inputs)
@@ -163,12 +164,15 @@ class SequentialPipeline(CalibrationPipeline):
                             num_batches,
                             subgraph.input_names,
                             prop_desc,
-                            sequential_prefetch,
                         ):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                update_batch(
+                                    activations[batch_idx], output, offload_device
+                                )
+                                delete_from_batch(
+                                    activations[batch_idx], subgraph.consumed_names
+                                )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

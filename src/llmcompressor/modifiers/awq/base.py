@@ -43,7 +43,13 @@ from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scale
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
-from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.pipelines.cache import (
+    IntermediateBatches,
+    IntermediateCache,
+    iter_batches,
+    maybe_prefetch,
+    update_batch,
+)
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils import wait_for_comms
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -166,12 +172,12 @@ class AWQModifier(Modifier, QuantizationMixin):
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache list of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
+    _parent_args_cache: dict[Module, IntermediateBatches] = PrivateAttr(
         default_factory=dict
     )
-    # Dict[smooth layer name, [activation sums, activation counts]]
-    _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
-        default_factory=dict
+    # Dict[smooth layer name, (activation sums cache, activation counts cache)]
+    _smooth_activation_stats: dict[str, tuple[IntermediateCache, IntermediateCache]] = (
+        PrivateAttr(default_factory=dict)
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
@@ -436,7 +442,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
-            self._parent_args_cache[module].append(values.arguments)
+            batch: dict = {}
+            update_batch(batch, values.arguments, self.offload_device)
+            self._parent_args_cache[module].append(batch)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -465,15 +473,23 @@ class AWQModifier(Modifier, QuantizationMixin):
                     masked_activations = activations.flatten(0, -2)
 
                 # accumulate activation sum&count
-                new_sum = masked_activations.float().sum(dim=0).cpu()
-                new_count = torch.tensor(masked_activations.size(0)).cpu()
+                new_sum = masked_activations.float().sum(dim=0)
+                new_count = torch.tensor(masked_activations.size(0))
                 if smooth_name not in self._smooth_activation_stats:
-                    self._smooth_activation_stats[smooth_name] = [
-                        torch.zeros_like(new_sum),
-                        torch.zeros_like(new_count),
-                    ]
-                self._smooth_activation_stats[smooth_name][0] += new_sum
-                self._smooth_activation_stats[smooth_name][1] += new_count
+                    self._smooth_activation_stats[smooth_name] = (
+                        IntermediateCache(
+                            torch.zeros_like(new_sum),
+                            offload_device=self.offload_device,
+                        ),
+                        IntermediateCache(
+                            torch.zeros_like(new_count),
+                            offload_device=self.offload_device,
+                        ),
+                    )
+                x_sum_cache, count_cache = self._smooth_activation_stats[smooth_name]
+                with x_sum_cache.onloaded() as x_sum, count_cache.onloaded() as count:
+                    x_sum += new_sum.to(x_sum.device)
+                    count += new_count.to(count.device)
 
             return cache_smooth_activations_hook
 
@@ -481,10 +497,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
             if mapping.parent not in self._parent_args_cache:
-                self._parent_args_cache[mapping.parent] = IntermediatesCache(
-                    None,
-                    self.offload_device,
-                )
+                self._parent_args_cache[mapping.parent] = []
                 self.register_hook(
                     mapping.parent,
                     cache_parent_kwargs_hook,
@@ -612,14 +625,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                 del orig_layer_weights
 
         for v in self._parent_args_cache.values():
-            v.batch_intermediates.clear()
+            v.clear()
         self._assert_all_activations_consumed()
 
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
         cache = self._parent_args_cache[module]
-        use_prefetch = active_session().state.sequential_prefetch
-        batch_iter = cache.iter_prefetch() if use_prefetch else cache
+        batch_iter = maybe_prefetch(iter_batches(cache))
         outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
         return [
             # If tuple, assume that first argument is the input
@@ -657,7 +669,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_sum, count = self._smooth_activation_stats[mapping.smooth_name]
+        x_sum_cache, count_cache = self._smooth_activation_stats[mapping.smooth_name]
+        x_sum = x_sum_cache.fetch()
+        count = count_cache.fetch()
         if is_distributed():
             x_sum, count = _allreduce_data_sum([x_sum, count])
         x_mean = x_sum.to(device) / count.to(device)

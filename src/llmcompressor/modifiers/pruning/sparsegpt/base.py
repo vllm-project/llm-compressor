@@ -16,6 +16,7 @@ from llmcompressor.modifiers.pruning.sparsegpt.sgpt_sparsify import (
     make_empty_hessian,
     sparsify_weight,
 )
+from llmcompressor.pipelines.cache import IntermediateCache
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["SparseGPTModifier"]
@@ -82,7 +83,9 @@ class SparseGPTModifier(SparsityModifierBase):
 
     # private variables
     _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _hessians: dict[torch.nn.Module, IntermediateCache] = PrivateAttr(
+        default_factory=dict
+    )
 
     def calibrate_module(
         self,
@@ -103,18 +106,25 @@ class SparseGPTModifier(SparsityModifierBase):
 
         # Initialize hessian if not present
         if module not in self._num_samples:
-            device = get_execution_device(module)
-            self._hessians[module] = make_empty_hessian(module, device=device)
+            execution_device = get_execution_device(module)
+            init_device = "cpu" if self.offload_hessians else execution_device
+            self._hessians[module] = IntermediateCache(
+                make_empty_hessian(module, device=init_device),
+                offload_device=torch.device("cpu") if self.offload_hessians else None,
+                onload_device=execution_device,
+            )
             self._num_samples[module] = 0
 
         # Accumulate hessian with input with optional offloading
-        with self._maybe_onload_hessian(module):
-            self._hessians[module], self._num_samples[module] = accumulate_hessian(
+        with self._hessian(module) as hessian:
+            updated_hessian, self._num_samples[module] = accumulate_hessian(
                 inp,
                 module,
-                self._hessians[module],
+                hessian,
                 self._num_samples[module],
             )
+            if updated_hessian is not hessian:
+                hessian.copy_(updated_hessian)
 
     def compress_modules(self):
         """
@@ -124,6 +134,7 @@ class SparseGPTModifier(SparsityModifierBase):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
             num_samples = self._num_samples[module]
+            hessian = self._hessians.pop(module).fetch()
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
             with (
@@ -133,7 +144,7 @@ class SparseGPTModifier(SparsityModifierBase):
             ):
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
-                    hessians_dict=self._hessians,
+                    hessian=hessian,
                     sparsity=sparsity,
                     prune_n=self._prune_n,
                     prune_m=self._prune_m,
@@ -145,20 +156,12 @@ class SparseGPTModifier(SparsityModifierBase):
 
             update_offload_parameter(module, "weight", sparsified_weight)
 
-            # self._hessians[module] already deleted by sparsify_weight
             del self._num_samples[module]
 
     @contextlib.contextmanager
-    def _maybe_onload_hessian(self, module: torch.nn.Module):
-        if self.offload_hessians:
-            device = get_execution_device(module)
-            self._hessians[module] = self._hessians[module].to(device=device)
-
-        yield
-
-        if self.offload_hessians:
-            if module in self._hessians:  # may have been deleted in context
-                self._hessians[module] = self._hessians[module].to(device="cpu")
+    def _hessian(self, module: torch.nn.Module):
+        with self._hessians[module].onloaded(get_execution_device(module)) as hessian:
+            yield hessian
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         # TODO: modify lifecycle to end on finalize
