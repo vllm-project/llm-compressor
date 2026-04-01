@@ -64,7 +64,7 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
         with open(index_file_path, "r") as file:
             weights_map: dict[str, str] = json.load(file)["weight_map"]
 
-        file_map = get_file_map(weight_map)
+        file_map = get_file_map(weights_map)
         for file in sorted(file_map):
             tensor_names = file_map[file]
             _fused_sets, unmatched_sets = get_fused_names(tensor_names)

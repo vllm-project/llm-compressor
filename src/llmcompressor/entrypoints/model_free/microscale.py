@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-from typing import Iterable
-=======
 import re
 from collections import defaultdict
->>>>>>> main
 
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
 from loguru import logger
