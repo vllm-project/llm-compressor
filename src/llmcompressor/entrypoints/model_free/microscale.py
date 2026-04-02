@@ -10,7 +10,7 @@ from llmcompressor.entrypoints.model_free.helpers import (
 )
 
 __all__ = [
-    "build_microscale_inverse_weights_map",
+    "build_microscale_inverse_weight_map",
     "is_microscale_scheme",
     "get_fused_names",
     "DEFAULT_FUSED_MAPPINGS",
@@ -79,7 +79,7 @@ def get_fused_names(
     return matched, unmatched
 
 
-def build_microscale_inverse_weights_map(
+def build_microscale_inverse_weight_map(
     shard_name: str,
     weight_map: dict[str, str],
     model_files: dict[str, str],
@@ -96,7 +96,7 @@ def build_microscale_inverse_weights_map(
         shard0: [q_proj.weight, ...]   <- primary owner
         shard1: [k_proj.weight, v_proj.weight, ...]   <- partners
 
-    Only shard0's inverse_weights_map will include shard1's tensors.
+    Only shard0's inverse_weight_map will include shard1's tensors.
     Shard1's job loads only its own native tensors.
 
     :param shard_name: the shard filename this job will process and save
@@ -107,8 +107,8 @@ def build_microscale_inverse_weights_map(
     own_resolved = model_files[shard_name]
     native_tensors = [t for t, s in weight_map.items() if s == shard_name]
 
-    inverse_weights_map: dict[str, list[str]] = defaultdict(list)
-    inverse_weights_map[own_resolved] = list(native_tensors)
+    inverse_weight_map: dict[str, list[str]] = defaultdict(list)
+    inverse_weight_map[own_resolved] = list(native_tensors)
 
     # For each native tensor that matches a primary pattern, fetch its partners
     for name in native_tensors:
@@ -140,7 +140,7 @@ def build_microscale_inverse_weights_map(
                         "This indicates a corrupt or incomplete checkpoint."
                     )
 
-                if partner_name not in inverse_weights_map[partner_resolved]:
-                    inverse_weights_map[partner_resolved].append(partner_name)
+                if partner_name not in inverse_weight_map[partner_resolved]:
+                    inverse_weight_map[partner_resolved].append(partner_name)
 
-    return dict(inverse_weights_map)
+    return dict(inverse_weight_map)

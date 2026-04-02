@@ -1,5 +1,5 @@
 """
-Tests for inverse_weights_map approach that eliminates the
+Tests for inverse_weight_map approach that eliminates the
 reindex_fused_weights preprocessing step for microscale schemes.
 """
 
@@ -9,7 +9,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.microscale import (
-    build_microscale_inverse_weights_map,
+    build_microscale_inverse_weight_map,
 )
 from llmcompressor.entrypoints.model_free.process import (
     process_file_microscale_scheme,
@@ -45,7 +45,7 @@ class TestBuildWeightsMap:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_microscale_inverse_weights_map(
+        result = build_microscale_inverse_weight_map(
             "shard-00001.safetensors", weight_map, model_files
         )
         # result is {file_path: [tensor_names]}, check tensor is in the list
@@ -66,7 +66,7 @@ class TestBuildWeightsMap:
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
-        result = build_microscale_inverse_weights_map(
+        result = build_microscale_inverse_weight_map(
             "shard-00001.safetensors", weight_map, model_files
         )
         # check tensor.a is in the result values
@@ -84,7 +84,7 @@ class TestBuildInverseWeightsMap:
             "model.layers.0.self_attn.v_proj.weight": shard,
         }
         model_files = {shard: str(tmp_path / shard)}
-        result = build_microscale_inverse_weights_map(shard, weight_map, model_files)
+        result = build_microscale_inverse_weight_map(shard, weight_map, model_files)
         assert len(result) == 1
         assert str(tmp_path / shard) in result
 
@@ -99,7 +99,7 @@ class TestBuildInverseWeightsMap:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_microscale_inverse_weights_map(
+        result = build_microscale_inverse_weight_map(
             "shard-00001.safetensors", weight_map, model_files
         )
         # Should include both shards
@@ -129,11 +129,11 @@ class TestProcessFileMicroscaleSchemeColocated:
         save_path = tmp_path / "out.safetensors"
         save_file(qkv_tensors, shard_path)
 
-        # Build inverse_weights_map: just the one file with all tensors
-        inverse_weights_map = {str(shard_path): list(qkv_tensors.keys())}
+        # Build inverse_weight_map: just the one file with all tensors
+        inverse_weight_map = {str(shard_path): list(qkv_tensors.keys())}
 
         total_size, weight_map = process_file_microscale_scheme(
-            inverse_weights_map=inverse_weights_map,
+            inverse_weight_map=inverse_weight_map,
             save_path=save_path,
             scheme=_make_nvfp4_scheme(),
             ignore=[],
@@ -145,7 +145,7 @@ class TestProcessFileMicroscaleSchemeColocated:
 
 
 class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
-    """Tests for cross-shard fused weights using precomputed inverse_weights_map."""
+    """Tests for cross-shard fused weights using precomputed inverse_weight_map."""
 
     @pytest.fixture
     def split_shards(self, tmp_path):
@@ -173,11 +173,11 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
             "shard-00001.safetensors": str(shard1_path),
             "shard-00002.safetensors": str(shard2_path),
         }
-        # Precompute inverse_weights_map for each shard
-        iwm1 = build_microscale_inverse_weights_map(
+        # Precompute inverse_weight_map for each shard
+        iwm1 = build_microscale_inverse_weight_map(
             "shard-00001.safetensors", weight_map, model_files
         )
-        iwm2 = build_microscale_inverse_weights_map(
+        iwm2 = build_microscale_inverse_weight_map(
             "shard-00002.safetensors", weight_map, model_files
         )
         return shard1_path, shard2_path, iwm1, iwm2
@@ -188,7 +188,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         save_path = tmp_path / "out-00001.safetensors"
 
         total_size, weight_map = process_file_microscale_scheme(
-            inverse_weights_map=iwm1,
+            inverse_weight_map=iwm1,
             save_path=save_path,
             scheme=_make_nvfp4_scheme(),
             ignore=[],
@@ -204,7 +204,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         save_path = tmp_path / "out-00002.safetensors"
 
         total_size, weight_map = process_file_microscale_scheme(
-            inverse_weights_map=iwm2,
+            inverse_weight_map=iwm2,
             save_path=save_path,
             scheme=_make_nvfp4_scheme(),
             ignore=[],

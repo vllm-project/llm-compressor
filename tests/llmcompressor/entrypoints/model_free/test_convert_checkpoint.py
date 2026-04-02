@@ -2,7 +2,7 @@ import json
 
 import pytest
 from compressed_tensors.entrypoints.convert import (
-    FP8BlockToBfloat16Converter,
+    FP8BlockDequantizer,
     ModelOptNvfp4Converter,
     convert_checkpoint,
 )
@@ -130,7 +130,7 @@ def test_convert_fp8block_checkpoint(tmp_path):
         convert_checkpoint(
             model_stub=MODEL_ID,
             save_directory=convert_outdir,
-            converter=FP8BlockToBfloat16Converter(
+            converter=FP8BlockDequantizer(
                 targets=wrong_targets,
                 weight_block_size=(128, 128),
             ),
@@ -140,7 +140,7 @@ def test_convert_fp8block_checkpoint(tmp_path):
     convert_checkpoint(
         model_stub=MODEL_ID,
         save_directory=convert_outdir,
-        converter=FP8BlockToBfloat16Converter(
+        converter=FP8BlockDequantizer(
             targets=right_targets,
             weight_block_size=(128, 128),
         ),

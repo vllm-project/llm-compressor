@@ -8,7 +8,7 @@ from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
 from compressed_tensors.utils.safetensors_load import (
-    load_tensors_from_inverse_weights_map,
+    load_tensors_from_inverse_weight_map,
 )
 from safetensors.torch import save_file
 from torch.nn import Module
@@ -32,7 +32,7 @@ __all__ = [
 
 
 def validate_file(
-    inverse_weights_map: dict[str, list[str] | None],
+    inverse_weight_map: dict[str, list[str] | None],
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -42,7 +42,7 @@ def validate_file(
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
 
-    :param inverse_weights_map: mapping of source file path -> tensor names to validate
+    :param inverse_weight_map: mapping of source file path -> tensor names to validate
     :param save_path: save path of file with quantized weights
     :param scheme: quantization scheme to apply to tensors
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
@@ -51,7 +51,7 @@ def validate_file(
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
     """
-    tensors = load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:
         converter.validate(tensors)
@@ -61,7 +61,7 @@ def validate_file(
 
 
 def process_file(
-    inverse_weights_map: dict[str, list[str] | None],
+    inverse_weight_map: dict[str, list[str] | None],
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -71,7 +71,7 @@ def process_file(
     """
     Quantize and compress tensors in a given safetensors file.
 
-    :param inverse_weights_map: mapping of source file path -> tensor names.
+    :param inverse_weight_map: mapping of source file path -> tensor names.
         For standard mode: {{resolved_path: None}} means load all tensors to process
     :param save_path: save path of file with quantized weights
     :param scheme: quantization scheme to apply to tensors
@@ -83,7 +83,7 @@ def process_file(
     """
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
 
-    tensors = load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:
         converter.process(tensors)
@@ -113,7 +113,7 @@ def process_file(
 
 
 def process_file_microscale_scheme(
-    inverse_weights_map: dict[str, list[str]],
+    inverse_weight_map: dict[str, list[str]],
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -124,7 +124,7 @@ def process_file_microscale_scheme(
     Quantize and compress tensors for a single output shard using a microscale
     scheme (NVFP4, MXFP4).
 
-    Accepts a precomputed inverse_weights_map that specifies exactly which tensors
+    Accepts a precomputed inverse_weight_map that specifies exactly which tensors
     to load from which source files — including any fused partner tensors from
     other shards needed for global scale computation. This avoids runtime
     discovery of fused partners and redundant tensor reads.
@@ -132,9 +132,9 @@ def process_file_microscale_scheme(
     Partner tensors fetched from other shards are re-saved into this shard's
     output. The caller updates the safetensors index to reflect new locations.
 
-    :param inverse_weights_map: mapping of resolved source file path ->
+    :param inverse_weight_map: mapping of resolved source file path ->
         list of tensor names to load from that file. Precomputed by
-        build_microscale_inverse_weights_map() in the job-building phase.
+        build_microscale_inverse_weight_map() in the job-building phase.
         Example: {"/path/shard0.safetensors": ["q_proj.weight"],
                   "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
     :param save_path: output path for this shard's compressed weights
@@ -147,7 +147,7 @@ def process_file_microscale_scheme(
     """
     assert is_microscale_scheme(scheme), "Use `process_file` for non-microscale scheme"
 
-    tensors = load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:
         converter.process(tensors)

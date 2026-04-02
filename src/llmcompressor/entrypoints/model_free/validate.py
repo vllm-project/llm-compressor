@@ -70,11 +70,11 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
             _fused_sets, unmatched_sets = get_fused_names(tensor_names)
             if len(unmatched_sets) > 0:
                 # Cross-shard fused weights detected. model_free_ptq handles
-                # this automatically via precomputed inverse_weights_map —
+                # this automatically via precomputed inverse_weight_map —
                 # fused partner tensors are fetched via partial reads and
                 # re-saved into the requesting shard's output.
                 logger.debug(
                     f"{file} has fused weights split across shards: "
                     f"{json.dumps(unmatched_sets, indent=4)}\n"
-                    "These will be resolved via precomputed inverse_weights_map."
+                    "These will be resolved via precomputed inverse_weight_map."
                 )
