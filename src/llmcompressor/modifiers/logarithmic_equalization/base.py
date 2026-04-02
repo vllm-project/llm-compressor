@@ -9,7 +9,8 @@ class LogarithmicEqualizationModifier(SmoothQuantModifier):
     """
     .. deprecated::
         ``LogarithmicEqualizationModifier`` is deprecated and will be removed in a
-        future release. Use ``SmoothQuantModifier`` with ``algorithm="log_equalization"``
+        future release. Use ``SmoothQuantModifier`` with
+        ``algorithm="log_equalization"``
         instead::
 
             SmoothQuantModifier:
