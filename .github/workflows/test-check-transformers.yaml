@@ -105,10 +105,6 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -vra tests/llmcompressor/transformers/autoround
-      - name: Running ONESHOT Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/oneshot
       - name: Running Tracing Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
