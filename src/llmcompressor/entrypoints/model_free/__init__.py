@@ -11,9 +11,9 @@ from compressed_tensors.entrypoints.convert import (
 )
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
+    find_safetensors_index_file,
     get_checkpoint_files,
     is_weights_file,
-    find_safetensors_index_file,
 )
 from loguru import logger
 
