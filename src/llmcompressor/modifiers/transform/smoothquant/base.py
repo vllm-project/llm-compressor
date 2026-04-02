@@ -104,6 +104,7 @@ class SmoothQuantModifier(Modifier):
     ignore: list[str] | None = None
     num_calibration_steps: int | None = None
     calibration_function: Callable | None = None
+    algorithm: str = "smoothquant"  # "smoothquant" or "log_equalization"
 
     resolved_mappings_: list[SmoothQuantMapping] | None = Field(
         default=None, repr=False
@@ -409,11 +410,17 @@ class SmoothQuantModifier(Modifier):
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
         # calculate the amount of smoothing to apply
-        # s_j = max(|X_j|)^alpha / max(|W_j|)^(1-alpha)
-        # where j is the input channel, alpha is smoothing strength
-        scales = activation_scales.pow(self.smoothing_strength) / weight_scales.pow(
-            1 - self.smoothing_strength
-        )
+        if self.algorithm == "log_equalization":
+            # Logarithmic Equalization (https://arxiv.org/abs/2308.15987):
+            # s_j = max(|X_j|) / log2( 2 + max(|X_j|) )
+            scales = activation_scales / torch.log2(2 + activation_scales)
+        else:
+            # SmoothQuant (https://arxiv.org/abs/2211.10438):
+            # s_j = max(|X_j|)^alpha / max(|W_j|)^(1-alpha)
+            # where j is the input channel, alpha is smoothing strength
+            scales = activation_scales.pow(self.smoothing_strength) / weight_scales.pow(
+                1 - self.smoothing_strength
+            )
         scales = torch.where(weight_scales > 0.0, scales, activation_scales)
 
         return scales
