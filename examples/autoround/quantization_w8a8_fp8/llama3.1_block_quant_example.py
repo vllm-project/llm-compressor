@@ -25,7 +25,7 @@ ds = get_dataset(
 # Configure the quantization algorithm to run.
 # NOTE: AutoRoundModifier with iters=0 is equivalent to RTN
 recipe = AutoRoundModifier(
-    targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"], iters=0
+    targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"], iters=200
 )
 
 
