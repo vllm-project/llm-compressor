@@ -1,0 +1,24 @@
+FROM nvcr.io/nvidia/pytorch:25.04-py3
+
+WORKDIR /workspace
+
+# Install llmcompressor and upgrade transformers for Gemma 4 support.
+# Gemma 4 (model_type: gemma4) requires transformers from git main which is newer
+# than the version currently pinned by llmcompressor.
+#
+# Step 1: Install llmcompressor (keeps NVIDIA constraint file so torch/cuda stay).
+# Step 2: Force-upgrade transformers, huggingface_hub, regex (bypass constraints).
+RUN pip install --no-deps git+https://github.com/vllm-project/llm-compressor.git \
+        "compressed-tensors>=0.14.1a2" loguru "datasets>=4.0.0" accelerate \
+        "auto-round>=0.10.2" nvidia-ml-py && \
+    PIP_CONSTRAINT="" pip install multiprocess dill xxhash fsspec && \
+    PIP_CONSTRAINT="" pip install --force-reinstall \
+        git+https://github.com/huggingface/transformers.git \
+        "huggingface_hub>=1.5.0" \
+        "regex>=2025.10.22" \
+        tokenizers safetensors && \
+    pip install "numpy<2"
+
+COPY gemma4_example.py .
+
+ENTRYPOINT ["python", "gemma4_example.py"]
