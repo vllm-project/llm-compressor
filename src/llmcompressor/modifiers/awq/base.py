@@ -171,6 +171,25 @@ class AWQModifier(Modifier, QuantizationMixin):
     :param maxshrink: maximum shrinkage factor used when n_shrink_grid > 1.
         Shrink factors are swept from 1.0 down to (1 - maxshrink).
         Defaults to 0.20 (matching the memoryless_mse observer default).
+
+    .. warning:: Combining AWQModifier and GPTQModifier in the same recipe
+
+        AWQModifier inherits from QuantizationMixin. When a scheme is provided,
+        it applies INT4 quantization at the end of calibration. GPTQModifier
+        resets and re-applies the quantization config correctly via
+        reset_quantization_status — so AWQ + GPTQ compose correctly.
+
+        Do NOT include a separate QuantizationModifier when using AWQ + GPTQ,
+        as it would cause a third quantization pass on already-quantized weights,
+        severely degrading model quality.
+
+        Correct AWQ + GPTQ recipe::
+
+            recipe = [
+                AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+                GPTQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+                # No QuantizationModifier — GPTQ handles quantization
+            ]
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
