@@ -21,7 +21,7 @@ from llmcompressor.entrypoints.model_free.helpers import (
     gpu_if_available,
 )
 from llmcompressor.entrypoints.model_free.microscale import (
-    build_inverse_weights_map,
+    build_microscale_inverse_weights_map,
     is_microscale_scheme,
 )
 from llmcompressor.entrypoints.model_free.process import (
@@ -87,17 +87,10 @@ def model_free_ptq(
             shutil.copyfile(resolved_path, save_path)
 
     # build quantization jobs
-    if is_microscale_scheme(scheme):
-        jobs = _build_microscale_jobs(
-            model_files, save_directory, scheme, ignore, device, converter
-        )
-    else:
-        jobs = _build_standard_jobs(
-            model_files, save_directory, scheme, ignore, device, converter
-        )
+    jobs = _build_jobs(model_files, save_directory, scheme, ignore, device, converter)
 
     # 1. validate quantizable tensors — fail fast before long-running quantization
-    validate_jobs = _build_validate_jobs(jobs)
+    validate_jobs = [(validate_file, *job[1:]) for job in jobs]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
     # 2-5. quantize and compress weights
@@ -114,29 +107,7 @@ def model_free_ptq(
     update_config(save_directory, scheme_name, scheme, ignore, converter)
 
 
-def _build_standard_jobs(
-    model_files: dict[str, str],
-    save_directory: str | os.PathLike,
-    scheme: QuantizationScheme,
-    ignore: Iterable[str],
-    device: torch.device,
-    converter: Converter | None,
-    job_fn=None,
-) -> list[tuple]:
-    """Build one job per safetensors file using the given processing function."""
-    if job_fn is None:
-        job_fn = process_file
-    jobs = []
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors"):
-            save_path = Path(save_directory) / file_path
-            jobs.append(
-                (job_fn, resolved_path, save_path, scheme, ignore, device, converter)
-            )
-    return jobs
-
-
-def _build_microscale_jobs(
+def _build_jobs(
     model_files: dict[str, str],
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme,
@@ -152,10 +123,17 @@ def _build_microscale_jobs(
     from other shards. This avoids runtime fused-partner discovery inside the
     process function and eliminates redundant tensor reads.
 
-    Job tuple format:
-        (process_file_microscale_scheme, inverse_weights_map, save_path,
-         scheme, ignore, device, converter)
+    :returns: list of jobs tuples
+        (job_fn, inverse_weights_map, save_path, scheme, ignore, device, converter)
     """
+    if is_microscale_scheme(scheme):
+        job_fn = process_file_microscale_scheme
+        build_inverse_weights_map = build_microscale_inverse_weights_map
+    else:
+        job_fn = process_file
+        # TODO brian-dellabetta (#2491): update here in follow-up PR based on converter
+        build_inverse_weights_map = None
+
     index_file = find_safetensors_index_file(model_files)
 
     if index_file is None:
@@ -170,7 +148,7 @@ def _build_microscale_jobs(
                 inverse_weights_map = {resolved_path: []}
                 jobs.append(
                     (
-                        process_file_microscale_scheme,
+                        job_fn,
                         inverse_weights_map,
                         save_path,
                         scheme,
@@ -194,11 +172,14 @@ def _build_microscale_jobs(
 
         # Precompute exactly which tensors to load from which files for this shard,
         # including fused partner tensors that live in other shards
-        inverse_weights_map = build_inverse_weights_map(
-            shard_name=shard_name,
-            weight_map=weight_map,
-            model_files=model_files,
-        )
+        if build_inverse_weights_map is None:
+            inverse_weights_map = {resolved_path: []}
+        else:
+            inverse_weights_map = build_inverse_weights_map(
+                shard_name=shard_name,
+                weight_map=weight_map,
+                model_files=model_files,
+            )
 
         if len(inverse_weights_map) > 1:
             partner_shards = [s for s in inverse_weights_map if s != resolved_path]
@@ -209,7 +190,7 @@ def _build_microscale_jobs(
 
         jobs.append(
             (
-                process_file_microscale_scheme,
+                job_fn,
                 inverse_weights_map,
                 save_path,
                 scheme,
@@ -220,63 +201,3 @@ def _build_microscale_jobs(
         )
 
     return jobs
-
-
-def _build_validate_jobs(jobs: list[tuple]) -> list[tuple]:
-    """
-    Build validation jobs from processing jobs.
-
-    Handles both job formats:
-    - Standard/fallback: (proc_fn, file_path_str, save_path, scheme, ignore, device, \
-        converter)
-    - Microscale with index: (proc_fn, inverse_weights_map_dict, save_path, scheme, \
-        ignore, device, converter)
-    """
-    validate_jobs = []
-    for job in jobs:
-        # job[0] is the processing function
-        # Check if second element is a dict (microscale with index)
-        # or string (standard/fallback)
-        second_arg = job[1]
-
-        if isinstance(second_arg, dict):
-            # Microscale job with inverse_weights_map dict
-            _, inverse_weights_map, save_path, scheme, ignore, device, converter = job
-            # Use first source file path from inverse_weights_map for validation
-            source_file = next(iter(inverse_weights_map.keys()))
-            validate_jobs.append(
-                (
-                    validate_file,
-                    source_file,
-                    save_path,
-                    scheme,
-                    ignore,
-                    device,
-                    converter,
-                    inverse_weights_map,
-                )
-            )
-        else:
-            # Standard job or microscale fallback: second_arg is file_path string
-            _, file_path, save_path, scheme, ignore, device, converter = job
-            validate_jobs.append(
-                (
-                    validate_file,
-                    file_path,
-                    save_path,
-                    scheme,
-                    ignore,
-                    device,
-                    converter,
-                    None,
-                )
-            )
-    return validate_jobs
-
-
-def _get_all_tensor_names(file_path: str) -> list[str]:
-    """Get all tensor names from a safetensors file without loading tensors."""
-    from safetensors import safe_open
-
-    with safe_open(file_path, framework="pt", device="cpu") as f:
-        return list(f.keys())

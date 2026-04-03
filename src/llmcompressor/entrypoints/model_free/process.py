@@ -8,7 +8,7 @@ from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
 from safetensors import safe_open
-from safetensors.torch import load_file, save_file
+from safetensors.torch import save_file
 from torch.nn import Module
 
 from llmcompressor.entrypoints.model_free.lifecycle import (
@@ -36,7 +36,6 @@ def validate_file(
     ignore: Iterable[str],
     device: str | torch.device,
     converter: Converter | None = None,
-    weights_map: dict[str, str] | None = None,
 ):
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
@@ -49,19 +48,8 @@ def validate_file(
     :param device: device used to quantize and compress weights
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
-    :param weights_map: optional mapping of tensor name -> source file path,
-        built from safetensors.index.json. Reserved for future use by callers
-        that need cross-shard tensor location lookup during validation.
     """
-    # Extract file path from inverse_weights_map (standard mode: load all)
-    # Backward compatibility: handle both dict and Path/string formats
-    if not isinstance(inverse_weights_map, dict):
-        # Legacy call with file_path - wrap it as inverse_weights_map
-        inverse_weights_map = {inverse_weights_map: None}
-    # Extract source file from inverse_weights_map
-    source_file = next(iter(inverse_weights_map.keys()))
-    # Extract source file from inverse_weights_map
-    tensors = load_file(source_file)
+    tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
 
     if converter is not None:
         converter.validate(tensors)
@@ -92,16 +80,8 @@ def process_file(
         e.g. conversion of some layers from some format to compressed-tensors
     """
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
-    # Extract file path from inverse_weights_map (standard mode: load all)
-    # Backward compatibility: handle both dict and Path/string formats
-    if not isinstance(inverse_weights_map, dict):
-        # Legacy call with file_path - wrap it as inverse_weights_map
-        inverse_weights_map = {inverse_weights_map: None}
-    # Extract source file from inverse_weights_map
-    source_file = next(iter(inverse_weights_map.keys()))
-    # Extract source file from inverse_weights_map
-    source_file = next(iter(inverse_weights_map.keys()))
-    tensors = load_file(source_file)
+
+    tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
 
     if converter is not None:
         converter.process(tensors)
@@ -152,7 +132,7 @@ def process_file_microscale_scheme(
 
     :param inverse_weights_map: mapping of resolved source file path ->
         list of tensor names to load from that file. Precomputed by
-        build_inverse_weights_map() in the job-building phase.
+        build_microscale_inverse_weights_map() in the job-building phase.
         Example: {"/path/shard0.safetensors": ["q_proj.weight"],
                   "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
     :param save_path: output path for this shard's compressed weights
@@ -165,18 +145,7 @@ def process_file_microscale_scheme(
     """
     assert is_microscale_scheme(scheme), "Use `process_file` for non-microscale scheme"
 
-    # Load all required tensors using true partial reads via safe_open.
-    # inverse_weights_map tells us exactly which tensors to load from each file —
-    # no entire-file loads, no runtime discovery.
-    tensors: dict[str, torch.Tensor] = {}
-    for source_file, tensor_names in inverse_weights_map.items():
-        with safe_open(source_file, framework="pt", device="cpu") as f:
-            available = set(f.keys())
-            # Load all tensors if tensor_names is None or empty
-            names_to_load = tensor_names if tensor_names else list(available)
-            for name in names_to_load:
-                if name in available:
-                    tensors[name] = f.get_tensor(name)
+    tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
 
     if converter is not None:
         converter.process(tensors)
@@ -247,3 +216,40 @@ def process_file_microscale_scheme(
     total_size = sum(t.nbytes for t in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
     return total_size, weight_map
+
+
+# TODO brian-dellabetta (#2491): move to compressed-tensors.utils.safetensors_load
+def _load_tensors_from_inverse_weights_map(
+    inverse_weights_map: dict[str, list[str] | None],
+    device: str | torch.device,
+) -> dict[str, torch.Tensor]:
+    """
+    Given an inverse_weights_map, which is a dictionary of file name to list of
+    tensor names, load up all listed tensor names
+
+    :param inverse_weights_map: mapping of resolved source file path ->
+        list of tensor names to load from that file. Precomputed by
+        build_inverse_weights_map() in the job-building phase.
+        If list is empty, all tensors are pulled
+        Example: {"/path/shard0.safetensors": ["q_proj.weight"],
+                  "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
+    :param device: tensors will be loaded onto this device.
+
+    :returns: mapping of tensor name to actual tensor loaded from safetensors file
+        Example: {"q_proj.weight": torch.Tensor(...), "k_proj.weight: torch.Tensor(...)}
+    """
+    tensors: dict[str, torch.Tensor] = {}
+    for source_file, tensor_names in inverse_weights_map.items():
+        with safe_open(source_file, framework="pt", device=str(device)) as f:
+            keys = f.keys()
+            # if tensor_names is empty, pull all tensors
+            if tensor_names is None or len(tensor_names) == 0:
+                tensor_names = keys
+            for tensor_name in tensor_names:
+                if tensor_name not in keys:
+                    raise ValueError(
+                        f"Expected to find tensor {tensor_name} in "
+                        f"{source_file}, but tensor was not found."
+                    )
+                tensors[tensor_name] = f.get_tensor(tensor_name)
+    return tensors

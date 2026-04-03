@@ -71,6 +71,8 @@ def test_calib_glm4moe_module():
     config = Glm4MoeConfig()
     with torch.device("cuda"):
         original = OriginalGlm4MoeMoE(config).eval()
+        for param in original.parameters():
+            param.data.normal_(mean=0.0, std=0.02)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
