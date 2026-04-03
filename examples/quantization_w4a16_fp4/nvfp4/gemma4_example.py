@@ -38,7 +38,9 @@ dispatch_model(model)
 messages = [
     {"role": "user", "content": "Hello my name is"},
 ]
-text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+text = processor.apply_chat_template(
+    messages, add_generation_prompt=True, tokenize=False
+)
 inputs = processor(text=text, return_tensors="pt").to(model.device)
 output = model.generate(**inputs, max_new_tokens=100)
 print(processor.decode(output[0], skip_special_tokens=True))
