@@ -18,13 +18,17 @@ Run integration test (requires 2 GPUs):
 from __future__ import annotations
 
 import subprocess
-import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 import torch.distributed
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from tests.testing_utils import requires_gpu
 
 # ---------------------------------------------------------------------------
@@ -148,6 +152,59 @@ def test_apply_smoothing_calls_reduce_only_when_distributed():
 # ---------------------------------------------------------------------------
 
 
+def _prepare_dataset(model_id: str, num_samples: int):
+    """Prepare calibration dataset for SmoothQuant."""
+    tok = AutoTokenizer.from_pretrained(model_id)
+
+    # Use a simple default chat template for models without one
+    if tok.chat_template is None:
+        tok.chat_template = (
+            "{% for message in messages %}{{ message['content'] }}{% endfor %}"
+        )
+
+    ds = load_dataset(
+        "HuggingFaceH4/ultrachat_200k", split=f"train_sft[:{num_samples}]"
+    )
+    ds = ds.map(
+        lambda ex: {"text": tok.apply_chat_template(ex["messages"], tokenize=False)}
+    )
+    ds = ds.map(
+        lambda s: tok(s["text"], padding=False, max_length=512, truncation=True),
+        remove_columns=ds.column_names,
+    )
+    return ds
+
+
+def _run_single_gpu_smoothquant(
+    model_id: str, num_samples: int, device: str = "cuda:0"
+):
+    """Run SmoothQuant on a single GPU and return smoothed weights."""
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, torch_dtype=torch.float32, device_map=device
+    )
+    ds = _prepare_dataset(model_id, num_samples)
+
+    oneshot(
+        model=model,
+        dataset=ds,
+        recipe=SmoothQuantModifier(smoothing_strength=0.8),
+        num_calibration_samples=num_samples,
+        max_seq_length=512,
+    )
+
+    # Extract smoothed weights (input_layernorm and q_proj affected by SmoothQuant)
+    weights = {
+        name: param.clone().cpu()
+        for name, param in model.named_parameters()
+        if "input_layernorm" in name or "q_proj" in name
+    }
+
+    del model
+    torch.cuda.empty_cache()
+
+    return weights
+
+
 @pytest.mark.integration
 @pytest.mark.multi_gpu
 @requires_gpu(2)
@@ -157,7 +214,7 @@ def test_smoothquant_distributed_weights_match_single_gpu(tmp_path):
     as single-GPU SmoothQuant on the same calibration data.
 
     Uses nm-testing/tinysmokellama-3.2 (tiny model, safe for CI).
-    Each distributed rank gets half the 32-sample calibration set.
+    Each distributed rank gets half the calibration samples.
     After all_reduce, both ranks should agree on the same smoothing scales,
     producing weights identical to the single-GPU reference (atol=1e-4).
     """
@@ -168,103 +225,27 @@ def test_smoothquant_distributed_weights_match_single_gpu(tmp_path):
     # Single-GPU reference
     # ------------------------------------------------------------------
     single_out = tmp_path / "single_weights.pt"
-    single_script = tmp_path / "single_sq.py"
-    single_script.write_text(
-        f"""
-import torch
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from llmcompressor import oneshot
-from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-
-model = AutoModelForCausalLM.from_pretrained("{MODEL}", torch_dtype=torch.float32)
-tok = AutoTokenizer.from_pretrained("{MODEL}")
-ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:{NUM_SAMPLES}]")
-ds = ds.map(lambda ex: {{"text": tok.apply_chat_template(
-    ex["messages"], tokenize=False)}})
-ds = ds.map(
-    lambda s: tok(s["text"], padding=False, max_length=512, truncation=True),
-    remove_columns=ds.column_names,
-)
-oneshot(
-    model=model,
-    dataset=ds,
-    recipe=SmoothQuantModifier(smoothing_strength=0.8),
-    num_calibration_samples={NUM_SAMPLES},
-    max_seq_length=512,
-)
-torch.save(
-    {{n: p.clone().cpu() for n, p in model.named_parameters()
-      if "input_layernorm" in n or "q_proj" in n}},
-    "{single_out}",
-)
-"""
-    )
-
-    r = subprocess.run(
-        [sys.executable, str(single_script)],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-    )
-    if r.returncode != 0:
-        pytest.skip(f"Single-GPU reference failed:\n{r.stderr}")
-    ref = torch.load(single_out, weights_only=True)
+    ref = _run_single_gpu_smoothquant(MODEL, NUM_SAMPLES)
+    torch.save(ref, single_out)
 
     # ------------------------------------------------------------------
-    # Distributed run (2 ranks, 16 samples each)
+    # Distributed run (2 ranks, each gets half via get_rank_partition)
     # ------------------------------------------------------------------
     ddp_out = tmp_path / "ddp_weights.pt"
-    ddp_script = tmp_path / "ddp_sq.py"
-    ddp_script.write_text(
-        f"""
-import torch
-import torch.distributed as dist
-from compressed_tensors.offload import init_dist, load_offloaded_model
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-
-init_dist()
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        "{MODEL}", dtype=torch.float32, device_map="auto_offload"
-    )
-tok = AutoTokenizer.from_pretrained("{MODEL}")
-ds = load_dataset(
-    "HuggingFaceH4/ultrachat_200k",
-    split=get_rank_partition("train_sft[:{NUM_SAMPLES * 2}]", {NUM_SAMPLES * 2}),
-)
-ds = ds.map(lambda ex: {{"text": tok.apply_chat_template(
-    ex["messages"], tokenize=False)}})
-ds = ds.map(
-    lambda s: tok(s["text"], padding=False, max_length=512, truncation=True),
-    remove_columns=ds.column_names,
-)
-oneshot(
-    model=model,
-    dataset=ds,
-    recipe=SmoothQuantModifier(smoothing_strength=0.8),
-    num_calibration_samples={NUM_SAMPLES * 2},
-    max_seq_length=512,
-)
-if dist.get_rank() == 0:
-    torch.save(
-        {{n: p.clone().cpu() for n, p in model.named_parameters()
-          if "input_layernorm" in n or "q_proj" in n}},
-        "{ddp_out}",
-    )
-dist.destroy_process_group()
-"""
-    )
+    ddp_runner = Path(__file__).parent / "_smoothquant_ddp_runner.py"
 
     r = subprocess.run(
-        ["torchrun", "--standalone", "--nproc_per_node=2", str(ddp_script)],
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            str(ddp_runner),
+            MODEL,
+            str(NUM_SAMPLES),
+            str(ddp_out),
+        ],
         capture_output=True,
         text=True,
-        cwd=tmp_path,
     )
     assert (
         r.returncode == 0
