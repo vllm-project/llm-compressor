@@ -1,3 +1,8 @@
+# Gemma 4 requires transformers >= 5.5.0 (model_type: gemma4).
+# If your llmcompressor pins an older version, install with:
+#   pip install --no-deps llmcompressor
+#   pip install git+https://github.com/huggingface/transformers.git
+
 from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
