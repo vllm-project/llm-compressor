@@ -35,7 +35,7 @@ One-shot algorithm that quantizes weights, input activations and/or output activ
 calculating a range from weights or calibration data. All data is quantized to the closest 
 bin using a scale and (optional) zero point. This basic quantization algorithm is 
 suitable for FP8 quantization. A variety of quantization schemes are supported via the 
-[compressed-tensors](https://github.com/neuralmagic/compressed-tensors) library. 
+[compressed-tensors](https://github.com/vllm-project/compressed-tensors) library. 
 
 ### [GPTQ](./gptq/base.py)
 One-shot algorithm that uses calibration data to select the ideal bin for weight quantization. 
