@@ -23,7 +23,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
     # weight quantization must be provided
     if scheme.weights is None:
         raise ValueError(
-            "Must provide a weights quanitization scheme to perform weights-only PTQ"
+            "Must provide a weights quantization scheme to perform weights-only PTQ"
         )
 
     # activation quantization must be dynamic
@@ -59,19 +59,19 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
 
     if is_microscale_scheme(scheme):
         with open(index_file_path, "r") as file:
-            weight_map: dict[str, str] = json.load(file)["weight_map"]
+            weights_map: dict[str, str] = json.load(file)["weight_map"]
 
-        file_map = invert_mapping(weight_map)
+        file_map = invert_mapping(weights_map)
         for file in sorted(file_map):
             tensor_names = file_map[file]
             _fused_sets, unmatched_sets = get_fused_names(tensor_names)
             if len(unmatched_sets) > 0:
-                raise NotImplementedError(
-                    "When using a microscale scheme (NVFP4, MXFP4), global scales "
-                    "will be fused. Current implmentation requires that all fused "
-                    "modules (attention and mlp) be stored in the same file. "
-                    f"However, {file} has an unmatched set of fused weights: "
-                    f"\n{json.dumps(unmatched_sets, indent=4)}\n\n"
-                    "Please use `reindex_fused_weights.py` to reindex your safetensors "
-                    "before running `model_free_ptq` again."
+                # Cross-shard fused weights detected. model_free_ptq handles
+                # this automatically via precomputed inverse_weights_map —
+                # fused partner tensors are fetched via partial reads and
+                # re-saved into the requesting shard's output.
+                logger.debug(
+                    f"{file} has fused weights split across shards: "
+                    f"{json.dumps(unmatched_sets, indent=4)}\n"
+                    "These will be resolved via precomputed inverse_weights_map."
                 )

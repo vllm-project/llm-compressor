@@ -138,6 +138,3 @@ We can see the resulting scores look good!
 |     |       |strict-match    |     5|exact_match|↑  |0.720|±  |0.0285|
 ```
 
-### Questions or Feature Request?
-
-Please open up an issue on `vllm-project/llm-compressor`
