@@ -53,7 +53,13 @@ class NormCalibrationModule(ABC, torch.nn.Module, RegistryMixin):
 
 @NormCalibrationModule.register(
     "GemmaRMSNorm",
-    alias=["Gemma2RMSNorm", "Gemma3RMSNorm", "Qwen3NextRMSNorm"],
+    alias=[
+        "Gemma2RMSNorm",
+        "Gemma3RMSNorm",
+        "Qwen3NextRMSNorm",
+        "Qwen3_5RMSNorm",
+        "Qwen3_5MoeRMSNorm",
+    ],
 )
 class CalibrationOffsetNorm(NormCalibrationModule):
     """

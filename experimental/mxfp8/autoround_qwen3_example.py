@@ -1,14 +1,16 @@
+from pathlib import Path
+
 from auto_round.calib_dataset import get_dataset
-from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
+from compressed_tensors.offload import dispatch_model
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+model_id = "Qwen/Qwen3-8B"
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = 128
@@ -21,13 +23,14 @@ ds = get_dataset(
     nsamples=NUM_CALIBRATION_SAMPLES,
 )
 
-
 # Configure the quantization algorithm to run.
-# NOTE: AutoRoundModifier with iters=0 is equivalent to RTN
+#   * quantize the model to W8A8-MXFP8 with AutoRound
 recipe = AutoRoundModifier(
-    targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"], iters=200
+    targets="Linear",
+    scheme="MXFP8",
+    ignore=["lm_head"],
+    iters=200,
 )
-
 
 # Apply algorithms.
 oneshot(
@@ -36,6 +39,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
 )
 
@@ -43,14 +47,13 @@ oneshot(
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to(model.device) for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK-AutoRound"
+SAVE_DIR = Path(model_id).name + "-W8A8-MXFP8-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

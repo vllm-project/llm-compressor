@@ -9,7 +9,6 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
-from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -110,7 +109,8 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    # generate scale, should include tensor group / use global scale
+    scale, zero_point = observer(W)
+    # handle g_idx and activation ordering
     if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         # mapping from column index to group index
         g_idx = (
@@ -119,25 +119,15 @@ def quantize_weight(
         )
 
         if actorder == ActivationOrdering.GROUP:
-            # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            update_offload_parameter(module, "weight_g_idx", g_idx)
+            # actually need scale/zp for permuted weight for this format
             scale, zero_point = observer(W)
-
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
-            # update groups first, then permute by activation order
-            scale, zero_point = observer(W)
+            # permute weights and g_idx
             W, H, perm = _apply_activation_ordering(W, H)
-
-            # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
-
-        else:
-            scale, zero_point = observer(W)
-    else:
-        scale, zero_point = observer(W)
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
@@ -226,6 +216,16 @@ def quantize_weight(
                     altered_qargs,
                     global_scale=global_scale,
                 )
+            elif strategy == QuantizationStrategy.BLOCK:
+                block_width = quant_args.block_structure[1]
+                block_column_idx = (i1 + i) // block_width
+                q = fake_quantize(
+                    q.unsqueeze(1),
+                    scale[:, block_column_idx : block_column_idx + 1],
+                    zero_point[:, block_column_idx : block_column_idx + 1],
+                    quant_args,
+                    global_scale=global_scale,
+                ).squeeze(1)
             else:
                 raise ValueError(
                     f"Quantization strategy is not supported for GPTQ: {strategy}"
