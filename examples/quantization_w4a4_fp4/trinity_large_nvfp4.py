@@ -21,7 +21,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-NUM_CALIBRATION_SAMPLES = 100
+NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -89,6 +89,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = "/raid/engine/dsikka/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
