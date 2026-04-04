@@ -27,6 +27,8 @@ TARGET_SNR_DB = 25.0  # Target activation SNR
 MAX_STAGES = 10  # Maximum cascade iterations
 TUCKER_NUM_MODES = 8  # Number of modes for Tucker decomposition
 TUCKER_RANK = 2  # Rank ratio for Tucker core (low for small components)
+SPECTRAL_MPO_BOND_DIM_RATIO = 0.008  # Bond dimension ratio for Spectral MPO
+SPECTRAL_MPO_PARAM_BUDGET = 0.002  # Parameter budget for Spectral MPO (0.2% of params)
 KRONECKER_FACTOR_SIZE = None  # Kronecker factor size (None = auto)
 BLOCKTT_BLOCK_SIZE = 512  # Block size for Block Tensor Train
 BLOCKTT_NUM_CORES = 3  # Number of TT cores per block
@@ -34,6 +36,7 @@ BLOCKTT_RANK = 0.2  # Rank ratio for Block TT
 BLOCKDIAG_NUM_BLOCKS = 16  # Number of diagonal blocks (local clusters)
 BLOCKDIAG_RANK = 64  # Low-rank component rank (global communication)
 SPARSE_SPARSITY = 0.1  # Column sparsity (0.1 = keep 90% of columns)
+USE_SPECTRAL_MPO = True  # Include Spectral MPO (q_proj only, dual variants)
 USE_KRONECKER = True  # Include Kronecker decomposition
 USE_BLOCKTT = True  # Include Block Tensor Train
 USE_SPARSE = True  # Include column-sparse stages in cascade
@@ -133,6 +136,7 @@ def compress_model_greedy_multiscale(
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
     print(f"  Max stages: {MAX_STAGES}")
     print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
+    print(f"  SpectralMPO: bond_ratio={SPECTRAL_MPO_BOND_DIM_RATIO}, budget={SPECTRAL_MPO_PARAM_BUDGET}, variants=['weight','activation'], enabled={USE_SPECTRAL_MPO}")
     print(f"  Kronecker: factor_size={KRONECKER_FACTOR_SIZE}, enabled={USE_KRONECKER}")
     print(
         f"  BlockTT: block_size={BLOCKTT_BLOCK_SIZE}, num_cores={BLOCKTT_NUM_CORES}, rank={BLOCKTT_RANK}, enabled={USE_BLOCKTT}"
@@ -214,6 +218,8 @@ def compress_model_greedy_multiscale(
             max_stages=MAX_STAGES,
             tucker_num_modes=TUCKER_NUM_MODES,
             tucker_rank=TUCKER_RANK,
+            spectral_mpo_bond_dim_ratio=SPECTRAL_MPO_BOND_DIM_RATIO,
+            spectral_mpo_param_budget=SPECTRAL_MPO_PARAM_BUDGET,
             kronecker_factor_size=KRONECKER_FACTOR_SIZE,
             blocktt_block_size=BLOCKTT_BLOCK_SIZE,
             blocktt_num_cores=BLOCKTT_NUM_CORES,
@@ -221,9 +227,11 @@ def compress_model_greedy_multiscale(
             blockdiag_num_blocks=BLOCKDIAG_NUM_BLOCKS,
             blockdiag_rank=BLOCKDIAG_RANK,
             sparse_sparsity=SPARSE_SPARSITY,
+            use_spectral_mpo=USE_SPECTRAL_MPO,
             use_kronecker=USE_KRONECKER,
             use_blocktt=USE_BLOCKTT,
             use_sparse=USE_SPARSE,
+            layer_name=layer_name,
             verbose=True,
         )
 

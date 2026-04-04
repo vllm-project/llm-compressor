@@ -1,45 +1,55 @@
-"""Greedy Multi-Scale Decomposition: 5-Component Cascade.
+"""Greedy Multi-Scale Decomposition: 7-Component Cascade (q_proj) / 5-Component (others).
 
-Mathematical form:
-    y = Tucker(x) + BlockTT(x) + BlockDiagLR(x) + Sparse(x) + Kronecker(x) + ...
+Mathematical form (q_proj):
+    y = Tucker(x) + SpectralMPO_weight(x) + SpectralMPO_act(x) + BlockTT(x) + Kronecker(x) + BlockDiagLR(x) + Sparse(x) + ...
+
+Mathematical form (other layers):
+    y = Tucker(x) + BlockTT(x) + Kronecker(x) + BlockDiagLR(x) + Sparse(x) + ...
 
 Strategy (per stage):
     1. Tucker: Global multi-dimensional structure (dual spectral reordering)
-    2. Block Tensor Train: Block-wise structured tensor decomposition
-    3. Block-Diagonal + Low-Rank: Local clusters + global communication
-    4. Sparse: Outlier features and sharp edges
-    5. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
+    2A. SpectralMPO (weight): Direct DCT(Weight) - global structure/prior [q_proj only]
+    2B. SpectralMPO (activation): LSTSQ - task-aware/evidence [q_proj only]
+    3. Block Tensor Train: Block-wise structured tensor decomposition
+    4. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
+    5. Block-Diagonal + Low-Rank: Local clusters + global communication
+    6. Sparse: Outlier features and sharp edges
 
 Geometric perspectives:
     - Tucker: Multi-dimensional correlations with spectral reordering
+    - SpectralMPO (weight): Frequency-domain structure from weight matrix (prior knowledge)
+    - SpectralMPO (activation): Frequency-domain structure from activations (task-specific evidence)
     - Block TT: Divide matrix into blocks, tensor train per block
+    - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
     - BlockDiag+LR: Dense local clusters + low-rank global communication
     - Sparse: Greedy column selection for outliers
-    - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
 
 Why this order:
     - Tucker FIRST: Captures global structure (benefits from full signal for spectral reordering)
-    - Block TT: Structured decomposition of remaining blocks
+    - SpectralMPO: Frequency-domain compression (only for q_proj with multi-head structure)
+    - Block TT: Structured spatial decomposition
+    - Kronecker: Repeating pattern decomposition
     - BlockDiag+LR: Stable local + global decomposition
     - Sparse: Captures outliers/sharp features that structured methods miss
-    - Kronecker: Last resort for repeating patterns (super efficient fallback)
 
 Benefits:
-    - Structured methods (Tucker, BlockTT, BlockDiag+LR) work on full signal
+    - Structured methods (Tucker, SpectralMPO, BlockTT, BlockDiag+LR) work on full signal
+    - DUAL SpectralMPO for q_proj: Weight-based (prior) + Activation-based (evidence)
     - Sparse handles outliers the structured methods couldn't compress
     - Each component attacks error from different geometric perspective
-    - Kronecker at end can exploit remaining periodic structure
     - Numerically stable (small components)
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Optional
 
 from llmcompressor.modifiers.experimental.tucker_linear import TuckerLinear
 from llmcompressor.modifiers.experimental.kronecker_linear import KroneckerLinear
 from llmcompressor.modifiers.experimental.block_tensorized_linear import BlockTensorizedLinear
 from llmcompressor.modifiers.experimental.blockdiag_lowrank_linear import BlockDiagonalLowRankLinear
+from llmcompressor.modifiers.experimental.spectral_mpo_linear import SpectralMPOLinear
 from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
 
@@ -137,6 +147,8 @@ class GreedyMultiScaleLinear(nn.Module):
         max_stages: int = 5,
         tucker_num_modes: int = 3,
         tucker_rank: float = 0.3,  # Low rank for small Tucker cores
+        spectral_mpo_bond_dim_ratio: float = 0.008,  # Bond dimension ratio for Spectral MPO
+        spectral_mpo_param_budget: float = 0.002,  # Parameter budget for Spectral MPO
         kronecker_factor_size: Optional[int] = None,  # Auto: sqrt of dims
         blocktt_block_size: int = 512,  # Block size for Block TT
         blocktt_num_cores: int = 3,  # Number of cores per block
@@ -144,9 +156,11 @@ class GreedyMultiScaleLinear(nn.Module):
         blockdiag_num_blocks: int = 16,  # Number of diagonal blocks
         blockdiag_rank: int = 64,  # Low-rank component rank
         sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
+        use_spectral_mpo: bool = True,  # Include Spectral MPO stages (q_proj only)
         use_kronecker: bool = True,  # Include Kronecker stages
         use_blocktt: bool = True,  # Include Block TT stages
         use_sparse: bool = True,  # Include column-sparse stages
+        layer_name: Optional[str] = None,  # Layer name for targeted compression
         verbose: bool = True,
     ):
         """Greedily build cascade to reach target SNR.
@@ -213,6 +227,7 @@ class GreedyMultiScaleLinear(nn.Module):
             print(f"  Target SNR: {target_snr_db:.1f} dB")
             print(f"  Max stages: {max_stages}")
             print(f"  Tucker: num_modes={tucker_num_modes}, rank={tucker_rank}")
+            print(f"  SpectralMPO: bond_ratio={spectral_mpo_bond_dim_ratio}, budget={spectral_mpo_param_budget}, variants=['weight','activation'], enabled={use_spectral_mpo}")
             print(f"  Kronecker: factor_size={kronecker_factor_size or 'auto'}, enabled={use_kronecker}")
             print(f"  BlockTT: block_size={blocktt_block_size}, num_cores={blocktt_num_cores}, rank={blocktt_rank}, enabled={use_blocktt}")
             print(f"  Sparse: sparsity={sparse_sparsity}, enabled={use_sparse}")
@@ -276,14 +291,176 @@ class GreedyMultiScaleLinear(nn.Module):
                 if verbose:
                     print(f"  Tucker: failed ({str(e)[:60]})")
 
-            # Step 2: Block Tensor Train for block-wise structured decomposition
+            # Step 2A: Spectral MPO (Weight-based) - Prior/Global Structure
+            # Only apply to q_proj layers (k_proj/v_proj have different head_dim structure)
+            if use_spectral_mpo and layer_name is not None and "q_proj" in layer_name:
+                residual_output_3a = original_output - current_output
+                residual_weight_3a = W - current_weight_approx
+
+                # Create temporary linear with residual weights
+                temp_linear_smpo_weight = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_smpo_weight.weight.data = residual_weight_3a.to(dtype)
+
+                try:
+                    # For q_proj, detect num_heads from dimensions
+                    # Common configs:
+                    #   Llama-3.1-8B: 32 heads * 128 head_dim = 4096
+                    #   Llama-2-7B: 32 heads * 128 head_dim = 4096
+                    #   Smaller models: 8 heads * 64 head_dim = 512
+                    num_heads = None
+                    for head_dim in [128, 64, 96, 80, 256, 120]:
+                        if out_features % head_dim == 0:
+                            num_heads = out_features // head_dim
+                            if verbose and stage_idx == 0:  # Only print once
+                                print(f"  SpectralMPO: Detected {num_heads} heads × {head_dim} head_dim = {out_features}")
+                            break
+
+                    if num_heads is None:
+                        # Fallback: assume single head
+                        num_heads = 1
+                        if verbose and stage_idx == 0:
+                            print(f"  SpectralMPO: Could not detect num_heads for out_features={out_features}, using 1")
+
+                    spectral_mpo_weight = SpectralMPOLinear.from_linear(
+                        temp_linear_smpo_weight,
+                        num_heads=num_heads,
+                        input_activations=input_activations,
+                        target_snr_db=10.0,  # Lower target for single component
+                        param_budget=spectral_mpo_param_budget,
+                        mpo_bond_dim_ratio=spectral_mpo_bond_dim_ratio,
+                        method="weight",  # Weight-based: DCT(W) → Prior
+                        use_tucker_residual=False,  # Disable internal Tucker (we have external Tucker)
+                        use_sparse_residual=False,  # Disable internal sparse (we have external sparse)
+                        verbose=False,
+                    )
+
+                    # Move to correct device
+                    spectral_mpo_weight = spectral_mpo_weight.to(device)
+
+                    with torch.no_grad():
+                        # Use to_matrix() since forward() may not be fully implemented
+                        smpo_weight_matrix = spectral_mpo_weight.to_matrix().float().to(device)
+                        smpo_weight_output = F.linear(input_activations.to(dtype), smpo_weight_matrix.to(dtype)).float()
+
+                    smpo_weight_snr = compute_snr(residual_output_3a, smpo_weight_output)
+
+                    if verbose:
+                        status = ""
+                        if smpo_weight_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  SpectralMPO(weight): {spectral_mpo_weight.num_params:,} params, SNR {smpo_weight_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if smpo_weight_snr > 0.01:
+                        # Store as weight matrix instead of full SpectralMPO to avoid forward() issues
+                        # Create a simple wrapper that just stores the reconstructed weight
+                        class WeightOnlyLinear(nn.Module):
+                            def __init__(self, weight):
+                                super().__init__()
+                                self.weight = nn.Parameter(weight, requires_grad=False)
+                                self.in_features = weight.shape[1]
+                                self.out_features = weight.shape[0]
+                                self.num_params = weight.numel()  # For compatibility
+
+                            def forward(self, x):
+                                return F.linear(x, self.weight.to(x.dtype))
+
+                            def to_matrix(self):
+                                return self.weight
+
+                        weight_layer = WeightOnlyLinear(smpo_weight_matrix)
+                        stages.append(weight_layer)
+                        current_output = current_output + smpo_weight_output
+                        current_weight_approx = current_weight_approx + smpo_weight_matrix
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  SpectralMPO(weight): failed ({str(e)[:60]})")
+
+            # Step 2B: Spectral MPO (Activation-based) - Evidence/Task-Aware
+            if use_spectral_mpo and layer_name is not None and "q_proj" in layer_name:
+                residual_output_3b = original_output - current_output
+                residual_weight_3b = W - current_weight_approx
+
+                # Create temporary linear with residual weights
+                temp_linear_smpo_act = nn.Linear(in_features, out_features, bias=False)
+                temp_linear_smpo_act.weight.data = residual_weight_3b.to(dtype)
+
+                try:
+                    # Use same num_heads as above
+                    spectral_mpo_act = SpectralMPOLinear.from_linear(
+                        temp_linear_smpo_act,
+                        num_heads=num_heads,
+                        input_activations=input_activations,
+                        target_snr_db=10.0,  # Lower target for single component
+                        param_budget=spectral_mpo_param_budget,
+                        mpo_bond_dim_ratio=spectral_mpo_bond_dim_ratio,
+                        method="activation",  # Activation-based: LSTSQ → Evidence
+                        use_tucker_residual=False,  # Disable internal Tucker (we have external Tucker)
+                        use_sparse_residual=False,  # Disable internal sparse (we have external sparse)
+                        verbose=False,
+                    )
+
+                    # Move to correct device
+                    spectral_mpo_act = spectral_mpo_act.to(device)
+
+                    with torch.no_grad():
+                        # Use to_matrix()
+                        smpo_act_matrix = spectral_mpo_act.to_matrix().float().to(device)
+                        smpo_act_output = F.linear(input_activations.to(dtype), smpo_act_matrix.to(dtype)).float()
+
+                    smpo_act_snr = compute_snr(residual_output_3b, smpo_act_output)
+
+                    if verbose:
+                        status = ""
+                        if smpo_act_snr > 0.01:
+                            status = " ✓"
+                        else:
+                            status = " (skipped)"
+                        print(f"  SpectralMPO(activation): {spectral_mpo_act.num_params:,} params, SNR {smpo_act_snr:+.2f} dB{status}")
+
+                    # Only add if it improves SNR
+                    if smpo_act_snr > 0.01:
+                        class WeightOnlyLinear(nn.Module):
+                            def __init__(self, weight):
+                                super().__init__()
+                                self.weight = nn.Parameter(weight, requires_grad=False)
+                                self.in_features = weight.shape[1]
+                                self.out_features = weight.shape[0]
+                                self.num_params = weight.numel()
+
+                            def forward(self, x):
+                                return F.linear(x, self.weight.to(x.dtype))
+
+                            def to_matrix(self):
+                                return self.weight
+
+                        act_layer = WeightOnlyLinear(smpo_act_matrix)
+                        stages.append(act_layer)
+                        current_output = current_output + smpo_act_output
+                        current_weight_approx = current_weight_approx + smpo_act_matrix
+
+                except Exception as e:
+                    if verbose:
+                        print(f"  SpectralMPO(activation): failed ({str(e)[:60]})")
+
+            elif use_spectral_mpo and verbose and stage_idx == 0:
+                # Log why Spectral MPO was skipped (only once)
+                if layer_name is None:
+                    print(f"  SpectralMPO: skipped (no layer_name provided)")
+                elif "q_proj" not in layer_name:
+                    print(f"  SpectralMPO: skipped (only applies to q_proj, got {layer_name})")
+
+            # Step 3: Block Tensor Train for block-wise structured decomposition
             if use_blocktt:
-                residual_output_2 = original_output - current_output
-                residual_weight_2 = W - current_weight_approx
+                residual_output_3 = original_output - current_output
+                residual_weight_3 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
                 temp_linear_btt = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_btt.weight.data = residual_weight_2.to(dtype)
+                temp_linear_btt.weight.data = residual_weight_3.to(dtype)
 
                 try:
                     # Create BlockTensorizedLinear (verbose=False)
@@ -302,7 +479,7 @@ class GreedyMultiScaleLinear(nn.Module):
                         blocktt_output = blocktt(input_activations.to(dtype)).float()
 
                     blocktt_weight = blocktt.to_matrix().float().to(device)
-                    blocktt_snr = compute_snr(residual_output_2, blocktt_output)
+                    blocktt_snr = compute_snr(residual_output_3, blocktt_output)
 
                     if verbose:
                         status = ""
@@ -322,13 +499,13 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  BlockTT: failed ({str(e)[:60]})")
 
-            # Step 3: Fit Block-Diagonal + Low-Rank to remaining residual
-            residual_output_3 = original_output - current_output
-            residual_weight_3 = W - current_weight_approx
+            # Step 5: Fit Block-Diagonal + Low-Rank to remaining residual
+            residual_output_5 = original_output - current_output
+            residual_weight_5 = W - current_weight_approx
 
             # Create temporary linear with residual weights
             temp_linear_bdlr = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_bdlr.weight.data = residual_weight_3.to(dtype)
+            temp_linear_bdlr.weight.data = residual_weight_5.to(dtype)
 
             try:
                 # Create BlockDiagonalLowRankLinear (verbose=False to avoid cluttering output)
@@ -346,7 +523,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     bdlr_output = bdlr(input_activations.to(dtype)).float()
 
                 bdlr_weight = bdlr.to_matrix().float().to(device)
-                bdlr_snr = compute_snr(residual_output_3, bdlr_output)
+                bdlr_snr = compute_snr(residual_output_5, bdlr_output)
 
                 if verbose:
                     status = ""
@@ -366,14 +543,14 @@ class GreedyMultiScaleLinear(nn.Module):
                 if verbose:
                     print(f"  BlockDiag+LR: failed ({str(e)[:60]})")
 
-            # Step 4: Column-sparse to capture important features/outliers
+            # Step 6: Column-sparse to capture important features/outliers
             if use_sparse:
-                residual_output_4 = original_output - current_output
-                residual_weight_4 = W - current_weight_approx
+                residual_output_6 = original_output - current_output
+                residual_weight_6 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
                 temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_4.cpu().to(dtype)
+                temp_linear_sparse.weight.data = residual_weight_6.cpu().to(dtype)
 
                 try:
                     # Create column-sparse layer
@@ -395,7 +572,7 @@ class GreedyMultiScaleLinear(nn.Module):
                     sparse_weight_full = torch.zeros(out_features, in_features, device=device)
                     sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
 
-                    sparse_snr = compute_snr(residual_output_4, sparse_output)
+                    sparse_snr = compute_snr(residual_output_6, sparse_output)
 
                     if verbose:
                         status = ""
@@ -415,14 +592,14 @@ class GreedyMultiScaleLinear(nn.Module):
                     if verbose:
                         print(f"  Sparse: failed ({str(e)[:60]})")
 
-            # Step 5: Kronecker to capture repeating/block-periodic patterns
+            # Step 4: Kronecker to capture repeating/block-periodic patterns
             if use_kronecker:
-                residual_output_5 = original_output - current_output
-                residual_weight_5 = W - current_weight_approx
+                residual_output_4 = original_output - current_output
+                residual_weight_4 = W - current_weight_approx
 
                 # Create temporary linear with residual weights
                 temp_linear_kron = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_kron.weight.data = residual_weight_5.to(dtype)
+                temp_linear_kron.weight.data = residual_weight_4.to(dtype)
 
                 try:
                     # Create KroneckerLinear (verbose=False)
@@ -439,7 +616,7 @@ class GreedyMultiScaleLinear(nn.Module):
                         kronecker_output = kronecker(input_activations.to(dtype)).float()
 
                     kronecker_weight = kronecker.to_matrix().float().to(device)
-                    kronecker_snr = compute_snr(residual_output_5, kronecker_output)
+                    kronecker_snr = compute_snr(residual_output_4, kronecker_output)
 
                     if verbose:
                         status = ""
