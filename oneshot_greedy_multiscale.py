@@ -24,7 +24,7 @@ SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
 TARGET_SNR_DB = 25.0  # Target activation SNR
-MAX_STAGES = 10  # Maximum cascade iterations
+MAX_STAGES = 4  # Maximum cascade iterations
 TUCKER_NUM_MODES = 8  # Number of modes for Tucker decomposition
 TUCKER_RANK = 2  # Rank ratio for Tucker core (low for small components)
 SPECTRAL_MPO_BOND_DIM_RATIO = 0.008  # Bond dimension ratio for Spectral MPO
@@ -44,7 +44,7 @@ USE_SPARSE = True  # Include column-sparse stages in cascade
 # Calibration settings
 DATASET_ID = "mit-han-lab/pile-val-backup"
 DATASET_SPLIT = "validation"
-NUM_CALIBRATION_SAMPLES = 32  # Increased for better activation statistics
+NUM_CALIBRATION_SAMPLES = 128  # Increased for better activation statistics
 MAX_SEQUENCE_LENGTH = 2048
 
 # Layer targeting
@@ -136,7 +136,9 @@ def compress_model_greedy_multiscale(
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
     print(f"  Max stages: {MAX_STAGES}")
     print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
-    print(f"  SpectralMPO: bond_ratio={SPECTRAL_MPO_BOND_DIM_RATIO}, budget={SPECTRAL_MPO_PARAM_BUDGET}, variants=['weight','activation'], enabled={USE_SPECTRAL_MPO}")
+    print(
+        f"  SpectralMPO: bond_ratio={SPECTRAL_MPO_BOND_DIM_RATIO}, budget={SPECTRAL_MPO_PARAM_BUDGET}, variants=['weight','activation'], enabled={USE_SPECTRAL_MPO}"
+    )
     print(f"  Kronecker: factor_size={KRONECKER_FACTOR_SIZE}, enabled={USE_KRONECKER}")
     print(
         f"  BlockTT: block_size={BLOCKTT_BLOCK_SIZE}, num_cores={BLOCKTT_NUM_CORES}, rank={BLOCKTT_RANK}, enabled={USE_BLOCKTT}"
