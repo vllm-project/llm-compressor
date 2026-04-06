@@ -7,9 +7,10 @@
 
 import requests
 from compressed_tensors.offload import dispatch_model
+from datasets import load_dataset
 from PIL import Image
 from transformers import AutoProcessor, Gemma4ForConditionalGeneration, ProcessorMixin
-from datasets import load_dataset
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
