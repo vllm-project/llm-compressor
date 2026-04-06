@@ -87,14 +87,14 @@ _phi_mappings = [
     ),
 ]
 
-# Gemma includes a pre_feedforward_layernorm in between
-#  post_attention_layernorm and the mlp down/gate proj layers
-#  use that instead of post_attention_layernorm in 3rd mapping:
+# 1) Gemma applied RMSNorm to outputs of q/k proj layers (q_norm, k_norm)
+#    that tend to degrade performance over round-to-nearest when smoothed
+#    exclude input_layernorm -> q/k/v mapping
+# (https://github.com/vllm-project/llm-compressor/issues/2522)
+# 2) Gemma includes a pre_feedforward_layernorm in between
+#    post_attention_layernorm and the mlp down/gate proj layers
+#    use that instead of post_attention_layernorm in 3rd mapping:
 _gemma_mappings = [
-    AWQMapping(
-        "re:.*input_layernorm$",
-        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
-    ),
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_feedforward_layernorm$",
