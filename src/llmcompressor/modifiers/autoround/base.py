@@ -29,7 +29,7 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
-from llmcompressor.utils.pytorch import get_no_split_params
+from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["AutoRoundModifier"]
 
@@ -171,7 +171,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for _, param in state.model.named_parameters():
             param.requires_grad_(False)
 
-        self._sequential_targets = self._infer_sequential_targets(
+        self._sequential_targets = infer_sequential_targets(
             state.model, sequential_targets=kwargs.get("sequential_targets")
         )
         return True
@@ -379,19 +379,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
-
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module, **kwargs
-    ) -> str | list[str]:
-        targets_from_kwargs = kwargs.get("sequential_targets")
-
-        match targets_from_kwargs:
-            case None:
-                return get_no_split_params(model)
-            case str():
-                return [targets_from_kwargs]
-            case _:
-                return targets_from_kwargs
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized

@@ -13,7 +13,7 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.pytorch.module import get_no_split_params
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 PRUNABLE_LAYER_TYPES = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
 
@@ -112,7 +112,7 @@ class SparsityModifierBase(Modifier):
         # infer module and sequential targets
         # Note: only pass sequential_targets from kwargs, not the full kwargs dict
         # which may contain 'model' and cause duplicate argument errors
-        self._sequential_targets = self._infer_sequential_targets(
+        self._sequential_targets = infer_sequential_targets(
             model, sequential_targets=kwargs.get("sequential_targets")
         )
         layers = dict(match_named_modules(model, self._sequential_targets))
@@ -192,20 +192,6 @@ class SparsityModifierBase(Modifier):
     def on_end(self, state: State, event: Event, **kwargs):
         self.ended_ = True
         self.remove_hooks()
-
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module, **kwargs
-    ) -> str | list[str]:
-        targets_from_kwargs = kwargs.get("sequential_targets")
-
-        match targets_from_kwargs:
-            case None:
-                # Fall back to auto-inference
-                return get_no_split_params(model)
-            case str():
-                return [targets_from_kwargs]
-            case _:
-                return targets_from_kwargs
 
     def _infer_owl_layer_sparsity(
         self,
