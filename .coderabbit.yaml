@@ -1,0 +1,98 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en"
+early_access: false
+enable_free_tier: true
+reviews:
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true # Only show high-level summary in walkthrough, not the PR description
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_apply_labels: True
+  path_filters:
+    - "!**/*.pyc"
+    - "!**/build/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/__pycache__/**"
+    - "!**/.lmeval_cache/**"
+  path_instructions:
+    - path: "**/*.py"
+      instructions: "Focus on code correctness, quantization algorithm implementation, numerical stability, and tensor operations. Check for major PEP 8 violations and Python best practices. Pay attention to GPU memory management and model loading patterns. Ignore trivial formatting issues."
+    - path: "tests/**/*.py"
+      instructions: "Ensure PyTest tests are clear, comprehensive, and cover edge cases for quantization scenarios. Verify proper mocking and test isolation. Don't focus on minor stylistic details."
+    - path: "examples/**/*.py"
+      instructions: "Review for clarity, correctness, and educational value. Ensure examples follow best practices and are runnable. Verify that comments and documentation are helpful for users learning the library."
+    - path: "src/llmcompressor/modifiers/**/*.py"
+      instructions: "Pay special attention to quantization modifier implementations. Verify algorithm correctness, proper handling of different quantization schemes (FP8, INT4, etc.), and compatibility with various model architectures."
+    - path: "docs/**/*.md"
+      instructions: "Check for clarity, accuracy, and completeness of documentation. Ensure code examples in docs are correct and align with current API."
+    - path: "**/README.md"
+      instructions: "Review for clarity, accuracy, and up-to-date information. Ensure installation instructions and examples are correct."
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
+    drafts: false
+    base_branches:
+      - "main"
+knowledge_base:
+  linked_repositories:
+    - repository: "vllm-project/compressed-tensors"
+      instructions: "Contains compressed model checkpoint format and offloading utilities. Useful for understanding model loading, memory management strategies, available compression formats, the lifecycle for managing compression, and compressed checkpoint."
+chat:
+  auto_reply: true
+issue_enrichment:
+  auto_enrich:
+    enabled: true
+  labeling:
+    labeling_instructions:
+      - label: "bug"
+        description: "Indicates a bug in the code that needs to be fixed."
+      - label: "enhancement"
+        description: "Indicates a new feature or improvement to existing functionality."
+      - label: "documentation"
+        description: "Indicates an issue related to documentation, such as missing or unclear information."
+      - label: "question"
+        description: "Indicates a question or request for clarification about the code or project."
+      # Model architectures
+      - label: "qwen"
+        description: "Issues or PRs related to Qwen models (Qwen, Qwen2, Qwen3, etc.)"
+      - label: "llama"
+        description: "Issues or PRs related to Llama models (Llama2, Llama3, etc.)"
+      # Quantization formats
+      - label: "fp8"
+        description: "Issues or PRs related to FP8 quantization format"
+      - label: "nvfp4"
+        description: "Issues or PRs related to NVIDIA FP4 quantization format"
+      - label: "w4a16"
+        description: "Issues or PRs related to W4A16 or wNa16 quantization schemes"
+      # Quantization algorithms
+      - label: "gptq"
+        description: "Issues or PRs related to GPTQ quantization algorithm"
+      - label: "awq"
+        description: "Issues or PRs related to AWQ (Activation-aware Weight Quantization) algorithm"
+      - label: "autoround"
+        description: "Issues or PRs related to AutoRound quantization algorithm"
+      - label: "smoothquant"
+        description: "Issues or PRs related to SmoothQuant algorithm"
+      # Components and integrations
+      - label: "compressed-tensors"
+        description: "Issues or PRs related to compressed-tensors library integration"
+      - label: "model_free_ptq"
+        description: "Issues or PRs related to model-free PTQ (Post-Training Quantization) pathway"
+      - label: "transforms"
+        description: "Issues or PRs related to model transforms functionality"
+      - label: "tracing"
+        description: "Issues or PRs related to model tracing functionality"
+      - label: "vllm"
+        description: "Issues or PRs related to vLLM integration or compatibility"
+      # PR/Issue types
+      - label: "RFC"
+        description: "Request for Comments - proposals for significant changes or new features"
+      - label: "Refactor"
+        description: "Code refactoring changes that improve structure without changing functionality"
+  auto_apply_labels: true
