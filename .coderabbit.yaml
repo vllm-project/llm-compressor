@@ -71,6 +71,7 @@ reviews:
       - "DO NOT MERGE"
       - "DRAFT"
     drafts: false
+    auto_incremental_review: true
     base_branches:
       - "main"
 knowledge_base:
