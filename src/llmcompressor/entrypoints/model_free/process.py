@@ -82,6 +82,7 @@ def process_file(
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
 
     tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
         converter.process(tensors)
@@ -253,3 +254,51 @@ def _load_tensors_from_inverse_weights_map(
                     )
                 tensors[tensor_name] = f.get_tensor(tensor_name)
     return tensors
+
+
+def split_fused_moe_experts(
+    tensors: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """
+    Find fused MoE experts (with gate_up_proj/down_proj).
+    Split them from 3D tensors into individual 2D expert tensors.
+    """
+    from loguru import logger
+
+    split_tensors = {}
+
+    for name, tensor in tensors.items():
+        if tensor.ndim == 3 and (
+            "experts.gate_up_proj" in name or "experts.down_proj" in name
+        ):
+            num_experts = tensor.shape[0]
+
+            if "gate_up_proj" in name:
+                if tensor.shape[1] % 2 != 0:
+                    logger.warning(f"gate_up_proj {name} has odd dim: {tensor.shape}")
+                    split_tensors[name] = tensor
+                    continue
+
+                intermediate_size = tensor.shape[1] // 2
+                for expert_idx in range(num_experts):
+                    expert_tensor = tensor[expert_idx]
+                    gate_proj, up_proj = expert_tensor.split(intermediate_size, dim=0)
+                    base_key = name.replace(
+                        "mlp.experts.gate_up_proj", f"mlp.experts.{expert_idx}"
+                    )
+                    split_tensors[base_key + ".gate_proj.weight"] = gate_proj
+                    split_tensors[base_key + ".up_proj.weight"] = up_proj
+                logger.info(f"Split {name} into {num_experts} experts")
+
+            elif "down_proj" in name:
+                for expert_idx in range(num_experts):
+                    down_proj = tensor[expert_idx]
+                    new_key = name.replace(
+                        "mlp.experts.down_proj", f"mlp.experts.{expert_idx}"
+                    ) + ".down_proj.weight"
+                    split_tensors[new_key] = down_proj
+                logger.info(f"Split {name} into {num_experts} experts")
+        else:
+            split_tensors[name] = tensor
+
+    return split_tensors
