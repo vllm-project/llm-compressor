@@ -53,6 +53,7 @@ def match_names_set_eager(
     return_unmatched: bool = True,
 ) -> list[MatchedNamesSet] | tuple[list[MatchedNamesSet], MatchedNamesSet]:
     matched_sets = []
+    incomplete_sets = []
     matches = dict.fromkeys(targets, None)
 
     def natural_key(s: str) -> list[str | int]:
@@ -68,21 +69,26 @@ def match_names_set_eager(
                 if matches[target] is None:
                     matches[target] = name
                 else:
-                    # matched target twice without completing a set
-                    raise ValueError(
-                        f"Matched a {target} twice before "
-                        f"completing set ({matches[target]}, {name})"
-                    )
+                    # matched target again before completing the set —
+                    # this happens with cross-shard fused weights or
+                    # mixed-architecture models (e.g., Qwen3.5 with
+                    # interleaved self_attn and linear_attn layers
+                    # where q/k/v may be split across shards).
+                    # Flush the incomplete set, start fresh.
+                    incomplete_sets.append(dict(matches))
+                    matches = dict.fromkeys(targets, None)
+                    matches[target] = name
 
         # once we have a full set, yield and reset
         if all((matches[target] is not None for target in targets)):
             matched_sets.append(matches)
             matches = dict.fromkeys(targets, None)
 
-    unmatched_set = matches if any((v is not None for v in matches.values())) else None
+    if any(v is not None for v in matches.values()):
+        incomplete_sets.append(matches)
 
     if return_unmatched:
-        return matched_sets, unmatched_set
+        return matched_sets, incomplete_sets if incomplete_sets else None
     else:
         return matched_sets
 
