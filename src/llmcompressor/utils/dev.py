@@ -130,8 +130,10 @@ def get_main_device() -> torch.device:
         return torch.device(f"cuda:{rank}")
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device(f"xpu:{rank}")
+    elif hasattr(torch, "mps") and torch.mps.is_available():
+        return torch.device(f"mps:{rank}")
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning("CUDA/XPU/MPS is not available! Compressing model on CPU instead")
         return torch.device("cpu")
 
 

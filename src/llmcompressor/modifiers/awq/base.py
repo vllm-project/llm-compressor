@@ -972,7 +972,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = weight.reshape(orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
-            weight_sum = weight.sum(0, dtype=torch.float64)
+            # MPS does not support float64; fall back to float32 on that backend
+            sum_dtype = torch.float32 if weight.device.type == "mps" else torch.float64
+            weight_sum = weight.sum(0, dtype=sum_dtype)
             weight_total_sum += weight_sum
 
         return weight_total_sum / weight_total_count
