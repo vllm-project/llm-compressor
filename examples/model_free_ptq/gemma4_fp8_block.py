@@ -3,7 +3,7 @@ from llmcompressor import model_free_ptq
 # Checkpoint available at https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-block
 
 MODEL_ID = "google/gemma-4-31B-it"
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8_BLOCK"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8_BLOCK"
 
 model_free_ptq(
     model_stub=MODEL_ID,
