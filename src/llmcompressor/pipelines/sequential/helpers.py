@@ -19,22 +19,19 @@ from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
-from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_no_split_params
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 
 if TYPE_CHECKING:
-    from llmcompressor.args.dataset_arguments import DatasetArguments
+    pass
 
 __all__ = [
     "trace_subgraphs",
     "Subgraph",
-    "get_sequential_targets",
     "dispatch_for_sequential",
     "handle_sequential_oom",
 ]
@@ -427,29 +424,6 @@ def graph_is_well_formed(graph: Graph) -> bool:
             return False
 
     return True
-
-
-def get_sequential_targets(
-    modifiers: list[Modifier], model: PreTrainedModel, args: "DatasetArguments"
-) -> list[str]:
-    """
-    Infer sequential targets from dataset args
-
-    :param model: model being calibrated
-    :param modifiers: list of modifiers being applied during calibration
-    :param dataset_args: dataset arguments passed by user
-    :return: list of sequential targets
-    """
-    sequential_targets = args.sequential_targets  # may be `None`
-
-    # validate and infer
-    match sequential_targets:
-        case None:
-            return get_no_split_params(model)
-        case str():
-            return [sequential_targets]
-        case _:
-            return sequential_targets
 
 
 def add_line_numbers(text: str) -> str:
