@@ -9,7 +9,7 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
-  auto_apply_labels: True
+  auto_apply_labels: true
   path_filters:
     - "!**/*.pyc"
     - "!**/build/**"
