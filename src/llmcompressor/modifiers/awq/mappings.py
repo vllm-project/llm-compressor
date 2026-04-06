@@ -106,10 +106,10 @@ _gemma2_mappings = [
     ),
 ]
 
-# Gemma3 applies RMSNorm to outputs of q/k proj layers (q_norm, k_norm)
-#  that tend to degrade performance over round-to-nearest when smoothed
-#  exclude input_layernorm -> q/k/v mapping
-# (https://github.com/vllm-project/llm-compressor/issues/2522)
+# Gemma3 applies RMSNorm to outputs of q/k proj layers (q_norm, k_norm), unlike Gemma2.
+#  These tend to degrade performance over round-to-nearest when smoothed
+#  (https://github.com/vllm-project/llm-compressor/issues/2522)
+#  exclude input_layernorm -> q/k/v mapping:
 _gemma3_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
