@@ -37,6 +37,12 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **Gemma4 Support**: Gemma 4 can now be quantized using LLM Compressor. Support is available through main and will require updating to transformers 5.5 (`uv pip install transformers>=5.5`). For models quantized and published by the RedHat team, consider using:
+  - [gemma-4-31B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-31B-it-NVFP4)
+  - [gemma-4-31B-it-FP8-block](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-block)
+  - [gemma-4-31B-it-FP8_Dynamic](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8_Dynamic)
+  - [gemma-4-26B-A4B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic)
+  - [gemma-4-26B-A4B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-NVFP4)
 * **Qwen3.5 Support**: Qwen 3.5 can now be quantized using LLM Compressor. You will need to update your local transformers version using `uv pip install --upgrade transformers` and install LLM Compressor from source if using `<0.11`. Once updated, you should be able to run examples for the [MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) and [non-MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) variants of Qwen 3.5 end-to-end. For models quantized and published by the RedHat team, consider using the [NVFP4](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-NVFP4) and FP8 checkpoints for [Qwen3.5-122B](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-FP8-dynamic) and [Qwen3.5-397B](https://huggingface.co/RedHatAI/Qwen3.5-397B-A17B-FP8-dynamic).
 * **Updated offloading and model loading support**: Loading transformers models that are offloaded to disk and/or offloaded across distributed process ranks is now supported. Disk offloading allows users to load and compress very large models which normally would not fit in CPU memory. Offloading functionality is no longer supported through accelerate but through model loading utilities added to compressed-tensors. For a full summary of updated loading and offloading functionality, for both single-process and distributed flows, see the [Big Models and Distributed Support guide](docs/guides/big_models_and_distributed/model_loading.md).
 * **Distributed GPTQ Support**: GPTQ now supports Distributed Data Parallel (DDP) functionality to significantly improve calibration runtime. An example using DDP with GPTQ can be found [here](examples/quantization_w4a16/llama3_ddp_example.py).
