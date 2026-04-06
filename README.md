@@ -40,7 +40,7 @@ Some of the exciting new features include:
 * **Gemma4 Support**: Gemma 4 can now be quantized using LLM Compressor. Support is available through main and will require updating to transformers 5.5 (`uv pip install transformers>=5.5`). For models quantized and published by the RedHat team, consider using:
   - [gemma-4-31B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-31B-it-NVFP4)
   - [gemma-4-31B-it-FP8-block](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-block)
-  - [gemma-4-31B-it-FP8_Dynamic](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8_Dynamic)
+  - [gemma-4-31B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-Dynamic)
   - [gemma-4-26B-A4B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic)
   - [gemma-4-26B-A4B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-NVFP4)
 * **Qwen3.5 Support**: Qwen 3.5 can now be quantized using LLM Compressor. You will need to update your local transformers version using `uv pip install --upgrade transformers` and install LLM Compressor from source if using `<0.11`. Once updated, you should be able to run examples for the [MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) and [non-MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) variants of Qwen 3.5 end-to-end. For models quantized and published by the RedHat team, consider using the [NVFP4](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-NVFP4) and FP8 checkpoints for [Qwen3.5-122B](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-FP8-dynamic) and [Qwen3.5-397B](https://huggingface.co/RedHatAI/Qwen3.5-397B-A17B-FP8-dynamic).
