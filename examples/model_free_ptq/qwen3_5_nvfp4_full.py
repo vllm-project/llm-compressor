@@ -108,7 +108,7 @@ else:
     try:
         from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
         save_mtp_tensors_to_checkpoint(source_model=MODEL_ID, dest_dir=SAVE_DIR)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Could not save MTP tensors: {e}")
 
 print(f"Saved to {SAVE_DIR}")

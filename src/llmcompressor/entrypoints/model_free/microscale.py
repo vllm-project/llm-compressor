@@ -75,10 +75,7 @@ def get_fused_names(
         _matched, _unmatched = match_names_set_eager(tensor_names, mapping)
         matched.extend(_matched)
         if _unmatched is not None:
-            if isinstance(_unmatched, list):
-                unmatched.extend(_unmatched)
-            else:
-                unmatched.append(_unmatched)
+            unmatched.extend(_unmatched)
     return matched, unmatched
 
 

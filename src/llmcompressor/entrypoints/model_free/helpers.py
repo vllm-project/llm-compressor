@@ -51,7 +51,7 @@ def match_names_set_eager(
     names: set[str] | list[str],
     targets: set[str] | list[str],
     return_unmatched: bool = True,
-) -> list[MatchedNamesSet] | tuple[list[MatchedNamesSet], MatchedNamesSet]:
+) -> list[MatchedNamesSet] | tuple[list[MatchedNamesSet], list[MatchedNamesSet] | None]:
     matched_sets = []
     incomplete_sets = []
     matches = dict.fromkeys(targets, None)
