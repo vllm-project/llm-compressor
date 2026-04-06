@@ -1,13 +1,16 @@
+from typing import TYPE_CHECKING
+
 import torch
-from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
-from transformers.models.gemma4.modeling_gemma4 import (
-    Gemma4Config,
-    Gemma4TextExperts,
-    Gemma4TextMLP,
-)
 
 from llmcompressor.modeling.moe_context import MoECalibrationModule
 from llmcompressor.utils.dev import skip_weights_initialize
+
+if TYPE_CHECKING:
+    from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
+    from transformers.models.gemma4.modeling_gemma4 import (
+        Gemma4Config,
+        Gemma4TextExperts,
+    )
 
 
 @MoECalibrationModule.register("Gemma4TextExperts")
@@ -83,6 +86,8 @@ class Gemma4TextExpertsList(torch.nn.ModuleList):
     """
 
     def __init__(self, config: Gemma4TextConfig, original: Gemma4TextExperts):
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextMLP
+
         self.num_experts = config.num_experts
         intermediate_size = config.moe_intermediate_size
 
