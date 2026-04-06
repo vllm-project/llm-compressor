@@ -90,7 +90,11 @@ else:
     ds = ds.map(preprocess)
 
     def tokenize(sample):
-        return processor(text=sample["text"], padding=False, max_length=4096, truncation=True)
+        result = processor(text=sample["text"], padding=False, max_length=4096, truncation=True)
+        # Unwrap processor's batch dimension — processor returns [[tok1, tok2, ...]]
+        # but dataset samples should be flat lists. The DataLoader adds the batch dim.
+        return {k: v[0] if isinstance(v, list) and len(v) == 1 and isinstance(v[0], list)
+                else v for k, v in result.items()}
 
     ds = ds.map(tokenize, remove_columns=ds.column_names)
 
