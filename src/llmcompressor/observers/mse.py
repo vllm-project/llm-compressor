@@ -309,11 +309,7 @@ def _compute_chunk(
 # Compiled variants.
 # _compute_chunk_compiled: processes chunk_size candidates per call,
 # reducing per-call overhead by the chunk factor.
-# _compute_candidate_error_compiled: single-candidate fallback (chunk_size=1).
 _compute_chunk_compiled = torch.compile(_compute_chunk, dynamic=True)
-_compute_candidate_error_compiled = torch.compile(
-    _compute_candidate_error, dynamic=True
-)
 
 
 def _grid_search_mse(
@@ -370,7 +366,13 @@ def _grid_search_mse(
     total_steps = int(maxshrink * grid)
     no_improve_count = 0
 
-    if enable_compile and chunk_size > 1:
+    if enable_compile:
+        # [recompile fix] Eliminate stride/duck-sizing guards from view tensors
+        observed = observed.clone()
+
+        # [recompile fix] Prevent size specialization on group-size dim
+        torch._dynamo.decorators.mark_unbacked(observed, observed.ndim - 1)
+
         # Chunked compile path: batch multiple candidates per compiled call.
         idx = 0
         while idx < total_steps:
@@ -409,12 +411,8 @@ def _grid_search_mse(
                 no_improve_count = 0
             idx = chunk_end
     else:
-        # Eager or single-step compile path.
-        compute_fn = (
-            _compute_candidate_error_compiled
-            if enable_compile
-            else _compute_candidate_error
-        )
+        # Eager path.
+        compute_fn = _compute_candidate_error
 
         # @ksayers @HGCharles: investigate searching over separate shrinking
         # factors
