@@ -46,6 +46,7 @@ from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils import wait_for_comms
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_module_to_name_dict,
@@ -53,6 +54,8 @@ from llmcompressor.utils.pytorch.module import (
 
 __all__ = ["AWQModifier"]
 
+# MPS does not support float64; fall back to float32 on that backend
+AWQ_PRECISION = torch.float32 if get_main_device().type == "mps" else torch.float64
 
 class AWQModifier(Modifier, QuantizationMixin):
     """
@@ -972,9 +975,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = weight.reshape(orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
-            # MPS does not support float64; fall back to float32 on that backend
-            sum_dtype = torch.float32 if weight.device.type == "mps" else torch.float64
-            weight_sum = weight.sum(0, dtype=sum_dtype)
+            weight_sum = weight.sum(0, dtype=AWQ_PRECISION)
             weight_total_sum += weight_sum
 
         return weight_total_sum / weight_total_count

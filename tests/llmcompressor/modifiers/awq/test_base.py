@@ -14,6 +14,7 @@ from torch.testing import assert_close
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import (
     get_lowest_common_ancestor_with_avoid,
+    AWQ_PRECISION
 )
 from llmcompressor.modifiers.factory import ModifierFactory
 
@@ -651,7 +652,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
                 i * block_height : (i + 1) * block_height,
                 j * block_width : (j + 1) * block_width,
             ] = block
-    ref_means = ref_weight.sum(0, dtype=torch.float64) / ref_weight.size(0)
+    ref_means = ref_weight.sum(0, dtype=AWQ_PRECISION) / ref_weight.size(0)
 
     # auto awq
     # we first reshape the weight such that it is effectively per-channel quantization

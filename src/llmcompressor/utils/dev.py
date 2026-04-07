@@ -125,12 +125,17 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
 
 
 def get_main_device() -> torch.device:
-    rank = 0 if not torch.distributed.is_initialized() else torch.distributed.get_rank()
+    is_distributed_enable = torch.distributed.is_initialized()
+
+    rank = 0 if not is_distributed_enable else torch.distributed.get_rank()
     if torch.cuda.is_available():
         return torch.device(f"cuda:{rank}")
     elif hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device(f"xpu:{rank}")
     elif hasattr(torch, "mps") and torch.mps.is_available():
+        if is_distributed_enable:
+            raise RuntimeError("Parallelism has not been supported for MPS")
+
         return torch.device(f"mps")
     else:
         logger.warning("CUDA/XPU/MPS is not available! Compressing model on CPU instead")
