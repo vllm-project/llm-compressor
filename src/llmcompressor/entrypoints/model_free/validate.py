@@ -11,6 +11,7 @@ from compressed_tensors.utils.safetensors_load import (
 )
 from loguru import logger
 
+from .helpers import invert_mapping
 from .microscale import get_fused_names, is_microscale_scheme
 
 __all__ = ["validate_scheme", "validate_safetensors_index"]
@@ -64,7 +65,7 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
         with open(index_file_path, "r") as file:
             weights_map: dict[str, str] = json.load(file)["weight_map"]
 
-        file_map = get_file_map(weights_map)
+        file_map = invert_mapping(weights_map)
         for file in sorted(file_map):
             tensor_names = file_map[file]
             _fused_sets, unmatched_sets = get_fused_names(tensor_names)

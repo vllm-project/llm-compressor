@@ -85,12 +85,12 @@ def build_microscale_inverse_weight_maps(
     converters: list[Converter],
 ) -> dict[str, InverseWeightMap]:
     """
-    For a given output shard, precompute exactly which tensors to load from
-    which source files — including required partner tensors from other shards.
-
     This function replicates the logic of
     `compressed_tensors.entrypoints.convert.build_inverse_weight_maps` including the
     case of microscale partner shards, as defined in DEFAULT_FUSED_MAPPINGS
+
+    For a given output shard, precompute exactly which tensors to load from
+    which source files — including required partner tensors from other shards.
 
     This is necessary because some converters require that a set of tensors are
     accessible in order for them to be processed correctly.

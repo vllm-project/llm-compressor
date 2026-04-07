@@ -1,4 +1,6 @@
 import re
+from collections import defaultdict
+from typing import Mapping, TypeVar
 
 import torch
 from compressed_tensors.utils.match import match_name
@@ -8,8 +10,11 @@ __all__ = [
     "gpu_if_available",
     "match_names_set_eager",
     "MatchedNamesSet",
+    "invert_mapping",
 ]
 
+KeyType = TypeVar("K")
+ValueType = TypeVar("V")
 MatchedNamesSet = dict[str, str | None]
 
 
@@ -71,6 +76,17 @@ def match_names_set_eager(
         return matched_sets, unmatched_set
     else:
         return matched_sets
+
+
+def invert_mapping(
+    mapping: Mapping[KeyType, ValueType],
+) -> dict[ValueType, list[KeyType]]:
+    inverse = defaultdict(list)
+
+    for key, value in mapping.items():
+        inverse[value].append(key)
+
+    return inverse
 
 
 def build_weights_map(

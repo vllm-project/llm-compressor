@@ -10,13 +10,13 @@ import tqdm
 from compressed_tensors.utils.safetensors_load import (
     find_safetensors_index_file,
     get_checkpoint_files,
-    get_file_map,
     is_weights_file,
     update_safetensors_index,
 )
 from loguru import logger
 from safetensors.torch import load_file, save_file
 
+from llmcompressor.entrypoints.model_free.helpers import invert_mapping
 from llmcompressor.entrypoints.model_free.microscale import get_fused_names
 
 
@@ -86,7 +86,7 @@ def reindex_fused_weights(
     carry_over_tensors: dict[str, torch.Tensor] = {}
 
     # iterate in alphabetical order on assumption of weight-file locality
-    file_map = get_file_map(weight_map)
+    file_map = invert_mapping(weight_map)
     file_map = sorted(file_map)
     progress = tqdm.tqdm(total=len(file_map))
     for file_name in file_map:
