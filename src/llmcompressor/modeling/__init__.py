@@ -10,6 +10,7 @@ needed for efficient compression.
 """
 
 # trigger registration
+from .afmoe import CalibrationAfmoeMoE  # noqa: F401
 from .deepseek_v3 import CalibrationDeepseekV3MoE  # noqa: F401
 from .glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 from .glm_moe_dsa import CalibrationGlmMoeDsaMoE  # noqa: F401
