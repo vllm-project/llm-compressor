@@ -136,7 +136,7 @@ def get_main_device() -> torch.device:
         if is_distributed_enable:
             raise RuntimeError("Parallelism has not been supported for MPS")
 
-        return torch.device(f"mps")
+        return torch.device("mps")
     else:
         logger.warning("CUDA/XPU/MPS is not available! Compressing model on CPU instead")
         return torch.device("cpu")
