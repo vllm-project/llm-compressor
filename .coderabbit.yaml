@@ -2,7 +2,7 @@
 language: "en"
 early_access: false
 reviews:
-  request_changes_workflow: true
+  request_changes_workflow: false # prevent code rabbit from approving PRs
   high_level_summary: true
   high_level_summary_in_walkthrough: true # Only show high-level summary in walkthrough, not the PR description
   poem: false
