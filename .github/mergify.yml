@@ -21,7 +21,8 @@ pull_request_rules:
   - name: auto-rebase if approved, ready, and 5 commits behind main
     conditions:
       - base = main
-      - label=ready
+      - label = ready
+      - label != stale
       - "#approved-reviews-by >= 2"
       - "#commits-behind >= 5"
       - -closed
