@@ -183,25 +183,7 @@ def _compute_candidate_error(
     global_scale: Optional[torch.Tensor],
     optimize_global_scale: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Compute the quantization error for a single shrink factor.
-
-    Shared helper used by the grid search. When enable_compile is set
-    via oneshot, this function is called through its compiled wrapper
-    for accelerated execution.
-
-    :param observed: value of shape (num_observations, *qparams_shape, group_size)
-    :param args: quantization args used for computing qparams
-    :param token_args: quantization args with strategy set to TOKEN, pre-created
-        to avoid patch_attr context manager which causes torch.compile graph breaks
-    :param min_val: per-channel minimum values
-    :param max_val: per-channel maximum values
-    :param p: shrink factor (1 - i/grid)
-    :param norm: exponent used when computing the error
-    :param global_scale: precomputed global scale to use for quantization
-    :param optimize_global_scale: If True, recompute global_scale from candidates
-    :return: (error, shrinked_min_val, shrinked_max_val)
-    """
+    """Compute quantization error for a single shrink factor (eager path)."""
     shrinked_min_val = p * min_val
     shrinked_max_val = p * max_val
 
