@@ -134,8 +134,7 @@ def process_file_microscale_scheme(
     output. The caller updates the safetensors index to reflect new locations.
 
     :param inverse_weight_map: mapping of resolved source file path ->
-        list of tensor names to load from that file. Precomputed by
-        build_microscale_inverse_weight_map() in the job-building phase.
+        list of tensor names to load from that file.
         Example: {"/path/shard0.safetensors": ["q_proj.weight"],
                   "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
     :param save_path: output path for this shard's compressed weights

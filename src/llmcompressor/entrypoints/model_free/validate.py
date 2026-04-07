@@ -7,7 +7,6 @@ from compressed_tensors.quantization import (
 from compressed_tensors.utils import getattr_chain
 from compressed_tensors.utils.safetensors_load import (
     find_safetensors_index_file,
-    get_file_map,
 )
 from loguru import logger
 
