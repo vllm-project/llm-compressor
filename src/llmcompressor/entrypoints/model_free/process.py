@@ -8,6 +8,7 @@ from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
 from compressed_tensors.utils.safetensors_load import (
+    InverseWeightMap,
     load_tensors_from_inverse_weight_map,
 )
 from safetensors.torch import save_file
@@ -32,7 +33,7 @@ __all__ = [
 
 
 def validate_file(
-    inverse_weight_map: dict[str, list[str] | None],
+    inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -61,7 +62,7 @@ def validate_file(
 
 
 def process_file(
-    inverse_weight_map: dict[str, list[str] | None],
+    inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -113,7 +114,7 @@ def process_file(
 
 
 def process_file_microscale_scheme(
-    inverse_weight_map: dict[str, list[str]],
+    inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
