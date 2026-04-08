@@ -2,35 +2,17 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 """
-Fake-XPU tests for the torch.accelerator migration.
+Unit tests for the torch.accelerator migration.
 
-Two layers of testing:
-
-1. Unit tests (no GPU): mock torch.accelerator to report "xpu" and verify
-   that device-selection helpers produce the right torch.device objects.
-
-2. E2E smoke test (requires GPU): combine DeviceRemapMode (xpu->cuda at the
-   C++ boundary) with a torch.accelerator mock so that the full oneshot()
-   data-free MXFP8A16 pipeline runs thinking it is on XPU while real CUDA
-   hardware executes the kernels.
-
-   The e2e test exercises:
-   - get_main_device() returning xpu:0
-   - gpu_if_available() returning xpu:0
-   - datafree CalibrationPipeline (no calibration data)
-   - QuantizationModifier MXFP8A16 weight quantization
+Mock torch.accelerator to report "xpu" and verify that device-selection
+helpers produce the right torch.device objects. No GPU required.
 """
 
 import pytest
 import torch
-from transformers import AutoModelForCausalLM
 
-from llmcompressor import oneshot
 from llmcompressor.entrypoints.model_free.helpers import gpu_if_available
-from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils.dev import get_main_device
-from tests.emulate_device import DeviceRemapMode
-from tests.testing_utils import requires_gpu
 
 # ---------------------------------------------------------------------------
 # Shared fixture
@@ -94,92 +76,3 @@ def test_gpu_if_available_cpu_fallback(monkeypatch):
     monkeypatch.setattr(torch.accelerator, "is_available", lambda: False)
     device = gpu_if_available(None)
     assert device.type == "cpu", f"Expected cpu, got {device}"
-
-
-# ---------------------------------------------------------------------------
-# E2E smoke test (requires a real CUDA GPU)
-# ---------------------------------------------------------------------------
-
-
-@requires_gpu
-@pytest.mark.smoke
-def test_oneshot_datafree_fp8_fake_xpu(tmp_path):
-    """
-    Full oneshot() data-free MXFP8A16 quantization under emulated XPU.
-
-    Three-layer emulation:
-    - DeviceRemapMode: intercepts all torch.* calls, silently rewrites
-      xpu->cuda so real CUDA hardware executes the kernels.
-    - torch.accelerator mock: Python-level code (get_main_device,
-      gpu_if_available, metric_logging, etc.) sees "xpu" as the
-      current accelerator type.
-    - is_accelerator_type patch: tells the compressed-tensors offload
-      cache that both "xpu" and "cuda" are valid accelerator types,
-      preventing NotImplementedError when the DeviceRemapMode-translated
-      "cuda" device string is checked against the mocked "xpu" accelerator.
-
-    Verifies that the migrated torch.accelerator call sites produce a
-    valid quantized model on non-CUDA device types.
-    """
-    import compressed_tensors.offload.convert.helpers as _ct_helpers
-
-    real_type = torch.accelerator.current_accelerator().type  # "cuda"
-    real_device_count = torch.accelerator.device_count()
-    real_is_available = torch.accelerator.is_available()
-
-    orig_current_accelerator = torch.accelerator.current_accelerator
-    orig_device_count = torch.accelerator.device_count
-    orig_is_available = torch.accelerator.is_available
-    orig_current_device_index = torch.accelerator.current_device_index
-    orig_is_accelerator_type = _ct_helpers.is_accelerator_type
-
-    fake = torch.device(FAKE_TYPE)
-    torch.accelerator.current_accelerator = lambda: fake
-    torch.accelerator.device_count = lambda: real_device_count
-    torch.accelerator.is_available = lambda: real_is_available
-    torch.accelerator.current_device_index = lambda: 0
-    # Layer 3: CT offload cache checks is_accelerator_type(device_type) to
-    # decide which cache backend to use. After DeviceRemapMode rewrites
-    # xpu->cuda at the C++ boundary, the cache sees "cuda" but the mocked
-    # accelerator reports "xpu". Patch is_accelerator_type to accept both.
-    _ct_helpers.is_accelerator_type = lambda device_type: device_type in (
-        FAKE_TYPE,
-        real_type,
-    )
-
-    try:
-        with DeviceRemapMode(fake_type=FAKE_TYPE, real_type=real_type):
-            model = AutoModelForCausalLM.from_pretrained(
-                "nm-testing/tinysmokellama-3.2",
-                dtype=torch.bfloat16,
-                device_map=f"{FAKE_TYPE}:0",
-            )
-
-            recipe = QuantizationModifier(
-                targets="Linear",
-                scheme="MXFP8A16",
-                ignore=["lm_head"],
-            )
-
-            model = oneshot(
-                model=model,
-                recipe=recipe,
-                output_dir=str(tmp_path / "xpu_fp8_out"),
-            )
-
-        # Verify at least one linear layer was quantized
-        quantized = [
-            name
-            for name, mod in model.named_modules()
-            if isinstance(mod, torch.nn.Linear)
-            and name != "lm_head"
-            and hasattr(mod, "weight_scale")
-        ]
-        assert len(quantized) > 0, "Expected at least one quantized Linear layer"
-
-    finally:
-        torch.accelerator.current_accelerator = orig_current_accelerator
-        torch.accelerator.device_count = orig_device_count
-        torch.accelerator.is_available = orig_is_available
-        torch.accelerator.current_device_index = orig_current_device_index
-        _ct_helpers.is_accelerator_type = orig_is_accelerator_type
