@@ -23,6 +23,6 @@ markers = [
     "unit: tests to ensure code correctness and regression test functionality",
     "example: tests for content in the 'examples' folder",
     "multi_gpu: tests that require multiple GPUs",
-    "skip_xpu: mark test to be skipped under --emulate-xpu",
+
 ]
 tmp_path_retention_policy = "failed"
