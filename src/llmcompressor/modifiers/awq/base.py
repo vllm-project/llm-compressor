@@ -809,9 +809,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             }
         )
 
-        assert (
-            torch.isnan(best_scales).sum() == 0
-        ), f"Nan found in scales: {best_scales}"
+        assert torch.isnan(best_scales).sum() == 0, (
+            f"Nan found in scales: {best_scales}"
+        )
 
         return best_scales.detach().cpu()
 
@@ -1046,7 +1046,10 @@ def get_lowest_common_ancestor_with_avoid(
 
 def _allreduce_data_sum(data: list[torch.Tensor]) -> list[torch.Tensor]:
     # needs to be on device to broadcast
-    device = torch.device(f"cuda:{torch.cuda.current_device()}")
+    device = torch.device(
+        torch.accelerator.current_accelerator(),
+        torch.accelerator.current_device_index(),
+    )
     data = [datum.to(device) for datum in data]
 
     pending_comms = []

@@ -138,7 +138,7 @@ def format_calibration_data(
     # Pin memory only when using workers (saves RAM for low-memory users when
     # num_workers=0; when num_workers>0, pin_memory speeds CPU->GPU transfer)
     num_workers = args.dataloader_num_workers
-    pin_memory = torch.cuda.is_available() and num_workers > 0
+    pin_memory = torch.accelerator.is_available() and num_workers > 0
     # persistent_workers avoids worker respawn between epochs (only when
     # num_workers > 0). prefetch_factor is left at DataLoader default (2).
     kwargs: dict[str, Any] = {}
@@ -422,9 +422,9 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     we give each device at least S//D samples and distribute
     the remaining samples as evenly as possible across all devices
     """
-    assert (
-        "[" not in split
-    ), "Split string should not already contain partitioning brackets"
+    assert "[" not in split, (
+        "Split string should not already contain partitioning brackets"
+    )
 
     start, end = _get_partition_start_end(
         num_samples, dist.get_rank(), dist.get_world_size()

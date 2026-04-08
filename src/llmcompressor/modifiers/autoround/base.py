@@ -352,7 +352,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         if torch.distributed.is_initialized():
             rank = torch.distributed.get_rank()
             ar_kwargs["device_map"] = (
-                f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
+                f"{torch.accelerator.current_accelerator()}:{rank}"
+                if torch.accelerator.is_available()
+                else "cpu"
             )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
@@ -481,9 +483,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
 
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
+            assert isinstance(scheme, QuantizationScheme), (
+                f"Expected QuantizationScheme, got {type(scheme)}"
+            )
             quant_scheme = scheme
         weight_args = quant_scheme.weights
         activation_args = quant_scheme.input_activations

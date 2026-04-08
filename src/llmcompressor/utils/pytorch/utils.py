@@ -2,25 +2,25 @@ import gc
 
 import torch
 
-__all__ = ["measure_cuda_memory"]
+__all__ = ["measure_accelerator_memory", "measure_cuda_memory"]
 
 
-class measure_cuda_memory:
+class measure_accelerator_memory:
     def __init__(self, device=None):
         self.device = device
 
     def reset_peak_memory_stats(self):
-        torch.cuda.reset_peak_memory_stats(self.device)
+        torch.accelerator.reset_peak_memory_stats(self.device)
 
     def current_memory_usage(self) -> float:
         # Return the memory usage in bytes.
         self.reset_peak_memory_stats()
-        mem = torch.cuda.max_memory_allocated(self.device)
+        mem = torch.accelerator.max_memory_allocated(self.device)
         return mem
 
     def peak_memory_usage(self) -> float:
         # Return the peak memory usage in bytes since the last reset
-        mem = torch.cuda.max_memory_allocated(self.device)
+        mem = torch.accelerator.max_memory_allocated(self.device)
         return mem
 
     def __enter__(self):
@@ -34,3 +34,7 @@ class measure_cuda_memory:
 
         # Force garbage collection
         gc.collect()
+
+
+# backward-compat alias
+measure_cuda_memory = measure_accelerator_memory

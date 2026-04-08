@@ -491,8 +491,8 @@ def handle_sequential_oom(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except torch.cuda.OutOfMemoryError as e:
-            raise torch.cuda.OutOfMemoryError(
+        except torch.OutOfMemoryError as e:
+            raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module "
                 "for `sequential_targets` argument, ex. 'Linear'"
