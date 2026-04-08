@@ -299,7 +299,7 @@ class TestMaybePrefetch:
             offload_device=torch.device("cpu"),
         )
 
-        result = list(maybe_prefetch(iter_batches(cache)))
+        result = list(maybe_prefetch(cache))
         assert len(result) == 1
         assert isinstance(result[0], dict)
         assert "input_ids" in result[0]

@@ -631,7 +631,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
         cache = self._parent_args_cache[module]
-        batch_iter = maybe_prefetch(iter_batches(cache))
+        batch_iter = maybe_prefetch(cache)
         outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
         return [
             # If tuple, assume that first argument is the input

@@ -47,7 +47,7 @@ def _get_batches(
     Yield ``(batch_idx, inputs)`` from the cached activations, optionally
     prefetching according to the active session state.
     """
-    batch_source = maybe_prefetch(iter_batches(activations, input_names))
+    batch_source = maybe_prefetch(activations, input_names)
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):

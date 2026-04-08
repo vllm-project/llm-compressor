@@ -63,14 +63,6 @@ class IntermediateCache:
         finally:
             self.offload_()
 
-    def size(self) -> dict[torch.device, int]:
-        sizes = defaultdict(lambda: 0)
-        if isinstance(self.value, torch.Tensor):
-            sizes[self.value.device] += self.value.nbytes
-        else:
-            sizes[torch.device("cpu")] += sys.getsizeof(self.value, 0)
-        return dict(sizes)
-
     def _onload_value(
         self,
         value: torch.Tensor,
@@ -229,7 +221,9 @@ def iter_batches(
         yield fetch_batch(batch, input_names)
 
 
-def maybe_prefetch(batches: Sequence[Any]) -> Iterator[Any]:
+def maybe_prefetch(
+    batches: Sequence[dict[str, Any]], input_names: list[str] | None = None
+) -> Iterator[dict[str, Any]]:
     """
     Iterate with optional one-item background prefetch, controlled by
     ``active_session().state.sequential_prefetch``.
@@ -248,14 +242,16 @@ def maybe_prefetch(batches: Sequence[Any]) -> Iterator[Any]:
 
     if use_prefetch:
         # Single ThreadPoolExecutor for all caches
-        yield from _prefetch_all(batches)
+        yield from _prefetch_all(batches, input_names)
     else:
         # Direct fetch - replace each cache with its fetched value
         for batch in batches:
-            yield recursive_fetch_from_cache(batch)
+            yield fetch_batch(batch, input_names)
 
 
-def _prefetch_all(batches: Sequence[Any]) -> Generator[Any, None, None]:
+def _prefetch_all(
+    batches: Sequence[dict[str, Any]], input_names: list[str] | None = None
+) -> Generator[dict[str, Any], None, None]:
     """Prefetch all caches in a single ThreadPoolExecutor."""
 
     # Create a dedicated CUDA stream for H2D transfers so they run on a
@@ -268,11 +264,11 @@ def _prefetch_all(batches: Sequence[Any]) -> Generator[Any, None, None]:
         event = None
         if h2d_stream is not None:
             with torch.cuda.stream(h2d_stream):
-                data = fetch_batch(batch)
+                data = fetch_batch(batch, input_names)
             event = torch.cuda.Event()
             event.record(h2d_stream)
         else:
-            data = fetch_batch(batch)
+            data = fetch_batch(batch, input_names)
         return data, event
 
     with ThreadPoolExecutor(max_workers=1) as executor:
