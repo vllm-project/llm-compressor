@@ -7,6 +7,7 @@ import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.offload import from_accelerate, is_rank0, to_accelerate
+from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
@@ -52,14 +53,16 @@ def modify_save_pretrained(model: PreTrainedModel):
             """
             Wrapper around PreTrainedModel.save_pretrained(), adds functionality for
             saving models in a compressed format on disk. The compression format is
-            saved to the model's config file
+            saved to the model's config file.
 
             :param save_directory: output directory to save model to
             :param quantization_format: optional compression format override. If none
                 is provided, the compression format will be inferred from the model
-            :param save_compressed: whether or not to compress the model. If true,
-                weights will be compressed. Otherwise, weights will remain in full
-                precision in the "FROZEN" state.
+            :param save_compressed: whether to save the model in compressed format.
+                If true, weights will be compressed.
+                If false, weights will be compressed and decompressed (i.e.
+                "fake-quantized"), so that they remain in full precision, and no
+                associated qparams are saved.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -67,8 +70,12 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
-            if save_compressed:
-                compressor.compress_model(model)
+            compressor.compress_model(model)
+            if not save_compressed:
+                # Decompress back to full precision, so that weights are fake-quantized
+                compressor.decompress_model(model)
+                # Clear quantization entirely, to avoid warnings on load
+                model.apply(QuantizationMetadata.clear_quantization)
 
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
