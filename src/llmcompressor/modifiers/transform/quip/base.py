@@ -13,7 +13,7 @@ from pydantic import Field, ValidationInfo, field_validator
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils import targets_embeddings, untie_word_embeddings, get_high_precision
 
 __all__ = ["QuIPModifier"]
 
@@ -73,7 +73,7 @@ class QuIPModifier(Modifier):
     targets: Union[List[str], str] = Field(default="Linear")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
-    precision: TorchDtype = Field(default=torch.float64)
+    precision: TorchDtype = Field(default=get_high_precision())
     transform_block_size: Optional[int] = Field(default=None)
     ignore: Union[str, List[str]] = Field(default="lm_head")
 

@@ -38,7 +38,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_weight_global_scale,
     update_weight_zp_scale,
 )
-from llmcompressor.modifiers.awq.utils import get_awq_precision
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -46,10 +45,13 @@ from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils import wait_for_comms
+from llmcompressor.utils import (
+    wait_for_comms,
+    get_high_precision
+)
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_module_to_name_dict,
+    get_module_to_name_dict
 )
 
 __all__ = ["AWQModifier"]
@@ -972,7 +974,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = weight.reshape(orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
-            weight_sum = weight.sum(0, dtype=get_awq_precision())
+            weight_sum = weight.sum(0, dtype=get_high_precision())
             weight_total_sum += weight_sum
 
         return weight_total_sum / weight_total_count

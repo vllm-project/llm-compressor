@@ -18,7 +18,10 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import untie_word_embeddings
+from llmcompressor.utils import (
+    untie_word_embeddings,
+    get_high_precision
+)
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -92,7 +95,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     )
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
-    precision: TorchDtype = Field(default=torch.float64)
+    precision: TorchDtype = Field(default=get_high_precision())
     transform_block_size: Optional[int] = Field(default=None)
 
     # norm mappings separate from spinquant mappings to allow users to
