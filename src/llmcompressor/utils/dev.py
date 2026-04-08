@@ -144,13 +144,15 @@ def get_main_device() -> torch.device:
         )
         return torch.device("cpu")
 
+
 def get_high_precision() -> torch.dtype:
     main_device = get_main_device()
 
-    if main_device.type == "mps": # MPS does not support float64
+    if main_device.type == "mps":  # MPS does not support float64
         return torch.float32
 
     return torch.float64
+
 
 @deprecated("compressed_tensors.offload::dispatch_model")
 @wraps(dispatch_model)

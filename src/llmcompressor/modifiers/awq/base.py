@@ -51,6 +51,7 @@ from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["AWQModifier"]
 
+
 class AWQModifier(Modifier, QuantizationMixin):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
