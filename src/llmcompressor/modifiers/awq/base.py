@@ -120,8 +120,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     - on_finalize
         - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of module names to compress in
-        the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -157,7 +155,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
