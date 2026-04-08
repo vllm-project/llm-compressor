@@ -6,7 +6,8 @@ from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from torch import distributed as dist
 
-from llmcompressor.observers.base import MinMaxTuple, Observer
+from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
+from llmcompressor.observers.base import MinMaxTuple, Observer, QParamsDict
 
 __all__ = ["MovingAverageObserverBase"]
 
@@ -32,11 +33,6 @@ class MovingAverageObserverBase(Observer):
         super().__init__(base_name, args, module, **observer_kwargs)
         self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
 
-        self.past_min_vals = None
-        self.past_max_vals = None
-        self.past_global_min_vals = None
-        self.past_global_max_vals = None
-
     @abstractmethod
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
@@ -52,54 +48,71 @@ class MovingAverageObserverBase(Observer):
         """
         raise NotImplementedError()
 
-    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate moving average of min and max values from observed value
-
-        :param observed: value being observed whose shape is
-            (num_observations, *qparam_shape, group_size)
-        :return: minimum value and maximum value whose shapes are (*qparam_shape, )
-        """
+    def _update_statistics(self, observed: torch.Tensor) -> None:
+        """Update exponential moving average statistics."""
+        # Update per-group/channel min/max with EMA
         min_vals, max_vals = self.get_current_min_max(observed)
 
-        if self.past_min_vals is not None and self.avg_constant != 1.0:
-            # FUTURE: consider scaling by num observations (first dim)
-            #         rather than reducing by first dim
-            min_vals = self._lerp(self.past_min_vals, min_vals, self.avg_constant)
-            max_vals = self._lerp(self.past_max_vals, max_vals, self.avg_constant)
+        past_min = self.statistics.get('min_vals')
+        past_max = self.statistics.get('max_vals')
 
-        self.past_min_vals = min_vals
-        self.past_max_vals = max_vals
+        if past_min is not None and self.avg_constant != 1.0:
+            min_vals = self._lerp(past_min, min_vals, self.avg_constant)
+            max_vals = self._lerp(past_max, max_vals, self.avg_constant)
 
-        return min_vals, max_vals
+        self.statistics['min_vals'] = min_vals
+        self.statistics['max_vals'] = max_vals
 
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate moving average of min and max values from observed value
-        for the purposes of global scale calculation
+        # Update global (per-tensor) min/max with EMA
+        global_observed = observed.reshape((1, 1, -1))
+        global_min, global_max = self.get_current_global_min_max(global_observed)
 
-        :param observed: value being observed whose shape is
-            (num_observations, 1, group_size)
-        :return: minimum value and maximum value whose shapes are (1, )
-        """
-        min_vals, max_vals = self.get_current_global_min_max(observed)
+        past_global_min = self.statistics.get('global_min_vals')
+        past_global_max = self.statistics.get('global_max_vals')
 
-        if self.past_global_min_vals is not None and self.avg_constant != 1.0:
-            # FUTURE: consider scaling by num observations (first dim)
-            #         rather than reducing by first dim
-            min_vals = self._lerp(
-                self.past_global_min_vals, min_vals, self.avg_constant
+        if past_global_min is not None and self.avg_constant != 1.0:
+            global_min = self._lerp(past_global_min, global_min, self.avg_constant)
+            global_max = self._lerp(past_global_max, global_max, self.avg_constant)
+
+        self.statistics['global_min_vals'] = global_min
+        self.statistics['global_max_vals'] = global_max
+
+    def _compute_qparams_from_statistics(self) -> QParamsDict:
+        """Compute scale and zero_point from accumulated EMA statistics."""
+        min_vals = self.statistics.get('min_vals')
+        max_vals = self.statistics.get('max_vals')
+
+        if min_vals is None or max_vals is None:
+            raise RuntimeError(
+                "No statistics accumulated. Call observer(value) first."
             )
-            max_vals = self._lerp(
-                self.past_global_max_vals, max_vals, self.avg_constant
+
+        # Get global_scale from module (set by get_qparams if TENSOR_GROUP)
+        global_scale = self._get_module_param("global_scale")
+        self._check_has_global_scale(global_scale)
+
+        scale, zero_point = calculate_qparams(
+            min_vals=min_vals,
+            max_vals=max_vals,
+            quantization_args=self.args,
+            global_scale=global_scale,
+        )
+
+        return {"scale": scale, "zero_point": zero_point}
+
+    def _compute_gparams_from_statistics(self) -> torch.Tensor:
+        """Compute global_scale from accumulated EMA statistics."""
+        global_min = self.statistics.get('global_min_vals')
+        global_max = self.statistics.get('global_max_vals')
+
+        if global_min is None or global_max is None:
+            raise RuntimeError(
+                "No global statistics accumulated. Call observer(value) first."
             )
 
-        self.past_global_min_vals = min_vals
-        self.past_global_max_vals = max_vals
+        return generate_gparam(global_min, global_max)
 
-        return min_vals, max_vals
-
-    def synchronize(self) -> List[dist.Work]:
+    def synchronize_statistics(self) -> List[dist.Work]:
         """Average accumulated moving-average min/max statistics across DDP ranks.
 
         Unlike :class:`StaticMinMaxObserver` which reduces via MIN/MAX,
@@ -110,13 +123,8 @@ class MovingAverageObserverBase(Observer):
         """
         comms = []
         world_size = dist.get_world_size()
-        for attr in (
-            "past_min_vals",
-            "past_max_vals",
-            "past_global_min_vals",
-            "past_global_max_vals",
-        ):
-            val = getattr(self, attr, None)
+        for key in ("min_vals", "max_vals", "global_min_vals", "global_max_vals"):
+            val = self.statistics.get(key)
             if val is not None:
                 val.div_(world_size)
                 comms.append(

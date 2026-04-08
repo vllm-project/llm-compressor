@@ -282,28 +282,29 @@ class QuantizationMixin(HooksMixin):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue
-                pending_comms.extend(observer.synchronize())
+                # Skip memoryless observers - they don't accumulate statistics
+                # across batches, so synchronization is not meaningful
+                if not observer.accumulates_statistics:
+                    continue
+                pending_comms.extend(observer.synchronize_statistics())
                 modules_to_update.append((module, base_name, observer))
 
         wait_for_comms(pending_comms)
 
         # recompute qparams from synchronized statistics
         for module, base_name, observer in modules_to_update:
-            # recompute global scale if using TENSOR_GROUP strategy
-            global_scale = observer.recompute_global_scale()
-            if global_scale is not None:
+            qparams = observer.get_qparams()
+
+            if qparams["global_scale"] is not None:
                 update_offload_parameter(
-                    module, f"{base_name}_global_scale", global_scale
+                    module, f"{base_name}_global_scale", qparams["global_scale"]
                 )
 
-            result = observer.recompute_qparams()
-            if result is not None:
-                scale, zero_point = result
-                update_offload_parameter(module, f"{base_name}_scale", scale)
-                if hasattr(module, f"{base_name}_zero_point"):
-                    update_offload_parameter(
-                        module, f"{base_name}_zero_point", zero_point
-                    )
+            update_offload_parameter(module, f"{base_name}_scale", qparams["scale"])
+            if hasattr(module, f"{base_name}_zero_point"):
+                update_offload_parameter(
+                    module, f"{base_name}_zero_point", qparams["zero_point"]
+                )
 
     def has_config(self) -> bool:
         """

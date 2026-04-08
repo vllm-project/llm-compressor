@@ -734,14 +734,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                         * _scalesview
                     )
 
-                    should_calculate_gparam = (
-                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-                    )
+                    # call_observer now automatically handles global_scale for TENSOR_GROUP
                     call_observer(
                         balance_layer,
                         "weight",
                         balance_layer.weight,
-                        should_calculate_gparam=should_calculate_gparam,
                     )
                     balance_layer.weight.data = (
                         forward_quantize(

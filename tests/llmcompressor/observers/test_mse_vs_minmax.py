@@ -42,12 +42,9 @@ def _run_observer_test(
         observer_name, base_name="weight", args=weights, module=module
     )
 
-    global_scale = None
-    if strategy == "tensor_group" and module is not None:
-        global_scale = observer.get_global_scale(tensor)
-        module.weight_global_scale = global_scale
-
-    scale, zero_point = observer(tensor)
+    # Use new observer API
+    qparams = observer(tensor).get_qparams()
+    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
     assert (scale >= 0).all(), "Scale values should be non-negative"
 
     weights_clean = _create_base_quantization_args(

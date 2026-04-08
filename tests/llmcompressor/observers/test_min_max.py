@@ -27,7 +27,8 @@ def test_min_max_observer(symmetric, expected_scale, expected_zero_point):
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    qparams = observer(tensor).get_qparams()
+    scale, zero_point = qparams["scale"], qparams["zero_point"]
 
     assert round(scale.item(), 4) == expected_scale
     assert round(zero_point.item(), 4) == expected_zero_point
@@ -42,7 +43,8 @@ def test_min_max_observer_symmetric_scale_range():
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    qparams = observer(tensor).get_qparams()
+    scale, zero_point = qparams["scale"], qparams["zero_point"]
 
     # if symmetric, max symmetric_range = abs(-128) / 255
     assert round(scale.item(), 4) <= 1.0039
@@ -75,7 +77,9 @@ def test_min_max_observer_value_update():
     curr_max = 1
     curr_min = 1
     for i, tensor in enumerate(tensors):
-        _, _, min_vals, max_vals = observer._forward_with_minmax(tensor)
+        observer(tensor)
+        min_vals = observer.statistics['min_vals']
+        max_vals = observer.statistics['max_vals']
         curr_max = max(max_vals[0], curr_max)
         curr_min = min(min_vals[0], curr_min)
 
@@ -103,13 +107,15 @@ def test_g_idx():
     observer = Observer.load_from_registry(
         weights.observer, base_name="weight", args=weights, module=module
     )
-    scale_g_idx, zero_point_g_idx = observer(tensor)
+    qparams = observer(tensor).get_qparams()
+    scale_g_idx, zero_point_g_idx = qparams["scale"], qparams["zero_point"]
 
     observer = Observer.load_from_registry(
         weights.observer, base_name="weight", args=weights, module=module
     )
     del module.weight_g_idx
-    scale, zero_point = observer(tensor[:, torch.argsort(g_idx)])
+    qparams = observer(tensor[:, torch.argsort(g_idx)]).get_qparams()
+    scale, zero_point = qparams["scale"], qparams["zero_point"]
 
     assert scale_g_idx == pytest.approx(scale)
     assert zero_point_g_idx == pytest.approx(zero_point)

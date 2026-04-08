@@ -89,32 +89,39 @@ def call_observer(
     module: Module,
     base_name: str,
     value: Optional[torch.Tensor] = None,
-    should_calculate_gparam: bool = False,
-    should_calculate_qparams: bool = True,
+    should_calculate_gparam: bool = False,  # Kept for backward compatibility, ignored
+    should_calculate_qparams: bool = True,  # Kept for backward compatibility, ignored
 ):
     """
     Call a module's attached input/weight/output observer using a provided value.
-    Update the module's scale and zp using the observer's return values.
+    Update the module's scale, zero_point, and global_scale using the observer's return values.
+
+    The observer's get_qparams() method automatically computes global_scale for TENSOR_GROUP strategy.
 
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
+    :param should_calculate_gparam: Kept for backward compatibility, ignored
+    :param should_calculate_qparams: Kept for backward compatibility, ignored
     """
     with align_module_device(module):
         if value is None and base_name == "weight":
             value = module.weight
         observer: Observer = getattr(module, f"{base_name}_observer")
 
-        if should_calculate_gparam:
-            global_scale = observer.get_global_scale(value)
-            update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
+        # Update statistics then get qparams
+        observer(value)
+        qparams = observer.get_qparams()
 
-        if should_calculate_qparams:
-            scale, zero_point = observer(value)
-            update_offload_parameter(module, f"{base_name}_scale", scale)
-            if hasattr(module, f"{base_name}_zero_point"):
-                update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
+        # Update global_scale if computed (TENSOR_GROUP strategy)
+        if qparams["global_scale"] is not None:
+            update_offload_parameter(module, f"{base_name}_global_scale", qparams["global_scale"])
+
+        # Update scale and zero_point
+        update_offload_parameter(module, f"{base_name}_scale", qparams["scale"])
+        if hasattr(module, f"{base_name}_zero_point"):
+            update_offload_parameter(module, f"{base_name}_zero_point", qparams["zero_point"])
 
 
 def update_weight_global_scale(module: Module):

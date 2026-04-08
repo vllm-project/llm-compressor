@@ -50,10 +50,19 @@ def test_observers_update(shape, group_size, actorder):
         ("output", output),
     ):
         observer = getattr(module, f"{location}_observer")
-        updated_scale, updated_zero_point = observer(value)
+        # Test new API: observer(value) then get_qparams()
+        observer(value)
+        qparams = observer.get_qparams()
+        updated_scale, updated_zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
         assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))
+
+        # Test chaining API: observer(value).get_qparams()
+        qparams = observer(value).get_qparams()
+        updated_scale_chain, updated_zero_point_chain = qparams["scale"], qparams["zero_point"]
+        assert_alike(updated_scale_chain, updated_scale)
+        assert_alike(updated_zero_point_chain, updated_zero_point)
 
 
 def assert_alike(a, b):
@@ -111,10 +120,13 @@ def test_observer_min_max_vals(
 
     min_vals, max_vals = [], []
     for _observed in observed:
+        observer(_observed)
         if not is_global:
-            _, _, _min_vals, _max_vals = observer._forward_with_minmax(_observed)
+            _min_vals = observer.statistics['min_vals']
+            _max_vals = observer.statistics['max_vals']
         else:
-            _, _min_vals, _max_vals = observer._get_global_scale_with_minmax(_observed)
+            _min_vals = observer.statistics['global_min_vals']
+            _max_vals = observer.statistics['global_max_vals']
 
         min_vals.append(_min_vals)
         max_vals.append(_max_vals)
@@ -123,3 +135,157 @@ def test_observer_min_max_vals(
     max_vals = torch.stack(max_vals)
     assert torch.allclose(min_vals, exp_min_vals)
     assert torch.allclose(max_vals, exp_max_vals)
+
+
+def test_new_observer_api():
+    """Test the new observer API: forward() and get_qparams()."""
+    module = torch.nn.Linear(64, 64)
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(group_size=32),
+        input_activations=QuantizationArgs(),
+    )
+
+    initialize_module_for_quantization(module, scheme)
+    initialize_observer(module, "weight")
+    initialize_observer(module, "input")
+
+    # Test memoryless observer
+    weight_observer = module.weight_observer
+    input_value = torch.randn(10, 64)
+
+    # Test observer(value) + get_qparams() separately
+    input_observer = module.input_observer
+    input_observer(input_value)
+    qparams = input_observer.get_qparams()
+    scale1, zp1, global_scale1 = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    assert scale1 is not None
+    assert zp1 is not None
+
+    # Test chaining: observer(value).get_qparams()
+    qparams = input_observer(input_value).get_qparams()
+    scale2, zp2, global_scale2 = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    assert scale2 is not None
+    assert zp2 is not None
+
+    # Test that calling get_qparams() without observer() raises error for memoryless
+    fresh_observer = Observer.load_from_registry(
+        "memoryless_minmax",
+        base_name="input",
+        args=QuantizationArgs(strategy="tensor"),
+    )
+    with pytest.raises(RuntimeError, match="No statistics available"):
+        fresh_observer.get_qparams()
+
+    # Test stateful observer accumulates statistics
+    stateful_observer = Observer.load_from_registry(
+        "static_minmax",
+        base_name="input",
+        args=QuantizationArgs(strategy="tensor"),
+    )
+    value1 = torch.tensor([1.0, 2.0, 3.0])
+    value2 = torch.tensor([0.0, 4.0, 2.0])
+
+    stateful_observer(value1)
+    qparams = stateful_observer.get_qparams()
+    scale_after_1, _ = qparams["scale"], qparams["zero_point"]
+
+    stateful_observer(value2)
+    qparams = stateful_observer.get_qparams()
+    scale_after_2, _ = qparams["scale"], qparams["zero_point"]
+
+    # Scale should change after second update (accumulated min/max)
+    assert not torch.allclose(scale_after_1, scale_after_2)
+
+
+def test_observer_api_patterns():
+    """Test different API patterns for using observers."""
+    module = torch.nn.Linear(32, 32)
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(),
+    )
+
+    initialize_module_for_quantization(module, scheme)
+    initialize_observer(module, "weight")
+
+    observer = module.weight_observer
+    value = module.weight
+
+    # Pattern 1: Chained API - observer(value).get_qparams()
+    qparams = observer(value).get_qparams()
+    scale_chain, zp_chain = qparams["scale"], qparams["zero_point"]
+
+    # Pattern 2: Explicit separation - observer(value) then get_qparams()
+    observer(value)
+    qparams = observer.get_qparams()
+    scale_sep, zp_sep = qparams["scale"], qparams["zero_point"]
+    assert torch.allclose(scale_chain, scale_sep)
+    assert torch.allclose(zp_chain, zp_sep)
+
+    # Test get_global_scale() method
+    from compressed_tensors.quantization import QuantizationStrategy
+
+    tg_observer = Observer.load_from_registry(
+        "memoryless_minmax",
+        base_name="weight",
+        args=QuantizationArgs(
+            strategy=QuantizationStrategy.TENSOR_GROUP, group_size=16
+        ),
+        module=module,
+    )
+
+    tg_observer(value)
+    qparams = tg_observer.get_qparams()
+    global_scale = qparams["global_scale"]
+    assert global_scale is not None
+    assert global_scale.numel() > 0
+
+
+def test_observer_statistics_dict():
+    """Test that observer statistics are stored in a dictionary."""
+    # Test memoryless observer
+    memoryless = Observer.load_from_registry(
+        "memoryless_minmax",
+        base_name="weight",
+        args=QuantizationArgs(strategy="tensor"),
+    )
+
+    assert hasattr(memoryless, 'statistics')
+    assert isinstance(memoryless.statistics, dict)
+    assert 'min_vals' not in memoryless.statistics  # Not yet observed
+
+    value = torch.randn(10, 10)
+    memoryless(value)
+    assert 'min_vals' in memoryless.statistics
+    assert 'max_vals' in memoryless.statistics
+    assert 'global_min_vals' in memoryless.statistics
+    assert 'global_max_vals' in memoryless.statistics
+
+    # Test stateful observer
+    stateful = Observer.load_from_registry(
+        "static_minmax",
+        base_name="weight",
+        args=QuantizationArgs(strategy="tensor"),
+    )
+
+    assert hasattr(stateful, 'statistics')
+    assert isinstance(stateful.statistics, dict)
+    assert 'min_vals' not in stateful.statistics  # Not yet observed
+
+    value1 = torch.tensor([1.0, 2.0, 3.0])
+    stateful(value1)
+    assert 'min_vals' in stateful.statistics
+    assert 'max_vals' in stateful.statistics
+    assert 'global_min_vals' in stateful.statistics
+    assert 'global_max_vals' in stateful.statistics
+
+    # Verify values are correct
+    assert torch.allclose(stateful.statistics['min_vals'], torch.tensor([1.0]))
+    assert torch.allclose(stateful.statistics['max_vals'], torch.tensor([3.0]))
+
+    # Test accumulation
+    value2 = torch.tensor([0.0, 4.0, 2.0])
+    stateful(value2)
+    assert torch.allclose(stateful.statistics['min_vals'], torch.tensor([0.0]))
+    assert torch.allclose(stateful.statistics['max_vals'], torch.tensor([4.0]))

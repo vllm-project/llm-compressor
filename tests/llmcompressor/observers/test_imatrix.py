@@ -59,7 +59,7 @@ class TestGlobalMinMaxTensorGroup:
 
         # This used to crash because _get_global_scale_with_minmax reshapes
         # to (1, 1, -1), breaking importance broadcasting.
-        global_scale = observer.get_global_scale(module.weight)
+        global_scale = observer(module.weight).get_qparams()["global_scale"]
         assert global_scale is not None
         assert global_scale.shape == (1,)
         assert torch.isfinite(global_scale).all()
@@ -78,9 +78,10 @@ class TestGlobalMinMaxTensorGroup:
             "imatrix_mse", base_name="weight", args=args, module=module
         )
 
-        global_scale = observer.get_global_scale(module.weight)
+        global_scale = observer(module.weight).get_qparams()["global_scale"]
         module.weight_global_scale = global_scale
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
 
@@ -105,14 +106,16 @@ class TestActorderReordering:
 
         # Call through the observer — if reordering works, it should not crash
         # and should produce valid scales
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
     def test_no_g_idx_still_works(self):
         """Without g_idx, observer must work normally."""
         module = _make_linear_with_importance(in_features=8)
         observer = _make_observer(module, strategy="group", group_size=4)
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
 
@@ -130,16 +133,16 @@ class TestWeightOnlyGuard:
         args = QuantizationArgs(
             num_bits=8,
             symmetric=True,
-            strategy="channel",
+            strategy="tensor",  # Use tensor strategy for activations
             observer="imatrix_mse",
             observer_kwargs={"strict": True},
         )
         observer = Observer.load_from_registry(
             "imatrix_mse", base_name="input", args=args, module=module
         )
-        observed = torch.randn(2, 1, 1, 8)
+        observed = torch.randn(2, 8, 8)
         with pytest.raises(NotImplementedError, match="weight observers"):
-            observer.get_min_max(observed)
+            observer(observed)
 
     def test_non_weight_base_name_non_strict_falls_back(self):
         """strict=False must fall back to uniform MSE (no crash)."""
@@ -147,17 +150,19 @@ class TestWeightOnlyGuard:
         args = QuantizationArgs(
             num_bits=8,
             symmetric=True,
-            strategy="channel",
+            strategy="tensor",  # Use tensor strategy for activations
             observer="imatrix_mse",
             observer_kwargs={"strict": False},
         )
         observer = Observer.load_from_registry(
             "imatrix_mse", base_name="input", args=args, module=module
         )
-        observed = torch.randn(2, 1, 1, 8)
-        min_val, max_val = observer.get_min_max(observed)
-        assert torch.isfinite(min_val).all()
-        assert torch.isfinite(max_val).all()
+        observed = torch.randn(2, 8, 8)
+        observer(observed)
+        qparams = observer.get_qparams()
+        scale, zero_point = qparams["scale"], qparams["zero_point"]
+        assert torch.isfinite(scale).all()
+        assert torch.isfinite(zero_point).all()
 
 
 # ---------------------------------------------------------------------------
@@ -171,22 +176,25 @@ class TestBasicFunctionality:
     def test_channel_strategy(self):
         module = _make_linear_with_importance(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="channel")
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert scale.shape == (4, 1)
         assert torch.isfinite(scale).all()
 
     def test_group_strategy(self):
         module = _make_linear_with_importance(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="group", group_size=4)
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
     def test_tensor_group_strategy(self):
         module = _make_linear_with_importance(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="tensor_group", group_size=4)
-        global_scale = observer.get_global_scale(module.weight)
+        global_scale = observer(module.weight).get_qparams()["global_scale"]
         module.weight_global_scale = global_scale
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
     def test_block_strategy(self):
@@ -201,14 +209,16 @@ class TestBasicFunctionality:
         observer = Observer.load_from_registry(
             "imatrix_mse", base_name="weight", args=args, module=module
         )
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
     def test_no_importance_falls_back(self):
         """Observer without _imatrix_importance must fall back gracefully."""
         module = torch.nn.Linear(8, 4)
         observer = _make_observer(module, strategy="channel")
-        scale, zp = observer(module.weight)
+        qparams = observer(module.weight).get_qparams()
+        scale, zp = qparams["scale"], qparams["zero_point"]
         assert torch.isfinite(scale).all()
 
     def test_importance_changes_result(self):
@@ -227,8 +237,10 @@ class TestBasicFunctionality:
         obs_w = _make_observer(module_weighted, strategy="channel")
         obs_u = _make_observer(module_uniform, strategy="channel")
 
-        scale_w, _ = obs_w(module_weighted.weight)
-        scale_u, _ = obs_u(module_uniform.weight)
+        qparams = obs_w(module_weighted.weight).get_qparams()
+        scale_w, _ = qparams["scale"], qparams["zero_point"]
+        qparams = obs_u(module_uniform.weight).get_qparams()
+        scale_u, _ = qparams["scale"], qparams["zero_point"]
 
         assert not torch.allclose(
             scale_w, scale_u
@@ -257,8 +269,10 @@ class TestBasicFunctionality:
             "memoryless_mse", base_name="weight", args=args_uniform, module=module_mse
         )
 
-        scale_i, zp_i = obs_imatrix(module_imatrix.weight)
-        scale_u, zp_u = obs_uniform(module_mse.weight)
+        qparams = obs_imatrix(module_imatrix.weight).get_qparams()
+        scale_i, zp_i = qparams["scale"], qparams["zero_point"]
+        qparams = obs_uniform(module_mse.weight).get_qparams()
+        scale_u, zp_u = qparams["scale"], qparams["zero_point"]
 
         assert torch.allclose(scale_i, scale_u)
         assert torch.equal(zp_i, zp_u)
@@ -274,14 +288,14 @@ class TestValidation:
         module = torch.nn.Linear(8, 4)
         observer = _make_observer(module, strategy="channel", strict=True)
         with pytest.raises(ValueError, match="imatrix_importance"):
-            observer(module.weight)
+            observer(module.weight).get_qparams()
 
     def test_strict_raises_on_wrong_size(self):
         module = torch.nn.Linear(8, 4)
         module._imatrix_importance = torch.ones(5)  # wrong size
         observer = _make_observer(module, strategy="channel", strict=True)
         with pytest.raises(ValueError, match="size mismatch"):
-            observer(module.weight)
+            observer(module.weight).get_qparams()
 
     @pytest.mark.parametrize(
         ("importance", "match"),
@@ -299,7 +313,7 @@ class TestValidation:
         module._imatrix_importance = importance
         observer = _make_observer(module, strategy="channel", strict=True)
         with pytest.raises(ValueError, match=match):
-            observer(module.weight)
+            observer(module.weight).get_qparams()
 
     @pytest.mark.parametrize(
         "importance",
@@ -328,8 +342,10 @@ class TestValidation:
             "memoryless_mse", base_name="weight", args=args_uniform, module=module_mse
         )
 
-        scale_i, zp_i = obs_imatrix(module_imatrix.weight)
-        scale_u, zp_u = obs_uniform(module_mse.weight)
+        qparams = obs_imatrix(module_imatrix.weight).get_qparams()
+        scale_i, zp_i = qparams["scale"], qparams["zero_point"]
+        qparams = obs_uniform(module_mse.weight).get_qparams()
+        scale_u, zp_u = qparams["scale"], qparams["zero_point"]
 
         assert torch.allclose(scale_i, scale_u)
         assert torch.equal(zp_i, zp_u)
@@ -353,4 +369,4 @@ class TestValidation:
             "imatrix_mse", base_name="weight", args=args, module=module
         )
         with pytest.raises(NotImplementedError, match="TENSOR strategy"):
-            observer(module.weight)
+            observer(module.weight).get_qparams()

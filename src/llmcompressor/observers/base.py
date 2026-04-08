@@ -1,6 +1,7 @@
 from abc import abstractmethod
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TypedDict
 from weakref import ref
+import warnings
 
 import torch
 from compressed_tensors import InternalModule
@@ -13,10 +14,16 @@ from torch import distributed as dist
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple"]
+__all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
-ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
+
+
+class QParamsDict(TypedDict, total=False):
+    """Dictionary containing quantization parameters."""
+    scale: torch.Tensor
+    zero_point: torch.Tensor
+    global_scale: Optional[torch.Tensor]
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -28,8 +35,8 @@ class Observer(InternalModule, RegistryMixin):
     ```python
     module = ...
     observer = Observer.load_from_registry(observer, base_name="weight", args=...)
-    module.global_scale = observer.get_global_scale(module.weight)
-    scales, zero_points = observer(module.weight)
+    qparams = observer(module.weight).get_qparams()
+    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
     ```
 
     :param base_name: str used to name the observer attribute
@@ -38,6 +45,10 @@ class Observer(InternalModule, RegistryMixin):
         is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization
     """
+
+    # Class attribute indicating whether this observer accumulates statistics across calls
+    # Memoryless observers should override this to False
+    accumulates_statistics: bool = True
 
     def __init__(
         self,
@@ -50,83 +61,89 @@ class Observer(InternalModule, RegistryMixin):
         self.module = ref(module) if module is not None else None
         self.base_name = base_name
         self.args = args
+        self.statistics = {}  # Dictionary to store observer statistics
 
         # populate observer kwargs
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
     @abstractmethod
-    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
+    def _update_statistics(self, observed: torch.Tensor) -> None:
         """
-        Calculate min and max values from observed value
+        Update internal observer statistics from observed tensor.
+        This method should update the observer's internal state (stored in self.statistics)
+        with min/max values.
 
-        :param observed: value of shape (num_observations, *qparam_shape, group_size)
-        :return: minimum value and maximum value whose shapes are (*qparam_shape, )
+        :param observed: flattened observed value of shape
+                        (num_observations, *qparam_shape, group_size)
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
+    def _compute_qparams_from_statistics(self) -> QParamsDict:
         """
-        Calculate min and max values from observed value for the purposes of
-        global scale calculation
+        Compute scale and zero_point from accumulated internal statistics.
 
-        :param observed: value of shape (num_observations, 1, group_size)
-        :return: minimum value and maximum value whose shapes are (1, )
+        :return: dict with keys "scale" and "zero_point"
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _compute_gparams_from_statistics(self) -> torch.Tensor:
+        """
+        Compute global_scale from accumulated internal statistics.
+
+        :return: global_scale tensor
         """
         raise NotImplementedError()
 
     @torch.no_grad
-    def forward(self, observed: torch.Tensor) -> ScaleZpTuple:
+    def get_qparams(self) -> QParamsDict:
         """
-        Calculate updated scales and zero points from observed value
-        (weight, activation, or attention state).
+        Compute quantization parameters from accumulated statistics.
 
-        :param observed: value being observed
-        :return: calibrated scale and zero point
+        For TENSOR_GROUP strategy, automatically computes global_scale first,
+        then uses it to compute per-group scale and zero_point.
+
+        For other strategies, global_scale is None.
+
+        :return: dict with keys "scale", "zero_point", and optionally "global_scale"
         """
-        scales, zero_points, _min, _max = self._forward_with_minmax(observed)
-        return (scales, zero_points)
+        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            global_scale = self._compute_gparams_from_statistics()
+            # Store on module so _compute_qparams_from_statistics can use it
+            module = self.module() if self.module is not None else None
+            if module is not None:
+                param_name = f"{self.base_name}_global_scale"
+                if hasattr(module, param_name):
+                    # Parameter already exists, update it
+                    from compressed_tensors.utils import update_offload_parameter
+                    update_offload_parameter(module, param_name, global_scale)
+                else:
+                    # Parameter doesn't exist yet, create it
+                    setattr(module, param_name, global_scale)
+        else:
+            global_scale = None
+
+        qparams = self._compute_qparams_from_statistics()
+        qparams["global_scale"] = global_scale
+        return qparams
 
     @torch.no_grad
-    def get_global_scale(self, observed: torch.Tensor) -> torch.Tensor:
+    def forward(self, observed: torch.Tensor) -> "Observer":
         """
-        Calculate updated global scale from observed value
-        (weight, activation, or attention state).
+        Update observer statistics from observed value.
 
-        :param observed: value being observed
-        :return: calibrated global parameter
+        To get quantization parameters, call get_qparams() after this method.
+        Can be chained: observer(value).get_qparams()
+
+        :param observed: value being observed (weight, activation, or attention state)
+        :return: self for method chaining
         """
-        global_scale, _min, _max = self._get_global_scale_with_minmax(observed)
-        return global_scale
-
-    def _forward_with_minmax(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         g_idx = self._get_module_param("g_idx")
-        global_scale = self._get_module_param("global_scale")
-        self._check_has_global_scale(global_scale)
-
         observed = flatten_for_calibration(observed, self.base_name, self.args, g_idx)
-        min_vals, max_vals = self.get_min_max(observed)
-
-        scales, zero_points = calculate_qparams(
-            min_vals=min_vals,
-            max_vals=max_vals,
-            quantization_args=self.args,
-            global_scale=global_scale,
-        )
-        return scales, zero_points, min_vals, max_vals
-
-    def _get_global_scale_with_minmax(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        observed = observed.reshape((1, 1, -1))  # per tensor reshape
-
-        global_min_vals, global_max_vals = self.get_global_min_max(observed)
-        global_scale = generate_gparam(global_min_vals, global_max_vals)
-
-        return global_scale, global_min_vals, global_max_vals
+        self._update_statistics(observed)
+        return self
 
     def _get_module_param(self, name: str) -> Optional[torch.nn.Parameter]:
         if self.module is None or (module := self.module()) is None:
@@ -135,64 +152,29 @@ class Observer(InternalModule, RegistryMixin):
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
 
-    def synchronize(self) -> List[dist.Work]:
+    def synchronize_statistics(self) -> List[dist.Work]:
         """All-reduce accumulated min/max statistics across DDP ranks.
 
         Issues async all-reduce operations on any accumulated state
-        (``past_min_vals``, ``past_max_vals``, ``past_global_min_vals``,
-        ``past_global_max_vals``). Memoryless observers return an empty list.
+        (min_vals, max_vals, global_min_vals, global_max_vals from statistics dict).
+        Memoryless observers return an empty list.
 
         :return: list of async communication handles
         """
         comms = []
-        for attr, op in [
-            ("past_min_vals", dist.ReduceOp.MIN),
-            ("past_max_vals", dist.ReduceOp.MAX),
-            ("past_global_min_vals", dist.ReduceOp.MIN),
-            ("past_global_max_vals", dist.ReduceOp.MAX),
+        for key, op in [
+            ("min_vals", dist.ReduceOp.MIN),
+            ("max_vals", dist.ReduceOp.MAX),
+            ("global_min_vals", dist.ReduceOp.MIN),
+            ("global_max_vals", dist.ReduceOp.MAX),
         ]:
-            val = getattr(self, attr, None)
+            val = self.statistics.get(key)
             if val is not None:
                 comms.append(
                     dist.all_reduce(as_broadcastable(val), op=op, async_op=True)
                 )
         return comms
 
-    def recompute_global_scale(self) -> Optional[torch.Tensor]:
-        """Recompute global scale from accumulated global min/max state.
-
-        Used after :meth:`synchronize` to update the global scale from
-        globally reduced statistics. Returns ``None`` for memoryless observers.
-
-        :return: global scale tensor or ``None``
-        """
-        global_min = getattr(self, "past_global_min_vals", None)
-        global_max = getattr(self, "past_global_max_vals", None)
-        if global_min is None or global_max is None:
-            return None
-        return generate_gparam(global_min, global_max)
-
-    def recompute_qparams(self) -> Optional[ScaleZpTuple]:
-        """Recompute scale and zero_point from accumulated min/max state.
-
-        Used after :meth:`synchronize` to update quantization parameters from
-        globally reduced statistics. Returns ``None`` for memoryless observers.
-
-        :return: (scale, zero_point) tuple or ``None``
-        """
-        min_vals = getattr(self, "past_min_vals", None)
-        max_vals = getattr(self, "past_max_vals", None)
-        if min_vals is None or max_vals is None:
-            return None
-
-        global_scale = self._get_module_param("global_scale")
-        self._check_has_global_scale(global_scale)
-        return calculate_qparams(
-            min_vals=min_vals,
-            max_vals=max_vals,
-            quantization_args=self.args,
-            global_scale=global_scale,
-        )
 
     def attach(self, module: torch.nn.Module) -> None:
         """

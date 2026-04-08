@@ -19,20 +19,20 @@ def _make_observer(cls, **kwargs):
 @pytest.mark.unit
 def test_memoryless_synchronize_returns_empty():
     observer = _make_observer(MemorylessMinMaxObserver)
-    assert observer.synchronize() == []
+    assert observer.synchronize_statistics() == []
 
 
 @pytest.mark.unit
-def test_memoryless_recompute_returns_none():
+def test_memoryless_get_qparams_raises_without_observation():
     observer = _make_observer(MemorylessMinMaxObserver)
-    assert observer.recompute_qparams() is None
-    assert observer.recompute_global_scale() is None
+    with pytest.raises(RuntimeError, match="No statistics available"):
+        observer.get_qparams()
 
 
 @pytest.mark.unit
 def test_static_synchronize_returns_empty_before_observation():
     observer = _make_observer(StaticMinMaxObserver)
-    assert observer.synchronize() == []
+    assert observer.synchronize_statistics() == []
 
 
 @pytest.mark.unit
@@ -43,10 +43,10 @@ def test_static_synchronize_issues_all_reduce(mock_dist):
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(StaticMinMaxObserver)
-    observer.past_min_vals = torch.tensor([-1.0])
-    observer.past_max_vals = torch.tensor([1.0])
+    observer.statistics['min_vals'] = torch.tensor([-1.0])
+    observer.statistics['max_vals'] = torch.tensor([1.0])
 
-    comms = observer.synchronize()
+    comms = observer.synchronize_statistics()
     assert len(comms) == 2
     assert mock_dist.all_reduce.call_count == 2
 
@@ -64,12 +64,12 @@ def test_static_synchronize_with_global_state(mock_dist):
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(StaticMinMaxObserver)
-    observer.past_min_vals = torch.tensor([-1.0])
-    observer.past_max_vals = torch.tensor([1.0])
-    observer.past_global_min_vals = torch.tensor([-2.0])
-    observer.past_global_max_vals = torch.tensor([2.0])
+    observer.statistics['min_vals'] = torch.tensor([-1.0])
+    observer.statistics['max_vals'] = torch.tensor([1.0])
+    observer.statistics['global_min_vals'] = torch.tensor([-2.0])
+    observer.statistics['global_max_vals'] = torch.tensor([2.0])
 
-    comms = observer.synchronize()
+    comms = observer.synchronize_statistics()
     assert len(comms) == 4
     assert mock_dist.all_reduce.call_count == 4
 
@@ -77,49 +77,57 @@ def test_static_synchronize_with_global_state(mock_dist):
 @pytest.mark.unit
 @patch("llmcompressor.observers.moving_base.dist")
 def test_moving_avg_synchronize_issues_all_reduce(mock_dist):
-    mock_dist.ReduceOp.SUM = "SUM"
+    mock_dist.ReduceOp.AVG = "AVG"
     mock_dist.get_world_size.return_value = 2
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(MinMaxObserver)
-    observer.past_min_vals = torch.tensor([-1.0])
-    observer.past_max_vals = torch.tensor([1.0])
+    observer.statistics['min_vals'] = torch.tensor([-1.0])
+    observer.statistics['max_vals'] = torch.tensor([1.0])
 
-    comms = observer.synchronize()
+    comms = observer.synchronize_statistics()
     assert len(comms) == 2
 
 
 @pytest.mark.unit
-def test_recompute_qparams_from_accumulated_state():
+def test_get_qparams_from_accumulated_state():
     observer = _make_observer(StaticMinMaxObserver)
-    observer.past_min_vals = torch.tensor([-5.0])
-    observer.past_max_vals = torch.tensor([5.0])
+    observer.statistics['min_vals'] = torch.tensor([-5.0])
+    observer.statistics['max_vals'] = torch.tensor([5.0])
+    observer.statistics['global_min_vals'] = torch.tensor([-5.0])
+    observer.statistics['global_max_vals'] = torch.tensor([5.0])
 
-    result = observer.recompute_qparams()
-    assert result is not None
-    scale, zero_point = result
+    qparams = observer.get_qparams()
+    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
     assert scale.numel() > 0
     assert zero_point.numel() > 0
+    # global_scale is None for non-TENSOR_GROUP strategies
+    assert global_scale is None
 
 
 @pytest.mark.unit
-def test_recompute_qparams_returns_none_without_state():
+def test_get_qparams_raises_without_state():
     observer = _make_observer(StaticMinMaxObserver)
-    assert observer.recompute_qparams() is None
+    with pytest.raises(RuntimeError, match="No statistics"):
+        observer.get_qparams()
 
 
 @pytest.mark.unit
-def test_recompute_global_scale_returns_none_without_state():
-    observer = _make_observer(StaticMinMaxObserver)
-    assert observer.recompute_global_scale() is None
+def test_get_qparams_with_tensor_group_strategy():
+    args = QuantizationArgs(
+        num_bits=8, type="int", symmetric=True, strategy="tensor_group", group_size=4
+    )
+    # Need a module for TENSOR_GROUP strategy
+    module = torch.nn.Linear(8, 4)
+    observer = StaticMinMaxObserver(base_name="weight", args=args, module=module)
+    observer.statistics['min_vals'] = torch.tensor([[-5.0]])
+    observer.statistics['max_vals'] = torch.tensor([[5.0]])
+    observer.statistics['global_min_vals'] = torch.tensor([[-10.0]])
+    observer.statistics['global_max_vals'] = torch.tensor([[10.0]])
 
-
-@pytest.mark.unit
-def test_recompute_global_scale_from_accumulated_state():
-    observer = _make_observer(StaticMinMaxObserver)
-    observer.past_global_min_vals = torch.tensor([-10.0])
-    observer.past_global_max_vals = torch.tensor([10.0])
-
-    result = observer.recompute_global_scale()
-    assert result is not None
-    assert result.numel() > 0
+    qparams = observer.get_qparams()
+    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    assert scale.numel() > 0
+    assert zero_point.numel() > 0
+    assert global_scale is not None
+    assert global_scale.numel() > 0
