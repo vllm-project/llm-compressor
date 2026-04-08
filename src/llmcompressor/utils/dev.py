@@ -139,7 +139,9 @@ def get_main_device() -> torch.device:
 
         return torch.device("mps")
     else:
-        logger.warning("CUDA/XPU/MPS is not available! Compressing model on CPU instead")
+        logger.warning(
+            "CUDA/XPU/MPS is not available! Compressing model on CPU instead"
+        )
         return torch.device("cpu")
 
 def get_high_precision() -> torch.dtype:
@@ -147,7 +149,7 @@ def get_high_precision() -> torch.dtype:
 
     if main_device.type == "mps": # MPS does not support float64
         return torch.float32
-    
+
     return torch.float64
 
 @deprecated("compressed_tensors.offload::dispatch_model")

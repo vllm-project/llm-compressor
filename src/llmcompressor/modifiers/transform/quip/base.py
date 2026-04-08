@@ -13,7 +13,11 @@ from pydantic import Field, ValidationInfo, field_validator
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings, get_high_precision
+from llmcompressor.utils import (
+    get_high_precision,
+    targets_embeddings,
+    untie_word_embeddings,
+)
 
 __all__ = ["QuIPModifier"]
 

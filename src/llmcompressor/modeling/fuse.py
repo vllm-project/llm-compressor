@@ -6,9 +6,8 @@ from compressed_tensors import (
     get_execution_device,
     update_offload_parameter,
 )
-from llmcompressor.utils import (
-    get_high_precision
-)
+
+from llmcompressor.utils import get_high_precision
 
 __all__ = ["center_embeddings", "fuse_norm_linears"]
 

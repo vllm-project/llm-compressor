@@ -18,10 +18,7 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import (
-    untie_word_embeddings,
-    get_high_precision
-)
+from llmcompressor.utils import get_high_precision, untie_word_embeddings
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model

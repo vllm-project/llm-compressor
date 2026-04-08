@@ -45,14 +45,9 @@ from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils import (
-    wait_for_comms,
-    get_high_precision
-)
+from llmcompressor.utils import get_high_precision, wait_for_comms
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import (
-    get_module_to_name_dict
-)
+from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["AWQModifier"]
 
