@@ -8,7 +8,6 @@ one-shot calibration workflows.
 """
 
 import math
-import re
 from collections.abc import Iterator, Sized
 from typing import Any, Callable, Optional
 
@@ -54,32 +53,42 @@ def get_processed_dataset(
         case dict():
             if "calibration" in splits:
                 split_str = splits["calibration"]
-            elif len(splits) > 0:
-                split_str = list(splits.values())[0]
+                if len(splits) > 1:
+                    ignored_keys = set(splits.keys()) - {"calibration"}
+                    logger.warning(
+                        f"Ignoring extra keys in splits: {list(ignored_keys)}. "
+                        "Only the 'calibration' split is used."
+                    )
             else:
-                split_str = None
-                
+                raise ValueError(
+                    "Passing `splits` as a dict is only supported when it contains a "
+                    "`'calibration'` key during the deprecation period. "
+                    "Please pass a split string instead."
+                )
+
             logger.warning(
                 "Passing `splits` as a dictionary is deprecated. "
                 f"Extracted split string: '{split_str}'. "
                 "Please pass `splits` as a string instead."
             )
+        case list():
+            split_str = splits[0] if len(splits) > 0 else None
+            logger.warning(
+                "Passing `splits` as a list is deprecated. "
+                f"Using first element: '{split_str}'. "
+                "Please pass `splits` as a string instead."
+            )
         case _:
-            # invalid type: attempt list-like fallback, otherwise raise
-            if hasattr(splits, "__iter__") and not isinstance(splits, str):
-                logger.warning(
-                    f"Unsupported splits type: {type(splits)}. "
-                    "Attempting to extract the first element."
-                )
-                split_str = splits[0] if len(splits) > 0 else None
-            else:
-                raise ValueError(f"Invalid splits type: {type(splits)}. Expected string.")
+            raise ValueError(
+                f"Invalid splits type: {type(splits)}. Expected a split string "
+                "or the deprecated `{'calibration': ...}` form."
+            )
 
     # default to custom dataset if dataset provided isn't a string
     registry_id = (
         dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
     )
-    
+
     dataset = dataset_args.dataset
     if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
         # dataset is already tokenized
@@ -92,7 +101,24 @@ def get_processed_dataset(
             split=split_str,
             processor=processor,
         )
-        return dataset_manager()
+        dataset = dataset_manager()
+
+        # If no split was specified, a DatasetDict format is typically returned.
+        # Fallback to the 'train' split for backward compatibility.
+        if not isinstance(dataset, Dataset):
+            if "train" in dataset:
+                logger.warning(
+                    "No split was specified, but a multi-split dataset was loaded. "
+                    "Falling back to the 'train' split for calibration."
+                )
+                dataset = dataset["train"]
+            else:
+                raise ValueError(
+                    "No split specified and 'train' split not found in dataset. "
+                    "Please specify `splits` explicitly."
+                )
+
+        return dataset
 
 
 def get_calibration_dataloader(
@@ -121,7 +147,7 @@ def get_calibration_dataloader(
         dataset_args=dataset_args,
         processor=processor,
     )
-    
+
     if calibration_dataset is None:
         return None
 
@@ -151,9 +177,6 @@ def format_calibration_data(
         num_workers=num_workers,
         **kwargs,
     )
-
-
-
 
 
 def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:

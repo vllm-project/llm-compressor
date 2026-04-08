@@ -1,5 +1,4 @@
 import pytest
-import warnings
 from datasets import Dataset, IterableDataset, load_dataset
 
 from llmcompressor.args import DatasetArguments
@@ -199,9 +198,10 @@ def test_stream_loading(tiny_llama_tokenizer):
 @pytest.mark.parametrize(
     "split_def",
     [
-        "train[95%:]",                          # new string format
-        {"train": "train[:5%]"},                  # old dict (non-calibration key)
-        {"calibration": "train[:5%]"},            # old dict (calibration key - main old format)
+        "train[95%:]",  # new string format
+        {
+            "calibration": "train[:5%]"
+        },  # old dict (calibration key - only accepted form)
     ],
 )
 def test_split_loading(split_def, tiny_llama_tokenizer):
@@ -222,8 +222,9 @@ def test_split_loading(split_def, tiny_llama_tokenizer):
 @pytest.mark.parametrize(
     "split_def",
     [
-        {"calibration": "train[:5%]"},
-        {"train": "train[:5%]"},
+        {"calibration": "train[:5%]"},  # deprecated dict form
+        {"calibration": "train[:5%]", "train": "train[:5%]"},  # dict with extra keys
+        ["train[:5%]"],  # deprecated list form
     ],
 )
 def test_split_dict_emits_deprecation_warning(split_def, tiny_llama_tokenizer):
@@ -242,9 +243,9 @@ def test_split_dict_emits_deprecation_warning(split_def, tiny_llama_tokenizer):
     try:
         get_processed_dataset(dataset_args=dataset_args, processor=tiny_llama_tokenizer)
         log_text = log_output.getvalue()
-        assert "deprecated" in log_text.lower(), (
-            f"Expected deprecation warning for dict splits, got: {log_text!r}"
-        )
+        assert (
+            "deprecated" in log_text.lower()
+        ), f"Expected deprecation warning for dict splits, got: {log_text!r}"
     finally:
         logger.remove(handler_id)
 
@@ -258,9 +259,16 @@ def test_split_none_returns_none_when_no_dataset():
 
 
 @pytest.mark.unit
-def test_split_invalid_type_raises_value_error():
-    """An unsupported splits type should raise ValueError."""
-    dataset_args = DatasetArguments(dataset="open_platypus", splits=12345)
+@pytest.mark.parametrize(
+    "invalid_splits",
+    [
+        12345,  # invalid type
+        {"train": "train[:5%]"},  # dict with non-calibration key
+    ],
+)
+def test_split_invalid_input_raises_value_error(invalid_splits):
+    """Unsupported splits types or non-calibration dict keys should raise ValueError."""
+    dataset_args = DatasetArguments(dataset="open_platypus", splits=invalid_splits)
     with pytest.raises((ValueError, TypeError)):
         get_processed_dataset(dataset_args=dataset_args, processor=None)
 
