@@ -352,7 +352,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         if torch.distributed.is_initialized():
             rank = torch.distributed.get_rank()
             ar_kwargs["device_map"] = (
-                f"{torch.accelerator.current_accelerator()}:{rank}"
+                f"{torch.accelerator.current_accelerator().type}:{rank}"
                 if torch.accelerator.is_available()
                 else "cpu"
             )

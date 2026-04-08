@@ -276,7 +276,7 @@ class IntermediatesCache:
                     and device is not None
                     and torch.accelerator.is_available()
                     and torch.device(device).type
-                    == torch.accelerator.current_accelerator()
+                    == torch.accelerator.current_accelerator().type
                 )
                 return value.to(device=device, non_blocking=non_blocking)
             case list():

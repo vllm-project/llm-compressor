@@ -23,7 +23,8 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
         return torch.device(device)
 
     elif torch.accelerator.is_available():
-        return torch.device(torch.accelerator.current_accelerator(), 0)
+        accel_type = torch.accelerator.current_accelerator().type
+        return torch.device(accel_type, 0)
 
     else:
         logger.warning("No accelerator available! Compressing model on CPU instead")

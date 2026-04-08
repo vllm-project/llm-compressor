@@ -1047,7 +1047,7 @@ def get_lowest_common_ancestor_with_avoid(
 def _allreduce_data_sum(data: list[torch.Tensor]) -> list[torch.Tensor]:
     # needs to be on device to broadcast
     device = torch.device(
-        torch.accelerator.current_accelerator(),
+        torch.accelerator.current_accelerator().type,
         torch.accelerator.current_device_index(),
     )
     data = [datum.to(device) for datum in data]
