@@ -46,7 +46,7 @@ oneshot(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    splits=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
     data_collator=data_collator,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,

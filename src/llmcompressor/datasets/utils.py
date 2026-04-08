@@ -29,18 +29,13 @@ BS_WARNING_THRESHOLD = 16
 def get_processed_dataset(
     dataset_args: DatasetArguments,
     processor: Processor | None = None,
-    do_oneshot: bool = False,
-    do_train: bool = True,
-) -> dict[str, Dataset] | None:
+) -> Dataset | None:
     """
-    Loads datasets for each flow based on dataset_args, stores a Dataset for each
-    enabled flow in datasets
+    Loads dataset based on dataset_args.
     :param dataset_args: DatasetArguments that contain dataset loading and
         processing params
     :param processor: processor or tokenizer to use for dataset tokenization
-    :param do_oneshot: True for oneshot pathway
-    :param do_train: True for train pathway
-    :return: A dataset corresponding to either train or calibration (oneshot)
+    :return: A Dataset corresponding to the single split for calibration
     """
     if dataset_args.dataset is None:
         logger.warning(
@@ -50,51 +45,54 @@ def get_processed_dataset(
         return
 
     splits = dataset_args.splits
-    tokenized_datasets = {}
-
-    def _get_split_name(inp_str):
-        # strip out split name, for ex train[60%:] -> train
-        split_name_match = re.match(r"(\w*)\[.*\]", inp_str)
-        if split_name_match is not None:
-            return split_name_match.group(1)
-        return inp_str
 
     match splits:
         case None:
-            splits = {"all": None}
+            split_str = None
         case str():
-            splits = {_get_split_name(splits): splits}
-        case list():
-            splits = {_get_split_name(s): s for s in splits}
+            split_str = splits
         case dict():
-            pass
+            if "calibration" in splits:
+                split_str = splits["calibration"]
+            elif len(splits) > 0:
+                split_str = list(splits.values())[0]
+            else:
+                split_str = None
+                
+            logger.warning(
+                "Passing `splits` as a dictionary is deprecated. "
+                f"Extracted split string: '{split_str}'. "
+                "Please pass `splits` as a string instead."
+            )
         case _:
-            raise ValueError(f"Invalid splits type: {type(splits)}")
+            # invalid type: attempt list-like fallback, otherwise raise
+            if hasattr(splits, "__iter__") and not isinstance(splits, str):
+                logger.warning(
+                    f"Unsupported splits type: {type(splits)}. "
+                    "Attempting to extract the first element."
+                )
+                split_str = splits[0] if len(splits) > 0 else None
+            else:
+                raise ValueError(f"Invalid splits type: {type(splits)}. Expected string.")
 
     # default to custom dataset if dataset provided isn't a string
     registry_id = (
         dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
     )
-    for split_name, split_str in splits.items():
-        dataset = dataset_args.dataset
-        if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
-            # dataset is already tokenized
-            tokenized_datasets[split_name] = dataset
-        else:
-            # dataset needs to be tokenized
-            dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
-                dataset_args=dataset_args,
-                split=split_str,
-                processor=processor,
-            )
-            tokenized_datasets[split_name] = dataset_manager(add_labels=do_train)
-
-    return make_dataset_splits(
-        tokenized_datasets,
-        do_oneshot=do_oneshot,
-        do_train=do_train,
-    )
+    
+    dataset = dataset_args.dataset
+    if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
+        # dataset is already tokenized
+        return dataset
+    else:
+        # dataset needs to be tokenized
+        dataset_manager = TextGenerationDataset.load_from_registry(
+            registry_id,
+            dataset_args=dataset_args,
+            split=split_str,
+            processor=processor,
+        )
+        return dataset_manager()
 
 
 def get_calibration_dataloader(
@@ -119,13 +117,13 @@ def get_calibration_dataloader(
     if isinstance(dataset_args.dataset, DataLoader):
         return dataset_args.dataset
 
-    datasets = get_processed_dataset(
+    calibration_dataset = get_processed_dataset(
         dataset_args=dataset_args,
         processor=processor,
-        do_oneshot=True,
-        do_train=False,
     )
-    calibration_dataset = datasets.get("calibration")
+    
+    if calibration_dataset is None:
+        return None
 
     return format_calibration_data(dataset_args, calibration_dataset, processor)
 
@@ -155,43 +153,7 @@ def format_calibration_data(
     )
 
 
-def make_dataset_splits(
-    tokenized_datasets: dict[str, Any],
-    do_oneshot: bool = True,
-    do_train: bool = False,
-) -> dict[str, Dataset]:
-    """
-    Restructures the datasets dictionary based on what tasks will be run
-    train
-    :param tokenized_datasets: dictionary of processed datasets
-    :param do_oneshot: Whether to store the calibration dataset
-    :return: A dataset corresponding to either train or calibration (oneshot)
-    """
 
-    # handles case where all splits are contained in a single dataset
-    if "all" in tokenized_datasets and len(tokenized_datasets) == 1:
-        tokenized_datasets = tokenized_datasets.get("all")
-        if isinstance(tokenized_datasets, Dataset):
-            tokenized_datasets = {"train": tokenized_datasets}
-
-    train_split = calib_split = None
-
-    if do_train:
-        if "train" not in tokenized_datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_split = tokenized_datasets["train"]
-    if do_oneshot:
-        calib_split = tokenized_datasets.get("calibration")
-        if calib_split is None:
-            if "train" not in tokenized_datasets:
-                raise ValueError("--do_oneshot requires a calibration dataset")
-            calib_split = tokenized_datasets["train"]
-
-    split_datasets = {
-        "train": train_split,
-        "calibration": calib_split,
-    }
-    return split_datasets
 
 
 def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:

@@ -1,5 +1,6 @@
 import pytest
-from datasets import IterableDataset, load_dataset
+import warnings
+from datasets import Dataset, IterableDataset, load_dataset
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.datasets import format_calibration_data, get_processed_dataset
@@ -195,7 +196,14 @@ def test_stream_loading(tiny_llama_tokenizer):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("split_def", ["train[95%:]", {"train": "train[:5%]"}])
+@pytest.mark.parametrize(
+    "split_def",
+    [
+        "train[95%:]",                          # new string format
+        {"train": "train[:5%]"},                  # old dict (non-calibration key)
+        {"calibration": "train[:5%]"},            # old dict (calibration key - main old format)
+    ],
+)
 def test_split_loading(split_def, tiny_llama_tokenizer):
     dataset_args = DatasetArguments(
         dataset="open_platypus",
@@ -207,7 +215,54 @@ def test_split_loading(split_def, tiny_llama_tokenizer):
     )
 
     assert dataset is not None
-    assert isinstance(dataset, dict)
+    assert isinstance(dataset, Dataset)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "split_def",
+    [
+        {"calibration": "train[:5%]"},
+        {"train": "train[:5%]"},
+    ],
+)
+def test_split_dict_emits_deprecation_warning(split_def, tiny_llama_tokenizer):
+    """Dict-based splits should emit a loguru deprecation warning."""
+    import io
+
+    from loguru import logger
+
+    dataset_args = DatasetArguments(
+        dataset="open_platypus",
+        splits=split_def,
+    )
+
+    log_output = io.StringIO()
+    handler_id = logger.add(log_output, level="WARNING")
+    try:
+        get_processed_dataset(dataset_args=dataset_args, processor=tiny_llama_tokenizer)
+        log_text = log_output.getvalue()
+        assert "deprecated" in log_text.lower(), (
+            f"Expected deprecation warning for dict splits, got: {log_text!r}"
+        )
+    finally:
+        logger.remove(handler_id)
+
+
+@pytest.mark.unit
+def test_split_none_returns_none_when_no_dataset():
+    """splits=None with no dataset should return None (data-free flow)."""
+    dataset_args = DatasetArguments(dataset=None, splits=None)
+    result = get_processed_dataset(dataset_args=dataset_args, processor=None)
+    assert result is None
+
+
+@pytest.mark.unit
+def test_split_invalid_type_raises_value_error():
+    """An unsupported splits type should raise ValueError."""
+    dataset_args = DatasetArguments(dataset="open_platypus", splits=12345)
+    with pytest.raises((ValueError, TypeError)):
+        get_processed_dataset(dataset_args=dataset_args, processor=None)
 
 
 @pytest.fixture
@@ -239,13 +294,10 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
         dataset=tokenized_dataset, shuffle_calibration_samples=False
     )
 
-    dataset = get_processed_dataset(
+    calib_dataset = get_processed_dataset(
         dataset_args=dataset_args,
         processor=tiny_llama_tokenizer,
-        do_oneshot=True,
-        do_train=False,
     )
-    calib_dataset = dataset["calibration"]
 
     assert len(calib_dataset) == num_calibration_samples
     data_cols = calib_dataset.column_names

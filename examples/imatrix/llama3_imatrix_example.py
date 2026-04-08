@@ -39,7 +39,7 @@ recipe = [
 oneshot(
     model=model,
     dataset=DATASET_ID,
-    splits={"calibration": "train[:5%]"},
+    splits="train[:5%]",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
