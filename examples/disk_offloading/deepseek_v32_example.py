@@ -1,11 +1,11 @@
-import torch
 import json
 
+import torch
 from compressed_tensors.entrypoints.convert import (
     FP8BlockDequantizer,
     convert_checkpoint,
 )
-from compressed_tensors.offload import get_device_map, load_offloaded_model
+from compressed_tensors.offload import load_offloaded_model
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
