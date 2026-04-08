@@ -194,6 +194,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 if (
                     hasattr(module, "quantization_scheme")
                     and hasattr(module.quantization_scheme, "weights")
+                    and hasattr(module.quantization_scheme.weights, "strategy")
                     and module.quantization_scheme.weights.strategy
                     == QuantizationStrategy.TENSOR
                 ):
