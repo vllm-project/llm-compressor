@@ -62,7 +62,7 @@ jobs:
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
-      - name: List packages
+      - name: List installed packages
         run: pip list
       - name: "🔬 Running base tests"
         run: make test
