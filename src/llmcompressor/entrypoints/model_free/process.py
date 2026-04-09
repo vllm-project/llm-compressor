@@ -11,6 +11,7 @@ from compressed_tensors.utils.safetensors_load import (
     InverseWeightMap,
     load_tensors_from_inverse_weight_map,
 )
+from loguru import logger
 from safetensors.torch import save_file
 from torch.nn import Module
 
@@ -24,7 +25,6 @@ from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
 )
-from loguru import logger
 
 __all__ = [
     "validate_file",

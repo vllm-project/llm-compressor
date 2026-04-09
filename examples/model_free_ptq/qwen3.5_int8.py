@@ -17,7 +17,7 @@ model_free_ptq(
         "re:.*norm.*",
         "re:.*embed_tokens.*",
         "re:.*visual.*",
-        "re:.*conv1d.*"
+        "re:.*conv1d.*",
     ],
     max_workers=15,
     device="cuda:0",
