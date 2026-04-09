@@ -1,23 +1,5 @@
 # Attention Quantization in LLM Compressor #
-LLM Compressor supports applying static attention quantization to models. Please note that attention quantization support in vLLM is still ongoing and is not fully supported as of this writing.
-
-## FP8 Attention Example ##
-For an example applying attention quantization, see [llama3_attention.py](/experimental/attention/llama3_attention.py).
-
-```python
-recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="attn_head"
-            ),
-        )
-    }
-)
-```
-
-Note that attention quantization also implicitly applies kv cache quantization with the same quantization arguments.
+LLM Compressor supports applying static attention quantization to models. Please note that NVFP4 attention quantization and R3 support in vLLM is still ongoing and is not fully supported as of this writing.
 
 ## NVFP4 Attention + R3 Example ##
 Attention quantization can be improved using the R3 transform, as described by [SpinQuant](https://arxiv.org/abs/2405.16406). This transform reduces the presence of outliers in the attention activation distribution, thereby improving accurcy recovery.

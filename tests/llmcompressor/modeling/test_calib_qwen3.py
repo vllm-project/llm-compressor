@@ -68,6 +68,8 @@ def test_calib_qwen3_moe_module():
     config = Qwen3MoeConfig()
     with torch.device("cuda"):
         original = OriginalQwen3MoeSparseMoeBlock(config).eval()
+        for param in original.parameters():
+            param.data.normal_(mean=0.0, std=0.02)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
