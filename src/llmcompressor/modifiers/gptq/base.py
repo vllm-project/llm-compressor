@@ -1,5 +1,5 @@
 import contextlib
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
@@ -82,8 +82,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
-    :param sequential_targets: list of layer names to compress during GPTQ, or
-        '__ALL__' to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
@@ -118,7 +116,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     # gptq modifier arguments
-    sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
     # TODO: this does not serialize / will be incorrectly written
@@ -224,9 +221,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self.compress_modules()
 
             if not self.ended_:

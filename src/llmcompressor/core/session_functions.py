@@ -36,7 +36,7 @@ _local_storage.session = _global_session
 @contextmanager
 def create_session() -> Generator[CompressionSession, None, None]:
     """
-    Context manager to create and yield a new session for sparsification.
+    Context manager to create and yield a new session.
     This will set the active session to the new session for the duration
     of the context.
 
