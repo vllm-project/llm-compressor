@@ -7,10 +7,10 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
+from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.quantization import QuantizationArgs
 
 from llmcompressor.observers.min_max import StaticMinMaxObserver
-from llmcompressor.utils.dist import wait_for_comms
 from tests.testing_utils import requires_gpu
 
 # initialize process group when running under torchrun
