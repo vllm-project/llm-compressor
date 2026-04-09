@@ -1,16 +1,14 @@
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.quantization import QuantizationScheme
-from compressed_tensors.quantization.quant_scheme import NVFP4
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform import SpinQuantModifier
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
@@ -53,17 +51,16 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-recipe = [
-    SpinQuantModifier(rotations=["R3"]),
-    QuantizationModifier(
-        config_groups={
-            "attention": QuantizationScheme(
-                targets=["LlamaAttention"],
-                input_activations=NVFP4["input_activations"],
-            )
-        }
-    ),
-]
+recipe = QuantizationModifier(
+    config_groups={
+        "attention": QuantizationScheme(
+            targets=["LlamaAttention"],
+            input_activations=QuantizationArgs(
+                num_bits=8, type="float", strategy="tensor"
+            ),
+        )
+    }
+)
 
 # Apply algorithms.
 oneshot(
@@ -85,6 +82,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-r3-attention-nvfp4"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-attention-fp8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

@@ -1,10 +1,10 @@
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.offload import dispatch_model
+from compressed_tensors.quantization import QuantizationArgs
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from compressed_tensors.offload import dispatch_model
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -52,14 +52,10 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 recipe = QuantizationModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["LlamaAttention"],
-            input_activations=QuantizationArgs(
-                num_bits=8, type="float", strategy="attn_head"
-            ),
-        )
-    }
+    targets="Linear",
+    scheme="FP8_DYNAMIC",
+    ignore=["lm_head"],
+    kv_cache_scheme=QuantizationArgs(num_bits=8, type="float", strategy="attn_head"),
 )
 
 # Apply algorithms.
@@ -82,6 +78,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-attention-fp8-head"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-fp8-kv-head"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
