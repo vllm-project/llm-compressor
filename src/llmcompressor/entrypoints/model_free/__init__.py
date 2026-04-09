@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 from pathlib import Path
@@ -7,21 +6,22 @@ from typing import Iterable, Optional
 import torch
 from compressed_tensors.entrypoints.convert import (
     Converter,
+    build_inverse_weight_maps,
     exec_jobs,
 )
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
+    get_weight_map,
     is_weights_file,
 )
 from loguru import logger
 
 from llmcompressor.entrypoints.model_free.helpers import (
-    find_safetensors_index_file,
     gpu_if_available,
 )
 from llmcompressor.entrypoints.model_free.microscale import (
-    build_microscale_inverse_weights_map,
+    build_microscale_inverse_weight_maps,
     is_microscale_scheme,
 )
 from llmcompressor.entrypoints.model_free.process import (
@@ -56,7 +56,7 @@ def model_free_ptq(
 
     For microscale schemes (NVFP4, MXFP4), fused weight sets (q/k/v, gate/up)
     are handled correctly even when split across shards. Each shard job receives
-    a precomputed inverse_weights_map specifying exactly which tensors to load
+    a precomputed inverse_weight_map specifying exactly which tensors to load
     from which files — enabling true partial reads with no runtime discovery
     and no redundant tensor reads.
 
@@ -72,6 +72,7 @@ def model_free_ptq(
     """
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
+
     scheme_name, scheme = validate_scheme(scheme)
     device = gpu_if_available(device)
     validate_safetensors_index(model_files, scheme)
@@ -116,82 +117,47 @@ def _build_jobs(
     converter: Converter | None,
 ) -> list[tuple]:
     """
-    Build microscale jobs with precomputed inverse_weights_map per shard.
+    Build jobs with precomputed inverse_weight_map per shard.
 
-    For each output shard, build_inverse_weights_map() determines exactly which
+    For each output shard, build_inverse_weight_map() determines exactly which
     tensors to load from which source files — including any fused partner tensors
     from other shards. This avoids runtime fused-partner discovery inside the
     process function and eliminates redundant tensor reads.
 
     :returns: list of jobs tuples
-        (job_fn, inverse_weights_map, save_path, scheme, ignore, device, converter)
+        (job_fn, inverse_weight_map, save_path, scheme, ignore, device, converter)
     """
+    weight_map = get_weight_map(model_files)
+
     if is_microscale_scheme(scheme):
         job_fn = process_file_microscale_scheme
-        build_inverse_weights_map = build_microscale_inverse_weights_map
+        build_inverse_weight_maps_fn = build_microscale_inverse_weight_maps
     else:
         job_fn = process_file
-        # TODO brian-dellabetta (#2491): update here in follow-up PR based on converter
-        build_inverse_weights_map = None
+        build_inverse_weight_maps_fn = build_inverse_weight_maps
 
-    index_file = find_safetensors_index_file(model_files)
-
-    if index_file is None:
-        # Single-file model — no cross-shard fused weights possible,
-        # Create inverse_weights_map dict format for process_file_microscale_scheme
-        jobs = []
-        for file_path, resolved_path in model_files.items():
-            if file_path.endswith("safetensors"):
-                save_path = Path(save_directory) / file_path
-                # Wrap as inverse_weights_map: {source_file: None}
-                # means load all tensors
-                inverse_weights_map = {resolved_path: []}
-                jobs.append(
-                    (
-                        job_fn,
-                        inverse_weights_map,
-                        save_path,
-                        scheme,
-                        ignore,
-                        device,
-                        converter,
-                    )
-                )
-        return jobs
-
-    # Read weight map from safetensors.index.json
-    with open(index_file, "r") as f:
-        weight_map: dict[str, str] = json.load(f)["weight_map"]
+    inverse_weight_maps = build_inverse_weight_maps_fn(
+        weight_map=weight_map,
+        model_files=model_files,
+        converters=[converter] if converter is not None else [],
+    )
 
     jobs = []
-    for shard_name, resolved_path in model_files.items():
+    for shard_name in model_files.keys():
+        save_path = Path(save_directory) / shard_name
+
         if not shard_name.endswith("safetensors"):
             continue
 
-        save_path = Path(save_directory) / shard_name
-
-        # Precompute exactly which tensors to load from which files for this shard,
-        # including fused partner tensors that live in other shards
-        if build_inverse_weights_map is None:
-            inverse_weights_map = {resolved_path: []}
-        else:
-            inverse_weights_map = build_inverse_weights_map(
-                shard_name=shard_name,
-                weight_map=weight_map,
-                model_files=model_files,
-            )
-
-        if len(inverse_weights_map) > 1:
-            partner_shards = [s for s in inverse_weights_map if s != resolved_path]
-            logger.info(
-                f"{shard_name}: will fetch fused partners from "
-                f"{[os.path.basename(s) for s in partner_shards]}"
+        if shard_name not in inverse_weight_maps:
+            raise ValueError(
+                f"Could not find inverse_weight_map for shard {shard_name}"
             )
 
         jobs.append(
             (
                 job_fn,
-                inverse_weights_map,
+                inverse_weight_maps[shard_name],
                 save_path,
                 scheme,
                 ignore,
