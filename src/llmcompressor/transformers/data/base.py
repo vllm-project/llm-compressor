@@ -24,7 +24,6 @@ from llmcompressor.transformers.data.data_helpers import (
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
-
 from llmcompressor.typing import DatasetType, Processor
 from llmcompressor.utils import import_from_path
 
@@ -213,6 +212,11 @@ class TextGenerationDataset(RegistryMixin):
 
         if isinstance(preprocessing_func, str):
             # load func_name from "/path/to/file.py:func_name"
+            if ":" not in preprocessing_func:
+                raise ValueError(
+                    f"{preprocessing_func} does not match expected format "
+                    "`/path:func_name`"
+                )
             return import_from_path(preprocessing_func)
 
         return self.dataset_template
