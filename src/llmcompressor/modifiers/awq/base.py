@@ -3,6 +3,7 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.modeling.kvcache import QuantizedKVCache
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
@@ -192,6 +193,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 if (
                     hasattr(module, "quantization_scheme")
                     and hasattr(module.quantization_scheme, "weights")
+                    and hasattr(module.quantization_scheme.weights, "strategy")
                     and module.quantization_scheme.weights.strategy
                     == QuantizationStrategy.TENSOR
                 ):
@@ -429,6 +431,12 @@ class AWQModifier(Modifier, QuantizationMixin):
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
+
+            # replace any quantized kv cache with None
+            for k, v in values.arguments.items():
+                if isinstance(v, QuantizedKVCache):
+                    values.arguments[k] = None
+
             self._parent_args_cache[module].append(values.arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
