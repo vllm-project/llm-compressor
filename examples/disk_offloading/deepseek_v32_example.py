@@ -17,6 +17,10 @@ from llmcompressor import oneshot
 from llmcompressor.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
+# This script first dequantizes the original DeepSeek-V3.2 checkpoint to bfloat16,
+# then quantizes attention layers to FP8_BLOCK and mlp layers to NVFP4.
+# Result is available at https://huggingface.co/RedHatAI/DeepSeek-V3.2-NVFP4-FP8-BLOCK
+
 # `deepseek-ai/DeepSeek-V3.2` has layers that are quantized in the FP8 quant method's
 # FP8_BLOCK scheme. This example will first convert the checkpoint to bfloat16 so that
 # the model can be compressed in compressed-tensors format, in another configuration.
