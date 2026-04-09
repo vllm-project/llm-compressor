@@ -273,53 +273,47 @@ def split_fused_moe_experts(
     """
     split_tensors = {}
 
+    params_to_split = {
+        # If a 3D gate_up_proj layer is found, split it into a
+        # 2D gate_proj and up_proj layer for each expert
+        "gate_up_proj": ["gate_proj", "up_proj"],
+        # If a 3D down_proj layer is found, split it into a
+        # 2D down_proj layer for each expert
+        "down_proj": ["down_proj"],
+    }
+
     for name, tensor in tensors.items():
-        # Check if this is a MoE expert weight (3D tensor for experts)
-        if tensor.ndim == 3 and (
-            "experts.gate_up_proj" in name or "experts.down_proj" in name
-        ):
+        keys_to_split = [key for key in params_to_split if key in name]
+        if len(keys_to_split) >= 2:
+            raise ValueError(f"Found multiple keys matching {name}: {keys_to_split}")
+
+        elif len(keys_to_split) == 1 and tensor.ndim == 3:
+            unsplit_name = keys_to_split[0]
+            split_names = params_to_split[unsplit_name]
+
             # Get number of experts
             num_experts = tensor.shape[0]
 
-            if "gate_up_proj" in name:
-                # gate_up_proj is typically [num_experts, 2*intermediate, hidden]
-                if tensor.shape[1] % 2 != 0:
-                    raise ValueError(
-                        f"gate_up_proj '{name}' expects an even second dimension, "
-                        f"but got {tensor.shape[1]}. Full shape: {tensor.shape}"
+            if tensor.shape[1] % len(split_names) != 0:
+                raise ValueError(
+                    f"{unsplit_name} expects a second dimension divisible by "
+                    f"{len(split_names)} but got shape: {tensor.shape}"
+                )
+
+            # Split into experts
+            intermediate_size = tensor.shape[1] // len(split_names)
+            for expert_idx in range(num_experts):
+                expert_tensor = tensor[expert_idx]
+                # Split into layers
+                split_layers = expert_tensor.split(intermediate_size, dim=0)
+                for split_name, split_layer in zip(split_names, split_layers):
+                    key = name.replace(
+                        unsplit_name, f"{expert_idx}.{split_name}.weight"
                     )
+                    split_tensors[key] = split_layer
 
-                # Split into individual experts
-                intermediate_size = tensor.shape[1] // 2
-                for expert_idx in range(num_experts):
-                    expert_tensor = tensor[expert_idx]  # [2*intermediate, hidden]
-                    # Split gate and up projections
-                    gate_proj, up_proj = expert_tensor.split(intermediate_size, dim=0)
-                    # Create new key names
-                    base_key = name.replace(
-                        "mlp.experts.gate_up_proj", f"mlp.experts.{expert_idx}"
-                    )
-                    split_tensors[base_key + ".gate_proj.weight"] = gate_proj
-                    split_tensors[base_key + ".up_proj.weight"] = up_proj
+            logger.info(f"Split {name} into {num_experts} experts")
 
-                logger.info(f"Split {name} into {num_experts} experts")
-
-            elif "down_proj" in name:
-                # down_proj is typically [num_experts, hidden, intermediate]
-                # Split into individual experts
-                for expert_idx in range(num_experts):
-                    down_proj = tensor[expert_idx]  # [hidden, intermediate]
-
-                    # Create new key name
-                    new_key = (
-                        name.replace(
-                            "mlp.experts.down_proj", f"mlp.experts.{expert_idx}"
-                        )
-                        + ".down_proj.weight"
-                    )
-                    split_tensors[new_key] = down_proj
-
-                logger.info(f"Split {name} into {num_experts} experts")
         else:
             # Non-MoE or non-3D tensors, keep as is
             split_tensors[name] = tensor
