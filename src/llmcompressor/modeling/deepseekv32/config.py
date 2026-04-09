@@ -1,3 +1,8 @@
+# This file contains code copied from the DeepSeek-V3.2-Exp project.
+# The original source code was licensed under the MIT license and included
+# the following copyright notice:
+# Copyright (c) 2025 DeepSeek
+
 from typing import Literal, Optional
 
 from transformers.configuration_utils import PretrainedConfig
