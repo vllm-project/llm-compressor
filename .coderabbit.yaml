@@ -29,6 +29,43 @@ reviews:
       instructions: "Check for clarity, accuracy, and completeness of documentation. Ensure code examples in docs are correct and align with current API."
     - path: "**/README.md"
       instructions: "Review for clarity, accuracy, and up-to-date information. Ensure installation instructions and examples are correct."
+  labeling_instructions:
+    - label: "bug"
+      instructions: "Indicates a bug in the code that needs to be fixed. Match case-insensitively (e.g., 'Bug', 'BUG', 'bug' all qualify)."
+    - label: "enhancement"
+      instructions: "Indicates a new feature or improvement to existing functionality. Match case-insensitively (e.g., 'Enhancement', 'ENHANCEMENT')."
+    - label: "rfc"
+      instructions: "Issues or PRs proposing a design or requesting feedback before implementation. Match case-insensitively — 'rfc', 'RFC', 'Rfc' all qualify."
+    - label: "refactor"
+      instructions: "Issues or PRs that restructure or clean up existing code without changing external behavior. Match case-insensitively — 'refactor', 'Refactor', 'REFACTOR' all qualify."
+    # Model architectures
+    - label: "qwen"
+      instructions: "Issues or PRs related to Qwen models (Qwen, Qwen2, Qwen3, etc.). Match case-insensitively — 'QWEN', 'Qwen', 'qwen' all qualify."
+    - label: "llama"
+      instructions: "Issues or PRs related to Llama models (Llama2, Llama3, etc.). Match case-insensitively — 'LLAMA', 'Llama', 'llama' all qualify."
+    # Quantization formats
+    - label: "fp8"
+      instructions: "Issues or PRs related to FP8 quantization format. Match case-insensitively — 'fp8', 'FP8', 'Fp8' all qualify."
+    - label: "nvfp4"
+      instructions: "Issues or PRs related to NVIDIA FP4 quantization format. Match case-insensitively — 'nvfp4', 'NVFP4', 'NvFP4' all qualify."
+    - label: "w4a16"
+      instructions: "Issues or PRs related to W4A16, W8A16, or wNa16 quantization schemes. Match case-insensitively — 'w4a16', 'W4A16', 'w8a16', 'W8A16', 'wna16', 'WNA16' all qualify."
+    # Quantization algorithms
+    - label: "gptq"
+      instructions: "Issues or PRs related to GPTQ quantization algorithm. Match case-insensitively — 'gptq', 'GPTQ', 'Gptq' all qualify."
+    - label: "awq"
+      instructions: "Issues or PRs related to AWQ (Activation-aware Weight Quantization) algorithm. Match case-insensitively — 'awq', 'AWQ', 'Awq' all qualify."
+    - label: "autoround"
+      instructions: "Issues or PRs related to AutoRound quantization algorithm. Match case-insensitively — 'autoround', 'AutoRound', 'AUTOROUND' all qualify."
+    - label: "smoothquant"
+      instructions: "Issues or PRs related to SmoothQuant algorithm. Match case-insensitively — 'smoothquant', 'SmoothQuant', 'SMOOTHQUANT' all qualify."
+    # Components and integrations
+    - label: "model_free_ptq"
+      instructions: "Issues or PRs related to model-free PTQ (Post-Training Quantization) pathway. Match case-insensitively — 'model_free_ptq', 'Model_Free_PTQ', 'MODEL_FREE_PTQ' all qualify."
+    - label: "transforms"
+      instructions: "Issues or PRs related to model transforms functionality. Match case-insensitively — 'transforms', 'Transforms', 'TRANSFORMS' all qualify."
+    - label: "tracing"
+      instructions: "Issues or PRs related to model tracing functionality. Match case-insensitively — 'tracing', 'Tracing', 'TRACING' all qualify."
   auto_review:
     enabled: true
     ignore_title_keywords:
