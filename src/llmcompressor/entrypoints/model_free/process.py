@@ -195,19 +195,14 @@ def process_file_microscale_scheme(
 
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
-        # 2.1. fuse global scale
-        global_scales = [m.weight_global_scale for m in named_modules.values()]
-        fused_global_scale = torch.min(torch.cat(global_scales, dim=0))
+        # 2.1. fuse global scale and adjust weight scales
+        from llmcompressor.modifiers.utils.helpers import fuse_global_scales_and_adjust
 
-        # 2.2. adjust scales to account for updated global_scale
+        fuse_global_scales_and_adjust(list(named_modules.values()))
+
+        # 3. compress modules using microscale qparams
         for name, module in named_modules.items():
             module_name, _ = name.rsplit(".", 1)
-            old_global_scale = module.weight_global_scale
-            scale_adjustment = fused_global_scale / old_global_scale
-            module.weight_scale.data.mul_(scale_adjustment)
-            module.weight_global_scale.data.copy_(fused_global_scale)
-
-            # 3. compress module using microscale qparams
             compress_module(module)
 
             # 4. save compressed data (on cpu)

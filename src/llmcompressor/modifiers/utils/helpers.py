@@ -12,7 +12,48 @@ from compressed_tensors.offload import align_modules, update_offload_parameter
 from compressed_tensors.quantization import QuantizationStrategy
 from torch.nn import Linear, Module
 
-__all__ = ["update_fused_layer_weight_global_scales"]
+__all__ = [
+    "update_fused_layer_weight_global_scales",
+    "fuse_global_scales_and_adjust",
+]
+
+
+def fuse_global_scales_and_adjust(layers: list[Linear]) -> torch.Tensor:
+    """
+    Fuse global_scale across multiple layers and adjust weight_scale accordingly.
+
+    For TENSOR_GROUP quantization, this ensures all layers use the same global_scale
+    (the minimum across all layers) while preserving the quantization by adjusting
+    weight_scale proportionally.
+
+    The relationship is: stored_scale = full_scale * global_scale
+    When global_scale changes, weight_scale must be adjusted:
+        new_weight_scale = old_weight_scale * (new_global_scale / old_global_scale)
+
+    :param layers: list of Linear layers to fuse (must have weight_global_scale)
+    :return: fused global_scale value
+    """
+    if not layers:
+        raise ValueError("Cannot fuse empty list of layers")
+
+    with align_modules(layers):
+        # Compute fused global_scale (minimum across all layers)
+        global_scales = [layer.weight_global_scale.data for layer in layers]
+        fused_global_scale = torch.min(torch.cat(global_scales, dim=0)).reshape([1])
+
+        # Adjust weight_scale and update global_scale for each layer
+        for layer in layers:
+            old_global_scale = layer.weight_global_scale.data
+
+            # Adjust weight_scale to preserve quantization
+            # new_scale = old_scale * (new_global / old_global)
+            scale_adjustment = fused_global_scale / old_global_scale
+            layer.weight_scale.data.mul_(scale_adjustment)
+
+            # Update global_scale
+            update_offload_parameter(layer, "weight_global_scale", fused_global_scale)
+
+    return fused_global_scale
 
 
 def update_fused_layer_weight_global_scales(submodule: Module):
@@ -67,12 +108,5 @@ def update_fused_layer_weight_global_scales(submodule: Module):
         if not _is_valid_tensor_group_quant(layers):
             continue
 
-        with align_modules(layers):
-            global_scale = torch.min(
-                torch.cat([layer.weight_global_scale.data for layer in layers])
-            ).reshape([1])
-
-            for layer in layers:
-                update_offload_parameter(layer, "weight_global_scale", global_scale)
-
-            del global_scale
+        # Fuse global scales and adjust weight scales
+        fuse_global_scales_and_adjust(layers)

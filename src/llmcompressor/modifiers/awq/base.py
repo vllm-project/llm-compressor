@@ -37,7 +37,6 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
-    update_weight_global_scale,
     update_weight_zp_scale,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
@@ -284,18 +283,14 @@ class AWQModifier(Modifier, QuantizationMixin):
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
 
-        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
-        for _, module in tqdm(named_modules, desc="Updating global scales"):
-            update_weight_global_scale(module)
-
-        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # This is a requirement for vLLM inference.
-        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
-            update_fused_layer_weight_global_scales(module)
-
-        # Calculate scales and zero points using the fused global scales
+        # Calculate scales, zero points, and global scales from weight statistics
         for _, module in tqdm(named_modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
+
+        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
+        # and adjust weight scales accordingly. This is a requirement for vLLM inference.
+        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
+            update_fused_layer_weight_global_scales(module)
 
         QuantizationMixin.end_calibration(self, state.model)
 
@@ -734,7 +729,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                         * _scalesview
                     )
 
-                    # call_observer now automatically handles global_scale for TENSOR_GROUP
                     call_observer(
                         balance_layer,
                         "weight",
@@ -750,14 +744,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
 
-                # Apply fused global scales for TENSOR_GROUP during grid search
-                # to match inference behavior
-                if balance_layers_to_patch and all(
-                    getattr(layer.quantization_scheme.weights, "strategy", None)
-                    == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
-                ):
-                    update_fused_layer_weight_global_scales(mapping.parent)
 
                 # W * X
                 int_w_outputs = self._run_samples(mapping.parent)
