@@ -35,7 +35,7 @@ reviews:
     - label: "enhancement"
       instructions: "Indicates a new feature or improvement to existing functionality. Match case-insensitively (e.g., 'Enhancement', 'ENHANCEMENT')."
     - label: "rfc"
-      instructions: "Issues or PRs proposing a design or requesting feedback before implementation. Match case-insensitively — 'rfc', 'RFC', 'Rfc' all qualify."
+      instructions: "Issues proposing a design or requesting feedback before implementation. Match case-insensitively — 'rfc', 'RFC', 'Rfc' all qualify."
     - label: "refactor"
       instructions: "Issues or PRs that restructure or clean up existing code without changing external behavior. Match case-insensitively — 'refactor', 'Refactor', 'REFACTOR' all qualify."
     # Model architectures
