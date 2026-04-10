@@ -8,5 +8,6 @@ Quantization examples for the Qwen3.5 family of models, including dense vision-l
 > ```
 > With this, the examples can run end-to-end on `main`. You may also need to update the version of `transformers` in your vLLM environment in order for the tokenizer to be properly applied.
 
+- [FP8 MoE Example](fp8-example.md)
 - [NVFP4A16 Vision-Language Example](nvfp4-vl-example.md)
 - [NVFP4 MoE Example](nvfp4-moe-example.md)
