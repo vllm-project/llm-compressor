@@ -16,7 +16,6 @@ from safetensors.torch import save_file
 from torch.nn import Module
 
 from llmcompressor.entrypoints.model_free.lifecycle import (
-    calibrate_global_scale,
     calibrate_scale_zp,
     initialize_quantized_linear,
     validate_weight_for_quantization,
@@ -175,14 +174,15 @@ def process_file_microscale_scheme(
         # 1. initialize module with qparams (on device)
         module = initialize_quantized_linear(tensors[name], scheme, device)
 
-        # 2. calibrate global scale; delay scale/zp for fused modules
-        calibrate_global_scale(module)
+        # 2. calibrate scale/zp/global_scale
+        calibrate_scale_zp(module)
+
+        # log fused modules to handle later
         if name in fused_name_to_fused_index:
             fused_index = fused_name_to_fused_index[name]
             fused_modules[fused_index][name] = module
             continue
 
-        calibrate_scale_zp(module)
 
         # 3. compress module using qparams
         compress_module(module)
@@ -195,16 +195,17 @@ def process_file_microscale_scheme(
 
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
-        # 2.1. compute fused global scale across all members of the fused set
+        # 2.1. fuse global scale
         global_scales = [m.weight_global_scale for m in named_modules.values()]
         fused_global_scale = torch.min(torch.cat(global_scales, dim=0))
 
+        # 2.2. adjust scales to account for updated global_scale
         for name, module in named_modules.items():
             module_name, _ = name.rsplit(".", 1)
+            old_global_scale = module.weight_global_scale
+            scale_adjustment = fused_global_scale / old_global_scale
+            module.weight_scale.data.mul_(scale_adjustment)
             module.weight_global_scale.data.copy_(fused_global_scale)
-
-            # 2.2. finish calibration with fused global scale
-            calibrate_scale_zp(module)
 
             # 3. compress module using microscale qparams
             compress_module(module)

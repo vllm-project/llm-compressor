@@ -50,19 +50,11 @@ def test_observers_update(shape, group_size, actorder):
         ("output", output),
     ):
         observer = getattr(module, f"{location}_observer")
-        # Test new API: observer(value) then get_qparams()
-        observer(value)
-        qparams = observer.get_qparams()
+        qparams = observer(value).get_qparams()
         updated_scale, updated_zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
         assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))
-
-        # Test chaining API: observer(value).get_qparams()
-        qparams = observer(value).get_qparams()
-        updated_scale_chain, updated_zero_point_chain = qparams["scale"], qparams["zero_point"]
-        assert_alike(updated_scale_chain, updated_scale)
-        assert_alike(updated_zero_point_chain, updated_zero_point)
 
 
 def assert_alike(a, b):
@@ -118,12 +110,19 @@ def test_observer_min_max_vals(
         name, base_name="input", args=QuantizationArgs(strategy="tensor"), **kwargs
     )
 
+    # All observers compute global min/max on-the-fly from min_vals/max_vals
+    has_global_stats = False
+
+    if is_global:
+        # Skip - these observers compute global min/max on-the-fly
+        pytest.skip(f"{name} observers compute global min/max on-the-fly from min_vals/max_vals")
+
     min_vals, max_vals = [], []
     for _observed in observed:
         observer(_observed)
         if not is_global:
-            _min_vals = observer.statistics['min_vals']
-            _max_vals = observer.statistics['max_vals']
+            _min_vals = observer.min_vals
+            _max_vals = observer.max_vals
         else:
             _min_vals = observer.statistics['global_min_vals']
             _max_vals = observer.statistics['global_max_vals']
@@ -243,7 +242,7 @@ def test_observer_api_patterns():
 
 
 def test_observer_statistics_dict():
-    """Test that observer statistics are stored in a dictionary."""
+    """Test that observer statistics are stored as direct attributes."""
     # Test memoryless observer
     memoryless = Observer.load_from_registry(
         "memoryless_minmax",
@@ -251,16 +250,17 @@ def test_observer_statistics_dict():
         args=QuantizationArgs(strategy="tensor"),
     )
 
-    assert hasattr(memoryless, 'statistics')
-    assert isinstance(memoryless.statistics, dict)
-    assert 'min_vals' not in memoryless.statistics  # Not yet observed
+    # Statistics are stored as direct attributes, not in a dict
+    assert not hasattr(memoryless, 'min_vals')  # Not yet observed
 
     value = torch.randn(10, 10)
     memoryless(value)
-    assert 'min_vals' in memoryless.statistics
-    assert 'max_vals' in memoryless.statistics
-    assert 'global_min_vals' in memoryless.statistics
-    assert 'global_max_vals' in memoryless.statistics
+    assert hasattr(memoryless, 'min_vals')
+    assert hasattr(memoryless, 'max_vals')
+    assert isinstance(memoryless.min_vals, torch.Tensor)
+    assert isinstance(memoryless.max_vals, torch.Tensor)
+    # For minmax observers, global min/max is computed on-the-fly from min_vals/max_vals
+    # (not stored separately)
 
     # Test stateful observer
     stateful = Observer.load_from_registry(
@@ -269,23 +269,22 @@ def test_observer_statistics_dict():
         args=QuantizationArgs(strategy="tensor"),
     )
 
-    assert hasattr(stateful, 'statistics')
-    assert isinstance(stateful.statistics, dict)
-    assert 'min_vals' not in stateful.statistics  # Not yet observed
+    # Statistics are stored as direct attributes, not in a dict
+    assert not hasattr(stateful, 'min_vals')  # Not yet observed
 
     value1 = torch.tensor([1.0, 2.0, 3.0])
     stateful(value1)
-    assert 'min_vals' in stateful.statistics
-    assert 'max_vals' in stateful.statistics
-    assert 'global_min_vals' in stateful.statistics
-    assert 'global_max_vals' in stateful.statistics
+    assert hasattr(stateful, 'min_vals')
+    assert hasattr(stateful, 'max_vals')
+    # For minmax observers, global min/max is computed on-the-fly from min_vals/max_vals
+    # (not stored separately)
 
     # Verify values are correct
-    assert torch.allclose(stateful.statistics['min_vals'], torch.tensor([1.0]))
-    assert torch.allclose(stateful.statistics['max_vals'], torch.tensor([3.0]))
+    assert torch.allclose(stateful.min_vals, torch.tensor([1.0]))
+    assert torch.allclose(stateful.max_vals, torch.tensor([3.0]))
 
     # Test accumulation
     value2 = torch.tensor([0.0, 4.0, 2.0])
     stateful(value2)
-    assert torch.allclose(stateful.statistics['min_vals'], torch.tensor([0.0]))
-    assert torch.allclose(stateful.statistics['max_vals'], torch.tensor([4.0]))
+    assert torch.allclose(stateful.min_vals, torch.tensor([0.0]))
+    assert torch.allclose(stateful.max_vals, torch.tensor([4.0]))

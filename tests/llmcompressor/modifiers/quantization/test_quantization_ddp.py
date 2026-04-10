@@ -68,20 +68,18 @@ def test_synced_qparams_are_identical_across_ranks():
     args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
     observer = StaticMinMaxObserver(base_name="input", args=args)
 
-    observer.statistics['min_vals'] = (
+    observer.min_vals = (
         torch.tensor([-2.0], device="cuda")
         if rank == 0
         else torch.tensor([-5.0], device="cuda")
     )
-    observer.statistics['max_vals'] = (
+    observer.max_vals = (
         torch.tensor([3.0], device="cuda")
         if rank == 0
         else torch.tensor([1.0], device="cuda")
     )
-    observer.statistics['global_min_vals'] = observer.statistics['min_vals']
-    observer.statistics['global_max_vals'] = observer.statistics['max_vals']
 
-    comms = observer.synchronize_statistics()
+    comms = observer.synchronize_observer()
     wait_for_comms(comms)
 
     qparams = observer.get_qparams()

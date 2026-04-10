@@ -110,18 +110,13 @@ def call_observer(
             value = module.weight
         observer: Observer = getattr(module, f"{base_name}_observer")
 
-        # Update statistics then get qparams
-        observer(value)
-        qparams = observer.get_qparams()
+        qparams = observer(value).get_qparams()
 
-        # Update global_scale if computed (TENSOR_GROUP strategy)
-        if qparams["global_scale"] is not None:
-            update_offload_parameter(module, f"{base_name}_global_scale", qparams["global_scale"])
-
-        # Update scale and zero_point
-        update_offload_parameter(module, f"{base_name}_scale", qparams["scale"])
-        if hasattr(module, f"{base_name}_zero_point"):
-            update_offload_parameter(module, f"{base_name}_zero_point", qparams["zero_point"])
+        for param_name, param_val in qparams.items():
+            if param_val is not None:
+                update_offload_parameter(
+                    module, f"{base_name}_{param_name}", param_val
+                )
 
 
 def update_weight_global_scale(module: Module):

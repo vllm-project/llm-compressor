@@ -151,8 +151,8 @@ def test_static_weight_quantization(
     linear.weight_zero_point.data = qparams["zero_point"]
 
     # Check min/max values
-    min_vals = linear.weight_observer.statistics['min_vals']
-    max_vals = linear.weight_observer.statistics['max_vals']
+    min_vals = linear.weight_observer.min_vals
+    max_vals = linear.weight_observer.max_vals
     assert torch.equal(min_vals, exp_min_val)
     assert torch.equal(max_vals, exp_max_val)
 
@@ -252,8 +252,8 @@ def test_static_activation_quantization(
             linear.input_scale.data = qparams["scale"]
             linear.input_zero_point.data = qparams["zero_point"]
 
-        min_vals = linear.input_observer.statistics['min_vals']
-        max_vals = linear.input_observer.statistics['max_vals']
+        min_vals = linear.input_observer.min_vals
+        max_vals = linear.input_observer.max_vals
 
     linear.register_forward_pre_hook(calibrate_input_hook)
 
@@ -337,8 +337,8 @@ def test_static_attention_quantization(
         attention.k_scale.data = qparams["scale"]
         attention.k_zero_point.data = qparams["zero_point"]
 
-        min_vals = attention.k_observer.statistics['min_vals']
-        max_vals = attention.k_observer.statistics['max_vals']
+        min_vals = attention.k_observer.min_vals
+        max_vals = attention.k_observer.max_vals
 
     # calibration forward pass
     output = forward_quantize(attention, input, "k", scheme.input_activations)
