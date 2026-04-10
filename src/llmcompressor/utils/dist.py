@@ -1,18 +1,15 @@
-from typing import Hashable, TypeVar
+from typing import Callable, Hashable, TypeVar
 
-from compressed_tensors.distributed import (
-    greedy_bin_packing as _greedy_bin_packing,
-)
-from compressed_tensors.distributed import (
-    wait_for_comms as _wait_for_comms,
-)
-from compressed_tensors.utils.helpers import deprecated
+import torch.distributed as dist
 
 T = TypeVar("T", bound=Hashable)
 
 
-@deprecated("compressed_tensors.distributed.assign::greedy_bin_packing")
-def greedy_bin_packing(*args, **kwargs) -> tuple[list[T], list[list[T]], dict[T, int]]:
+def greedy_bin_packing(
+    items: list[T],
+    num_bins: int,
+    item_weight_fn: Callable[[T], float] = lambda x: 1,
+) -> tuple[list[T], list[list[T]], dict[T, int]]:
     """Distribute items across bins using a greedy bin-packing heuristic.
 
     Items are sorted by weight in descending order, then each item is
@@ -29,11 +26,19 @@ def greedy_bin_packing(*args, **kwargs) -> tuple[list[T], list[list[T]], dict[T,
           the list of items assigned to that bin.
         - item_to_bin: mapping from each item to its assigned bin index.
     """
-    return _greedy_bin_packing(*args, **kwargs)
+    items.sort(key=item_weight_fn, reverse=True)
+    bin_to_items: list[list[T]] = [[] for _ in range(num_bins)]
+    item_to_bin: dict[T, int] = dict()
+    bin_weights: list[float] = [0 for _ in range(num_bins)]
+    for item in items:
+        target_bin = bin_weights.index(min(bin_weights))
+        bin_to_items[target_bin].append(item)
+        item_to_bin[item] = target_bin
+        bin_weights[target_bin] += item_weight_fn(item)
+    return items, bin_to_items, item_to_bin
 
 
-@deprecated("compressed_tensors.distributed.utils::wait_for_comms")
-def wait_for_comms(*args, **kwargs) -> None:
+def wait_for_comms(pending_comms: list[dist.Work]) -> None:
     """Block until all pending async distributed operations complete.
 
     Calls ``wait()`` on each work handle, then clears the list in-place
@@ -44,4 +49,6 @@ def wait_for_comms(*args, **kwargs) -> None:
         ``async_op=True``). The list is cleared after all operations
         have completed.
     """
-    return _wait_for_comms(*args, **kwargs)
+    for comm in list(pending_comms):
+        comm.wait()
+    pending_comms.clear()

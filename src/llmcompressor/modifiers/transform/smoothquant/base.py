@@ -3,7 +3,6 @@ from typing import Callable, Literal
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.offload import update_offload_parameter
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
@@ -18,6 +17,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
+from llmcompressor.utils.dist import wait_for_comms
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
