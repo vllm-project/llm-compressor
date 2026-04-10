@@ -86,4 +86,7 @@ setup(
         "version_file": "src/llmcompressor/version.py",
     },
     package_dir={"": "src"},
+    packages=find_packages(
+        "src", include=["llmcompressor", "llmcompressor.*"], exclude=["*.__pycache__.*"]
+    ),
 )
