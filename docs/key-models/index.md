@@ -1,6 +1,6 @@
 # Key Models
 
-The following models are among the most commonly used with LLM Compressor: Llama 4, Qwen3, Qwen3.5, Kimi-K2, and Mistral Large 3. Each model page contains quantization examples with tested configurations and recommended parameters.
+The following models are among the most commonly used with LLM Compressor: Llama 4, Qwen3, Qwen3.5, Kimi-K2, Mistral Large 3, and DeepSeek V3.2. Each model page contains quantization examples with tested configurations and recommended parameters.
 
 <div class="grid cards" markdown>
 
@@ -43,5 +43,13 @@ The following models are among the most commonly used with LLM Compressor: Llama
       Mistral's 675B parameter model.
 
       [:octicons-arrow-right-24: Mistral Large 3](mistral-large-3/index.md)
+
+  - **DeepSeek V3.2**
+
+      ---
+
+      DeepSeek's 671B parameter model with Multi-Latent Attention.
+
+      [:octicons-arrow-right-24: DeepSeek V3.2](deepseek-v32/index.md)
 
 </div>
