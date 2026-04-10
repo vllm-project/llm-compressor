@@ -1,5 +1,22 @@
 version: 2
 updates:
+  # Python dependencies (via pyproject.toml)
+  - package-ecosystem: pip
+    directory: "/"
+    labels:
+      - "dependencies"
+      - "python"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   # GitHub Actions
   - package-ecosystem: github-actions
     directory: "/"
