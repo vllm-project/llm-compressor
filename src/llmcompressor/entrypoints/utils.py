@@ -147,7 +147,7 @@ def post_process(
                 logger.debug(f"Removed {files_cleaned} intermediate offload files")
         except Exception as e:
             logger.warning(
-                f"An error occured when attempting to clean offload directory: {e}"
+                f"An error occurred when attempting to clean offload directory: {e}"
             )
 
     # Reset the one-time-use session upon completion
