@@ -172,25 +172,20 @@ class TestBasicFunctionality:
         module = _make_linear_with_importance(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="channel")
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert scale.shape == (4, 1)
-        assert torch.isfinite(scale).all()
+        assert qparams["scale"].shape == (4, 1)
+        assert torch.isfinite(qparams["scale"]).all()
 
     def test_group_strategy(self):
         module = _make_linear_with_importance(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="group", group_size=4)
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
     def test_tensor_group_strategy(self):
         module = _make_linear_with_importance(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="tensor_group", group_size=4)
-        global_scale = observer(module.weight).get_qparams()["global_scale"]
-        module.weight_global_scale = global_scale
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
     def test_block_strategy(self):
         module = _make_linear_with_importance(in_features=8, out_features=4)
@@ -205,16 +200,14 @@ class TestBasicFunctionality:
             "imatrix_mse", base_name="weight", args=args, module=module
         )
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
     def test_no_importance_falls_back(self):
         """Observer without _imatrix_importance must fall back gracefully."""
         module = torch.nn.Linear(8, 4)
         observer = _make_observer(module, strategy="channel")
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
     def test_importance_changes_result(self):
         """Non-uniform importance must produce different scales than uniform."""
@@ -232,10 +225,8 @@ class TestBasicFunctionality:
         obs_w = _make_observer(module_weighted, strategy="channel")
         obs_u = _make_observer(module_uniform, strategy="channel")
 
-        qparams = obs_w(module_weighted.weight).get_qparams()
-        scale_w, _ = qparams["scale"], qparams["zero_point"]
-        qparams = obs_u(module_uniform.weight).get_qparams()
-        scale_u, _ = qparams["scale"], qparams["zero_point"]
+        scale_w = obs_w(module_weighted.weight).get_qparams()["scale"]
+        scale_u = obs_u(module_uniform.weight).get_qparams()["scale"]
 
         assert not torch.allclose(
             scale_w, scale_u
@@ -264,13 +255,11 @@ class TestBasicFunctionality:
             "memoryless_mse", base_name="weight", args=args_uniform, module=module_mse
         )
 
-        qparams = obs_imatrix(module_imatrix.weight).get_qparams()
-        scale_i, zp_i = qparams["scale"], qparams["zero_point"]
-        qparams = obs_uniform(module_mse.weight).get_qparams()
-        scale_u, zp_u = qparams["scale"], qparams["zero_point"]
+        qparams_i = obs_imatrix(module_imatrix.weight).get_qparams()
+        qparams_u = obs_uniform(module_mse.weight).get_qparams()
 
-        assert torch.allclose(scale_i, scale_u)
-        assert torch.equal(zp_i, zp_u)
+        assert torch.allclose(qparams_i["scale"], qparams_u["scale"])
+        assert torch.equal(qparams_i["zero_point"], qparams_u["zero_point"])
 
 
 # ---------------------------------------------------------------------------
@@ -337,13 +326,11 @@ class TestValidation:
             "memoryless_mse", base_name="weight", args=args_uniform, module=module_mse
         )
 
-        qparams = obs_imatrix(module_imatrix.weight).get_qparams()
-        scale_i, zp_i = qparams["scale"], qparams["zero_point"]
-        qparams = obs_uniform(module_mse.weight).get_qparams()
-        scale_u, zp_u = qparams["scale"], qparams["zero_point"]
+        qparams_i = obs_imatrix(module_imatrix.weight).get_qparams()
+        qparams_u = obs_uniform(module_mse.weight).get_qparams()
 
-        assert torch.allclose(scale_i, scale_u)
-        assert torch.equal(zp_i, zp_u)
+        assert torch.allclose(qparams_i["scale"], qparams_u["scale"])
+        assert torch.equal(qparams_i["zero_point"], qparams_u["zero_point"])
 
     @pytest.mark.parametrize("norm", [0, -1, float("inf"), float("nan")])
     def test_invalid_norm_raises(self, norm):
