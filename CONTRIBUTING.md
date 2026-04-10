@@ -7,6 +7,7 @@ There are several ways you can contribute to the project:
 - Identify and report any issues or bugs.
 - Request or add new compression methods or research.
 - Suggest or implement new features.
+- Improve or refactor existing code for clarity and maintainability.
 
 However, remember that contributions aren't just about code.
 We believe in the power of community support; thus, answering queries, assisting others, and enhancing the documentation are highly regarded and beneficial contributions.
