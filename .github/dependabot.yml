@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: pip
+    directory: "/"
+    labels:
+      - "dependencies"
+      - "python"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Group minor and patch updates together
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
