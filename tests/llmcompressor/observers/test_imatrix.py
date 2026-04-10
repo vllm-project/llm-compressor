@@ -128,14 +128,14 @@ class TestWeightOnlyGuard:
         args = QuantizationArgs(
             num_bits=8,
             symmetric=True,
-            strategy="tensor",  # Use tensor strategy for activations
+            strategy="channel",
             observer="imatrix_mse",
             observer_kwargs={"strict": True},
         )
         observer = Observer.load_from_registry(
             "imatrix_mse", base_name="input", args=args, module=module
         )
-        observed = torch.randn(2, 8, 8)
+        observed = torch.randn(2, 1, 1, 8)
         with pytest.raises(NotImplementedError, match="weight observers"):
             observer(observed)
 
@@ -145,14 +145,14 @@ class TestWeightOnlyGuard:
         args = QuantizationArgs(
             num_bits=8,
             symmetric=True,
-            strategy="tensor",  # Use tensor strategy for activations
+            strategy="channel",
             observer="imatrix_mse",
             observer_kwargs={"strict": False},
         )
         observer = Observer.load_from_registry(
             "imatrix_mse", base_name="input", args=args, module=module
         )
-        observed = torch.randn(2, 8, 8)
+        observed = torch.randn(2, 1, 1, 8)
         observer(observed)
         qparams = observer.get_qparams()
         scale, zero_point = qparams["scale"], qparams["zero_point"]
