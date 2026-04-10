@@ -37,7 +37,7 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
-* **DeepSeek V3.2 Support**: DeepSeek V3.2 can now be quantized using LLM Compressor with support for disk offloading to handle the 671B parameter model. The example demonstrates mixed-precision quantization with NVFP4 for MLP layers and FP8-BLOCK for attention layers. See the [DeepSeek V3.2 docs](llm-compressor/docs/key-models/deepseek-v32) for details. A pre-quantized checkpoint is available at [RedHatAI/DeepSeek-V3.2-NVFP4-FP8-BLOCK](https://huggingface.co/RedHatAI/DeepSeek-V3.2-NVFP4-FP8-BLOCK).
+* **DeepSeek V3.2 Support**: DeepSeek V3.2 can now be quantized using LLM Compressor with support for disk offloading to handle the 671B parameter model. The example demonstrates mixed-precision quantization with NVFP4 for MLP layers and FP8-BLOCK for attention layers. See the [DeepSeek V3.2 docs](docs/key-models/deepseek-v32) for details. A pre-quantized checkpoint is available at [RedHatAI/DeepSeek-V3.2-NVFP4-FP8-BLOCK](https://huggingface.co/RedHatAI/DeepSeek-V3.2-NVFP4-FP8-BLOCK).
 * **Gemma4 Support**: Gemma 4 can now be quantized using LLM Compressor. Support is available through main and will require updating to transformers 5.5 (`uv pip install transformers>=5.5`). For models quantized and published by the RedHat team, consider using:
   - [gemma-4-31B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-31B-it-NVFP4)
   - [gemma-4-31B-it-FP8-block](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-block)
