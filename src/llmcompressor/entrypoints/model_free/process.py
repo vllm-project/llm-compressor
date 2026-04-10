@@ -152,6 +152,8 @@ def process_file_microscale_scheme(
 
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
+    tensors = split_fused_moe_experts(tensors)
+
     if converter is not None:
         converter.process(tensors)
 
