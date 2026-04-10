@@ -142,11 +142,8 @@ def test_static_weight_quantization(
     assert getattr(linear, "quantization_scheme") is scheme
     initialize_observer(linear, "weight")
 
-    # calibrate quantization parameters
-    linear.weight_observer(linear.weight)
-
-    # Get qparams (automatically sets global_scale for TENSOR_GROUP)
-    qparams = linear.weight_observer.get_qparams()
+    # Get qparams
+    qparams = linear.weight_observer(linear.weight).get_qparams()
     linear.weight_scale.data = qparams["scale"]
     linear.weight_zero_point.data = qparams["zero_point"]
 
@@ -243,8 +240,7 @@ def test_static_activation_quantization(
         nonlocal min_vals
         nonlocal max_vals
 
-        linear.input_observer(args[0])
-        qparams = linear.input_observer.get_qparams()
+        qparams = linear.linear.input_observer(args[0]).get_qparams()
 
         # For static quantization, set scale and zero_point
         if linear.quantization_scheme.input_activations.dynamic is False:
@@ -332,8 +328,8 @@ def test_static_attention_quantization(
 
     # calibrate quantization parameters
     if scheme.input_activations.dynamic is False:
-        attention.k_observer(input)
-        qparams = attention.k_observer.get_qparams()
+        
+        qparams = attention.k_observer(input).get_qparams()
         attention.k_scale.data = qparams["scale"]
         attention.k_zero_point.data = qparams["zero_point"]
 
