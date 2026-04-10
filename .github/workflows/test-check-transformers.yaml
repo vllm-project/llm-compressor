@@ -89,6 +89,8 @@ jobs:
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
+      - name: List packages
+        run: pip list
       - name: "🔬 Running compression tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |

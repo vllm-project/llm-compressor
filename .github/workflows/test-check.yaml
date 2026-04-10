@@ -62,6 +62,8 @@ jobs:
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
+      - name: List installed packages
+        run: pip list
       - name: "🔬 Running base tests"
         run: make test
       - name: "Upload coverage report"
@@ -118,6 +120,8 @@ jobs:
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
+      - name: List packages
+        run: pip list
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -vra tests/llmcompressor/pytorch
