@@ -6,7 +6,8 @@ import torch
 import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.offload import from_accelerate, is_rank0, to_accelerate
+from compressed_tensors.distributed import is_source_process
+from compressed_tensors.offload import from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
@@ -73,7 +74,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
-            if is_rank0():
+            if is_source_process():
                 # save model structure
                 original_save_fn.__get__(model, model_class)(save_directory, **kwargs)
 
