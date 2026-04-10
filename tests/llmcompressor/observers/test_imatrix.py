@@ -78,11 +78,8 @@ class TestGlobalMinMaxTensorGroup:
             "imatrix_mse", base_name="weight", args=args, module=module
         )
 
-        global_scale = observer(module.weight).get_qparams()["global_scale"]
-        module.weight_global_scale = global_scale
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
 
 # ---------------------------------------------------------------------------
@@ -107,16 +104,14 @@ class TestActorderReordering:
         # Call through the observer — if reordering works, it should not crash
         # and should produce valid scales
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
     def test_no_g_idx_still_works(self):
         """Without g_idx, observer must work normally."""
         module = _make_linear_with_importance(in_features=8)
         observer = _make_observer(module, strategy="group", group_size=4)
         qparams = observer(module.weight).get_qparams()
-        scale, zp = qparams["scale"], qparams["zero_point"]
-        assert torch.isfinite(scale).all()
+        assert torch.isfinite(qparams["scale"]).all()
 
 
 # ---------------------------------------------------------------------------

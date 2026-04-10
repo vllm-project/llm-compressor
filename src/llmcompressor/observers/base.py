@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple, TypedDict
 from weakref import ref
 import warnings
-
+from compressed_tensors.utils import update_offload_parameter
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.offload.dist_utils import as_broadcastable
@@ -46,9 +46,14 @@ class Observer(InternalModule, RegistryMixin):
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
-    # Class attribute indicating whether this observer accumulates statistics across calls
-    # Memoryless observers should override this to False
-    accumulates_statistics: bool = True
+    # Class attribute indicating whether this observer is memoryless
+    # Memoryless observers should override this to True
+    is_memoryless: bool = False
+
+    # Dict of statistic attribute names to reduce operations for DDP synchronization
+    # Subclasses should override this to specify which attributes to sync
+    # e.g., {"min_vals": dist.ReduceOp.MIN, "max_vals": dist.ReduceOp.MAX}
+    _sync_dict: Dict[str, dist.ReduceOp] = {}
 
     def __init__(
         self,
@@ -61,7 +66,6 @@ class Observer(InternalModule, RegistryMixin):
         self.module = ref(module) if module is not None else None
         self.base_name = base_name
         self.args = args
-        self.statistics = {}  # Dictionary to store observer statistics
 
         # populate observer kwargs
         self.args.observer_kwargs = self.args.observer_kwargs or {}
@@ -71,62 +75,73 @@ class Observer(InternalModule, RegistryMixin):
     def _update_statistics(self, observed: torch.Tensor) -> None:
         """
         Update internal observer statistics from observed tensor.
-        This method should update the observer's internal state (stored in self.statistics)
-        with min/max values.
+        This method should update the observer's statistic attributes
+        (e.g., self.min_vals, self.max_vals).
 
         :param observed: flattened observed value of shape
                         (num_observations, *qparam_shape, group_size)
         """
         raise NotImplementedError()
 
-    @abstractmethod
     def _compute_qparams_from_statistics(self) -> QParamsDict:
         """
-        Compute scale and zero_point from accumulated internal statistics.
+        Compute all quantization parameters from accumulated internal statistics.
 
-        :return: dict with keys "scale" and "zero_point"
-        """
-        raise NotImplementedError()
+        Default implementation assumes min_vals and max_vals attributes exist.
+        Computes scale, zero_point, and global_scale (if TENSOR_GROUP strategy).
+        For non-TENSOR_GROUP strategies, global_scale should be None.
 
-    @abstractmethod
-    def _compute_gparams_from_statistics(self) -> torch.Tensor:
-        """
-        Compute global_scale from accumulated internal statistics.
+        Subclasses can override if they need custom logic.
 
-        :return: global_scale tensor
+        :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        raise NotImplementedError()
+        if not hasattr(self, 'min_vals') or not hasattr(self, 'max_vals'):
+            raise RuntimeError(
+                "No statistics available. Call observer(value) first."
+            )
+
+        # Compute global_scale if TENSOR_GROUP strategy
+        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            # Global min/max across all groups
+            global_min = self.min_vals.min().reshape(1)
+            global_max = self.max_vals.max().reshape(1)
+            global_scale = generate_gparam(global_min, global_max)
+        else:
+            global_scale = None
+
+        # Compute scale and zero_point using global_scale
+        scale, zero_point = calculate_qparams(
+            min_vals=self.min_vals,
+            max_vals=self.max_vals,
+            quantization_args=self.args,
+            global_scale=global_scale,
+        )
+
+        return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
 
     @torch.no_grad
     def get_qparams(self) -> QParamsDict:
         """
         Compute quantization parameters from accumulated statistics.
 
-        For TENSOR_GROUP strategy, automatically computes global_scale first,
-        then uses it to compute per-group scale and zero_point.
+        Computes scale, zero_point, and global_scale (for TENSOR_GROUP) all at once.
+        If global_scale is computed, it's automatically stored on the module.
 
-        For other strategies, global_scale is None.
-
-        :return: dict with keys "scale", "zero_point", and optionally "global_scale"
+        :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            global_scale = self._compute_gparams_from_statistics()
-            # Store on module so _compute_qparams_from_statistics can use it
-            module = self.module() if self.module is not None else None
-            if module is not None:
-                param_name = f"{self.base_name}_global_scale"
-                if hasattr(module, param_name):
-                    # Parameter already exists, update it
-                    from compressed_tensors.utils import update_offload_parameter
-                    update_offload_parameter(module, param_name, global_scale)
-                else:
-                    # Parameter doesn't exist yet, create it
-                    setattr(module, param_name, global_scale)
-        else:
-            global_scale = None
-
         qparams = self._compute_qparams_from_statistics()
-        qparams["global_scale"] = global_scale
+
+        # Store global_scale on module if it was computed
+        if qparams.get("global_scale") is not None and self.module and self.module():
+            module = self.module()
+            param_name = f"{self.base_name}_global_scale"
+            if hasattr(module, param_name):
+                # Parameter already exists, update it
+                update_offload_parameter(module, param_name, qparams["global_scale"])
+            else:
+                # Parameter doesn't exist yet, create it
+                setattr(module, param_name, qparams["global_scale"])
+
         return qparams
 
     @torch.no_grad
@@ -152,26 +167,20 @@ class Observer(InternalModule, RegistryMixin):
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
 
-    def synchronize_statistics(self) -> List[dist.Work]:
-        """All-reduce accumulated min/max statistics across DDP ranks.
+    def synchronize_observer(self) -> List[dist.Work]:
+        """All-reduce accumulated statistics across DDP ranks.
 
-        Issues async all-reduce operations on any accumulated state
-        (min_vals, max_vals, global_min_vals, global_max_vals from statistics dict).
-        Memoryless observers return an empty list.
+        Issues async all-reduce operations on statistic attributes specified in
+        _sync_dict. Each attribute is reduced using its specified operation.
 
         :return: list of async communication handles
         """
         comms = []
-        for key, op in [
-            ("min_vals", dist.ReduceOp.MIN),
-            ("max_vals", dist.ReduceOp.MAX),
-            ("global_min_vals", dist.ReduceOp.MIN),
-            ("global_max_vals", dist.ReduceOp.MAX),
-        ]:
-            val = self.statistics.get(key)
+        for attr_name, reduce_op in self._sync_dict.items():
+            val = getattr(self, attr_name, None)
             if val is not None:
                 comms.append(
-                    dist.all_reduce(as_broadcastable(val), op=op, async_op=True)
+                    dist.all_reduce(as_broadcastable(val), op=reduce_op, async_op=True)
                 )
         return comms
 

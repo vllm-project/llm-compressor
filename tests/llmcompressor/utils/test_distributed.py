@@ -9,6 +9,7 @@ from llmcompressor.observers.min_max import (
     MinMaxObserver,
     StaticMinMaxObserver,
 )
+from torch import distributed as dist
 
 
 def _make_observer(cls, **kwargs):
@@ -19,7 +20,7 @@ def _make_observer(cls, **kwargs):
 @pytest.mark.unit
 def test_memoryless_synchronize_returns_empty():
     observer = _make_observer(MemorylessMinMaxObserver)
-    assert observer.synchronize_statistics() == []
+    assert observer.synchronize_observer() == []
 
 
 @pytest.mark.unit
@@ -32,70 +33,65 @@ def test_memoryless_get_qparams_raises_without_observation():
 @pytest.mark.unit
 def test_static_synchronize_returns_empty_before_observation():
     observer = _make_observer(StaticMinMaxObserver)
-    assert observer.synchronize_statistics() == []
+    assert observer.synchronize_observer() == []
 
 
 @pytest.mark.unit
 @patch("llmcompressor.observers.base.dist")
 def test_static_synchronize_issues_all_reduce(mock_dist):
-    mock_dist.ReduceOp.MIN = "MIN"
-    mock_dist.ReduceOp.MAX = "MAX"
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(StaticMinMaxObserver)
-    observer.statistics['min_vals'] = torch.tensor([-1.0])
-    observer.statistics['max_vals'] = torch.tensor([1.0])
+    observer.min_vals = torch.tensor([-1.0])
+    observer.max_vals = torch.tensor([1.0])
 
-    comms = observer.synchronize_statistics()
+    comms = observer.synchronize_observer()
     assert len(comms) == 2
     assert mock_dist.all_reduce.call_count == 2
 
     # verify correct ops
     calls = mock_dist.all_reduce.call_args_list
-    assert calls[0].kwargs["op"] == "MIN"
-    assert calls[1].kwargs["op"] == "MAX"
+    assert calls[0].kwargs["op"] == dist.ReduceOp.MIN
+    assert calls[1].kwargs["op"] == dist.ReduceOp.MAX
 
 
 @pytest.mark.unit
 @patch("llmcompressor.observers.base.dist")
 def test_static_synchronize_with_global_state(mock_dist):
-    mock_dist.ReduceOp.MIN = "MIN"
-    mock_dist.ReduceOp.MAX = "MAX"
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(StaticMinMaxObserver)
-    observer.statistics['min_vals'] = torch.tensor([-1.0])
-    observer.statistics['max_vals'] = torch.tensor([1.0])
-    observer.statistics['global_min_vals'] = torch.tensor([-2.0])
-    observer.statistics['global_max_vals'] = torch.tensor([2.0])
+    observer.min_vals = torch.tensor([-1.0])
+    observer.max_vals = torch.tensor([1.0])
 
-    comms = observer.synchronize_statistics()
-    assert len(comms) == 4
-    assert mock_dist.all_reduce.call_count == 4
+    comms = observer.synchronize_observer()
+    assert len(comms) == 2
+    assert mock_dist.all_reduce.call_count == 2
 
 
 @pytest.mark.unit
-@patch("llmcompressor.observers.moving_base.dist")
+@patch("llmcompressor.observers.base.dist")
 def test_moving_avg_synchronize_issues_all_reduce(mock_dist):
-    mock_dist.ReduceOp.AVG = "AVG"
-    mock_dist.get_world_size.return_value = 2
     mock_dist.all_reduce.return_value = MagicMock()
 
     observer = _make_observer(MinMaxObserver)
-    observer.statistics['min_vals'] = torch.tensor([-1.0])
-    observer.statistics['max_vals'] = torch.tensor([1.0])
+    observer.min_vals = torch.tensor([-1.0])
+    observer.max_vals = torch.tensor([1.0])
 
-    comms = observer.synchronize_statistics()
+    comms = observer.synchronize_observer()
     assert len(comms) == 2
+
+    # verify AVG ops used
+    calls = mock_dist.all_reduce.call_args_list
+    assert calls[0].kwargs["op"] == dist.ReduceOp.AVG
+    assert calls[1].kwargs["op"] == dist.ReduceOp.AVG
 
 
 @pytest.mark.unit
 def test_get_qparams_from_accumulated_state():
     observer = _make_observer(StaticMinMaxObserver)
-    observer.statistics['min_vals'] = torch.tensor([-5.0])
-    observer.statistics['max_vals'] = torch.tensor([5.0])
-    observer.statistics['global_min_vals'] = torch.tensor([-5.0])
-    observer.statistics['global_max_vals'] = torch.tensor([5.0])
+    observer.min_vals = torch.tensor([-5.0])
+    observer.max_vals = torch.tensor([5.0])
 
     qparams = observer.get_qparams()
     scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
@@ -120,10 +116,8 @@ def test_get_qparams_with_tensor_group_strategy():
     # Need a module for TENSOR_GROUP strategy
     module = torch.nn.Linear(8, 4)
     observer = StaticMinMaxObserver(base_name="weight", args=args, module=module)
-    observer.statistics['min_vals'] = torch.tensor([[-5.0]])
-    observer.statistics['max_vals'] = torch.tensor([[5.0]])
-    observer.statistics['global_min_vals'] = torch.tensor([[-10.0]])
-    observer.statistics['global_max_vals'] = torch.tensor([[10.0]])
+    observer.min_vals = torch.tensor([[-5.0]])
+    observer.max_vals = torch.tensor([[5.0]])
 
     qparams = observer.get_qparams()
     scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]

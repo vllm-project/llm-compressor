@@ -75,9 +75,7 @@ def test_mse_fp4():
         "mse", base_name="weight", args=weights, module=module
     )
 
-    # With new API, get_qparams() automatically computes global_scale for TENSOR_GROUP
-    observer(module.weight)
-    qparams = observer.get_qparams()
+    qparams = observer(module.weight).get_qparams()
     scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
 
     # check mse loss

@@ -28,6 +28,9 @@ class IMatrixMSEObserver(Observer):
     Extra observer_kwargs: maxshrink, patience, grid, norm, strict.
     """
 
+    is_memoryless = True
+    _sync_dict = {}  # Memoryless - no DDP sync needed
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs
@@ -121,72 +124,17 @@ class IMatrixMSEObserver(Observer):
 
         Note: Importance weights are collected via module hooks during attach().
         """
-        # Get existing global_scale from module if available
-        module_global_scale = self._get_module_param("global_scale")
-
         # Perform importance-weighted MSE grid search for per-group/channel min/max
         importance_weights = self._prepare_importance(observed)
-        min_vals, max_vals = _grid_search(
+        self.min_vals, self.max_vals = _grid_search(
             observed,
             self.args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
-            global_scale=module_global_scale,
             importance_weights=importance_weights,
         )
-        self.statistics['min_vals'] = min_vals
-        self.statistics['max_vals'] = max_vals
-
-        # Perform MSE grid search for global min/max (uniform weighting)
-        global_observed = observed.reshape((1, 1, -1))
-        global_min, global_max = _grid_search(
-            global_observed,
-            self.args,
-            self.maxshrink,
-            self.patience,
-            self.grid,
-            self.norm,
-            optimize_global_scale=True,
-        )
-        self.statistics['global_min_vals'] = global_min
-        self.statistics['global_max_vals'] = global_max
-
-    def _compute_qparams_from_statistics(self) -> QParamsDict:
-        """Compute scale and zero_point from stored statistics."""
-        min_vals = self.statistics.get('min_vals')
-        max_vals = self.statistics.get('max_vals')
-
-        if min_vals is None or max_vals is None:
-            raise RuntimeError(
-                "No statistics available. Call observer(value) first."
-            )
-
-        # Get global_scale from module (set by get_qparams if TENSOR_GROUP)
-        global_scale = self._get_module_param("global_scale")
-        self._check_has_global_scale(global_scale)
-
-        scale, zero_point = calculate_qparams(
-            min_vals=min_vals,
-            max_vals=max_vals,
-            quantization_args=self.args,
-            global_scale=global_scale,
-        )
-
-        return {"scale": scale, "zero_point": zero_point}
-
-    def _compute_gparams_from_statistics(self) -> torch.Tensor:
-        """Compute global_scale from stored statistics."""
-        global_min = self.statistics.get('global_min_vals')
-        global_max = self.statistics.get('global_max_vals')
-
-        if global_min is None or global_max is None:
-            raise RuntimeError(
-                "No global statistics available. Call observer(value) first."
-            )
-
-        return generate_gparam(global_min, global_max)
 
     # ------------------------------------------------------------------
 
@@ -346,11 +294,14 @@ def _grid_search(
     patience: int,
     grid: int,
     norm: float,
-    global_scale: Optional[torch.Tensor] = None,
-    optimize_global_scale: bool = False,
     importance_weights: Optional[torch.Tensor] = None,
 ) -> MinMaxTuple:
-    """Grid search for min/max minimizing (importance-weighted) quant error."""
+    """Grid search for min/max minimizing (importance-weighted) quant error.
+
+    Note: global_scale is NOT used during optimization since it cancels out when
+    using FP32 scales. After optimization, global_scale is computed from the final
+    min/max values in _compute_qparams_from_statistics().
+    """
     min_val = torch.amin(observed, dim=(0, -1))
     max_val = torch.amax(observed, dim=(0, -1))
     best_error = torch.full(
@@ -371,14 +322,10 @@ def _grid_search(
         shrink_min = p * min_val
         shrink_max = p * max_val
 
-        if optimize_global_scale:
-            global_scale = generate_gparam(shrink_min, shrink_max)
-
         scales, zps = calculate_qparams(
             min_vals=shrink_min,
             max_vals=shrink_max,
             quantization_args=args,
-            global_scale=global_scale,
         )
 
         with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
@@ -387,7 +334,6 @@ def _grid_search(
                 scales.unsqueeze(-1),
                 zps.unsqueeze(-1),
                 args,
-                global_scale=global_scale,
             ).float()
 
         q.sub_(observed_f).abs_().pow_(norm)

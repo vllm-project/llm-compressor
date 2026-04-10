@@ -42,7 +42,6 @@ def _run_observer_test(
         observer_name, base_name="weight", args=weights, module=module
     )
 
-    # Use new observer API
     qparams = observer(tensor).get_qparams()
     scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
     assert (scale >= 0).all(), "Scale values should be non-negative"

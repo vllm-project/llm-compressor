@@ -78,8 +78,8 @@ def test_min_max_observer_value_update():
     curr_min = 1
     for i, tensor in enumerate(tensors):
         observer(tensor)
-        min_vals = observer.statistics['min_vals']
-        max_vals = observer.statistics['max_vals']
+        min_vals = observer.min_vals
+        max_vals = observer.max_vals
         curr_max = max(max_vals[0], curr_max)
         curr_min = min(min_vals[0], curr_min)
 

@@ -282,11 +282,7 @@ class QuantizationMixin(HooksMixin):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue
-                # Skip memoryless observers - they don't accumulate statistics
-                # across batches, so synchronization is not meaningful
-                if not observer.accumulates_statistics:
-                    continue
-                pending_comms.extend(observer.synchronize_statistics())
+                pending_comms.extend(observer.synchronize_observer())
                 modules_to_update.append((module, base_name, observer))
 
         wait_for_comms(pending_comms)
@@ -295,16 +291,11 @@ class QuantizationMixin(HooksMixin):
         for module, base_name, observer in modules_to_update:
             qparams = observer.get_qparams()
 
-            if qparams["global_scale"] is not None:
-                update_offload_parameter(
-                    module, f"{base_name}_global_scale", qparams["global_scale"]
-                )
-
-            update_offload_parameter(module, f"{base_name}_scale", qparams["scale"])
-            if hasattr(module, f"{base_name}_zero_point"):
-                update_offload_parameter(
-                    module, f"{base_name}_zero_point", qparams["zero_point"]
-                )
+            for param_name, param_val in qparams.items():
+                if param_val is not None:
+                    update_offload_parameter(
+                        module, f"{base_name}_{param_name}", param_val
+                    )
 
     def has_config(self) -> bool:
         """
