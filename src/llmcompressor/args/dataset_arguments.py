@@ -63,8 +63,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
         metadata={
             "help": (
                 "Typically a function which applies a chat template. Can take the form "
-                "of either a function to apply to the dataset, a name defined in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
+                "of either a function to apply to the dataset or "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
         },

@@ -121,7 +121,7 @@ setup(
             else "requests>=2.32.2"
         ),
         ("tqdm>=4.66.3,<=4.67.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.9.0,<=2.10.0" if BUILD_TYPE == "release" else "torch>=2.9.0,<2.11"),
+        ("torch>=2.9.0,<=2.11.0" if BUILD_TYPE == "release" else "torch>=2.9.0"),
         (
             "transformers>=4.56.1,<=4.57.6"
             if BUILD_TYPE == "release"
@@ -147,7 +147,7 @@ setup(
         (
             "compressed-tensors==0.14.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.14.1a2"
+            else "compressed-tensors>=0.15.1a2"
         ),
     ],
     extras_require={
@@ -165,7 +165,7 @@ setup(
             "torchvision",
             "librosa==0.11.0",
             "soundfile",
-            "torchcodec<0.11",
+            "torchcodec",
             # linting, formatting, and type checking
             "mypy~=1.10.0",
             "ruff~=0.4.8",
