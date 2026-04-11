@@ -213,7 +213,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # Fuse global scales across layers (e.g., QKV attention)
         for module in state.model.modules():
             update_fused_layer_weight_global_scales(module)
-            module.weight_observer.freeze_global_scale()
+            if hasattr(module, "weight_observer") and hasattr(module, "weight_global_scale"):
+                module.weight_observer.freeze_global_scale(module.weight_global_scale)
 
         if not added_hook:
             raise ValueError(
