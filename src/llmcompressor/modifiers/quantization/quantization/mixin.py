@@ -70,7 +70,7 @@ class QuantizationMixin(HooksMixin):
 
     NOTE: QuantizationMixin does not update scales and zero-points on its own,
         as this is not desired for all Modifiers inheriting from it. Modifier must
-        explicitly call `update_weight_zp_scale`.
+        explicitly call `call_observer(module, base_name="weight")` on each module.
         See QuantizationModifier.on_start method for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
@@ -436,7 +436,7 @@ class QuantizationMixin(HooksMixin):
                     initialize_observer(module, base_name="k")
                     initialize_observer(module, base_name="v")
 
-        # weight observers (used by `update_weight_zp_scale` or child modifier)
+        # weight observers (used by `call_observer(module, "weight")` or child modifier)
         if weight:
             initialize_observer(module, base_name="weight")
 

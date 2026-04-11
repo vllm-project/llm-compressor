@@ -20,16 +20,17 @@ from llmcompressor.observers import Observer
 
 __all__ = [
     "initialize_observer",
-    "update_weight_zp_scale",
+    "call_observer",
     "calibrate_input_hook",
     "calibrate_output_hook",
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
-    "update_weight_global_scale",
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
+    "has_quantization_weights",
+    "is_tensor_group_weight",
 ]
 
 
@@ -119,44 +120,27 @@ def call_observer(
                 )
 
 
-def update_weight_global_scale(module: Module):
-    if getattr_chain(module, "quantization_scheme.weights", None) is None:
-        return
+def has_quantization_weights(module: Module) -> bool:
+    """
+    Check if a module has weight quantization configured.
 
-    if (
+    :param module: module to check
+    :return: True if module has quantization_scheme.weights
+    """
+    return getattr_chain(module, "quantization_scheme.weights", None) is not None
+
+
+def is_tensor_group_weight(module: Module) -> bool:
+    """
+    Check if a module uses TENSOR_GROUP strategy for weight quantization.
+
+    :param module: module to check
+    :return: True if module uses TENSOR_GROUP strategy for weights
+    """
+    return (
         getattr_chain(module, "quantization_scheme.weights.strategy", None)
-        != QuantizationStrategy.TENSOR_GROUP
-    ):
-        return
-
-    call_observer(
-        module,
-        base_name="weight",
-        should_calculate_gparam=True,
-        should_calculate_qparams=False,
+        == QuantizationStrategy.TENSOR_GROUP
     )
-
-
-def update_weight_zp_scale(module: Module):
-    """
-    marks a layer as ready for calibration which activates observers
-    to update scales and zero points on each forward pass
-
-    apply to full model with `model.apply(update_weight_zp_scale)`
-
-    :param module: module to set for calibration
-    :param quantize_weights_upfront: whether to automatically
-       run weight quantization at the start of calibration
-    """
-    if getattr_chain(module, "quantization_scheme.weights", None) is None:
-        return
-
-    if getattr(module, "quantization_status", None) != QuantizationStatus.CALIBRATION:
-        logger.warning(
-            "Attempting to calibrate weights of a module not in calibration mode"
-        )
-
-    call_observer(module=module, base_name="weight")
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):

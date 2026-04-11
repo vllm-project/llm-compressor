@@ -71,6 +71,9 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
+        # global_scale freezing state
+        self._frozen_global_scale = False
+
     @abstractmethod
     def _update_statistics(self, observed: torch.Tensor) -> None:
         """
@@ -91,6 +94,9 @@ class Observer(InternalModule, RegistryMixin):
         Computes scale, zero_point, and global_scale (if TENSOR_GROUP strategy).
         For non-TENSOR_GROUP strategies, global_scale should be None.
 
+        If global_scale is frozen (via freeze_global_scale()), uses the module's
+        existing global_scale instead of recomputing it.
+
         Subclasses can override if they need custom logic.
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
@@ -100,12 +106,20 @@ class Observer(InternalModule, RegistryMixin):
                 "No statistics available. Call observer(value) first."
             )
 
-        # Compute global_scale if TENSOR_GROUP strategy
+        # Compute or reuse global_scale if TENSOR_GROUP strategy
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            # Global min/max across all groups
-            global_min = self.min_vals.min().reshape(1)
-            global_max = self.max_vals.max().reshape(1)
-            global_scale = generate_gparam(global_min, global_max)
+            if self._frozen_global_scale:
+                # Try to use existing frozen global_scale from module
+                global_scale = self._get_module_param("global_scale")
+                if global_scale is None:
+                    # Frozen but doesn't exist yet - compute it for the first time
+                    # Subsequent calls will use this frozen value
+                    global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
+                    global_scale = generate_gparam(-global_absmax, global_absmax)
+            else:
+                # Compute fresh global_scale from statistics
+                global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
+                global_scale = generate_gparam(-global_absmax, global_absmax)
         else:
             global_scale = None
 
@@ -166,6 +180,27 @@ class Observer(InternalModule, RegistryMixin):
 
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
+
+    def freeze_global_scale(self) -> None:
+        """
+        Freeze global_scale computation - the observer will use the module's existing
+        global_scale value instead of recomputing it from statistics.
+
+        If global_scale doesn't exist yet when frozen, it will be computed once on
+        the first call to get_qparams(), then reused on subsequent calls.
+
+        This is useful when you want to ensure consistency of global_scale across
+        multiple quantization passes (e.g., after fusing global_scale across layers
+        but before running GPTQ).
+        """
+        self._frozen_global_scale = True
+
+    def unfreeze_global_scale(self) -> None:
+        """
+        Unfreeze global_scale computation - the observer will recompute global_scale
+        from statistics instead of using the module's existing value.
+        """
+        self._frozen_global_scale = False
 
     def synchronize_observer(self) -> List[dist.Work]:
         """All-reduce accumulated statistics across DDP ranks.

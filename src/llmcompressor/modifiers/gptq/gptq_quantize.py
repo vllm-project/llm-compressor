@@ -107,7 +107,6 @@ def quantize_weight(
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
-
     qparams = observer(W).get_qparams()
     scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
     # handle g_idx and activation ordering

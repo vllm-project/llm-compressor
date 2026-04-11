@@ -37,7 +37,6 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
-    update_weight_zp_scale,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
@@ -283,14 +282,15 @@ class AWQModifier(Modifier, QuantizationMixin):
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
 
-        # Calculate scales, zero points, and global scales from weight statistics
+        # Calculate scales and zero points and global scales
         for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
+            call_observer(module, base_name="weight")
 
         # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # and adjust weight scales accordingly. This is a requirement for vLLM inference.
+        # This is a requirement for vLLM inference.
         for module in tqdm(state.model.modules(), desc="Fusing global scales"):
             update_fused_layer_weight_global_scales(module)
+
 
         QuantizationMixin.end_calibration(self, state.model)
 
