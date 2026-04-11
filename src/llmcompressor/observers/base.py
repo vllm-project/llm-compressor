@@ -94,8 +94,8 @@ class Observer(InternalModule, RegistryMixin):
         Computes scale, zero_point, and global_scale (if TENSOR_GROUP strategy).
         For non-TENSOR_GROUP strategies, global_scale should be None.
 
-        If global_scale is frozen (via freeze_global_scale()), uses the module's
-        existing global_scale instead of recomputing it.
+        If use_module_global_scale() was called, reads global_scale from the module
+        instead of recomputing it from statistics.
 
         Subclasses can override if they need custom logic.
 
@@ -107,20 +107,10 @@ class Observer(InternalModule, RegistryMixin):
             )
 
         # Compute or reuse global_scale if TENSOR_GROUP strategy
-        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            if self._use_module_global_scale:
-                # Read global_scale from module (single source of truth)
-                global_scale = self._get_module_param("global_scale")
-                if global_scale is None:
-                    # Module doesn't have it yet, compute it
-                    global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
-                    global_scale = generate_gparam(-global_absmax, global_absmax)
-            else:
-                # Compute fresh global_scale from statistics
-                global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
-                global_scale = generate_gparam(-global_absmax, global_absmax)
-        else:
-            global_scale = None
+        global_scale = self._get_module_param("global_scale")
+        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP and not self._use_module_global_scale:
+            global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
+            global_scale = generate_gparam(-global_absmax, global_absmax)
 
         # Compute scale and zero_point using global_scale
         scale, zero_point = calculate_qparams(
@@ -168,10 +158,10 @@ class Observer(InternalModule, RegistryMixin):
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
 
-    def freeze_global_scale(self) -> None:
+    def use_module_global_scale(self) -> None:
         """
-        Freeze global_scale - the observer will read global_scale from the module
-        instead of recomputing it from statistics.
+        Configure observer to read global_scale from the module instead of
+        recomputing it from statistics.
 
         The module's weight_global_scale becomes the single source of truth. This
         ensures consistency across multiple quantization passes (e.g., after fusing
@@ -181,10 +171,10 @@ class Observer(InternalModule, RegistryMixin):
         """
         self._use_module_global_scale = True
 
-    def unfreeze_global_scale(self) -> None:
+    def use_computed_global_scale(self) -> None:
         """
-        Unfreeze global_scale - the observer will recompute global_scale from
-        statistics instead of reading from the module.
+        Configure observer to recompute global_scale from statistics instead of
+        reading from the module (default behavior).
         """
         self._use_module_global_scale = False
 

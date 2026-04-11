@@ -207,14 +207,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Optionally generate global scales if using TENSOR_GROUP quantization
         for _, module in named_modules:
-            if is_tensor_group_weight(module):
-                call_observer(module, base_name="weight")                
+            call_observer(module, base_name="weight")
+            module.weight_observer.use_module_global_scale()
 
-        # Fuse global scales across layers (e.g., QKV attention)
         for module in state.model.modules():
             update_fused_layer_weight_global_scales(module)
-            if hasattr(module, "weight_observer"):
-                module.weight_observer.freeze_global_scale()
 
         if not added_hook:
             raise ValueError(
