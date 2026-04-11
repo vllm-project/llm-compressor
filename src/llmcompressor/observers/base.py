@@ -71,8 +71,7 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
-        # global_scale freezing state
-        self._frozen_global_scale = False
+        # Frozen global_scale value (None if not frozen)
         self._frozen_global_scale_value: Optional[torch.Tensor] = None
 
     @abstractmethod
@@ -109,7 +108,7 @@ class Observer(InternalModule, RegistryMixin):
 
         # Compute or reuse global_scale if TENSOR_GROUP strategy
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            if self._frozen_global_scale:
+            if self._frozen_global_scale_value is not None:
                 # Use the frozen global_scale value
                 global_scale = self._frozen_global_scale_value
             else:
@@ -176,7 +175,6 @@ class Observer(InternalModule, RegistryMixin):
 
         :param global_scale: the global_scale value to freeze
         """
-        self._frozen_global_scale = True
         self._frozen_global_scale_value = global_scale
 
     def unfreeze_global_scale(self) -> None:
@@ -184,7 +182,6 @@ class Observer(InternalModule, RegistryMixin):
         Unfreeze global_scale computation - the observer will recompute global_scale
         from statistics instead of using the frozen value.
         """
-        self._frozen_global_scale = False
         self._frozen_global_scale_value = None
 
     def synchronize_observer(self) -> List[dist.Work]:
