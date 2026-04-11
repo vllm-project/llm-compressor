@@ -280,7 +280,7 @@ class QuantizationMixin(HooksMixin):
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             for base_name in ("input", "output", "q", "k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
-                if observer is None:
+                if observer is None or observer.is_memoryless:
                     continue
                 pending_comms.extend(observer.synchronize_observer())
                 modules_to_update.append((module, base_name, observer))

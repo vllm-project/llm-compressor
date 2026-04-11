@@ -210,6 +210,9 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: list of async communication handles
         """
+        if self.is_memoryless:
+            return []  # Memoryless observers don't synchronize
+
         comms = []
         for attr_name, reduce_op in self._sync_dict.items():
             val = getattr(self, attr_name, None)

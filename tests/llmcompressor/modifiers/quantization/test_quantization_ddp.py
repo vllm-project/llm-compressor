@@ -38,12 +38,12 @@ def test_observer_synchronize_reduces_min_max():
     observer = StaticMinMaxObserver(base_name="input", args=args)
 
     # each rank has different local statistics
-    observer.past_min_vals = (
+    observer.min_vals = (
         torch.tensor([1.0, 3.0], device="cuda")
         if rank == 0
         else torch.tensor([2.0, 1.0], device="cuda")
     )
-    observer.past_max_vals = (
+    observer.max_vals = (
         torch.tensor([10.0, 20.0], device="cuda")
         if rank == 0
         else torch.tensor([15.0, 10.0], device="cuda")
