@@ -139,24 +139,12 @@ class Observer(InternalModule, RegistryMixin):
         Compute quantization parameters from accumulated statistics.
 
         Computes scale, zero_point, and global_scale (for TENSOR_GROUP) all at once.
-        If global_scale is computed, it's automatically stored on the module.
+        Returns parameters without modifying the module - caller is responsible for
+        storing them if needed.
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        qparams = self._compute_qparams_from_statistics()
-
-        # Store global_scale on module if it was computed
-        if qparams.get("global_scale") is not None and self.module and self.module():
-            module = self.module()
-            param_name = f"{self.base_name}_global_scale"
-            if hasattr(module, param_name):
-                # Parameter already exists, update it
-                update_offload_parameter(module, param_name, qparams["global_scale"])
-            else:
-                # Parameter doesn't exist yet, create it
-                setattr(module, param_name, qparams["global_scale"])
-
-        return qparams
+        return self._compute_qparams_from_statistics()
 
     @torch.no_grad
     def forward(self, observed: torch.Tensor) -> "Observer":
