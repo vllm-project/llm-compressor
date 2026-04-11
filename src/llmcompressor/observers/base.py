@@ -71,8 +71,8 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
-        # Frozen global_scale value (None if not frozen)
-        self._frozen_global_scale_value: Optional[torch.Tensor] = None
+        # If True, use module's stored global_scale instead of computing from statistics
+        self._use_module_global_scale: bool = False
 
     @abstractmethod
     def _update_statistics(self, observed: torch.Tensor) -> None:
@@ -108,9 +108,13 @@ class Observer(InternalModule, RegistryMixin):
 
         # Compute or reuse global_scale if TENSOR_GROUP strategy
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            if self._frozen_global_scale_value is not None:
-                # Use the frozen global_scale value
-                global_scale = self._frozen_global_scale_value
+            if self._use_module_global_scale:
+                # Read global_scale from module (single source of truth)
+                global_scale = self._get_module_param("global_scale")
+                if global_scale is None:
+                    # Module doesn't have it yet, compute it
+                    global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
+                    global_scale = generate_gparam(-global_absmax, global_absmax)
             else:
                 # Compute fresh global_scale from statistics
                 global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
@@ -164,25 +168,25 @@ class Observer(InternalModule, RegistryMixin):
         with align_module_device(module):
             return getattr(module, f"{self.base_name}_{name}", None)
 
-    def freeze_global_scale(self, global_scale: torch.Tensor) -> None:
+    def freeze_global_scale(self) -> None:
         """
-        Freeze global_scale to a specific value - the observer will use this value
+        Freeze global_scale - the observer will read global_scale from the module
         instead of recomputing it from statistics.
 
-        This is useful when you want to ensure consistency of global_scale across
-        multiple quantization passes (e.g., after fusing global_scale across layers
-        but before running GPTQ).
+        The module's weight_global_scale becomes the single source of truth. This
+        ensures consistency across multiple quantization passes (e.g., after fusing
+        global_scale across layers but before running GPTQ).
 
-        :param global_scale: the global_scale value to freeze
+        Note: The module must have weight_global_scale set before calling get_qparams().
         """
-        self._frozen_global_scale_value = global_scale
+        self._use_module_global_scale = True
 
     def unfreeze_global_scale(self) -> None:
         """
-        Unfreeze global_scale computation - the observer will recompute global_scale
-        from statistics instead of using the frozen value.
+        Unfreeze global_scale - the observer will recompute global_scale from
+        statistics instead of reading from the module.
         """
-        self._frozen_global_scale_value = None
+        self._use_module_global_scale = False
 
     def synchronize_observer(self) -> List[dist.Work]:
         """All-reduce accumulated statistics across DDP ranks.
