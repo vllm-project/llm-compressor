@@ -144,10 +144,9 @@ def test_static_weight_quantization(
 
     # Get qparams
     qparams = linear.weight_observer(linear.weight).get_qparams()
+
     linear.weight_scale.data = qparams["scale"]
     linear.weight_zero_point.data = qparams["zero_point"]
-
-    # Check min/max values
     min_vals = linear.weight_observer.min_vals
     max_vals = linear.weight_observer.max_vals
     assert torch.equal(min_vals, exp_min_val)
@@ -242,9 +241,7 @@ def test_static_activation_quantization(
 
         qparams = linear.linear.input_observer(args[0]).get_qparams()
 
-        # For static quantization, set scale and zero_point
         if linear.quantization_scheme.input_activations.dynamic is False:
-            # get_qparams() already sets global_scale for TENSOR_GROUP
             linear.input_scale.data = qparams["scale"]
             linear.input_zero_point.data = qparams["zero_point"]
 
@@ -328,7 +325,6 @@ def test_static_attention_quantization(
 
     # calibrate quantization parameters
     if scheme.input_activations.dynamic is False:
-        
         qparams = attention.k_observer(input).get_qparams()
         attention.k_scale.data = qparams["scale"]
         attention.k_zero_point.data = qparams["zero_point"]

@@ -107,8 +107,8 @@ def quantize_weight(
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
+
     qparams = observer(W).get_qparams()
-    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
     # handle g_idx and activation ordering
     if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         # mapping from column index to group index
@@ -121,13 +121,17 @@ def quantize_weight(
             W, H, perm = _apply_activation_ordering(W, H)
             # actually need scale/zp for permuted weight for this format
             qparams = observer(W).get_qparams()
-            scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # permute weights and g_idx
             W, H, perm = _apply_activation_ordering(W, H)
             g_idx = g_idx[perm]
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
 
     # sparsity mask
     sparsity = tensor_sparsity(W)

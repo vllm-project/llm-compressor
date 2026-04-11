@@ -83,7 +83,7 @@ def test_synced_qparams_are_identical_across_ranks():
     wait_for_comms(comms)
 
     qparams = observer.get_qparams()
-    scale, zero_point = qparams["scale"], qparams["zero_point"]
+    scale = qparams["scale"]
 
     gathered = [torch.zeros_like(scale) for _ in range(dist.get_world_size())]
     dist.all_gather(gathered, scale)

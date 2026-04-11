@@ -1,15 +1,13 @@
-from typing import Optional
-
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle import fake_quantize
-from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
+from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import patch_attr
 
-from llmcompressor.observers.base import MinMaxTuple, Observer, QParamsDict
+from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.moving_base import MovingAverageObserverBase
 
 __all__ = ["MovingAverageMSEObserver"]
@@ -53,7 +51,6 @@ class MemorylessMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
 
     def _update_statistics(self, observed: torch.Tensor) -> None:
-        """Compute and store min/max statistics from observation using MSE grid search."""
         # Perform MSE grid search for per-group/channel min/max
         self.min_vals, self.max_vals = _grid_search_mse(
             observed,
@@ -82,7 +79,7 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
     :param module: optional module with attached quantization parameters. This argument
         is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization\n
-        maxshrink: maximum shrink amount (in "grid steps"). The number of
+        maxshrink: maximum shrink amount (in “grid steps”). The number of
             search steps is int(maxshrink * grid)\n
         patience: number of consecutive search steps without improvement before
             early stopping\n
@@ -126,10 +123,6 @@ def _grid_search_mse(
     This routine progressively "shrinks" the absolute min/max ranges of the
     observed tensor and evaluates the quantization error at each candidate
     range. For each shrink factor ``p = 1 - i/grid`` up to ``maxshrink``.
-
-    Note: global_scale is NOT used during optimization since it cancels out when
-    using FP32 scales. After optimization, global_scale is computed from the final
-    min/max values in _compute_qparams_from_statistics().
 
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
     :param args: quantization args used for computing qparams and fake quant

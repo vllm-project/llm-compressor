@@ -48,17 +48,6 @@ def initialize_quantized_linear(
 
 
 def calibrate_weights(module: torch.nn.Linear):
-    """
-    Calibrate all quantization parameters (scale, zero_point, global_scale) for a module's weight.
-
-    This is a convenience function that:
-    1. Initializes the weight observer
-    2. Sets the module to calibration status
-    3. Calls the observer to compute quantization parameters
-    4. Freezes the module (removes observers)
-
-    :param module: Linear module to calibrate
-    """
     initialize_observer(module, "weight")
     apply_calibration_status(module)
     call_observer(module, base_name="weight")

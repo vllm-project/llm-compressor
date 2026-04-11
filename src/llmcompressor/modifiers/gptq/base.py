@@ -30,7 +30,6 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
-    is_tensor_group_weight,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
@@ -208,6 +207,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # Optionally generate global scales if using TENSOR_GROUP quantization
         for _, module in named_modules:
             call_observer(module, base_name="weight")
+            # once global scale is fused, will use that for GPTQ, no recalculation
             module.weight_observer.use_module_global_scale()
 
         for module in state.model.modules():

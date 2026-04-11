@@ -76,7 +76,11 @@ def test_mse_fp4():
     )
 
     qparams = observer(module.weight).get_qparams()
-    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
 
     # check mse loss
     qdq_tensor = fake_quantize(

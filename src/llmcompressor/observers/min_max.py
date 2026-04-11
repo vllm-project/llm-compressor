@@ -1,11 +1,8 @@
 import torch
-from typing import Optional
-
-from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
-from llmcompressor.observers.base import MinMaxTuple, Observer, QParamsDict
-from llmcompressor.observers.moving_base import MovingAverageObserverBase
 from torch import distributed as dist
+
+from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.moving_base import MovingAverageObserverBase
 
 __all__ = ["MemorylessMinMaxObserver", "StaticMinMaxObserver", "MinMaxObserver"]
 
@@ -54,7 +51,7 @@ class StaticMinMaxObserver(MemorylessMinMaxObserver):
         # Update per-group/channel min/max
         min_vals, max_vals = _get_min_max(observed)
 
-        if hasattr(self, 'min_vals'):
+        if hasattr(self, "min_vals"):
             self.min_vals = torch.min(min_vals, self.min_vals)
             self.max_vals = torch.max(max_vals, self.max_vals)
         else:

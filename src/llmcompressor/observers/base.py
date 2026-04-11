@@ -1,8 +1,7 @@
 from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple, TypedDict
 from weakref import ref
-import warnings
-from compressed_tensors.utils import update_offload_parameter
+
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.offload.dist_utils import as_broadcastable
@@ -21,6 +20,7 @@ MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 
 class QParamsDict(TypedDict, total=False):
     """Dictionary containing quantization parameters."""
+
     scale: torch.Tensor
     zero_point: torch.Tensor
     global_scale: Optional[torch.Tensor]
@@ -34,9 +34,13 @@ class Observer(InternalModule, RegistryMixin):
     Example:
     ```python
     module = ...
-    observer = Observer.load_from_registry(observer, base_name="weight", args=...)
+    observer = Observer.load_from_registry(
+        observer, base_name="weight", args=...
+    )
     qparams = observer(module.weight).get_qparams()
-    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    scale = qparams["scale"]
+    zero_point = qparams["zero_point"]
+    global_scale = qparams["global_scale"]
     ```
 
     :param base_name: str used to name the observer attribute
@@ -101,15 +105,16 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        if not hasattr(self, 'min_vals') or not hasattr(self, 'max_vals'):
-            raise RuntimeError(
-                "No statistics available. Call observer(value) first."
-            )
+        if not hasattr(self, "min_vals") or not hasattr(self, "max_vals"):
+            raise RuntimeError("No statistics available. Call observer(value) first.")
 
         # Compute or reuse global_scale if TENSOR_GROUP strategy
         global_scale = self._get_module_param("global_scale")
-        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP and not self._use_module_global_scale:
-            global_absmax = torch.max(-self.min_vals.min().reshape(1), self.max_vals.max().reshape(1))
+        calculate_scale = not self._use_module_global_scale or not global_scale
+        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP and calculate_scale:
+            global_absmax = torch.max(
+                -self.min_vals.min().reshape(1), self.max_vals.max().reshape(1)
+            )
             global_scale = generate_gparam(-global_absmax, global_absmax)
 
         # Compute scale and zero_point using global_scale
@@ -197,7 +202,6 @@ class Observer(InternalModule, RegistryMixin):
                     dist.all_reduce(as_broadcastable(val), op=reduce_op, async_op=True)
                 )
         return comms
-
 
     def attach(self, module: torch.nn.Module) -> None:
         """

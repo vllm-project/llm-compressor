@@ -48,7 +48,7 @@ class MovingAverageObserverBase(Observer):
         # Update per-group/channel min/max with EMA
         min_vals, max_vals = self.get_current_min_max(observed)
 
-        if hasattr(self, 'min_vals') and self.avg_constant != 1.0:
+        if hasattr(self, "min_vals") and self.avg_constant != 1.0:
             min_vals = self._lerp(self.min_vals, min_vals, self.avg_constant)
             max_vals = self._lerp(self.max_vals, max_vals, self.avg_constant)
 

@@ -4,11 +4,11 @@ from typing import Optional
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle import fake_quantize
-from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
+from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 
-from llmcompressor.observers.base import MinMaxTuple, Observer, QParamsDict
+from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["IMatrixMSEObserver"]
@@ -120,10 +120,6 @@ class IMatrixMSEObserver(Observer):
     # ------------------------------------------------------------------
 
     def _update_statistics(self, observed: torch.Tensor) -> None:
-        """Compute and store min/max statistics using importance-weighted MSE grid search.
-
-        Note: Importance weights are collected via module hooks during attach().
-        """
         # Perform importance-weighted MSE grid search for per-group/channel min/max
         importance_weights = self._prepare_importance(observed)
         self.min_vals, self.max_vals = _grid_search(

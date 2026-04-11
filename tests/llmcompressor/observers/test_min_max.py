@@ -107,15 +107,13 @@ def test_g_idx():
     observer = Observer.load_from_registry(
         weights.observer, base_name="weight", args=weights, module=module
     )
-    qparams = observer(tensor).get_qparams()
-    scale_g_idx, zero_point_g_idx = qparams["scale"], qparams["zero_point"]
+    g_idx_qparams = observer(tensor).get_qparams()
 
     observer = Observer.load_from_registry(
         weights.observer, base_name="weight", args=weights, module=module
     )
     del module.weight_g_idx
     qparams = observer(tensor[:, torch.argsort(g_idx)]).get_qparams()
-    scale, zero_point = qparams["scale"], qparams["zero_point"]
 
-    assert scale_g_idx == pytest.approx(scale)
-    assert zero_point_g_idx == pytest.approx(zero_point)
+    assert g_idx_qparams["scale"] == pytest.approx(qparams["scale"])
+    assert g_idx_qparams["zero_point"] == pytest.approx(qparams["zero_point"])

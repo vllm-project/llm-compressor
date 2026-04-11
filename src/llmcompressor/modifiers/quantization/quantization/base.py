@@ -5,8 +5,6 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
-    has_quantization_weights,
-    is_tensor_group_weight,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
@@ -81,8 +79,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         # Calculate scales, zero points, and global scales from weight statistics
         for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
-            if has_quantization_weights(module):
-                call_observer(module, base_name="weight")
+            call_observer(module, base_name="weight")
 
         # NOTE: update_fused_layer_weight_global_scales operates on Attention
         # and MLP layers, not quantizable Linear layers. Rather than running

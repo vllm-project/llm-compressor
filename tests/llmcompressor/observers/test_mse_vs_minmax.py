@@ -43,7 +43,11 @@ def _run_observer_test(
     )
 
     qparams = observer(tensor).get_qparams()
-    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
     assert (scale >= 0).all(), "Scale values should be non-negative"
 
     weights_clean = _create_base_quantization_args(

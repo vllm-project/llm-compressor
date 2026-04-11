@@ -14,7 +14,7 @@ from compressed_tensors.utils.safetensors_load import (
 from loguru import logger
 from safetensors.torch import save_file
 from torch.nn import Module
-from llmcompressor.modifiers.utils.helpers import fuse_global_scales_and_adjust
+
 from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_weights,
     initialize_quantized_linear,
@@ -24,6 +24,7 @@ from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
 )
+from llmcompressor.modifiers.utils.helpers import fuse_global_scales_and_adjust
 
 __all__ = [
     "validate_file",
@@ -181,7 +182,6 @@ def process_file_microscale_scheme(
             fused_modules[fused_index][name] = module
             continue
 
-
         # 3. compress module using qparams
         compress_module(module)
 
@@ -194,7 +194,6 @@ def process_file_microscale_scheme(
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
         # 2.1. fuse global scale and adjust weight scales
-        
 
         fuse_global_scales_and_adjust(list(named_modules.values()))
 

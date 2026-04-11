@@ -29,8 +29,6 @@ __all__ = [
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
-    "has_quantization_weights",
-    "is_tensor_group_weight",
 ]
 
 
@@ -95,16 +93,14 @@ def call_observer(
 ):
     """
     Call a module's attached input/weight/output observer using a provided value.
-    Optionally update the module's quantization parameters using the observer's return values.
-
-    The observer's get_qparams() method automatically computes global_scale for TENSOR_GROUP strategy.
+    Optionally update the module's quantization parameters using the returned qparams.
 
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
-    :param update_global_scale: if True, update global_scale on the module (when not None)
-    :param update_scale_zp: if True, update scale and zero_point on the module (when not None)
+    :param update_global_scale: if True, update module global_scale (when not None)
+    :param update_scale_zp: if True, update module scale and zero_point (when not None)
     """
     with align_module_device(module):
         if value is None and base_name == "weight":
@@ -124,32 +120,7 @@ def call_observer(
         for param_name, param_val in qparams.items():
             update_flag = qparam_update_flags.get(param_name)
             if update_flag and param_val is not None:
-                update_offload_parameter(
-                    module, f"{base_name}_{param_name}", param_val
-                )
-
-
-def has_quantization_weights(module: Module) -> bool:
-    """
-    Check if a module has weight quantization configured.
-
-    :param module: module to check
-    :return: True if module has quantization_scheme.weights
-    """
-    return getattr_chain(module, "quantization_scheme.weights", None) is not None
-
-
-def is_tensor_group_weight(module: Module) -> bool:
-    """
-    Check if a module uses TENSOR_GROUP strategy for weight quantization.
-
-    :param module: module to check
-    :return: True if module uses TENSOR_GROUP strategy for weights
-    """
-    return (
-        getattr_chain(module, "quantization_scheme.weights.strategy", None)
-        == QuantizationStrategy.TENSOR_GROUP
-    )
+                update_offload_parameter(module, f"{base_name}_{param_name}", param_val)
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):

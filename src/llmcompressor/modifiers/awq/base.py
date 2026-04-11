@@ -291,7 +291,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         for module in tqdm(state.model.modules(), desc="Fusing global scales"):
             update_fused_layer_weight_global_scales(module)
 
-
         QuantizationMixin.end_calibration(self, state.model)
 
         # remove activation hooks
@@ -743,7 +742,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                         )
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
-
 
                 # W * X
                 int_w_outputs = self._run_samples(mapping.parent)

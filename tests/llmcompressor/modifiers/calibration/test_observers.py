@@ -51,7 +51,8 @@ def test_observers_update(shape, group_size, actorder):
     ):
         observer = getattr(module, f"{location}_observer")
         qparams = observer(value).get_qparams()
-        updated_scale, updated_zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+        updated_scale = qparams["scale"]
+        updated_zero_point = qparams["zero_point"]
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
         assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))
@@ -110,22 +111,17 @@ def test_observer_min_max_vals(
         name, base_name="input", args=QuantizationArgs(strategy="tensor"), **kwargs
     )
 
-    # All observers compute global min/max on-the-fly from min_vals/max_vals
-    has_global_stats = False
-
     if is_global:
         # Skip - these observers compute global min/max on-the-fly
-        pytest.skip(f"{name} observers compute global min/max on-the-fly from min_vals/max_vals")
+        pytest.skip(
+            f"{name} observers compute global min/max on-the-fly from min_vals/max_vals"
+        )
 
     min_vals, max_vals = [], []
     for _observed in observed:
         observer(_observed)
-        if not is_global:
-            _min_vals = observer.min_vals
-            _max_vals = observer.max_vals
-        else:
-            _min_vals = observer.statistics['global_min_vals']
-            _max_vals = observer.statistics['global_max_vals']
+        _min_vals = observer.min_vals
+        _max_vals = observer.max_vals
 
         min_vals.append(_min_vals)
         max_vals.append(_max_vals)

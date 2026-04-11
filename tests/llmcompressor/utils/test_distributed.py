@@ -3,13 +3,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs
+from torch import distributed as dist
 
 from llmcompressor.observers.min_max import (
     MemorylessMinMaxObserver,
     MinMaxObserver,
     StaticMinMaxObserver,
 )
-from torch import distributed as dist
 
 
 def _make_observer(cls, **kwargs):
@@ -94,7 +94,11 @@ def test_get_qparams_from_accumulated_state():
     observer.max_vals = torch.tensor([5.0])
 
     qparams = observer.get_qparams()
-    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
     assert scale.numel() > 0
     assert zero_point.numel() > 0
     # global_scale is None for non-TENSOR_GROUP strategies
@@ -120,7 +124,11 @@ def test_get_qparams_with_tensor_group_strategy():
     observer.max_vals = torch.tensor([[5.0]])
 
     qparams = observer.get_qparams()
-    scale, zero_point, global_scale = qparams["scale"], qparams["zero_point"], qparams["global_scale"]
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
     assert scale.numel() > 0
     assert zero_point.numel() > 0
     assert global_scale is not None
