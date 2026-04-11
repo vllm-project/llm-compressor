@@ -90,12 +90,12 @@ def call_observer(
     module: Module,
     base_name: str,
     value: Optional[torch.Tensor] = None,
-    should_calculate_gparam: bool = False,  # Kept for backward compatibility, ignored
-    should_calculate_qparams: bool = True,  # Kept for backward compatibility, ignored
+    update_global_scale: bool = True,
+    update_scale_zp: bool = True,
 ):
     """
     Call a module's attached input/weight/output observer using a provided value.
-    Update the module's scale, zero_point, and global_scale using the observer's return values.
+    Optionally update the module's quantization parameters using the observer's return values.
 
     The observer's get_qparams() method automatically computes global_scale for TENSOR_GROUP strategy.
 
@@ -103,8 +103,8 @@ def call_observer(
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
-    :param should_calculate_gparam: Kept for backward compatibility, ignored
-    :param should_calculate_qparams: Kept for backward compatibility, ignored
+    :param update_global_scale: if True, update global_scale on the module (when not None)
+    :param update_scale_zp: if True, update scale and zero_point on the module (when not None)
     """
     with align_module_device(module):
         if value is None and base_name == "weight":
@@ -113,8 +113,17 @@ def call_observer(
 
         qparams = observer(value).get_qparams()
 
+        # Map qparam names to their corresponding update flags
+        qparam_update_flags = {
+            "global_scale": update_global_scale,
+            "scale": update_scale_zp,
+            "zero_point": update_scale_zp,
+        }
+
+        # Update module parameters based on flags
         for param_name, param_val in qparams.items():
-            if param_val is not None:
+            update_flag = qparam_update_flags.get(param_name)
+            if update_flag and param_val is not None:
                 update_offload_parameter(
                     module, f"{base_name}_{param_name}", param_val
                 )
@@ -162,21 +171,21 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     args_attr = f"quantization_scheme.{field_name}_activations"
     quantization_args = getattr_chain(module, args_attr, None)
 
-    calculate_qparams = True
-    calculate_gparam = False
+    update_scale_zp = True
+    update_global_scale = False
 
     if quantization_args is not None:
         if quantization_args.dynamic in (True, DynamicType.LOCAL):
-            calculate_qparams = False
+            update_scale_zp = False
         if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            calculate_gparam = True
+            update_global_scale = True
 
     call_observer(
         module=module,
         base_name=base_name,
         value=value,
-        should_calculate_gparam=calculate_gparam,
-        should_calculate_qparams=calculate_qparams,
+        update_global_scale=update_global_scale,
+        update_scale_zp=update_scale_zp,
     )
 
 
