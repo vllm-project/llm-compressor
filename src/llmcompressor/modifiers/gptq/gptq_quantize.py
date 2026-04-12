@@ -111,11 +111,16 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
     # handle g_idx and activation ordering
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP, QuantizationStrategy.BLOCK):
         # mapping from column index to group index
+        divisor = (
+            quant_args.group_size
+            if strategy != QuantizationStrategy.BLOCK
+            else quant_args.block_structure[1]
+        )
         g_idx = (
             torch.arange(num_columns, device=W.device, dtype=torch.int)
-            // quant_args.group_size
+            // divisor
         )
 
         if actorder == ActivationOrdering.GROUP:
@@ -217,8 +222,8 @@ def quantize_weight(
                     global_scale=global_scale,
                 )
             elif strategy == QuantizationStrategy.BLOCK:
-                block_width = quant_args.block_structure[1]
-                block_column_idx = (i1 + i) // block_width
+                column_idx = i1 + i
+                block_column_idx = g_idx[column_idx]
                 q = fake_quantize(
                     q.unsqueeze(1),
                     scale[:, block_column_idx : block_column_idx + 1],
