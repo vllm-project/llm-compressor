@@ -96,6 +96,20 @@ recipe_modifier_group_actorder_group = GPTQModifier(
     },
 )
 
+# Test block quantization variant
+recipe_modifier_full_block = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(
+                num_bits=8,
+                strategy="block",
+                block_structure=[2, 8],
+            ),
+        )
+    },
+)
 
 @pytest.mark.parametrize(
     "recipe",
@@ -107,6 +121,7 @@ recipe_modifier_group_actorder_group = GPTQModifier(
         recipe_modifier_shorthand_b,
         recipe_modifier_group_actorder_weight,
         recipe_modifier_group_actorder_group,
+        recipe_modifier_full_block,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):
@@ -154,7 +169,7 @@ def test_oneshot_application(recipe, tmp_path):
     assert quant_scheme.targets == ["re:.*model.layers.2.self_attn.q_proj$"]
     weight_args = quantization_config.config_groups["group_0"].weights
     assert isinstance(weight_args, QuantizationArgs)
-    assert weight_args.num_bits == 4
+    assert weight_args.num_bits == 4 or weight_args.num_bits == 8
 
     # Check a specific layer is quantized
     targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
