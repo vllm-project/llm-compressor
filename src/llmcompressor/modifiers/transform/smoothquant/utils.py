@@ -66,7 +66,7 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
-QWEN3_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
         smooth_layers="re:.*input_layernorm$",
@@ -113,7 +113,8 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "Qwen3MoeForCausalLM": QWEN3_MOE_SMOOTHQUANT_MAPPINGS,
+    "Qwen2MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
+    "Qwen3MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
     "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
     "AfmoeForCausalLM": AFMOE_SMOOTHQUANT_MAPPINGS,
 }
