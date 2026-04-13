@@ -2,7 +2,7 @@ import gc
 
 import torch
 
-__all__ = ["measure_accelerator_memory"]
+__all__ = ["measure_accelerator_memory", "measure_cuda_memory"]
 
 
 class measure_accelerator_memory:
@@ -34,3 +34,7 @@ class measure_accelerator_memory:
 
         # Force garbage collection
         gc.collect()
+
+
+# Alias `measure_cuda_memory` to `measure_accelerator_memory` for backward compatibility
+measure_cuda_memory = measure_accelerator_memory

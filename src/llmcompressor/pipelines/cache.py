@@ -212,9 +212,6 @@ class IntermediatesCache:
         Yields the same fetched batch dicts as :meth:`iter`; only the timing
         of onloads differs.
         """
-        assert (
-            torch.cuda.is_available()
-        ), "Prefetching is only supported when CUDA is available."
         num_batches = len(self.batch_intermediates)
         if num_batches == 0:
             return
