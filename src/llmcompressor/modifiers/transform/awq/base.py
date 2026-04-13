@@ -50,30 +50,7 @@ from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 __all__ = ["AWQModifier"]
 
 
-@deprecated("llmcompressor.modifiers.transform.awq.AWQModifier")
-def AWQModifier(**kwargs):
-    from llmcompressor.modifiers.quantization import QuantizationModifier
-
-    quant_keys = (
-        "config_groups",
-        "targets",
-        "ignore",
-        "scheme",
-        "kv_cache_scheme",
-        "weight_observer",
-        "input_observer",
-        "output_observer",
-        "observer",
-        "bypass_divisibility_checks",
-    )
-    quant_kwargs = {k: v for k, v in kwargs.items() if k in quant_keys}
-    awq_kwargs = {k: v for k, v in kwargs.items() if k not in quant_keys}
-
-    return [AWQTransformModifier(**awq_kwargs), QuantizationModifier(**quant_kwargs)]
-
-
-# TODO move to llmcompressor.modifiers.transform.awq.AWQModifier
-class AWQTransformModifier(Modifier):
+class AWQModifier(Modifier):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
     as described in https://arxiv.org/pdf/2306.00978. The algorithm
