@@ -179,8 +179,8 @@ class Recipe(BaseModel):
         follow-on quantization modifier is found without one, raise an error
         """
         from llmcompressor.modifiers.quantization import QuantizationMixin
-        from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
         from llmcompressor.modifiers.transform.awq import AWQTransformModifier
+        from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 
         for modifier_idx, modifier in enumerate(modifiers):
             if isinstance(modifier, (AWQTransformModifier, SmoothQuantModifier)):

@@ -18,7 +18,6 @@ from compressed_tensors.utils import (
     match_modules_set,
     patch_attrs,
     update_offload_parameter,
-    deprecated,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
@@ -29,13 +28,15 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.awq.dynamic_mappings import get_layer_mappings_from_model
-from llmcompressor.modifiers.awq.mappings import (
-    AWQMapping,
-    ResolvedMapping,
-)
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
+)
+from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
+    get_layer_mappings_from_model,
+)
+from llmcompressor.modifiers.transform.awq.mappings import (
+    AWQMapping,
+    ResolvedMapping,
 )
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
