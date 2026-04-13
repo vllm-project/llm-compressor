@@ -174,9 +174,4 @@ def disable_lm_head(model: torch.nn.Module):
             yield
 
 
-DISABLE_QAC_MODIFIERS = [
-    "GPTQModifier",
-    "AWQModifier",
-    "AWQTransformModifier",
-    "AutoRoundModifier",
-]
+DISABLE_QAC_MODIFIERS = ["GPTQModifier", "AWQModifier", "AutoRoundModifier"]
