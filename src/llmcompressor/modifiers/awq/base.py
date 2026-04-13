@@ -3,6 +3,7 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling.kvcache import QuantizedKVCache
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
@@ -41,7 +42,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils import get_high_precision, wait_for_comms
+from llmcompressor.utils import get_high_precision
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
