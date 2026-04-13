@@ -89,19 +89,7 @@ def quantize_weight(
     W = module.weight.clone()
     H = hessian
 
-    # use existing observer from module (may have frozen global_scale)
-    # fallback to creating new observer for standalone usage (e.g., unit tests)
-    if hasattr(module, "weight_observer"):
-        observer = module.weight_observer
-    else:
-        from llmcompressor.observers.base import Observer
-
-        observer = Observer.load_from_registry(
-            quant_args.observer if quant_args.observer else "memoryless_minmax",
-            base_name="weight",
-            args=quant_args,
-            module=module,
-        )
+    observer = module.weight_observer
 
     # standardize shape and dtype
     match module:

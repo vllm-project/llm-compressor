@@ -322,6 +322,7 @@ def _grid_search(
             min_vals=shrink_min,
             max_vals=shrink_max,
             quantization_args=args,
+            global_scale=None,  # optimize per-group independently
         )
 
         with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):

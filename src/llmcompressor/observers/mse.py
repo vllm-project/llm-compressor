@@ -162,6 +162,7 @@ def _grid_search_mse(
             min_vals=shrinked_min_val,
             max_vals=shrinked_max_val,
             quantization_args=args,
+            global_scale=None,  # optimize per-group independently
         )
 
         # Note that observed.shape = (num_observations, *qparams_shape, group_size).
