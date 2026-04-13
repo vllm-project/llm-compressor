@@ -10,7 +10,12 @@ The AWQ recipe has been inferfaced as follows, where the `AWQModifier` adjusts m
 
 ```python
 recipe = [
-    AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+    AWQModifier(),
+    QuantizationModifier(
+        ignore=["lm_head"], 
+        scheme="W4A16_ASYM", 
+        targets=["Linear"]
+    )
 ]
 ```
 
