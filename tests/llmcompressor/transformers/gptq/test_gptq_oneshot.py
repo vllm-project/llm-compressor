@@ -111,6 +111,21 @@ recipe_modifier_full_block = GPTQModifier(
     },
 )
 
+recipe_modifier_block_actorder_weight = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(
+                num_bits=4,
+                strategy="block",
+                block_structure=[2, 8],
+                actorder=ActivationOrdering.WEIGHT,
+            ),
+        )
+    },
+)
+
 @pytest.mark.parametrize(
     "recipe",
     [
@@ -122,6 +137,7 @@ recipe_modifier_full_block = GPTQModifier(
         recipe_modifier_group_actorder_weight,
         recipe_modifier_group_actorder_group,
         recipe_modifier_full_block,
+        recipe_modifier_block_actorder_weight,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):
