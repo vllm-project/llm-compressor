@@ -85,9 +85,11 @@ class AWQModifier(Modifier):
     Lifecycle:
 
     - on_initialize
+        - set unresolved mappings if not set by user, based on model architecture
+    - (quantization config applied by subsequent QuantizationMixin on_initialize)
+    - on_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
-    - on_start
         - set up activation cache hooks to capture input activations
             to balance layers
     - on sequential epoch end
