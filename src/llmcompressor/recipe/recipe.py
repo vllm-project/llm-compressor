@@ -71,11 +71,11 @@ class Recipe(BaseModel):
         # backward-compatibility for llmcompressor.modifiers.awq.AWQModifier, which
         # returns [AWQTransformModifier, QuantizationModifier]
         def flatten(nested):
-            for item in nested:
-                if isinstance(item, list):
+            if isinstance(nested, list):
+                for item in nested:
                     yield from flatten(item)
-                else:
-                    yield item
+            else:
+                yield nested
 
         modifiers = list(flatten(modifiers))
 

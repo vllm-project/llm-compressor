@@ -115,11 +115,26 @@ def test_recipe_can_be_created_from_modifier_instances():
             True,
         ),
         (
+            AWQModifier(
+                ignore=["lm_head"],
+                scheme="W4A16_ASYM",
+                targets=["Linear"],
+                duo_scaling="both",
+            ),
+            True,
+        ),
+        (
             [
                 AWQTransformModifier(
                     duo_scaling="both",
                 )
             ],
+            False,
+        ),
+        (
+            AWQTransformModifier(
+                duo_scaling="both",
+            ),
             False,
         ),
         (
