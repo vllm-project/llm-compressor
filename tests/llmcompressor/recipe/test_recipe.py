@@ -7,6 +7,11 @@ from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.recipe import Recipe
 from tests.llmcompressor.helpers import valid_recipe_strings
 
+from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
+
 
 @pytest.mark.parametrize("recipe_str", valid_recipe_strings())
 def test_recipe_create_instance_accepts_valid_recipe_string(recipe_str):
@@ -94,3 +99,87 @@ def test_recipe_can_be_created_from_modifier_instances():
     for actual_modifier, expected_modifier in zip(actual_modifiers, expected_modifiers):
         assert isinstance(actual_modifier, type(expected_modifier))
         assert actual_modifier.model_dump() == expected_modifier.model_dump()
+
+
+@pytest.mark.parametrize(
+    "modifiers,is_valid",
+    [
+        (
+            [
+                AWQModifier(
+                    ignore=["lm_head"],
+                    scheme="W4A16_ASYM",
+                    targets=["Linear"],
+                    duo_scaling="both",
+                )
+            ],
+            True,
+        ),
+        (
+            [
+                AWQTransformModifier(
+                    duo_scaling="both",
+                )
+            ],
+            False,
+        ),
+        (
+            [
+                AWQTransformModifier(
+                    duo_scaling="both",
+                ),
+                QuantizationModifier(
+                    ignore=["lm_head"],
+                    scheme="W4A16_ASYM",
+                    targets=["Linear"],
+                ),
+            ],
+            True,
+        ),
+        (
+            [
+                QuantizationModifier(
+                    ignore=["lm_head"],
+                    scheme="W4A16_ASYM",
+                    targets=["Linear"],
+                ),
+                AWQTransformModifier(
+                    duo_scaling="both",
+                ),
+            ],
+            False,
+        ),
+        (
+            [
+                GPTQModifier(
+                    ignore=["lm_head"],
+                    scheme="W4A16_ASYM",
+                    targets=["Linear"],
+                ),
+                AWQTransformModifier(
+                    duo_scaling="both",
+                ),
+            ],
+            False,
+        ),
+        (
+            [
+                AWQTransformModifier(
+                    duo_scaling="both",
+                ),
+                GPTQModifier(
+                    ignore=["lm_head"],
+                    scheme="W4A16_ASYM",
+                    targets=["Linear"],
+                ),
+            ],
+            True,
+        ),
+    ],
+)
+def test_recipe_parse_modifiers(modifiers, is_valid):
+    if is_valid:
+        Recipe.create_instance(modifiers)
+    else:
+        with pytest.raises(ValueError):
+            Recipe.create_instance(modifiers)
