@@ -23,23 +23,47 @@ MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-greedy-multiscale"
 
 # Compression settings
-TARGET_SNR_DB = 25.0  # Target activation SNR
-MAX_STAGES = 4  # Maximum cascade iterations
-TUCKER_NUM_MODES = 8  # Number of modes for Tucker decomposition
-TUCKER_RANK = 2  # Rank ratio for Tucker core (low for small components)
-SPECTRAL_MPO_BOND_DIM_RATIO = 0.008  # Bond dimension ratio for Spectral MPO
-SPECTRAL_MPO_PARAM_BUDGET = 0.002  # Parameter budget for Spectral MPO (0.2% of params)
-KRONECKER_FACTOR_SIZE = None  # Kronecker factor size (None = auto)
-BLOCKTT_BLOCK_SIZE = 512  # Block size for Block Tensor Train
-BLOCKTT_NUM_CORES = 3  # Number of TT cores per block
-BLOCKTT_RANK = 0.2  # Rank ratio for Block TT
-BLOCKDIAG_NUM_BLOCKS = 16  # Number of diagonal blocks (local clusters)
-BLOCKDIAG_RANK = 64  # Low-rank component rank (global communication)
-SPARSE_SPARSITY = 0.1  # Column sparsity (0.1 = keep 90% of columns)
-USE_SPECTRAL_MPO = True  # Include Spectral MPO (q_proj only, dual variants)
-USE_KRONECKER = True  # Include Kronecker decomposition
-USE_BLOCKTT = True  # Include Block Tensor Train
-USE_SPARSE = True  # Include column-sparse stages in cascade
+TARGET_SNR_DB = 35.0  # Target activation SNR (30-35 dB range)
+MAX_REFINEMENT_ITERS = 3  # Phase 2 refinement iterations
+TOTAL_PARAM_BUDGET = 0.50  # Target 50% of original params
+
+# ASVD (primary backbone — "fast climber" at low SNR)
+# Rank is determined dynamically by efficiency knee, not by budget fraction.
+# svd_budget_fraction is the MAX fraction of total budget ASVD can use.
+USE_ASVD = True
+SVD_BUDGET_FRACTION = 0.8  # Up to 80% of budget for ASVD (knee usually stops earlier)
+
+# Tucker (residual structure, Step 3)
+TUCKER_NUM_MODES = 2
+TUCKER_RANK = 0.5
+
+# SpectralMPO — DISABLED (slow climber: DCT needs ~98% of modes for 99% energy)
+SPECTRAL_MPO_PARAM_BUDGET = 0.10
+SPECTRAL_MPO_BLOCK_SIZE = 512
+SPECTRAL_MPO_NUM_CORES = 3
+SPECTRAL_MPO_RANK = 0.5
+
+# Kronecker — DISABLED (consistently 0 dB contribution)
+KRONECKER_FACTOR_SIZE = None
+USE_KRONECKER = False
+
+# Block Tensor Train (Step 3, if budget remains)
+BLOCKTT_BLOCK_SIZE = 512
+BLOCKTT_NUM_CORES = 3
+BLOCKTT_RANK = 0.15
+USE_BLOCKTT = True
+
+# Block-Diagonal + Low-Rank (Step 3, if budget remains)
+BLOCKDIAG_NUM_BLOCKS = 16
+BLOCKDIAG_RANK = 64
+
+# Column Sparse — "fast climber" at high SNR (Step 2)
+# Budget allocated automatically: whatever ASVD doesn't use goes to sparse.
+SPARSE_SPARSITY = 0.1  # Not used directly — budget determines column count
+
+# Feature flags
+USE_SPECTRAL_MPO = False  # Disabled: DCT is a slow climber
+USE_SPARSE = True  # Adaptive sparse after ASVD knee
 
 # Calibration settings
 DATASET_ID = "mit-han-lab/pile-val-backup"
@@ -50,8 +74,8 @@ MAX_SEQUENCE_LENGTH = 2048
 # Layer targeting
 COMPRESS_TARGETS = [
     # "model.layers.0.self_attn.q_proj",  # All attention projections
-    "re:.*self_attn.(q|k|v|o)_proj$",  # All attention projections
-    "re:.*mlp.(gate|up|down)_proj$",  # Uncomment to include MLP layers
+    "re:.*model.layers.15.self_attn.(q|k|v|o)_proj$",  # All attention projections
+    "re:.*model.layers.15.mlp.(gate|up|down)_proj$",  # MLP layers
 ]
 
 IGNORE_LAYERS = [
@@ -119,6 +143,51 @@ def collect_layer_activations(model, layer_name, dataloader, device="cuda"):
     return all_acts
 
 
+def collect_decoder_outputs(model, decoder_layer_name, dataloader, device="cuda"):
+    """Collect output activations for a decoder layer."""
+    outputs = []
+
+    parts = decoder_layer_name.split(".")
+    layer = model
+    for part in parts:
+        layer = layer[int(part)] if part.isdigit() else getattr(layer, part)
+
+    def hook(module, input, output):
+        # Decoder layers return a tuple (hidden_states, ...)
+        out = output[0] if isinstance(output, tuple) else output
+        out = out.detach().cpu()
+        if len(out.shape) == 3:
+            out = out.reshape(-1, out.shape[-1])
+        outputs.append(out)
+
+    handle = layer.register_forward_hook(hook)
+    model.eval()
+    with torch.no_grad():
+        for batch in dataloader:
+            model(batch["input_ids"].to(device))
+    handle.remove()
+    return torch.cat(outputs, dim=0)
+
+
+def _decoder_layer_name(layer_name):
+    """Extract decoder layer name from a linear layer name.
+
+    'model.layers.15.self_attn.q_proj' -> 'model.layers.15'
+    """
+    parts = layer_name.split(".")
+    for i, part in enumerate(parts):
+        if part == "layers" and i + 1 < len(parts) and parts[i + 1].isdigit():
+            return ".".join(parts[: i + 2])
+    return None
+
+
+def _compute_snr_simple(original, approx):
+    """Compute SNR in dB."""
+    signal_power = torch.var(original)
+    mse = torch.mean((original - approx) ** 2)
+    return 10 * torch.log10(signal_power / (mse + 1e-10)).item()
+
+
 def compress_model_greedy_multiscale(
     model,
     dataloader,
@@ -134,10 +203,12 @@ def compress_model_greedy_multiscale(
     print("=" * 100)
     print(f"\nConfiguration:")
     print(f"  Target SNR: {TARGET_SNR_DB} dB")
-    print(f"  Max stages: {MAX_STAGES}")
+    print(f"  Max refinement iters: {MAX_REFINEMENT_ITERS}")
+    print(f"  Param budget: {TOTAL_PARAM_BUDGET:.0%} of original")
+    print(f"  ASVD: budget_fraction={SVD_BUDGET_FRACTION}, enabled={USE_ASVD}")
     print(f"  Tucker: num_modes={TUCKER_NUM_MODES}, rank={TUCKER_RANK}")
     print(
-        f"  SpectralMPO: bond_ratio={SPECTRAL_MPO_BOND_DIM_RATIO}, budget={SPECTRAL_MPO_PARAM_BUDGET}, variants=['weight','activation'], enabled={USE_SPECTRAL_MPO}"
+        f"  SpectralMPO: budget={SPECTRAL_MPO_PARAM_BUDGET}, block_size={SPECTRAL_MPO_BLOCK_SIZE}, cores={SPECTRAL_MPO_NUM_CORES}, rank={SPECTRAL_MPO_RANK}, enabled={USE_SPECTRAL_MPO}"
     )
     print(f"  Kronecker: factor_size={KRONECKER_FACTOR_SIZE}, enabled={USE_KRONECKER}")
     print(
@@ -194,6 +265,18 @@ def compress_model_greedy_multiscale(
         print(f"  - {layer_name}")
     print()
 
+    # Collect baseline decoder layer outputs before any compression
+    decoder_baselines = {}
+    for layer_name, _, _, _ in layers_to_compress:
+        dec_name = _decoder_layer_name(layer_name)
+        if dec_name and dec_name not in decoder_baselines:
+            print(f"Collecting baseline decoder outputs for {dec_name}...")
+            decoder_baselines[dec_name] = collect_decoder_outputs(
+                model, dec_name, dataloader, device
+            )
+            print(f"  Collected {decoder_baselines[dec_name].shape[0]} samples, "
+                  f"dim={decoder_baselines[dec_name].shape[1]}")
+
     # Compress each layer
     total_original_params = 0
     total_compressed_params = 0
@@ -217,11 +300,16 @@ def compress_model_greedy_multiscale(
             layer,
             input_activations=input_activations,
             target_snr_db=TARGET_SNR_DB,
-            max_stages=MAX_STAGES,
+            max_refinement_iters=MAX_REFINEMENT_ITERS,
+            total_param_budget=TOTAL_PARAM_BUDGET,
+            use_asvd=USE_ASVD,
+            svd_budget_fraction=SVD_BUDGET_FRACTION,
             tucker_num_modes=TUCKER_NUM_MODES,
             tucker_rank=TUCKER_RANK,
-            spectral_mpo_bond_dim_ratio=SPECTRAL_MPO_BOND_DIM_RATIO,
             spectral_mpo_param_budget=SPECTRAL_MPO_PARAM_BUDGET,
+            spectral_mpo_block_size=SPECTRAL_MPO_BLOCK_SIZE,
+            spectral_mpo_num_cores=SPECTRAL_MPO_NUM_CORES,
+            spectral_mpo_rank=SPECTRAL_MPO_RANK,
             kronecker_factor_size=KRONECKER_FACTOR_SIZE,
             blocktt_block_size=BLOCKTT_BLOCK_SIZE,
             blocktt_num_cores=BLOCKTT_NUM_CORES,
@@ -242,6 +330,17 @@ def compress_model_greedy_multiscale(
 
         total_original_params += layer.weight.numel()
         total_compressed_params += gms.num_params
+
+        # Measure decoder layer SNR (cumulative impact of all compressions so far)
+        dec_name = _decoder_layer_name(layer_name)
+        if dec_name and dec_name in decoder_baselines:
+            decoder_output = collect_decoder_outputs(
+                model, dec_name, dataloader, device
+            )
+            decoder_snr = _compute_snr_simple(
+                decoder_baselines[dec_name], decoder_output
+            )
+            print(f"\n  Decoder layer SNR ({dec_name}): {decoder_snr:.2f} dB")
 
         print(f"\n✓ Compressed {layer_name}")
 

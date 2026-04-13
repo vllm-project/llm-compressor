@@ -453,6 +453,135 @@ class ColumnSparseLinear(nn.Module):
             params += self.bias.numel()
         return params
 
+    def to_matrix(self):
+        """Reconstruct full weight matrix with zeros for unselected columns."""
+        full_weight = torch.zeros(
+            self.out_features,
+            self.in_features,
+            dtype=self.weight.dtype,
+            device=self.weight.device,
+        )
+        full_weight[:, self.selected_columns] = self.weight.data
+        return full_weight
+
+    @classmethod
+    def from_linear_adaptive(
+        cls,
+        linear: nn.Linear,
+        input_activations: torch.Tensor,
+        target_sparsity: float = 0.5,
+        reference_rank_frac: float = 0.30,
+    ) -> "ColumnSparseLinear":
+        """Adaptive column extraction: select columns least captured by ASVD subspace.
+
+        Instead of greedy OLS (which selects highest-importance columns), this
+        selects columns with lowest projection ratio onto the ASVD subspace.
+        This makes the remaining matrix more compressible by low-rank methods.
+
+        projection_ratio_j = ||U_k^T @ w_j||^2 / ||w_j||^2
+
+        Columns with low projection ratio are orthogonal to the low-rank subspace,
+        meaning ASVD can't capture them. Extracting these to sparse lets ASVD
+        focus on the well-aligned structure with lower effective rank.
+
+        Args:
+            linear: Original linear layer (or residual weight to approximate)
+            input_activations: Calibration activations (num_samples, in_features)
+            target_sparsity: Fraction of columns to extract (0.0-1.0)
+            reference_rank_frac: Fraction of min dimension for reference ASVD rank
+        """
+        import numpy as np
+
+        W = linear.weight.data.float().cpu()
+        out_features, in_features = W.shape
+        input_acts = input_activations.float().cpu()
+
+        # Compute ASVD reference subspace
+        act_norms = input_acts.norm(dim=0).clamp(min=1e-10)
+        W_scaled = W * act_norms.unsqueeze(0)
+        min_dim = min(out_features, in_features)
+        ref_rank = max(1, int(reference_rank_frac * min_dim))
+
+        try:
+            U_full, S, Vh = torch.linalg.svd(W_scaled, full_matrices=False)
+        except torch._C._LinAlgError:
+            U_np, S_np, Vh_np = np.linalg.svd(W_scaled.numpy(), full_matrices=False)
+            U_full = torch.from_numpy(U_np)
+
+        U_k = U_full[:, :ref_rank]  # (out_features, ref_rank)
+
+        # Projection ratio per column: ||U_k^T @ w_j||^2 / ||w_j||^2
+        proj = U_k.T @ W  # (ref_rank, in_features)
+        proj_norms_sq = (proj ** 2).sum(dim=0)
+        col_norms_sq = (W ** 2).sum(dim=0).clamp(min=1e-20)
+        proj_ratios = (proj_norms_sq / col_norms_sq).clamp(0, 1)
+
+        # Select columns with lowest projection ratio (true outliers)
+        target_num_cols = max(1, int(target_sparsity * in_features))
+        sorted_indices = torch.argsort(proj_ratios)  # ascending: lowest ratio first
+        selected_cols = sorted_indices[:target_num_cols].sort().values
+
+        # LSTSQ fit for the selected columns
+        with torch.no_grad():
+            output_activations = F.linear(input_acts, W)
+        X_selected = input_acts[:, selected_cols]
+        W_final = torch.linalg.lstsq(X_selected, output_activations).solution
+
+        return cls(
+            in_features=in_features,
+            out_features=out_features,
+            selected_columns=selected_cols,
+            weight=W_final.T,  # (out_features, num_selected)
+            bias=linear.bias.data if linear.bias is not None else None,
+            dtype=linear.weight.dtype,
+        )
+
+    @classmethod
+    def refit_adaptive(
+        cls, target_linear, input_activations, param_budget,
+        reference_rank_frac=0.30,
+    ):
+        """Re-create adaptive column-sparse decomposition targeting param_budget.
+
+        Args:
+            target_linear: nn.Linear with the target weight to approximate
+            input_activations: Calibration activations (num_samples, in_features)
+            param_budget: Target number of parameters
+            reference_rank_frac: Fraction of min dimension for ASVD reference rank
+        """
+        out_features = target_linear.out_features
+        in_features = target_linear.in_features
+        num_cols = max(1, param_budget // out_features)
+        target_sparsity = min(1.0, num_cols / in_features)
+        return cls.from_linear_adaptive(
+            target_linear,
+            input_activations=input_activations,
+            target_sparsity=target_sparsity,
+            reference_rank_frac=reference_rank_frac,
+        )
+
+    @classmethod
+    def refit(cls, target_linear, input_activations, param_budget, k_cols_per_iter=32):
+        """Re-create column-sparse decomposition targeting param_budget parameters.
+
+        Args:
+            target_linear: nn.Linear with the target weight to approximate
+            input_activations: Calibration activations (num_samples, in_features)
+            param_budget: Target number of parameters
+            k_cols_per_iter: Columns added per greedy iteration
+        """
+        out_features = target_linear.out_features
+        in_features = target_linear.in_features
+        # num_params = out_features * num_selected_cols (+ bias)
+        num_cols = max(1, param_budget // out_features)
+        target_sparsity = min(1.0, num_cols / in_features)
+        return cls.from_linear(
+            target_linear,
+            input_activations=input_activations,
+            target_sparsity=target_sparsity,
+            k_cols_per_iter=k_cols_per_iter,
+        )
+
     @classmethod
     def from_linear(
         cls,

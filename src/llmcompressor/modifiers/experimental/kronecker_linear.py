@@ -87,6 +87,22 @@ class KroneckerLinear(nn.Module):
         return total
 
     @classmethod
+    def refit(cls, target_linear, input_activations, param_budget, factor_size=None):
+        """Re-create Kronecker decomposition on new target.
+
+        Kronecker param count is fixed by the matrix factorization, so
+        param_budget is accepted but not used for sizing. The value is in
+        refitting to a new residual target.
+
+        Args:
+            target_linear: nn.Linear with the target weight to approximate
+            input_activations: Not used (kept for uniform interface)
+            param_budget: Not used (param count is fixed)
+            factor_size: Factor size for Kronecker
+        """
+        return cls.from_linear(target_linear, factor_size=factor_size, verbose=False)
+
+    @classmethod
     def from_linear(
         cls,
         linear: nn.Linear,

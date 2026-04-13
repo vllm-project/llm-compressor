@@ -118,96 +118,65 @@ class TuckerLinear(nn.Module):
         weight: torch.Tensor,
         input_activations: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Use spectral reordering to find optimal input channel permutation.
+        """Sort input channels (columns) by descending importance.
 
-        Groups correlated input channels together using Laplacian eigenmaps.
+        Importance = column L2 norm, optionally weighted by activation norms.
         """
+        col_norms = weight.float().norm(dim=0)
         if input_activations is not None:
-            # Use activation-based correlation
-            activations_centered = input_activations - input_activations.mean(dim=0, keepdim=True)
-            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
-            activations_normalized = activations_centered / activations_std
-            num_samples = activations_normalized.shape[0]
-            correlation = (activations_normalized.T @ activations_normalized) / num_samples
-        else:
-            # Use weight-based correlation (input features)
-            weight_normalized = weight / (torch.norm(weight, dim=0, keepdim=True) + 1e-10)
-            correlation = weight_normalized.T @ weight_normalized
-
-        # Exponential kernel for stronger locality
-        affinity = torch.exp(correlation - 1.0)
-
-        # Graph Laplacian
-        degree = torch.diag(affinity.sum(dim=1))
-        laplacian = degree - affinity
-
-        # Eigendecomposition
-        laplacian_f32 = laplacian.to(torch.float32)
-        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
-
-        # Fiedler vector (2nd smallest eigenvalue)
-        fiedler_vector = eigenvectors[:, 1]
-
-        # Sort by Fiedler vector
-        input_perm = torch.argsort(fiedler_vector)
-
-        return input_perm.to(weight.device)
+            act_norms = input_activations.float().norm(dim=0)
+            col_norms = col_norms * act_norms
+        return torch.argsort(col_norms, descending=True).to(weight.device)
 
     @staticmethod
     def _spectral_reordering_output(
         weight: torch.Tensor,
         output_activations: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Use spectral reordering to find optimal output channel permutation.
+        """Sort output channels (rows) by descending importance.
 
-        Groups correlated output channels together using Laplacian eigenmaps.
+        Importance = row L2 norm, optionally weighted by output activation norms.
         """
+        row_norms = weight.float().norm(dim=1)
         if output_activations is not None:
-            # Use output activation-based correlation
-            activations_centered = output_activations - output_activations.mean(dim=0, keepdim=True)
-            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
-            activations_normalized = activations_centered / activations_std
-            num_samples = activations_normalized.shape[0]
-            correlation = (activations_normalized.T @ activations_normalized) / num_samples
-        else:
-            # Use weight-based correlation (output features = rows of W)
-            weight_normalized = weight / (torch.norm(weight, dim=1, keepdim=True) + 1e-10)
-            correlation = weight_normalized @ weight_normalized.T
-
-        # Exponential kernel for stronger locality
-        affinity = torch.exp(correlation - 1.0)
-
-        # Graph Laplacian
-        degree = torch.diag(affinity.sum(dim=1))
-        laplacian = degree - affinity
-
-        # Eigendecomposition
-        laplacian_f32 = laplacian.to(torch.float32)
-        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
-
-        # Fiedler vector (2nd smallest eigenvalue)
-        fiedler_vector = eigenvectors[:, 1]
-
-        # Sort by Fiedler vector
-        output_perm = torch.argsort(fiedler_vector)
-
-        return output_perm.to(weight.device)
+            act_norms = output_activations.float().norm(dim=0)
+            row_norms = row_norms * act_norms
+        return torch.argsort(row_norms, descending=True).to(weight.device)
 
     @staticmethod
     def get_shape(num_features: int, num_modes: int) -> tuple[int, ...]:
         """Compute balanced factorization of num_features into num_modes dimensions.
 
-        Similar to TensorizedLinear.get_shape, tries to use powers of 2.
+        Uses integer division to ensure exact product. Tries powers of 2 first,
+        falls back to nearest divisor.
         """
         shape = []
         remainder = num_features
         for i in reversed(range(num_modes)):
             if i == 0:
-                shape.append(round(remainder))
+                shape.append(remainder)
             else:
-                dim = get_nearest_power_of_2(remainder ** (1 / (num_modes - len(shape))))
-                shape.append(dim)
-                remainder = remainder / dim
+                target = get_nearest_power_of_2(remainder ** (1 / (i + 1)))
+                # Ensure target evenly divides remainder
+                if remainder % target != 0:
+                    # Search nearby for a divisor
+                    best = target
+                    for offset in range(1, target):
+                        if target - offset >= 2 and remainder % (target - offset) == 0:
+                            best = target - offset
+                            break
+                        if remainder % (target + offset) == 0:
+                            best = target + offset
+                            break
+                    target = best
+                # Final fallback: if still not divisible, use smallest factor >= 2
+                if remainder % target != 0:
+                    for f in range(2, remainder):
+                        if remainder % f == 0:
+                            target = f
+                            break
+                shape.append(target)
+                remainder = remainder // target
 
         assert len(shape) == num_modes
         assert math.prod(shape) == num_features, f"Shape mismatch: {shape} -> {math.prod(shape)} != {num_features}"
@@ -283,8 +252,8 @@ class TuckerLinear(nn.Module):
             total_params = core_params + factor_params
             print(f"  Params: {total_params:,} / {orig_params:,} = {total_params/orig_params:.2%}")
 
-        # Tucker decomposition
-        weight_f32 = weight_tensor.to(torch.float32)
+        # Tucker decomposition (on CPU to avoid cusolver issues with high-mode tensors)
+        weight_f32 = weight_tensor.to(torch.float32).cpu()
         core, factors = tl.decomposition.tucker(weight_f32, rank=core_dims)
 
         # Split factors into output and input
@@ -304,6 +273,54 @@ class TuckerLinear(nn.Module):
             output_inv_perm=output_inv_perm,
             dtype=orig_dtype,
         ).to(device)
+
+    @classmethod
+    def _estimate_params(cls, out_features, in_features, num_modes, rank_ratio):
+        """Estimate param count for a given rank ratio without decomposing."""
+        output_shape = cls.get_shape(out_features, num_modes)
+        input_shape = cls.get_shape(in_features, num_modes)
+        tensor_shape = output_shape + input_shape
+        core_dims = tuple(max(1, int(d * rank_ratio)) for d in tensor_shape)
+        core_params = math.prod(core_dims)
+        factor_params = sum(tensor_shape[i] * core_dims[i] for i in range(len(tensor_shape)))
+        # +1 for alpha, +out_features for per_dim_scale
+        return core_params + factor_params + 1 + out_features
+
+    @classmethod
+    def refit(cls, target_linear, input_activations, param_budget, num_modes=3):
+        """Re-create Tucker decomposition targeting param_budget parameters.
+
+        Uses binary search on rank ratio to find the decomposition closest
+        to the target parameter budget.
+
+        Args:
+            target_linear: nn.Linear with the target weight to approximate
+            input_activations: Calibration activations (num_samples, in_features)
+            param_budget: Target number of parameters
+            num_modes: Number of modes for Tucker decomposition
+        """
+        out_features = target_linear.out_features
+        in_features = target_linear.in_features
+
+        # Binary search on rank ratio
+        lo, hi = 0.01, 1.0
+        best_rank = lo
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            est = cls._estimate_params(out_features, in_features, num_modes, mid)
+            if est <= param_budget:
+                best_rank = mid
+                lo = mid
+            else:
+                hi = mid
+
+        return cls.from_linear(
+            target_linear,
+            rank=best_rank,
+            num_modes=num_modes,
+            input_activations=input_activations,
+            verbose=False,
+        )
 
     def forward(self, x):
         """Forward pass using Tucker contraction via tensorly.

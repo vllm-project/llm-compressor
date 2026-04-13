@@ -32,6 +32,7 @@ class TensorizedLinear(nn.Module):
         input_inv_perm: torch.Tensor | None = None,
         output_perm: torch.Tensor | None = None,
         output_inv_perm: torch.Tensor | None = None,
+        input_act_scales: torch.Tensor | None = None,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
     ):
@@ -86,141 +87,56 @@ class TensorizedLinear(nn.Module):
             self.output_perm = None
             self.output_inv_perm = None
 
+        # Activation-aware scaling: TT decomposition was done on W * diag(scales),
+        # so forward must divide input by scales to compensate: W*S @ (x/S) = W @ x
+        if input_act_scales is not None:
+            self.register_buffer("input_act_scales", input_act_scales.to(dtype))
+        else:
+            self.input_act_scales = None
+
     @staticmethod
-    def _spectral_reordering(
+    def _sparsity_reordering(
         weight: torch.Tensor,
         input_activations: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """
-        Compute optimal channel permutation using Spectral Reordering via Laplacian Eigenmaps.
+        """Sort input channels (columns) by descending importance.
 
-        This finds the permutation that maximizes local coherence for MPO decomposition by:
-        1. Computing correlation matrix between input channels from activations or weights
-        2. Building graph Laplacian from correlations
-        3. Finding Fiedler vector (eigenvector of 2nd smallest eigenvalue)
-        4. Sorting channels by Fiedler vector to group similar channels together
+        Importance = column L2 norm, optionally weighted by activation norms.
+        Places highest-magnitude columns first so that top-left blocks in
+        Block-TT carry the most energy.
 
         Args:
             weight: Weight matrix of shape (out_features, in_features)
-            input_activations: Optional input activation data of shape (num_samples, in_features).
-                             If provided, computes correlations from activation patterns instead of weights.
-
-        Returns:
-            Permutation indices that maximize local coherence
+            input_activations: Optional (num_samples, in_features). If provided,
+                             importance = weight_col_norm * activation_col_norm.
         """
+        col_norms = weight.float().norm(dim=0)  # (in_features,)
         if input_activations is not None:
-            # Compute correlation from activation data
-            # Center activations (subtract mean) for proper correlation
-            activations_centered = input_activations - input_activations.mean(dim=0, keepdim=True)
-
-            # Normalize each channel to unit variance for correlation computation
-            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
-            activations_normalized = activations_centered / activations_std
-
-            # Correlation matrix: Corr[i,j] = correlation between channel i and j
-            # Shape: (in_features, in_features)
-            num_samples = activations_normalized.shape[0]
-            correlation = (activations_normalized.T @ activations_normalized) / num_samples
-        else:
-            # Compute correlation matrix between input channels (columns of weight)
-            # Normalize each column to unit norm for cosine similarity
-            weight_normalized = weight / (torch.norm(weight, dim=0, keepdim=True) + 1e-10)
-
-            # Correlation/affinity matrix: C[i,j] = cosine similarity between channels i and j
-            # Shape: (in_features, in_features)
-            correlation = weight_normalized.T @ weight_normalized
-
-        # Make affinity matrix non-negative and apply exponential kernel for stronger locality
-        # A[i,j] = exp(correlation[i,j]) gives higher weight to similar channels
-        affinity = torch.exp(correlation - 1.0)  # Subtract 1 so diagonal ≈ 1 after exp
-
-        # Construct graph Laplacian: L = D - A
-        # where D is degree matrix (diagonal with row sums of A)
-        degree = torch.diag(affinity.sum(dim=1))
-        laplacian = degree - affinity
-
-        # Compute eigendecomposition of Laplacian
-        # Use float32 for eigendecomposition (more stable than bfloat16)
-        laplacian_f32 = laplacian.to(torch.float32)
-        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
-
-        # Fiedler vector: eigenvector corresponding to 2nd smallest eigenvalue
-        # This vector provides a 1D embedding that preserves graph structure
-        fiedler_vector = eigenvectors[:, 1]  # Index 1 = second smallest eigenvalue
-
-        # Sort channels by Fiedler vector values
-        # This groups strongly connected channels together, maximizing local coherence
-        input_perm = torch.argsort(fiedler_vector)
-
-        return input_perm.to(weight.device)
+            act_norms = input_activations.float().norm(dim=0)
+            col_norms = col_norms * act_norms
+        return torch.argsort(col_norms, descending=True).to(weight.device)
 
     @staticmethod
-    def _spectral_reordering_output(
+    def _sparsity_reordering_output(
         weight: torch.Tensor,
         output_activations: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """
-        Compute optimal output channel permutation using Spectral Reordering via Laplacian Eigenmaps.
+        """Sort output channels (rows) by descending importance.
 
-        This finds the permutation that maximizes local coherence for output dimensions by:
-        1. Computing correlation matrix between output channels from activations or weights
-        2. Building graph Laplacian from correlations
-        3. Finding Fiedler vector (eigenvector of 2nd smallest eigenvalue)
-        4. Sorting channels by Fiedler vector to group similar channels together
+        Importance = row L2 norm, optionally weighted by output activation norms.
+        Places highest-magnitude rows first so that top-left blocks in
+        Block-TT carry the most energy.
 
         Args:
             weight: Weight matrix of shape (out_features, in_features)
-            output_activations: Optional output activation data of shape (num_samples, out_features).
-                              If provided, computes correlations from activation patterns instead of weights.
-
-        Returns:
-            Permutation indices that maximize local coherence for output dimensions
+            output_activations: Optional (num_samples, out_features). If provided,
+                              importance = weight_row_norm * activation_row_norm.
         """
+        row_norms = weight.float().norm(dim=1)  # (out_features,)
         if output_activations is not None:
-            # Compute correlation from activation data
-            # Center activations (subtract mean) for proper correlation
-            activations_centered = output_activations - output_activations.mean(dim=0, keepdim=True)
-
-            # Normalize each channel to unit variance for correlation computation
-            activations_std = activations_centered.std(dim=0, keepdim=True) + 1e-10
-            activations_normalized = activations_centered / activations_std
-
-            # Correlation matrix: Corr[i,j] = correlation between output channel i and j
-            # Shape: (out_features, out_features)
-            num_samples = activations_normalized.shape[0]
-            correlation = (activations_normalized.T @ activations_normalized) / num_samples
-        else:
-            # Compute correlation matrix between output channels (rows of weight)
-            # Normalize each row to unit norm for cosine similarity
-            weight_normalized = weight / (torch.norm(weight, dim=1, keepdim=True) + 1e-10)
-
-            # Correlation/affinity matrix: C[i,j] = cosine similarity between output channels i and j
-            # Shape: (out_features, out_features)
-            correlation = weight_normalized @ weight_normalized.T
-
-        # Make affinity matrix non-negative and apply exponential kernel for stronger locality
-        # A[i,j] = exp(correlation[i,j]) gives higher weight to similar channels
-        affinity = torch.exp(correlation - 1.0)  # Subtract 1 so diagonal ≈ 1 after exp
-
-        # Construct graph Laplacian: L = D - A
-        # where D is degree matrix (diagonal with row sums of A)
-        degree = torch.diag(affinity.sum(dim=1))
-        laplacian = degree - affinity
-
-        # Compute eigendecomposition of Laplacian
-        # Use float32 for eigendecomposition (more stable than bfloat16)
-        laplacian_f32 = laplacian.to(torch.float32)
-        eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_f32)
-
-        # Fiedler vector: eigenvector corresponding to 2nd smallest eigenvalue
-        # This vector provides a 1D embedding that preserves graph structure
-        fiedler_vector = eigenvectors[:, 1]  # Index 1 = second smallest eigenvalue
-
-        # Sort channels by Fiedler vector values
-        # This groups strongly connected channels together, maximizing local coherence
-        output_perm = torch.argsort(fiedler_vector)
-
-        return output_perm.to(weight.device)
+            act_norms = output_activations.float().norm(dim=0)
+            row_norms = row_norms * act_norms
+        return torch.argsort(row_norms, descending=True).to(weight.device)
 
     @classmethod
     def from_linear(
@@ -297,13 +213,12 @@ class TensorizedLinear(nn.Module):
                 input_acts_dtype = input_activations.to(weight.dtype)
                 output_activations = (weight @ input_acts_dtype.T).T
 
-        # Use spectral reordering to find optimal input channel permutation
-        # This maximizes local coherence for MPO decomposition using Laplacian Eigenmaps
-        input_perm = cls._spectral_reordering(weight, input_activations)
+        # Sparsity-inducing reordering: sort columns/rows by descending magnitude
+        # so top-left blocks carry the most energy in Block-TT
+        input_perm = cls._sparsity_reordering(weight, input_activations)
         input_inv_perm = torch.argsort(input_perm)
 
-        # Use spectral reordering to find optimal output channel permutation
-        output_perm = cls._spectral_reordering_output(weight, output_activations)
+        output_perm = cls._sparsity_reordering_output(weight, output_activations)
         output_inv_perm = torch.argsort(output_perm)
 
         # Apply both permutations to weight matrix
@@ -318,6 +233,20 @@ class TensorizedLinear(nn.Module):
         # It is probably this because the linear weight matrix has
         #   a shape of (out_features, in_features)
         shape = output_shape + input_shape
+
+        # Activation-aware scaling: scale weight columns by activation norms
+        # so the TT decomposition prioritizes directions that carry real signal.
+        # W_scaled = W * diag(act_norms), then forward compensates: x_scaled = x / act_norms
+        input_act_scales = None
+        if input_activations is not None:
+            act_norms = input_activations.float().norm(dim=0)
+            # Normalize so mean scale is 1 (preserves overall magnitude)
+            act_norms = act_norms / (act_norms.mean() + 1e-10)
+            act_norms = act_norms.clamp(min=1e-10)
+            # Apply permutation to match weight column order
+            act_norms_permuted = act_norms[input_perm]
+            weight_permuted = weight_permuted * act_norms_permuted.unsqueeze(0)
+            input_act_scales = act_norms_permuted
 
         # upconvert to float32 before svd, no bfloat16 implementation
         # Detach to avoid gradient tracking warnings from tensorly
@@ -336,6 +265,7 @@ class TensorizedLinear(nn.Module):
             input_inv_perm=input_inv_perm,
             output_perm=output_perm,
             output_inv_perm=output_inv_perm,
+            input_act_scales=input_act_scales,
             dtype=orig_dtype,
         )
 
@@ -376,6 +306,10 @@ class TensorizedLinear(nn.Module):
         scale = self.per_dim_scale * self.alpha
         W_scaled = W * scale.view(-1, 1)
 
+        # Undo activation-aware scaling: TT stores W*S, so divide columns by S
+        if self.input_act_scales is not None:
+            W_scaled = W_scaled / self.input_act_scales.unsqueeze(0)
+
         # Apply inverse permutations to restore original channel ordering
         # First restore input channels (columns)
         if self.input_inv_perm is not None:
@@ -408,6 +342,11 @@ class TensorizedLinear(nn.Module):
         # This reorders channels by importance before MPO contraction
         if self.input_perm is not None:
             x = x[:, self.input_perm]
+
+        # Activation-aware: divide input by activation scales to compensate
+        # for weight scaling done during decomposition: (W*S) @ (x/S) = W @ x
+        if self.input_act_scales is not None:
+            x = x / self.input_act_scales
 
         # Get shapes from factors
         input_shape = [f.shape[2] for f in self.factors]

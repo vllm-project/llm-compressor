@@ -55,6 +55,69 @@ class BlockTensorizedLinear(nn.Module):
         self.out_features = out_features
 
     @classmethod
+    def refit(cls, target_linear, input_activations, param_budget,
+              block_size=512, num_cores=3, current_stage=None):
+        """Re-create Block-TT decomposition targeting param_budget parameters.
+
+        Uses binary search on rank ratio to hit the target parameter budget.
+        For small shrinks when a current_stage is provided, prefers
+        truncate_ranks() to preserve learned structure.
+
+        Args:
+            target_linear: nn.Linear with the target weight to approximate
+            input_activations: Calibration activations (num_samples, in_features)
+            param_budget: Target number of parameters
+            block_size: Block size for decomposition
+            num_cores: Number of TT cores per block
+            current_stage: Optional existing BlockTensorizedLinear for truncation path
+        """
+        out_features = target_linear.out_features
+        in_features = target_linear.in_features
+
+        # If current_stage exists and we're pruning by <20%, try truncate_ranks
+        if current_stage is not None and current_stage.num_params > param_budget:
+            reduction = 1.0 - param_budget / current_stage.num_params
+            if reduction < 0.2:
+                # Small shrink: use truncate_ranks to preserve structure
+                # Binary search on energy_threshold
+                lo, hi = 0.5, 0.999
+                best_threshold = lo
+                for _ in range(20):
+                    mid = (lo + hi) / 2
+                    truncated = current_stage.truncate_ranks(energy_threshold=mid)
+                    if truncated.num_params <= param_budget:
+                        best_threshold = mid
+                        lo = mid
+                    else:
+                        hi = mid
+                return current_stage.truncate_ranks(energy_threshold=best_threshold)
+
+        # General case: binary search on rank ratio
+        lo, hi = 0.05, 0.95
+        best_rank = lo
+        for _ in range(20):
+            mid = (lo + hi) / 2
+            try:
+                trial = cls.from_linear(
+                    target_linear, block_size=block_size,
+                    rank=mid, num_cores=num_cores,
+                    input_activations=input_activations,
+                )
+                if trial.num_params <= param_budget:
+                    best_rank = mid
+                    lo = mid
+                else:
+                    hi = mid
+            except Exception:
+                hi = mid
+
+        return cls.from_linear(
+            target_linear, block_size=block_size,
+            rank=best_rank, num_cores=num_cores,
+            input_activations=input_activations,
+        )
+
+    @classmethod
     def from_linear(
         cls,
         linear: nn.Linear,

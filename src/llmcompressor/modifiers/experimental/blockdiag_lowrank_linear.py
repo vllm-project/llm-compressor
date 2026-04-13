@@ -96,6 +96,48 @@ class BlockDiagonalLowRankLinear(nn.Module):
         return total
 
     @classmethod
+    def refit(cls, target_linear, input_activations, param_budget, num_blocks=16):
+        """Re-create BlockDiag+LR decomposition targeting param_budget parameters.
+
+        Fixes num_blocks and solves for the low-rank component rank.
+
+        Args:
+            target_linear: nn.Linear with the target weight to approximate
+            input_activations: Not used (kept for uniform interface)
+            param_budget: Target number of parameters
+            num_blocks: Number of diagonal blocks
+        """
+        out_features = target_linear.out_features
+        in_features = target_linear.in_features
+
+        # Adjust num_blocks for divisibility
+        for nb in range(num_blocks, 0, -1):
+            if in_features % nb == 0 and out_features % nb == 0:
+                num_blocks = nb
+                break
+
+        block_in_size = in_features // num_blocks
+        block_out_size = out_features // num_blocks
+        block_params = num_blocks * block_in_size * block_out_size
+        # +1 for alpha
+        remaining = param_budget - block_params - 1
+        rank = max(1, remaining // (in_features + out_features))
+
+        # If blocks alone exceed budget, halve num_blocks and retry
+        if remaining <= 0:
+            return cls.refit(
+                target_linear, input_activations, param_budget,
+                num_blocks=max(1, num_blocks // 2),
+            )
+
+        return cls.from_linear(
+            target_linear,
+            num_blocks=num_blocks,
+            rank=rank,
+            verbose=False,
+        )
+
+    @classmethod
     def from_linear(
         cls,
         linear: nn.Linear,

@@ -1,44 +1,28 @@
-"""Greedy Multi-Scale Decomposition: 7-Component Cascade (q_proj) / 5-Component (others).
+"""Efficiency-Driven Multi-Scale Decomposition.
 
-Mathematical form (q_proj):
-    y = Tucker(x) + SpectralMPO_weight(x) + SpectralMPO_act(x) + BlockTT(x) + Kronecker(x) + BlockDiagLR(x) + Sparse(x) + ...
+Uses Compression Efficiency = ΔSNR / ΔEffective_Rank to choose when to switch
+techniques. Each technique is a "climber" on the SNR/ER curve:
 
-Mathematical form (other layers):
-    y = Tucker(x) + BlockTT(x) + Kronecker(x) + BlockDiagLR(x) + Sparse(x) + ...
+    Fast climbers (high efficiency):
+        - ASVD: Dominates at low SNR. Captures the "active logic" — the modes
+          that actually see current through activations. Gets massive functional
+          SNR gain with small ER. Use until the knee.
+        - Adaptive Sparse: Dominates at high SNR. After ASVD saturates, sparse
+          targets specific "error spikes" that low-rank can't capture efficiently.
 
-Strategy (per stage):
-    1. Tucker: Global multi-dimensional structure (dual spectral reordering)
-    2A. SpectralMPO (weight): Direct DCT(Weight) - global structure/prior [q_proj only]
-    2B. SpectralMPO (activation): LSTSQ - task-aware/evidence [q_proj only]
-    3. Block Tensor Train: Block-wise structured tensor decomposition
-    4. Kronecker: Repeating/block-periodic patterns (fractal-like, super efficient)
-    5. Block-Diagonal + Low-Rank: Local clusters + global communication
-    6. Sparse: Outlier features and sharp edges
+    Slow climbers (low efficiency, optional):
+        - Tucker, BlockTT, BlockDiag+LR, Kronecker: Available if budget remains
+          after ASVD + Sparse.
 
-Geometric perspectives:
-    - Tucker: Multi-dimensional correlations with spectral reordering
-    - SpectralMPO (weight): Frequency-domain structure from weight matrix (prior knowledge)
-    - SpectralMPO (activation): Frequency-domain structure from activations (task-specific evidence)
-    - Block TT: Divide matrix into blocks, tensor train per block
-    - Kronecker: Repeating patterns (B ⊗ C), parameter-efficient
-    - BlockDiag+LR: Dense local clusters + low-rank global communication
-    - Sparse: Greedy column selection for outliers
-
-Why this order:
-    - Tucker FIRST: Captures global structure (benefits from full signal for spectral reordering)
-    - SpectralMPO: Frequency-domain compression (only for q_proj with multi-head structure)
-    - Block TT: Structured spatial decomposition
-    - Kronecker: Repeating pattern decomposition
-    - BlockDiag+LR: Stable local + global decomposition
-    - Sparse: Captures outliers/sharp features that structured methods miss
-
-Benefits:
-    - Structured methods (Tucker, SpectralMPO, BlockTT, BlockDiag+LR) work on full signal
-    - DUAL SpectralMPO for q_proj: Weight-based (prior) + Activation-based (evidence)
-    - Sparse handles outliers the structured methods couldn't compress
-    - Each component attacks error from different geometric perspective
-    - Numerically stable (small components)
+Pipeline:
+    Phase 1: Efficiency-driven cascade
+        Step 1: ASVD rank sweep — grow rank until efficiency knee
+        Step 2: Adaptive Sparse — target residual error spikes with remaining budget
+        Step 3: Other techniques (if enabled, budget remains, SNR not met)
+    Phase 2: Iterative refinement (refit each stage to its ideal target)
 """
+
+import math
 
 import torch
 import torch.nn as nn
@@ -47,14 +31,38 @@ from typing import Optional
 
 from llmcompressor.modifiers.experimental.tucker_linear import TuckerLinear
 from llmcompressor.modifiers.experimental.kronecker_linear import KroneckerLinear
-from llmcompressor.modifiers.experimental.block_tensorized_linear import BlockTensorizedLinear
-from llmcompressor.modifiers.experimental.blockdiag_lowrank_linear import BlockDiagonalLowRankLinear
+from llmcompressor.modifiers.experimental.block_tensorized_linear import (
+    BlockTensorizedLinear,
+)
+from llmcompressor.modifiers.experimental.blockdiag_lowrank_linear import (
+    BlockDiagonalLowRankLinear,
+)
 from llmcompressor.modifiers.experimental.spectral_mpo_linear import SpectralMPOLinear
 from llmcompressor.modifiers.experimental.adtn_linear import ColumnSparseLinear
 
 
+class WeightOnlyLinear(nn.Module):
+    """Stores a reconstructed weight matrix for stages like SpectralMPO."""
+
+    def __init__(self, weight):
+        super().__init__()
+        self.weight = nn.Parameter(weight, requires_grad=False)
+        self.in_features = weight.shape[1]
+        self.out_features = weight.shape[0]
+
+    def forward(self, x):
+        return F.linear(x, self.weight.to(x.dtype))
+
+    def to_matrix(self):
+        return self.weight
+
+    @property
+    def num_params(self):
+        return self.weight.numel()
+
+
 class LowRankLinear(nn.Module):
-    """Low-rank linear layer: Y = U @ V^T @ X."""
+    """Low-rank linear layer: Y = X @ V @ U^T."""
 
     def __init__(self, in_features: int, out_features: int, rank: int):
         super().__init__()
@@ -62,76 +70,368 @@ class LowRankLinear(nn.Module):
         self.out_features = out_features
         self.rank = rank
 
-        # U: (out_features, rank), V: (in_features, rank)
         self.U = nn.Parameter(torch.randn(out_features, rank) * 0.01)
         self.V = nn.Parameter(torch.randn(in_features, rank) * 0.01)
 
     @classmethod
     def from_svd(cls, weight: torch.Tensor, rank: int):
-        """Create low-rank approximation from SVD."""
+        """Create low-rank approximation from plain SVD."""
         device = weight.device
-        # Store as float32 for numerical precision, convert to input dtype in forward()
-        target_dtype = torch.float32
 
-        # Perform SVD on CPU for numerical stability
         weight_cpu = weight.float().cpu()
         U_full, S, Vh = torch.linalg.svd(weight_cpu, full_matrices=False)
 
-        # Truncate to rank
         U_r = U_full[:, :rank]
         S_r = S[:rank]
         Vh_r = Vh[:rank, :]
 
-        # Create layer
         out_features, in_features = weight.shape
         layer = cls(in_features, out_features, rank)
 
-        # Set parameters: U @ S, V^T in float32, move to correct device
-        layer.U.data = (U_r @ torch.diag(S_r)).to(dtype=target_dtype, device=device)
-        layer.V.data = Vh_r.T.to(dtype=target_dtype, device=device)
+        layer.U.data = (U_r @ torch.diag(S_r)).to(dtype=torch.float32, device=device)
+        layer.V.data = Vh_r.T.to(dtype=torch.float32, device=device)
 
         return layer
 
     @classmethod
-    def from_activations(cls, input_acts: torch.Tensor, target_acts: torch.Tensor, rank: int):
-        """Fit low-rank layer to approximate: target_acts ≈ W @ input_acts.
+    def from_linear_asvd(cls, linear: nn.Linear, input_activations: torch.Tensor,
+                         rank: int):
+        """Activation-weighted SVD: minimize E[||Wx - W_r x||^2].
+
+        Instead of plain SVD(W), computes SVD(W @ diag(s)) where s_j is the
+        RMS activation of channel j. This optimizes for reconstruction quality
+        weighted by actual activation statistics.
+        """
+        W = linear.weight.data.float().cpu()
+        X = input_activations.float().cpu()
+        device = linear.weight.device
+        out_features, in_features = W.shape
+
+        # Channel importance: RMS of activations per input channel
+        channel_scale = torch.sqrt((X ** 2).mean(dim=0) + 1e-10)
+
+        # Scale weight columns by activation importance
+        # W_scaled = W @ diag(channel_scale)
+        W_scaled = W * channel_scale.unsqueeze(0)
+
+        # SVD in activation-weighted space
+        U_full, S, Vh = torch.linalg.svd(W_scaled, full_matrices=False)
+
+        # Truncate to rank r
+        U_r = U_full[:, :rank]
+        S_r = S[:rank]
+        Vh_r = Vh[:rank, :]  # (rank, in_features)
+
+        # Recover W_r = U_r @ diag(S_r) @ Vh_r @ diag(1/channel_scale)
+        # Store as: U_data = U_r @ diag(S_r), V_data = diag(1/s) @ V_r
+        # Clamp inverse scale to avoid amplifying near-zero channels
+        U_data = U_r @ torch.diag(S_r)  # (out, rank)
+        V_r = Vh_r.T  # (in, rank)
+        scale_inv = 1.0 / torch.clamp(channel_scale, min=channel_scale.max() * 1e-4)
+        V_data = V_r * scale_inv.unsqueeze(1)  # undo scaling per channel
+
+        layer = cls(in_features, out_features, rank)
+        layer.U.data = U_data.to(dtype=torch.float32, device=device)
+        layer.V.data = V_data.to(dtype=torch.float32, device=device)
+
+        return layer
+
+    @classmethod
+    def from_linear_covariance(cls, linear: nn.Linear, input_activations: torch.Tensor,
+                               rank: int, eps: float = 1e-6):
+        """Covariance-aware SVD: minimize E[||Wx - W_r x||^2] using full covariance.
+
+        Instead of diagonal scaling (ASVD), uses the full activation covariance
+        Σ = E[xxᵀ] to find the optimal rank-r approximation:
+            SVD(W @ Σ^{1/2}) → absorb Σ^{-1/2} into the right factor.
+
+        Same parameter count as ASVD, but captures off-diagonal activation
+        correlations that diagonal scaling misses.
 
         Args:
-            input_acts: (num_samples, in_features)
-            target_acts: (num_samples, out_features)
-            rank: Rank of low-rank approximation
+            linear: Original linear layer
+            input_activations: Calibration activations (n_samples, in_features)
+            rank: Target rank
+            eps: Noise floor for Σ^{-1/2} to prevent division by zero
         """
-        # Solve for W such that target_acts ≈ W @ input_acts^T
-        # W ≈ target_acts @ input_acts^+ (pseudoinverse)
+        W = linear.weight.data.float().cpu()
+        X = input_activations.float().cpu()
+        device = linear.weight.device
+        out_features, in_features = W.shape
 
-        # Use SVD for numerical stability
-        W = target_acts.T @ torch.linalg.pinv(input_acts.T)
+        # Compute activation covariance: Σ = (1/n) XᵀX
+        cov = (X.T @ X) / X.shape[0]
 
-        # Create low-rank approximation of W
-        return cls.from_svd(W, rank)
+        # Eigendecompose: Σ = V Λ Vᵀ (ascending order from eigh)
+        try:
+            eigvals, eigvecs = torch.linalg.eigh(cov)
+        except torch._C._LinAlgError:
+            import numpy as np
+            eigvals_np, eigvecs_np = np.linalg.eigh(cov.numpy())
+            eigvals = torch.from_numpy(eigvals_np.copy())
+            eigvecs = torch.from_numpy(eigvecs_np.copy())
+
+        # Clamp eigenvalues to non-negative (numerical noise)
+        eigvals = eigvals.clamp(min=0)
+
+        # Σ^{1/2} = V @ diag(√λ) @ Vᵀ
+        sqrt_eigvals = eigvals.sqrt()
+        # W @ Σ^{1/2} = W @ V @ diag(√λ) @ Vᵀ
+        W_cov = W @ eigvecs @ torch.diag(sqrt_eigvals) @ eigvecs.T
+
+        # SVD of W @ Σ^{1/2}
+        try:
+            U_full, S, Vh = torch.linalg.svd(W_cov, full_matrices=False)
+        except torch._C._LinAlgError:
+            import numpy as np
+            U_np, S_np, Vh_np = np.linalg.svd(W_cov.numpy(), full_matrices=False)
+            U_full = torch.from_numpy(U_np.copy())
+            S = torch.from_numpy(S_np.copy())
+            Vh = torch.from_numpy(Vh_np.copy())
+
+        # Truncate to rank r
+        U_r = U_full[:, :rank]
+        S_r = S[:rank]
+        Vh_r = Vh[:rank, :]  # (rank, in_features)
+
+        # W_approx = U_r @ diag(S_r) @ Vh_r @ Σ^{-1/2}
+        # Σ^{-1/2} = V @ diag(1/√(λ + ε)) @ Vᵀ
+        inv_sqrt_eigvals = 1.0 / (sqrt_eigvals + eps)
+        cov_inv_sqrt = eigvecs @ torch.diag(inv_sqrt_eigvals) @ eigvecs.T
+
+        # Absorb Σ^{-1/2} into right factor:
+        #   factor_out = U_r @ diag(S_r)          → (out_features, rank)
+        #   factor_in  = Vh_r @ Σ^{-1/2}          → (rank, in_features)
+        #   V_data     = (Vh_r @ Σ^{-1/2})ᵀ       → (in_features, rank)
+        U_data = U_r @ torch.diag(S_r)
+        V_data = (Vh_r @ cov_inv_sqrt).T  # (in_features, rank)
+
+        layer = cls(in_features, out_features, rank)
+        layer.U.data = U_data.to(dtype=torch.float32, device=device)
+        layer.V.data = V_data.to(dtype=torch.float32, device=device)
+
+        return layer
+
+    @classmethod
+    def refit(cls, target_linear, input_activations, param_budget, **kwargs):
+        """Refit low-rank layer to target param budget."""
+        in_features = target_linear.in_features
+        out_features = target_linear.out_features
+        rank = max(1, param_budget // (in_features + out_features))
+        return cls.from_linear_covariance(target_linear, input_activations, rank)
 
     def forward(self, x):
-        """Forward: Y = U @ V^T @ X."""
-        # x: (..., in_features)
-        # V^T @ x: (..., rank)
-        # U @ (V^T @ x): (..., out_features)
-        # Ensure dtype matches input
         V = self.V.to(x.dtype)
         U = self.U.to(x.dtype)
         return x @ V @ U.T
+
+    def to_matrix(self):
+        """Reconstruct full weight matrix."""
+        return (self.U.data @ self.V.data.T).float()
 
     @property
     def num_params(self):
         return self.rank * (self.in_features + self.out_features)
 
 
+def _compute_snr(original, approx):
+    """Compute SNR in dB between original and approximation.
+
+    Returns:
+        snr_db: SNR in dB
+        signal_power_db: signal power in dB (10*log10(var(original)))
+        noise_power_db: noise power in dB (10*log10(MSE))
+    """
+    signal_power = torch.var(original)
+    mse = torch.mean((original - approx) ** 2)
+    snr_linear = signal_power / (mse + 1e-10)
+    snr_db = 10 * torch.log10(snr_linear).item()
+    signal_db = 10 * torch.log10(signal_power + 1e-10).item()
+    noise_db = 10 * torch.log10(mse + 1e-10).item()
+    return snr_db, signal_db, noise_db
+
+
+def _effective_rank(singular_values):
+    """Effective rank via Shannon entropy of normalized SV energy.
+
+    p_i = sigma_i^2 / sum(sigma_j^2)
+    H = -sum(p_i * ln(p_i))
+    ER = exp(H)
+    """
+    sv2 = singular_values.float() ** 2
+    sv2 = sv2[sv2 > 0]
+    if len(sv2) == 0:
+        return 0.0
+    p = sv2 / sv2.sum()
+    H = -(p * p.log()).sum().item()
+    return math.exp(H)
+
+
+def _residual_er(residual_weight, act_norms):
+    """Effective rank of activation-weighted residual.
+
+    Measures how structured/compressible the remaining error is.
+    Low ER = concentrated in few modes = easy to compress further.
+    High ER = spread across many modes = hard to compress further.
+    """
+    W_cpu = residual_weight.float().cpu()
+    norms_cpu = act_norms.float().cpu()
+    W_scaled = W_cpu * norms_cpu.unsqueeze(0)
+    _, S, _ = torch.linalg.svd(W_scaled, full_matrices=False)
+    return _effective_rank(S)
+
+
+def _make_temp_linear(weight, dtype, in_features, out_features):
+    """Create a temporary nn.Linear from a weight tensor."""
+    temp = nn.Linear(in_features, out_features, bias=False)
+    temp.weight.data = weight.to(dtype)
+    return temp
+
+
+def _detect_num_heads(out_features):
+    """Detect number of attention heads from output dimension."""
+    for head_dim in [128, 64, 96, 80, 256, 120]:
+        if out_features % head_dim == 0:
+            return out_features // head_dim
+    return 1
+
+
+def _stage_weight(stage, out_features, in_features, device):
+    """Get weight matrix from a stage, handling different stage types."""
+    if hasattr(stage, "to_matrix"):
+        return stage.to_matrix().float().to(device)
+    else:
+        return torch.zeros(out_features, in_features, device=device)
+
+
+def _refit_stage(stage_type, target_linear, input_activations, param_budget,
+                 config, device, dtype, current_stage=None):
+    """Dispatch to the appropriate technique's refit method.
+
+    Returns (new_stage, new_weight) or (None, None) on failure.
+    """
+    try:
+        if stage_type == "asvd":
+            new_stage = LowRankLinear.refit(
+                target_linear, input_activations, param_budget,
+            )
+        elif stage_type == "tucker":
+            new_stage = TuckerLinear.refit(
+                target_linear, input_activations, param_budget,
+                num_modes=config.get("num_modes", 3),
+            )
+        elif stage_type == "blocktt":
+            new_stage = BlockTensorizedLinear.refit(
+                target_linear, input_activations, param_budget,
+                block_size=config["block_size"],
+                num_cores=config["num_cores"],
+                current_stage=current_stage,
+            )
+        elif stage_type == "kronecker":
+            new_stage = KroneckerLinear.refit(
+                target_linear, input_activations, param_budget,
+                factor_size=config.get("factor_size"),
+            )
+        elif stage_type == "blockdiag_lr":
+            new_stage = BlockDiagonalLowRankLinear.refit(
+                target_linear, input_activations, param_budget,
+                num_blocks=config["num_blocks"],
+            )
+        elif stage_type in ("spectral_mpo_weight", "spectral_mpo_activation"):
+            method = "weight" if "weight" in stage_type else "activation"
+            smpo = SpectralMPOLinear.from_linear(
+                target_linear,
+                num_heads=config["num_heads"],
+                input_activations=input_activations,
+                param_budget=config.get("param_budget", 0.002),
+                block_size=config.get("block_size", 512),
+                num_cores=config.get("num_cores", 3),
+                rank=config.get("rank", 0.5),
+                method=method,
+                verbose=False,
+            )
+            smpo = smpo.to(device)
+            original_params = target_linear.weight.numel()
+            if smpo.num_params < original_params:
+                new_stage = smpo
+            else:
+                return None, None
+        elif stage_type == "sparse":
+            new_stage = ColumnSparseLinear.refit(
+                target_linear, input_activations.cpu(), param_budget,
+                k_cols_per_iter=config.get("k_cols_per_iter", 32),
+            )
+        elif stage_type == "sparse_adaptive":
+            new_stage = ColumnSparseLinear.refit_adaptive(
+                target_linear, input_activations.cpu(), param_budget,
+                reference_rank_frac=config.get("reference_rank_frac", 0.30),
+            )
+        else:
+            return None, None
+
+        new_stage = new_stage.to(device)
+        out_features = target_linear.out_features
+        in_features = target_linear.in_features
+        new_weight = _stage_weight(new_stage, out_features, in_features, device)
+        return new_stage, new_weight
+    except Exception as e:
+        return None, None
+
+
+def _compute_stage_budgets(stages, stage_types, stage_weights, W,
+                           original_output, input_activations, dtype,
+                           total_param_budget):
+    """Compute per-stage param budgets based on SNR-efficiency.
+
+    Stages with higher SNR-per-parameter get proportionally more budget.
+    Budgets are clamped to [0.5x, 2.0x] of current params.
+    """
+    num_stages = len(stages)
+    total_weight = sum(stage_weights)
+
+    with torch.no_grad():
+        output_full = F.linear(input_activations.to(dtype), total_weight.to(dtype)).float()
+        snr_full, _, _ = _compute_snr(original_output, output_full)
+
+    marginal_snrs = []
+    for i in range(num_stages):
+        with torch.no_grad():
+            without_i = total_weight - stage_weights[i]
+            output_without = F.linear(input_activations.to(dtype), without_i.to(dtype)).float()
+            snr_without, _, _ = _compute_snr(original_output, output_without)
+        marginal_snrs.append(max(snr_full - snr_without, 0.01))
+
+    efficiencies = [
+        marginal_snrs[i] / max(stages[i].num_params, 1)
+        for i in range(num_stages)
+    ]
+    total_efficiency = sum(efficiencies)
+
+    budgets = []
+    for i in range(num_stages):
+        raw_budget = (efficiencies[i] / total_efficiency) * total_param_budget
+        current_params = stages[i].num_params
+        # Clamp to [0.5x, 2.0x] of current, but never exceed total budget
+        clamped = max(
+            int(current_params * 0.5),
+            min(int(current_params * 2.0), int(raw_budget)),
+        )
+        budgets.append(clamped)
+
+    # Normalize so sum(budgets) <= total_param_budget
+    budget_sum = sum(budgets)
+    if budget_sum > total_param_budget:
+        scale = total_param_budget / budget_sum
+        budgets = [int(b * scale) for b in budgets]
+
+    return budgets
+
+
 class GreedyMultiScaleLinear(nn.Module):
-    """Greedy multi-scale decomposition with cascaded MPO + Low-Rank stages.
+    """Greedy multi-scale decomposition with iterative refinement.
 
-    Structure:
-        y = MPO_1(x) + LR_1(x) + MPO_2(x) + LR_2(x) + ...
-
-    Each stage captures residual information missed by previous stages.
+    Phase 1: Apply each technique once to the running residual.
+    Phase 2: Iteratively refit each stage to its ideal target.
     """
 
     def __init__(self, stages: nn.ModuleList):
@@ -144,513 +444,634 @@ class GreedyMultiScaleLinear(nn.Module):
         linear: nn.Linear,
         input_activations: Optional[torch.Tensor] = None,
         target_snr_db: float = 30.0,
-        max_stages: int = 5,
+        max_refinement_iters: int = 3,
+        total_param_budget: Optional[float] = None,  # ratio of original params (e.g. 0.45)
+        use_asvd: bool = True,
+        svd_budget_fraction: float = 0.6,
         tucker_num_modes: int = 3,
-        tucker_rank: float = 0.3,  # Low rank for small Tucker cores
-        spectral_mpo_bond_dim_ratio: float = 0.008,  # Bond dimension ratio for Spectral MPO
-        spectral_mpo_param_budget: float = 0.002,  # Parameter budget for Spectral MPO
-        kronecker_factor_size: Optional[int] = None,  # Auto: sqrt of dims
-        blocktt_block_size: int = 512,  # Block size for Block TT
-        blocktt_num_cores: int = 3,  # Number of cores per block
-        blocktt_rank: float = 0.5,  # Rank for Block TT
-        blockdiag_num_blocks: int = 16,  # Number of diagonal blocks
-        blockdiag_rank: int = 64,  # Low-rank component rank
-        sparse_sparsity: float = 0.7,  # Column sparsity (keep 30% of columns)
-        use_spectral_mpo: bool = True,  # Include Spectral MPO stages (q_proj only)
-        use_kronecker: bool = True,  # Include Kronecker stages
-        use_blocktt: bool = True,  # Include Block TT stages
-        use_sparse: bool = True,  # Include column-sparse stages
-        layer_name: Optional[str] = None,  # Layer name for targeted compression
+        tucker_rank: float = 0.3,
+        spectral_mpo_param_budget: float = 0.002,
+        spectral_mpo_block_size: int = 512,
+        spectral_mpo_num_cores: int = 3,
+        spectral_mpo_rank: float = 0.5,
+        # Legacy (ignored)
+        spectral_mpo_bond_dim_ratio: float = 0.008,
+        spectral_mpo_block_heads: int = 0,
+        kronecker_factor_size: Optional[int] = None,
+        blocktt_block_size: int = 512,
+        blocktt_num_cores: int = 3,
+        blocktt_rank: float = 0.5,
+        blockdiag_num_blocks: int = 16,
+        blockdiag_rank: int = 64,
+        sparse_sparsity: float = 0.7,
+        use_spectral_mpo: bool = True,
+        use_kronecker: bool = True,
+        use_blocktt: bool = True,
+        use_sparse: bool = True,
+        layer_name: Optional[str] = None,
         verbose: bool = True,
     ):
-        """Greedily build cascade to reach target SNR.
+        """Build cascade with efficiency-driven Phase 1 + iterative Phase 2.
+
+        Phase 1 uses Compression Efficiency = ΔSNR / ΔRank to find the optimal
+        switch point between ASVD (fast at low SNR) and Sparse (fast at high SNR).
 
         Args:
             linear: Original linear layer to approximate
             input_activations: Calibration activations (num_samples, in_features)
             target_snr_db: Target SNR in dB
-            max_stages: Maximum number of stages
-            tucker_num_modes: Number of modes for Tucker decomposition
-            tucker_rank: Rank ratio for Tucker core (low for small components)
-            kronecker_factor_size: Factor size for Kronecker (default: sqrt of dims)
-            blocktt_block_size: Block size for Block Tensor Train
-            blocktt_num_cores: Number of TT cores per block
-            blocktt_rank: Rank ratio for Block TT
-            blockdiag_num_blocks: Number of diagonal blocks (local clusters)
-            blockdiag_rank: Rank of low-rank component (global communication)
-            sparse_sparsity: Target sparsity for column-sparse (0.7 = keep 30% columns)
-            use_kronecker: Include Kronecker stages (super parameter-efficient)
-            use_blocktt: Include Block Tensor Train stages
-            use_sparse: Include column-sparse stages in cascade
+            max_refinement_iters: Max Phase 2 refinement iterations
+            total_param_budget: Max params as ratio of original (e.g. 0.45 = 45%)
+            layer_name: Layer name for targeted compression (q_proj detection)
             verbose: Print progress
-
-        Stage order per iteration:
-            1. Tucker (global structure with dual spectral reordering)
-            2. Block Tensor Train (block-wise structured decomposition)
-            3. Block-Diagonal + Low-Rank (local clusters + global communication)
-            4. Sparse (outlier features and sharp edges)
-            5. Kronecker (repeating patterns, super efficient)
         """
-
-        def compute_snr(original, approx):
-            signal_power = torch.var(original)
-            mse = torch.mean((original - approx) ** 2)
-            snr_linear = signal_power / (mse + 1e-10)
-            return 10 * torch.log10(snr_linear).item()
-
-        stages = nn.ModuleList()
-
-        # Track device and dtype
         device = linear.weight.device
         dtype = linear.weight.dtype
 
         W = linear.weight.data.float().to(device)
         in_features = linear.in_features
         out_features = linear.out_features
+        original_params = W.numel()
+        min_dim = min(in_features, out_features)
 
-        # Generate activations if not provided
         if input_activations is None:
             input_activations = torch.randn(256, in_features, device=device) * 0.02
-
         input_activations = input_activations.float().to(device)
 
-        # Compute original outputs
         with torch.no_grad():
             original_output = linear(input_activations.to(dtype)).float()
 
-        # Start with zero approximation
-        current_output = torch.zeros_like(original_output)
-        current_weight_approx = torch.zeros_like(W)
+        budget_ratio = total_param_budget if total_param_budget else 0.5
+        abs_param_budget = int(budget_ratio * original_params)
+
+        # Efficiency-driven config
+        asvd_rank_step = 32
+        # Stop ASVD when marginal efficiency drops to this fraction of peak
+        efficiency_knee_fraction = 0.1
 
         if verbose:
-            print(f"\nGreedy Multi-Scale Decomposition:")
+            print(f"\nEfficiency-Driven Multi-Scale Decomposition:")
             print(f"  Target SNR: {target_snr_db:.1f} dB")
-            print(f"  Max stages: {max_stages}")
-            print(f"  Tucker: num_modes={tucker_num_modes}, rank={tucker_rank}")
-            print(f"  SpectralMPO: bond_ratio={spectral_mpo_bond_dim_ratio}, budget={spectral_mpo_param_budget}, variants=['weight','activation'], enabled={use_spectral_mpo}")
-            print(f"  Kronecker: factor_size={kronecker_factor_size or 'auto'}, enabled={use_kronecker}")
-            print(f"  BlockTT: block_size={blocktt_block_size}, num_cores={blocktt_num_cores}, rank={blocktt_rank}, enabled={use_blocktt}")
-            print(f"  Sparse: sparsity={sparse_sparsity}, enabled={use_sparse}")
-            print(f"  BlockDiag+LR: num_blocks={blockdiag_num_blocks}, rank={blockdiag_rank}\n")
+            print(f"  Param budget: {budget_ratio:.0%} of {original_params:,} = {abs_param_budget:,}")
+            print(f"  ASVD rank step: {asvd_rank_step}, knee fraction: {efficiency_knee_fraction}")
+            print(f"  Max refinement iters: {max_refinement_iters}\n")
 
-        for stage_idx in range(max_stages):
-            # Compute current SNR
-            current_snr = compute_snr(original_output, current_output)
+        # ================================================================
+        # Phase 1: Efficiency-Driven Cascade
+        # ================================================================
+        if verbose:
+            print("=" * 60)
+            print("Phase 1: Efficiency-Driven Cascade")
+            print("=" * 60)
+
+        stages = nn.ModuleList()
+        stage_types = []
+        stage_configs = []
+        stage_weights = []  # cached to_matrix() results
+
+        current_weight_approx = torch.zeros_like(W)
+
+        # Activation channel scale (RMS per channel) — used for ASVD and residual ER
+        input_acts_cpu = input_activations.float().cpu()
+        channel_scale = torch.sqrt((input_acts_cpu ** 2).mean(dim=0) + 1e-10)
+
+        initial_er = _residual_er(W, channel_scale)
+
+        # Covariance analysis: compare diagonal ASVD vs full covariance rotation
+        W_cpu = W.float().cpu()
+        cov = (input_acts_cpu.T @ input_acts_cpu) / input_acts_cpu.shape[0]
+        try:
+            cov_eigvals, cov_eigvecs = torch.linalg.eigh(cov)
+        except torch._C._LinAlgError:
+            import numpy as np
+            eigvals_np, eigvecs_np = np.linalg.eigh(cov.numpy())
+            cov_eigvals = torch.from_numpy(eigvals_np)
+            cov_eigvecs = torch.from_numpy(eigvecs_np)
+        # eigh returns ascending order; reverse to descending
+        cov_eigvals = cov_eigvals.flip(0)
+        cov_eigvecs = cov_eigvecs.flip(1)
+        cov_eigvals = cov_eigvals.clamp(min=0)
+        cov_er = _effective_rank(cov_eigvals.sqrt())
+
+        # Full covariance-weighted matrix: W @ Σ^{1/2}
+        # Σ^{1/2} = V @ diag(sqrt(λ)) @ V^T
+        sqrt_eigvals = cov_eigvals.sqrt()
+        cov_sqrt = cov_eigvecs @ torch.diag(sqrt_eigvals) @ cov_eigvecs.T
+        W_cov = W_cpu @ cov_sqrt
+
+        try:
+            _, S_cov, _ = torch.linalg.svd(W_cov, full_matrices=False)
+        except torch._C._LinAlgError:
+            import numpy as np
+            _, S_np, _ = np.linalg.svd(W_cov.numpy(), full_matrices=False)
+            S_cov = torch.from_numpy(S_np)
+        cov_weighted_er = _effective_rank(S_cov)
+
+        # ASVD (diagonal) for comparison
+        W_diag = W_cpu * channel_scale.unsqueeze(0)
+        try:
+            _, S_diag, _ = torch.linalg.svd(W_diag, full_matrices=False)
+        except torch._C._LinAlgError:
+            import numpy as np
+            _, S_np, _ = np.linalg.svd(W_diag.numpy(), full_matrices=False)
+            S_diag = torch.from_numpy(S_np)
+        diag_weighted_er = _effective_rank(S_diag)
+
+        if verbose:
+            print(f"\n  Initial residual ER: {initial_er:.0f}/{min(out_features, in_features)}")
+
+            # Covariance eigenspectrum summary
+            cov_energy = cov_eigvals
+            cov_total = cov_energy.sum()
+            cov_cumulative = torch.cumsum(cov_energy, dim=0) / cov_total
+            print(f"\n  Activation covariance analysis:")
+            print(f"    Covariance ER: {cov_er:.0f}/{in_features}")
+            for thresh in [0.50, 0.90, 0.95, 0.99]:
+                n = int((cov_cumulative < thresh).sum().item()) + 1
+                print(f"    {thresh:.0%} covariance energy: {n} eigenvectors "
+                      f"({n/in_features:.1%} of {in_features})")
+            print(f"    Weight ER — diagonal ASVD: {diag_weighted_er:.0f}, "
+                  f"full covariance: {cov_weighted_er:.0f} "
+                  f"({'↓' if cov_weighted_er < diag_weighted_er else '↑'}"
+                  f"{abs(cov_weighted_er - diag_weighted_er):.0f})")
+
+        # ----------------------------------------------------------
+        # Step 1: ASVD — grow rank until efficiency knee
+        # ----------------------------------------------------------
+        # Compute full ASVD spectrum once (SVD of activation-weighted weight).
+        # Then evaluate SNR at increasing ranks using the SV energy spectrum.
+        # This is O(1) per rank evaluation — no matrix multiplies needed.
+        if use_asvd:
+            if verbose:
+                print(f"\n  Step 1: ASVD rank sweep")
+
+            residual = W - current_weight_approx
+            residual_cpu = residual.float().cpu()
+            residual_scaled = residual_cpu * channel_scale.unsqueeze(0)
+
+            try:
+                _, S_asvd, _ = torch.linalg.svd(residual_scaled, full_matrices=False)
+            except torch._C._LinAlgError:
+                import numpy as np
+                _, S_np, _ = np.linalg.svd(residual_scaled.numpy(), full_matrices=False)
+                S_asvd = torch.from_numpy(S_np)
+
+            # SV-based SNR at each rank: SNR(r) = 10*log10(E_captured / E_residual)
+            sv_sq = S_asvd.float() ** 2
+            total_energy = sv_sq.sum()
+            cumsum_energy = torch.cumsum(sv_sq, dim=0)
+            residual_energy = total_energy - cumsum_energy
+            snr_curve = 10 * torch.log10(cumsum_energy / (residual_energy + 1e-10))
+
+            # Also compute covariance-aware SNR curve for comparison
+            sv_cov_sq = S_cov.float() ** 2
+            total_energy_cov = sv_cov_sq.sum()
+            cumsum_energy_cov = torch.cumsum(sv_cov_sq, dim=0)
+            residual_energy_cov = total_energy_cov - cumsum_energy_cov
+            snr_curve_cov = 10 * torch.log10(
+                cumsum_energy_cov / (residual_energy_cov + 1e-10)
+            )
+
+            # Sweep ranks using covariance-aware spectrum (matches actual decomposition)
+            prev_snr = 0.0
+            peak_efficiency = 0.0
+            best_rank = asvd_rank_step
+            cov_er_full = _effective_rank(S_cov)
 
             if verbose:
-                print(f"Stage {stage_idx + 1}:")
-                print(f"  Current SNR: {current_snr:.2f} dB")
+                print(f"    Covariance-aware spectrum: ER={cov_er_full:.0f}/{min_dim}, "
+                      f"total energy={total_energy_cov.item():.2e}")
+                print(f"    {'rank':>8s}  {'covSNR':>8s}  {'ΔSNR':>7s}  {'eff':>10s}  "
+                      f"{'resid ER':>9s}  {'diagSNR':>8s}  {'residual':>12s}  {'captured':>8s}  {'params':>7s}")
 
-            if current_snr >= target_snr_db:
+                # Fine-grained log at powers of 2 up to 64
+                fine_ranks = [r for r in [2, 4, 8, 16, 32, 64] if r < asvd_rank_step and r < min_dim]
+                prev_fine = 0.0
+                for r in fine_ranks:
+                    cov_snr_r = snr_curve_cov[r - 1].item() if r <= len(snr_curve_cov) else 0.0
+                    diag_snr_r = snr_curve[r - 1].item()
+                    delta = cov_snr_r - prev_fine
+                    eff_r = delta / r if r == fine_ranks[0] else delta / (r - (fine_ranks[fine_ranks.index(r) - 1]))
+                    resid_er_r = _effective_rank(S_cov[r:]) if r < len(S_cov) else 0.0
+                    resid_e = residual_energy_cov[r - 1].item() if r <= len(residual_energy_cov) else 0.0
+                    cap_pct = cumsum_energy_cov[r - 1].item() / total_energy_cov.item() * 100 if r <= len(cumsum_energy_cov) else 0.0
+                    rp = r * (in_features + out_features)
+                    print(f"    rank={r:4d}: covSNR={cov_snr_r:6.1f}dB, "
+                          f"Δ={delta:+5.2f}dB, eff={eff_r:.4f} dB/rank, "
+                          f"resid_ER={resid_er_r:.0f}, diagSNR={diag_snr_r:6.1f}dB, "
+                          f"residual={resid_e:.2e}, "
+                          f"captured={cap_pct:.1f}%, "
+                          f"params={rp/original_params:.1%}")
+                    prev_fine = cov_snr_r
+
+            for r in range(asvd_rank_step, min_dim, asvd_rank_step):
+                current_snr = snr_curve_cov[r - 1].item() if r <= len(snr_curve_cov) else 0.0
+                delta_snr = current_snr - prev_snr
+                efficiency = delta_snr / asvd_rank_step  # dB per rank unit
+                peak_efficiency = max(peak_efficiency, efficiency)
+                resid_er = _effective_rank(S_cov[r:]) if r < len(S_cov) else 0.0
+
+                rank_params = r * (in_features + out_features)
+
+                if verbose and (r <= asvd_rank_step * 4 or r % (asvd_rank_step * 4) == 0):
+                    resid_energy_at_r = residual_energy_cov[r - 1].item() if r <= len(residual_energy_cov) else 0.0
+                    energy_captured_pct = cumsum_energy_cov[r - 1].item() / total_energy_cov.item() * 100 if r <= len(cumsum_energy_cov) else 0.0
+                    diag_snr_r = snr_curve[r - 1].item()
+                    print(f"    rank={r:4d}: covSNR={current_snr:6.1f}dB, "
+                          f"Δ={delta_snr:+5.2f}dB, eff={efficiency:.4f} dB/rank, "
+                          f"resid_ER={resid_er:.0f}, diagSNR={diag_snr_r:6.1f}dB, "
+                          f"residual={resid_energy_at_r:.2e}, "
+                          f"captured={energy_captured_pct:.1f}%, "
+                          f"params={rank_params/original_params:.1%}")
+
+                best_rank = r
+                prev_snr = current_snr
+
+                # Stop: target SNR reached
+                if current_snr >= target_snr_db:
+                    if verbose:
+                        print(f"    → Target SVD-SNR reached at rank={r}")
+                    break
+
+                # Stop: efficiency dropped to knee_fraction of peak
+                if (peak_efficiency > 0
+                        and efficiency < peak_efficiency * efficiency_knee_fraction
+                        and r > asvd_rank_step * 3):
+                    if verbose:
+                        print(f"    → Knee at rank={r}: eff={efficiency:.4f} < "
+                              f"{peak_efficiency:.4f} × {efficiency_knee_fraction} = "
+                              f"{peak_efficiency * efficiency_knee_fraction:.4f}")
+                    break
+
+                # Stop: budget limit (leave at least 20% for sparse)
+                if rank_params > abs_param_budget * svd_budget_fraction:
+                    if verbose:
+                        print(f"    → Budget limit at rank={r} "
+                              f"({rank_params/original_params:.1%} > "
+                              f"{svd_budget_fraction:.0%} of budget)")
+                    break
+
+            # Create ASVD stage at the knee rank
+            residual_linear = _make_temp_linear(
+                residual, dtype, in_features, out_features,
+            )
+            asvd_stage = LowRankLinear.from_linear_covariance(
+                residual_linear, input_activations=input_activations, rank=best_rank,
+            )
+            asvd_stage = asvd_stage.to(device)
+            asvd_weight = _stage_weight(asvd_stage, out_features, in_features, device)
+
+            stages.append(asvd_stage)
+            stage_types.append("asvd")
+            stage_configs.append({"rank": best_rank})
+            stage_weights.append(asvd_weight)
+            current_weight_approx = current_weight_approx + asvd_weight
+
+            # Compute actual activation SNR (not just SV-based estimate)
+            with torch.no_grad():
+                current_output = F.linear(
+                    input_activations.to(dtype), current_weight_approx.to(dtype)
+                ).float()
+            asvd_snr, asvd_sig_db, asvd_noise_db = _compute_snr(original_output, current_output)
+            resid_er = _residual_er(W - current_weight_approx, channel_scale)
+
+            if verbose:
+                print(f"    ASVD result: rank={best_rank}, "
+                      f"params={asvd_stage.num_params:,} ({asvd_stage.num_params/original_params:.1%}), "
+                      f"activation SNR={asvd_snr:.2f}dB, "
+                      f"noise={asvd_noise_db:.1f}dB, residual ER={resid_er:.0f}")
+
+        # ----------------------------------------------------------
+        # Step 2: Adaptive Sparse — target residual error spikes
+        # ----------------------------------------------------------
+        # After ASVD saturates at the knee, sparse is the fast climber
+        # in the high-SNR regime. It directly targets the specific columns
+        # responsible for the largest remaining errors.
+        if use_sparse:
+            with torch.no_grad():
+                current_output = F.linear(
+                    input_activations.to(dtype), current_weight_approx.to(dtype)
+                ).float()
+            current_snr, _, _ = _compute_snr(original_output, current_output)
+
+            remaining_budget = abs_param_budget - sum(s.num_params for s in stages)
+
+            if remaining_budget > 0 and current_snr < target_snr_db:
+                # Convert remaining budget to column count
+                max_cols = remaining_budget // out_features
+                target_sparsity = min(1.0, max_cols / in_features)
+
                 if verbose:
-                    print(f"  ✓ Target SNR reached!")
-                break
+                    print(f"\n  Step 2: Adaptive Sparse (remaining budget={remaining_budget:,}, "
+                          f"→ {max_cols} cols = {target_sparsity:.1%})")
 
-            # Step 1: Fit Tucker to current residual (with spectral reordering)
-            residual_output = original_output - current_output
-            residual_weight = W - current_weight_approx
-
-            # Create temporary linear with residual weights
-            temp_linear_tucker = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_tucker.weight.data = residual_weight.to(dtype)
-
-            try:
-                # Create TuckerLinear (verbose=False to avoid cluttering output)
-                tucker = TuckerLinear.from_linear(
-                    temp_linear_tucker,
-                    rank=tucker_rank,
-                    num_modes=tucker_num_modes,
-                    input_activations=input_activations,
-                    verbose=False,
+                residual_weight = W - current_weight_approx
+                residual_linear = _make_temp_linear(
+                    residual_weight, dtype, in_features, out_features,
                 )
-
-                # Move Tucker to correct device
-                tucker = tucker.to(device)
-
-                with torch.no_grad():
-                    tucker_output = tucker(input_activations.to(dtype)).float()
-
-                tucker_weight = tucker.to_matrix().float().to(device)
-                tucker_snr = compute_snr(residual_output, tucker_output)
-
-                if verbose:
-                    status = ""
-                    if tucker_snr > 0.01:  # Only keep if it improves SNR
-                        status = " ✓"
-                    else:
-                        status = " (skipped)"
-                    print(f"  Tucker: {tucker.num_params:,} params, SNR {tucker_snr:+.2f} dB{status}")
-
-                # Only add if it improves SNR
-                if tucker_snr > 0.01:
-                    stages.append(tucker)
-                    current_output = current_output + tucker_output
-                    current_weight_approx = current_weight_approx + tucker_weight
-
-            except Exception as e:
-                if verbose:
-                    print(f"  Tucker: failed ({str(e)[:60]})")
-
-            # Step 2A: Spectral MPO (Weight-based) - Prior/Global Structure
-            # Only apply to q_proj layers (k_proj/v_proj have different head_dim structure)
-            if use_spectral_mpo and layer_name is not None and "q_proj" in layer_name:
-                residual_output_3a = original_output - current_output
-                residual_weight_3a = W - current_weight_approx
-
-                # Create temporary linear with residual weights
-                temp_linear_smpo_weight = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_smpo_weight.weight.data = residual_weight_3a.to(dtype)
+                residual_linear.weight.data = residual_linear.weight.data.cpu()
 
                 try:
-                    # For q_proj, detect num_heads from dimensions
-                    # Common configs:
-                    #   Llama-3.1-8B: 32 heads * 128 head_dim = 4096
-                    #   Llama-2-7B: 32 heads * 128 head_dim = 4096
-                    #   Smaller models: 8 heads * 64 head_dim = 512
-                    num_heads = None
-                    for head_dim in [128, 64, 96, 80, 256, 120]:
-                        if out_features % head_dim == 0:
-                            num_heads = out_features // head_dim
-                            if verbose and stage_idx == 0:  # Only print once
-                                print(f"  SpectralMPO: Detected {num_heads} heads × {head_dim} head_dim = {out_features}")
-                            break
-
-                    if num_heads is None:
-                        # Fallback: assume single head
-                        num_heads = 1
-                        if verbose and stage_idx == 0:
-                            print(f"  SpectralMPO: Could not detect num_heads for out_features={out_features}, using 1")
-
-                    spectral_mpo_weight = SpectralMPOLinear.from_linear(
-                        temp_linear_smpo_weight,
-                        num_heads=num_heads,
-                        input_activations=input_activations,
-                        target_snr_db=10.0,  # Lower target for single component
-                        param_budget=spectral_mpo_param_budget,
-                        mpo_bond_dim_ratio=spectral_mpo_bond_dim_ratio,
-                        method="weight",  # Weight-based: DCT(W) → Prior
-                        use_tucker_residual=False,  # Disable internal Tucker (we have external Tucker)
-                        use_sparse_residual=False,  # Disable internal sparse (we have external sparse)
-                        verbose=False,
-                    )
-
-                    # Move to correct device
-                    spectral_mpo_weight = spectral_mpo_weight.to(device)
-
-                    with torch.no_grad():
-                        # Use to_matrix() since forward() may not be fully implemented
-                        smpo_weight_matrix = spectral_mpo_weight.to_matrix().float().to(device)
-                        smpo_weight_output = F.linear(input_activations.to(dtype), smpo_weight_matrix.to(dtype)).float()
-
-                    smpo_weight_snr = compute_snr(residual_output_3a, smpo_weight_output)
-
-                    if verbose:
-                        status = ""
-                        if smpo_weight_snr > 0.01:
-                            status = " ✓"
-                        else:
-                            status = " (skipped)"
-                        print(f"  SpectralMPO(weight): {spectral_mpo_weight.num_params:,} params, SNR {smpo_weight_snr:+.2f} dB{status}")
-
-                    # Only add if it improves SNR
-                    if smpo_weight_snr > 0.01:
-                        # Store as weight matrix instead of full SpectralMPO to avoid forward() issues
-                        # Create a simple wrapper that just stores the reconstructed weight
-                        class WeightOnlyLinear(nn.Module):
-                            def __init__(self, weight):
-                                super().__init__()
-                                self.weight = nn.Parameter(weight, requires_grad=False)
-                                self.in_features = weight.shape[1]
-                                self.out_features = weight.shape[0]
-                                self.num_params = weight.numel()  # For compatibility
-
-                            def forward(self, x):
-                                return F.linear(x, self.weight.to(x.dtype))
-
-                            def to_matrix(self):
-                                return self.weight
-
-                        weight_layer = WeightOnlyLinear(smpo_weight_matrix)
-                        stages.append(weight_layer)
-                        current_output = current_output + smpo_weight_output
-                        current_weight_approx = current_weight_approx + smpo_weight_matrix
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  SpectralMPO(weight): failed ({str(e)[:60]})")
-
-            # Step 2B: Spectral MPO (Activation-based) - Evidence/Task-Aware
-            if use_spectral_mpo and layer_name is not None and "q_proj" in layer_name:
-                residual_output_3b = original_output - current_output
-                residual_weight_3b = W - current_weight_approx
-
-                # Create temporary linear with residual weights
-                temp_linear_smpo_act = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_smpo_act.weight.data = residual_weight_3b.to(dtype)
-
-                try:
-                    # Use same num_heads as above
-                    spectral_mpo_act = SpectralMPOLinear.from_linear(
-                        temp_linear_smpo_act,
-                        num_heads=num_heads,
-                        input_activations=input_activations,
-                        target_snr_db=10.0,  # Lower target for single component
-                        param_budget=spectral_mpo_param_budget,
-                        mpo_bond_dim_ratio=spectral_mpo_bond_dim_ratio,
-                        method="activation",  # Activation-based: LSTSQ → Evidence
-                        use_tucker_residual=False,  # Disable internal Tucker (we have external Tucker)
-                        use_sparse_residual=False,  # Disable internal sparse (we have external sparse)
-                        verbose=False,
-                    )
-
-                    # Move to correct device
-                    spectral_mpo_act = spectral_mpo_act.to(device)
-
-                    with torch.no_grad():
-                        # Use to_matrix()
-                        smpo_act_matrix = spectral_mpo_act.to_matrix().float().to(device)
-                        smpo_act_output = F.linear(input_activations.to(dtype), smpo_act_matrix.to(dtype)).float()
-
-                    smpo_act_snr = compute_snr(residual_output_3b, smpo_act_output)
-
-                    if verbose:
-                        status = ""
-                        if smpo_act_snr > 0.01:
-                            status = " ✓"
-                        else:
-                            status = " (skipped)"
-                        print(f"  SpectralMPO(activation): {spectral_mpo_act.num_params:,} params, SNR {smpo_act_snr:+.2f} dB{status}")
-
-                    # Only add if it improves SNR
-                    if smpo_act_snr > 0.01:
-                        class WeightOnlyLinear(nn.Module):
-                            def __init__(self, weight):
-                                super().__init__()
-                                self.weight = nn.Parameter(weight, requires_grad=False)
-                                self.in_features = weight.shape[1]
-                                self.out_features = weight.shape[0]
-                                self.num_params = weight.numel()
-
-                            def forward(self, x):
-                                return F.linear(x, self.weight.to(x.dtype))
-
-                            def to_matrix(self):
-                                return self.weight
-
-                        act_layer = WeightOnlyLinear(smpo_act_matrix)
-                        stages.append(act_layer)
-                        current_output = current_output + smpo_act_output
-                        current_weight_approx = current_weight_approx + smpo_act_matrix
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  SpectralMPO(activation): failed ({str(e)[:60]})")
-
-            elif use_spectral_mpo and verbose and stage_idx == 0:
-                # Log why Spectral MPO was skipped (only once)
-                if layer_name is None:
-                    print(f"  SpectralMPO: skipped (no layer_name provided)")
-                elif "q_proj" not in layer_name:
-                    print(f"  SpectralMPO: skipped (only applies to q_proj, got {layer_name})")
-
-            # Step 3: Block Tensor Train for block-wise structured decomposition
-            if use_blocktt:
-                residual_output_3 = original_output - current_output
-                residual_weight_3 = W - current_weight_approx
-
-                # Create temporary linear with residual weights
-                temp_linear_btt = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_btt.weight.data = residual_weight_3.to(dtype)
-
-                try:
-                    # Create BlockTensorizedLinear (verbose=False)
-                    blocktt = BlockTensorizedLinear.from_linear(
-                        temp_linear_btt,
-                        block_size=blocktt_block_size,
-                        num_cores=blocktt_num_cores,
-                        rank=blocktt_rank,
-                        input_activations=input_activations,
-                    )
-
-                    # Move to correct device
-                    blocktt = blocktt.to(device)
-
-                    with torch.no_grad():
-                        blocktt_output = blocktt(input_activations.to(dtype)).float()
-
-                    blocktt_weight = blocktt.to_matrix().float().to(device)
-                    blocktt_snr = compute_snr(residual_output_3, blocktt_output)
-
-                    if verbose:
-                        status = ""
-                        if blocktt_snr > 0.01:
-                            status = " ✓"
-                        else:
-                            status = " (skipped)"
-                        print(f"  BlockTT: {blocktt.num_params:,} params, SNR {blocktt_snr:+.2f} dB{status}")
-
-                    # Only add if it improves SNR
-                    if blocktt_snr > 0.01:
-                        stages.append(blocktt)
-                        current_output = current_output + blocktt_output
-                        current_weight_approx = current_weight_approx + blocktt_weight
-
-                except Exception as e:
-                    if verbose:
-                        print(f"  BlockTT: failed ({str(e)[:60]})")
-
-            # Step 5: Fit Block-Diagonal + Low-Rank to remaining residual
-            residual_output_5 = original_output - current_output
-            residual_weight_5 = W - current_weight_approx
-
-            # Create temporary linear with residual weights
-            temp_linear_bdlr = nn.Linear(in_features, out_features, bias=False)
-            temp_linear_bdlr.weight.data = residual_weight_5.to(dtype)
-
-            try:
-                # Create BlockDiagonalLowRankLinear (verbose=False to avoid cluttering output)
-                bdlr = BlockDiagonalLowRankLinear.from_linear(
-                    temp_linear_bdlr,
-                    num_blocks=blockdiag_num_blocks,
-                    rank=blockdiag_rank,
-                    verbose=False,
-                )
-
-                # Move to correct device
-                bdlr = bdlr.to(device)
-
-                with torch.no_grad():
-                    bdlr_output = bdlr(input_activations.to(dtype)).float()
-
-                bdlr_weight = bdlr.to_matrix().float().to(device)
-                bdlr_snr = compute_snr(residual_output_5, bdlr_output)
-
-                if verbose:
-                    status = ""
-                    if bdlr_snr > 0.01:
-                        status = " ✓"
-                    else:
-                        status = " (skipped)"
-                    print(f"  BlockDiag+LR: {bdlr.num_params:,} params, SNR {bdlr_snr:+.2f} dB{status}")
-
-                # Only add if it improves SNR
-                if bdlr_snr > 0.01:
-                    stages.append(bdlr)
-                    current_output = current_output + bdlr_output
-                    current_weight_approx = current_weight_approx + bdlr_weight
-
-            except Exception as e:
-                if verbose:
-                    print(f"  BlockDiag+LR: failed ({str(e)[:60]})")
-
-            # Step 6: Column-sparse to capture important features/outliers
-            if use_sparse:
-                residual_output_6 = original_output - current_output
-                residual_weight_6 = W - current_weight_approx
-
-                # Create temporary linear with residual weights
-                temp_linear_sparse = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_sparse.weight.data = residual_weight_6.cpu().to(dtype)
-
-                try:
-                    # Create column-sparse layer
-                    sparse = ColumnSparseLinear.from_linear(
-                        temp_linear_sparse,
+                    sparse_stage = ColumnSparseLinear.from_linear_adaptive(
+                        residual_linear,
                         input_activations=input_activations.cpu(),
-                        target_sparsity=sparse_sparsity,
-                        k_cols_per_iter=32,  # Greedy column selection
+                        target_sparsity=target_sparsity,
+                        reference_rank_frac=0.30,
+                    )
+                    sparse_stage = sparse_stage.to(device)
+                    sparse_weight = _stage_weight(
+                        sparse_stage, out_features, in_features, device,
                     )
 
-                    # Move to correct device
-                    sparse = sparse.to(device)
+                    stages.append(sparse_stage)
+                    stage_types.append("sparse_adaptive")
+                    stage_configs.append({
+                        "sparsity": target_sparsity,
+                        "reference_rank_frac": 0.30,
+                    })
+                    stage_weights.append(sparse_weight)
+                    current_weight_approx = current_weight_approx + sparse_weight
 
                     with torch.no_grad():
-                        sparse_output = sparse(input_activations.to(dtype)).float()
-
-                    # Reconstruct sparse weight matrix for tracking
-                    # ColumnSparseLinear stores selected_columns and partial weight
-                    sparse_weight_full = torch.zeros(out_features, in_features, device=device)
-                    sparse_weight_full[:, sparse.selected_columns] = sparse.weight.data.float()
-
-                    sparse_snr = compute_snr(residual_output_6, sparse_output)
+                        current_output = F.linear(
+                            input_activations.to(dtype),
+                            current_weight_approx.to(dtype),
+                        ).float()
+                    sparse_snr, sparse_sig_db, sparse_noise_db = _compute_snr(original_output, current_output)
+                    resid_er = _residual_er(W - current_weight_approx, channel_scale)
 
                     if verbose:
-                        status = ""
-                        if sparse_snr > 0.01:
-                            status = " ✓"
-                        else:
-                            status = " (skipped)"
-                        print(f"  Sparse: {sparse.num_params:,} params, SNR {sparse_snr:+.2f} dB{status}")
-
-                    # Only add if it improves SNR
-                    if sparse_snr > 0.01:
-                        stages.append(sparse)
-                        current_output = current_output + sparse_output
-                        current_weight_approx = current_weight_approx + sparse_weight_full
-
+                        print(f"    Sparse result: {sparse_stage.num_params:,} params "
+                              f"({sparse_stage.num_params/original_params:.1%}), "
+                              f"SNR → {sparse_snr:.2f}dB (+{sparse_snr - current_snr:.2f}dB), "
+                              f"noise={sparse_noise_db:.1f}dB, residual ER={resid_er:.0f}")
                 except Exception as e:
                     if verbose:
-                        print(f"  Sparse: failed ({str(e)[:60]})")
+                        print(f"    Sparse failed: {str(e)[:80]}")
 
-            # Step 4: Kronecker to capture repeating/block-periodic patterns
+        # ----------------------------------------------------------
+        # Step 3: Other techniques (if enabled and budget remains)
+        # ----------------------------------------------------------
+        with torch.no_grad():
+            current_output = F.linear(
+                input_activations.to(dtype), current_weight_approx.to(dtype)
+            ).float()
+        current_snr, _, _ = _compute_snr(original_output, current_output)
+        remaining_budget = abs_param_budget - sum(s.num_params for s in stages)
+
+        def _try_add_stage(name, stage_type, create_fn, config):
+            """Try to create and add a stage. Returns True if added."""
+            nonlocal current_weight_approx, current_snr
+
+            residual_weight = W - current_weight_approx
+            temp_linear = _make_temp_linear(
+                residual_weight, dtype, in_features, out_features,
+            )
+
+            try:
+                stage, weight_matrix = create_fn(temp_linear)
+                if stage is None:
+                    return False
+
+                stage = stage.to(device)
+                weight_matrix = _stage_weight(
+                    stage, out_features, in_features, device,
+                )
+
+                new_approx = current_weight_approx + weight_matrix
+                with torch.no_grad():
+                    new_output = F.linear(
+                        input_activations.to(dtype), new_approx.to(dtype)
+                    ).float()
+                new_snr, new_sig_db, new_noise_db = _compute_snr(original_output, new_output)
+                delta_snr = new_snr - current_snr
+
+                if delta_snr > 0.01:
+                    stages.append(stage)
+                    stage_types.append(stage_type)
+                    stage_configs.append(config)
+                    stage_weights.append(weight_matrix)
+                    current_weight_approx = new_approx
+                    current_snr = new_snr
+                    resid_er = _residual_er(W - current_weight_approx, channel_scale)
+                    if verbose:
+                        print(f"    {name}: {stage.num_params:,} params, "
+                              f"SNR → {new_snr:.2f}dB (+{delta_snr:.2f}), "
+                              f"noise={new_noise_db:.1f}dB, residual ER={resid_er:.0f}")
+                    return True
+                else:
+                    if verbose:
+                        print(f"    {name}: skipped (ΔSNR={delta_snr:.2f}dB)")
+            except Exception as e:
+                if verbose:
+                    print(f"    {name}: failed ({str(e)[:60]})")
+            return False
+
+        if remaining_budget > 0 and current_snr < target_snr_db:
+            if verbose:
+                print(f"\n  Step 3: Other techniques "
+                      f"(remaining={remaining_budget:,} params, SNR={current_snr:.1f}dB)")
+
+            # Tucker
+            tucker_config = {"num_modes": tucker_num_modes, "rank": tucker_rank}
+            _try_add_stage(
+                "Tucker", "tucker",
+                lambda tl: (
+                    TuckerLinear.from_linear(
+                        tl, rank=tucker_rank, num_modes=tucker_num_modes,
+                        input_activations=input_activations, verbose=False,
+                    ),
+                    None,
+                ),
+                tucker_config,
+            )
+
+            # Block Tensor Train
+            if use_blocktt:
+                blocktt_config = {
+                    "block_size": blocktt_block_size,
+                    "num_cores": blocktt_num_cores,
+                    "rank": blocktt_rank,
+                }
+                _try_add_stage(
+                    "BlockTT", "blocktt",
+                    lambda tl: (
+                        BlockTensorizedLinear.from_linear(
+                            tl, block_size=blocktt_block_size,
+                            num_cores=blocktt_num_cores, rank=blocktt_rank,
+                            input_activations=input_activations,
+                        ),
+                        None,
+                    ),
+                    blocktt_config,
+                )
+
+            # Block-Diagonal + Low-Rank
+            bdlr_config = {
+                "num_blocks": blockdiag_num_blocks,
+                "rank": blockdiag_rank,
+            }
+            _try_add_stage(
+                "BlockDiag+LR", "blockdiag_lr",
+                lambda tl: (
+                    BlockDiagonalLowRankLinear.from_linear(
+                        tl, num_blocks=blockdiag_num_blocks,
+                        rank=blockdiag_rank, verbose=False,
+                    ),
+                    None,
+                ),
+                bdlr_config,
+            )
+
+            # Kronecker
             if use_kronecker:
-                residual_output_4 = original_output - current_output
-                residual_weight_4 = W - current_weight_approx
+                kron_config = {"factor_size": kronecker_factor_size}
+                _try_add_stage(
+                    "Kronecker", "kronecker",
+                    lambda tl: (
+                        KroneckerLinear.from_linear(
+                            tl, factor_size=kronecker_factor_size, verbose=False,
+                        ),
+                        None,
+                    ),
+                    kron_config,
+                )
 
-                # Create temporary linear with residual weights
-                temp_linear_kron = nn.Linear(in_features, out_features, bias=False)
-                temp_linear_kron.weight.data = residual_weight_4.to(dtype)
+        # Phase 1 summary
+        with torch.no_grad():
+            current_output = F.linear(
+                input_activations.to(dtype), current_weight_approx.to(dtype)
+            ).float()
+        phase1_snr, phase1_sig_db, phase1_noise_db = _compute_snr(original_output, current_output)
+        phase1_resid_er = _residual_er(W - current_weight_approx, channel_scale)
+        phase1_params = sum(s.num_params for s in stages)
 
-                try:
-                    # Create KroneckerLinear (verbose=False)
-                    kronecker = KroneckerLinear.from_linear(
-                        temp_linear_kron,
-                        factor_size=kronecker_factor_size,
-                        verbose=False,
+        if verbose:
+            print(f"\n  Phase 1 Results:")
+            print(f"    Stages: {', '.join(stage_types)}")
+            print(f"    SNR: {phase1_snr:.2f} dB, noise={phase1_noise_db:.1f}dB, residual ER={phase1_resid_er:.0f}")
+            print(f"    Params: {phase1_params:,} / {original_params:,} = {phase1_params/original_params:.2%}")
+
+        # ================================================================
+        # Phase 2: Iterative Refinement
+        # ================================================================
+        if max_refinement_iters > 0 and len(stages) > 0:
+            if verbose:
+                print(f"\n{'=' * 60}")
+                print("Phase 2: Iterative Refinement")
+                print("=" * 60)
+
+            # Compute absolute param budget
+            if total_param_budget is not None:
+                abs_param_budget = int(total_param_budget * W.numel())
+            else:
+                # Default: keep current total
+                abs_param_budget = phase1_params
+
+            for ref_iter in range(max_refinement_iters):
+                with torch.no_grad():
+                    current_output = F.linear(
+                        input_activations.to(dtype), current_weight_approx.to(dtype)
+                    ).float()
+                current_snr, cur_sig_db, cur_noise_db = _compute_snr(original_output, current_output)
+                cur_resid_er = _residual_er(W - current_weight_approx, channel_scale)
+
+                if verbose:
+                    total_p = sum(s.num_params for s in stages)
+                    print(f"\n  Refinement iter {ref_iter + 1}:")
+                    print(f"    Current SNR: {current_snr:.2f} dB, noise={cur_noise_db:.1f}dB, residual ER={cur_resid_er:.0f}, Params: {total_p:,}")
+
+                if current_snr >= target_snr_db:
+                    if verbose:
+                        print(f"    Target SNR reached!")
+                    break
+
+                # Compute per-stage budgets
+                budgets = _compute_stage_budgets(
+                    stages, stage_types, stage_weights, W,
+                    original_output, input_activations, dtype,
+                    abs_param_budget,
+                )
+
+                improved_any = False
+
+                for i in range(len(stages)):
+                    # Compute ideal target for this stage
+                    other_weight = sum(
+                        stage_weights[j] for j in range(len(stages)) if j != i
+                    )
+                    ideal_target_weight = W - other_weight
+
+                    target_linear = _make_temp_linear(
+                        ideal_target_weight, dtype, in_features, out_features,
                     )
 
-                    # Move to correct device
-                    kronecker = kronecker.to(device)
+                    new_stage, new_weight = _refit_stage(
+                        stage_types[i], target_linear, input_activations,
+                        budgets[i], stage_configs[i], device, dtype,
+                        current_stage=stages[i],
+                    )
 
+                    if new_stage is None:
+                        continue
+
+                    # Check if refit improves overall SNR
+                    new_total_weight = other_weight + new_weight
                     with torch.no_grad():
-                        kronecker_output = kronecker(input_activations.to(dtype)).float()
+                        new_output = F.linear(
+                            input_activations.to(dtype), new_total_weight.to(dtype)
+                        ).float()
+                    new_snr, new_sig_db, new_noise_db = _compute_snr(original_output, new_output)
 
-                    kronecker_weight = kronecker.to_matrix().float().to(device)
-                    kronecker_snr = compute_snr(residual_output_4, kronecker_output)
+                    # Check budget: total params after refit must stay within budget
+                    new_total_params = (
+                        sum(stages[j].num_params for j in range(len(stages)) if j != i)
+                        + new_stage.num_params
+                    )
 
-                    if verbose:
-                        status = ""
-                        if kronecker_snr > 0.01:
-                            status = " ✓"
+                    if new_snr > current_snr and new_total_params <= abs_param_budget:
+                        old_params = stages[i].num_params
+                        stages[i] = new_stage
+                        stage_weights[i] = new_weight
+                        current_weight_approx = new_total_weight
+                        current_snr = new_snr
+                        improved_any = True
+                        new_resid_er = _residual_er(W - current_weight_approx, channel_scale)
+
+                        if verbose:
+                            print(f"    {stage_types[i]}: {old_params:,} -> {new_stage.num_params:,} params, "
+                                  f"SNR -> {new_snr:.2f} dB, noise={new_noise_db:.1f}dB, residual ER={new_resid_er:.0f}")
+                    else:
+                        reason = ""
+                        if new_snr <= current_snr:
+                            reason = f"SNR {new_snr:.2f} <= {current_snr:.2f}"
                         else:
-                            status = " (skipped)"
-                        print(f"  Kronecker: {kronecker.num_params:,} params, SNR {kronecker_snr:+.2f} dB{status}")
+                            reason = f"budget {new_total_params:,} > {abs_param_budget:,}"
+                        if verbose:
+                            print(f"    {stage_types[i]}: refit rejected ({reason})")
 
-                    # Only add if it improves SNR
-                    if kronecker_snr > 0.01:
-                        stages.append(kronecker)
-                        current_output = current_output + kronecker_output
-                        current_weight_approx = current_weight_approx + kronecker_weight
-
-                except Exception as e:
+                if not improved_any:
                     if verbose:
-                        print(f"  Kronecker: failed ({str(e)[:60]})")
+                        print(f"    No improvements, stopping refinement.")
+                    break
 
-        # Final SNR
-        final_snr = compute_snr(original_output, current_output)
-        total_params = sum(
-            stage.num_params for stage in stages
-        )
+        # Final summary
+        with torch.no_grad():
+            current_output = F.linear(
+                input_activations.to(dtype), current_weight_approx.to(dtype)
+            ).float()
+        final_snr, final_sig_db, final_noise_db = _compute_snr(original_output, current_output)
+        final_resid_er = _residual_er(W - current_weight_approx, channel_scale)
+        total_params = sum(s.num_params for s in stages)
         original_params = W.numel()
 
         if verbose:
             print(f"\nFinal Results:")
             print(f"  Stages: {len(stages)}")
-            print(f"  Final SNR: {final_snr:.2f} dB")
-            print(f"  Total params: {total_params:,} ({total_params/original_params:.2f}x)")
+            print(f"  Final SNR: {final_snr:.2f} dB, noise={final_noise_db:.1f}dB, residual ER={final_resid_er:.0f}")
+            print(f"  Total params: {total_params:,} ({total_params/original_params:.2%})")
             print(f"  Compression: {100*(1-total_params/original_params):.1f}%")
 
-        # Create module and ensure it's on the correct device
         module = cls(stages)
         module.to(device)
         return module
@@ -668,38 +1089,24 @@ class GreedyMultiScaleLinear(nn.Module):
 
     def to_matrix(self):
         """Reconstruct full weight matrix."""
-        # Determine shape from first stage
         if not self.stages:
             return None
 
-        # Get dimensions
         first_stage = self.stages[0]
-        if isinstance(first_stage, LowRankLinear):
-            out_features = first_stage.out_features
-            in_features = first_stage.in_features
-        elif hasattr(first_stage, 'out_features'):
-            # TuckerLinear, ColumnSparseLinear, etc.
+        if hasattr(first_stage, "out_features"):
             out_features = first_stage.out_features
             in_features = first_stage.in_features
         else:
             return None
 
-        # Reconstruct
-        device = first_stage.weight.device if hasattr(first_stage, 'weight') else 'cpu'
+        device = next(self.parameters()).device if len(list(self.parameters())) > 0 else "cpu"
         total = torch.zeros(out_features, in_features, device=device)
 
         for stage in self.stages:
-            if hasattr(stage, 'to_matrix'):
+            if hasattr(stage, "to_matrix"):
                 total = total + stage.to_matrix()
-            elif isinstance(stage, LowRankLinear):
-                total = total + (stage.U.data @ stage.V.data.T)
-            elif hasattr(stage, 'selected_columns'):
-                # ColumnSparseLinear - reconstruct sparse matrix
-                sparse_weight = torch.zeros(out_features, in_features, device=device)
-                sparse_weight[:, stage.selected_columns] = stage.weight.data
-                total = total + sparse_weight
 
         return total
 
 
-__all__ = ['GreedyMultiScaleLinear', 'LowRankLinear']
+__all__ = ["GreedyMultiScaleLinear", "LowRankLinear", "WeightOnlyLinear"]
