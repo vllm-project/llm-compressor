@@ -1,36 +1,40 @@
 # ruff: noqa
 """
-Backwards compatibility shim for SmoothQuantModifier.
+Backwards compatibility shim for AWQModifier.
 
-This module has been moved to llmcompressor.modifiers.transform.smoothquant.
+This module has been moved to llmcompressor.modifiers.transform.awq.
 This shim will be removed in a future version.
 """
 
 import warnings
 
 warnings.warn(
-    "Importing from 'llmcompressor.modifiers.awq' is deprecated. "
+    "`llmcompressor.modifiers.awq.AWQModifier` is deprecated. "
     "Please update your imports to use 'llmcompressor.modifiers.transform.awq' "
     "or 'llmcompressor.modifiers.transform' instead."
-    "Old API:"
-    """recipe = [
+    """
+Old API:
+    from llmcompressor.modifiers.awq import AWQModifier
+    recipe = [
         AWQModifier(
             ignore=["lm_head"],
             scheme="W4A16_ASYM",
             targets=["Linear"],
             duo_scaling="both"
         ),
-    ]"""
-    "New API:"
-    """recipe = [
+    ]
+New API:
+    from llmcompressor.modifiers.transform.awq import AWQModifier
+    from llmcompressor.modifiers.quantization import QuantizationModifier
+    recipe = [
         AWQTransformModifier(duo_scaling="both"),
         QuantizationModifier(
             ignore=["lm_head"],
             scheme="W4A16_ASYM",
             targets=["Linear"],
         ),
-    ]"""
-    "This compatibility shim will be removed in a future version.",
+    ]
+This compatibility shim will be removed in a future version.""",
     DeprecationWarning,
     stacklevel=2,
 )
