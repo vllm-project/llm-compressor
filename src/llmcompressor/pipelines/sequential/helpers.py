@@ -306,9 +306,10 @@ def topological_partition(
         if node in target_nodes:
             targets_seen += 1
 
-            if targets_seen % targets_per_subgraph == 0:
+            if targets_seen >= targets_per_subgraph == 0:
                 partition_index += 1
                 partitions.append([])
+                targets_seen = 0
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition

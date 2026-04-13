@@ -245,7 +245,7 @@ class DatasetArguments(CustomDatasetArguments):
         default=1,
         metadata={
             "help": "Number of sequential targets to include per subgraph. "
-            "Higher values use more VRAM but are faster. Default is 1."
+            "Higher values use more VRAM but are faster to calibrate. Default is 1."
         },
     )
     quantization_aware_calibration: bool = field(

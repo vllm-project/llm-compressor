@@ -172,7 +172,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         skip_weights=args.skip_weights,
         device_map=args.device_map,
-        targets_per_subgraph=args.sequential_targets_per_subgraph
+        targets_per_subgraph=args.targets_per_subgraph
     )
 
 
