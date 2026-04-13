@@ -12,7 +12,6 @@ from compressed_tensors.quantization import (
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
-from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
@@ -90,13 +89,19 @@ def quantize_weight(
     W = module.weight.clone()
     H = hessian
 
-    # create observer for calculating quantization parameters
-    observer = Observer.load_from_registry(
-        quant_args.observer if quant_args.observer else "memoryless_minmax",
-        base_name="weight",
-        args=quant_args,
-        module=module,
-    )
+    # use existing observer from module (may have frozen global_scale)
+    # fallback to creating new observer for standalone usage (e.g., unit tests)
+    if hasattr(module, "weight_observer"):
+        observer = module.weight_observer
+    else:
+        from llmcompressor.observers.base import Observer
+
+        observer = Observer.load_from_registry(
+            quant_args.observer if quant_args.observer else "memoryless_minmax",
+            base_name="weight",
+            args=quant_args,
+            module=module,
+        )
 
     # standardize shape and dtype
     match module:
