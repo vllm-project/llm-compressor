@@ -18,6 +18,7 @@ from compressed_tensors.utils import (
     match_modules_set,
     patch_attrs,
     update_offload_parameter,
+    deprecated,
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
@@ -49,7 +50,30 @@ from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 __all__ = ["AWQModifier"]
 
 
-class AWQModifier(Modifier):
+@deprecated("llmcompressor.modifiers.transform.awq.AWQModifier")
+def AWQModifier(**kwargs):
+    from llmcompressor.modifiers.quantization import QuantizationModifier
+
+    quant_keys = (
+        "config_groups",
+        "targets",
+        "ignore",
+        "scheme",
+        "kv_cache_scheme",
+        "weight_observer",
+        "input_observer",
+        "output_observer",
+        "observer",
+        "bypass_divisibility_checks",
+    )
+    quant_kwargs = {k: v for k, v in kwargs.items() if k in quant_keys}
+    awq_kwargs = {k: v for k, v in kwargs.items() if k not in quant_keys}
+
+    return [AWQTransformModifier(**awq_kwargs), QuantizationModifier(**quant_kwargs)]
+
+
+# TODO move to llmcompressor.modifiers.transform.awq.AWQModifier
+class AWQTransformModifier(Modifier):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
     as described in https://arxiv.org/pdf/2306.00978. The algorithm
@@ -154,8 +178,10 @@ class AWQModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize AWQ on the given state
-        Initialize quantization, resolve mappings, cache module kwargs
+        Start AWQ on the given state. This runs before quantization config has been
+        applied
+
+        - infer unresolved mappings based on model architecture, if not set manually
 
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
@@ -180,12 +206,23 @@ class AWQModifier(Modifier):
                 # (no offloading by default)
                 self.offload_device = None
 
-        self._set_resolved_mappings(state.model)
-
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
+        """
+        Start AWQ on the given state. This runs after quantization mixin has been
+        initialized (i.e. after quantization config has been applied)
+
+        - resolve mappings
+        - validate mappings and quant scheme
+        - setup activation cache hooks
+
+        :param state: state to run AWQ on
+        :return: True on a successful run, False otherwise
+        """
         self.started_ = True
+
+        self._set_resolved_mappings(state.model)
 
         # Check for unsupported token masking with MoE up_proj -> down_proj mappings
         if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
@@ -283,6 +320,7 @@ class AWQModifier(Modifier):
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
 
+        num_incompatible = 0
         for mapping in self.mappings:
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers)
@@ -316,17 +354,25 @@ class AWQModifier(Modifier):
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                skip_message: str | None = None
+                # Incompatibility occurs frequently depending on model size
                 if not all_compatible:
-                    skip_message = " because found incompatible balance layers"
-                elif not any_targeted:
-                    skip_message = " because no layers are targeted for quantization"
-                elif len(balance_layers) == 0:
-                    skip_message = " because no balance layers were found"
+                    num_incompatible += 1
+                    logger.debug(
+                        f"Skipping {smooth_name} for mapping {mapping} because "
+                        + "incompatible balance layers were found."
+                    )
+                    continue
 
-                if skip_message:
+                # Warn that mappings or quantization config are malformed for model
+                if (not any_targeted) or len(balance_layers) == 0:
+                    skip_message = (
+                        "no balance layers were found."
+                        if len(balance_layers) == 0
+                        else "no layers are targeted for quantization."
+                    )
+
                     logger.warning(
-                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                        f"Skipping {smooth_name} for mapping {mapping} because "
                         + skip_message
                     )
 
@@ -358,6 +404,12 @@ class AWQModifier(Modifier):
                         activation_hook_target=activation_hook_target,
                     )
                 )
+        if num_incompatible > 0:
+            logger.warning(
+                f"{num_incompatible} mappings were skipped due to incompatible shapes. "
+                + "Set logging to DEBUG to view full list."
+            )
+
         self._resolved_mappings = resolved_mappings
         return
 

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Union
 
 import yaml
 from loguru import logger
@@ -34,17 +34,17 @@ class Recipe(BaseModel):
     when serializing a recipe, yaml will be used by default.
     """
 
-    args: Dict[str, Any] = Field(default_factory=dict)
+    args: dict[str, Any] = Field(default_factory=dict)
     stage: str = "default"
-    modifiers: List[Modifier] = Field(default_factory=list)
+    modifiers: list[Modifier] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
     def from_modifiers(
         cls,
-        modifiers: Union[Modifier, List[Modifier]],
-        modifier_group_name: Optional[str] = None,
+        modifiers: Modifier | list[Modifier | list[Modifier]],
+        modifier_group_name: str | None = None,
     ) -> "Recipe":
         """
         Create a recipe instance from a list of modifiers
@@ -67,11 +67,22 @@ class Recipe(BaseModel):
         """
         logger.info("Creating recipe from modifiers")
 
-        if isinstance(modifiers, Modifier):
-            modifiers = [modifiers]
+        # workaround for modifiers that can be nested lists of Modifiers
+        # backward-compatibility for llmcompressor.modifiers.awq.AWQModifier, which
+        # returns [AWQTransformModifier, QuantizationModifier]
+        def flatten(nested):
+            for item in nested:
+                if isinstance(item, list):
+                    yield from flatten(item)
+                else:
+                    yield item
+
+        modifiers = list(flatten(modifiers))
 
         if any(not isinstance(modifier, Modifier) for modifier in modifiers):
             raise ValueError("modifiers must be a list of Modifier instances")
+
+        cls.validate_modifiers(modifiers)
 
         group_name = modifier_group_name or "default"
 
@@ -84,9 +95,11 @@ class Recipe(BaseModel):
     @classmethod
     def create_instance(
         cls,
-        path_or_modifiers: Union[str, Modifier, List[Modifier], "Recipe"],
-        modifier_group_name: Optional[str] = None,
-        target_stage: Optional[str] = None,
+        path_or_modifiers: Union[
+            str, Modifier, list[Modifier | list[Modifier]], "Recipe"
+        ],
+        modifier_group_name: str | None = None,
+        target_stage: str | None = None,
     ) -> "Recipe":
         """
         Create a recipe instance from a file, string, or RecipeModifier objects
@@ -159,8 +172,29 @@ class Recipe(BaseModel):
                     )
             return cls.from_dict(filter_dict(obj, target_stage=target_stage))
 
+    @staticmethod
+    def validate_modifiers(modifiers: list[Modifier]):
+        """
+        Ensure modifiers are in a suitable order -- if a modifier that requires a
+        follow-on quantization modifier is found without one, raise an error
+        """
+        from llmcompressor.modifiers.quantization import QuantizationMixin
+        from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+        from llmcompressor.modifiers.transform.awq import AWQTransformModifier
+
+        for modifier_idx, modifier in enumerate(modifiers):
+            if isinstance(modifier, (AWQTransformModifier, SmoothQuantModifier)):
+                if not any(
+                    isinstance(mod, QuantizationMixin)
+                    for mod in modifiers[(modifier_idx + 1) :]
+                ):
+                    raise ValueError(
+                        f"Recipe includes a {modifier.__class__.__name__} but no "
+                        f"subsequent quantization modifier was found in {modifiers}."
+                    )
+
     @classmethod
-    def from_dict(cls, recipe_dict: Dict[str, Any]) -> "Recipe":
+    def from_dict(cls, recipe_dict: dict[str, Any]) -> "Recipe":
         """
         Parses a dictionary representing a recipe and returns a Recipe instance.
         Ensures all modifier entries are instantiated Modifier objects.
@@ -169,7 +203,7 @@ class Recipe(BaseModel):
         :return: Recipe instance with instantiated Modifier objects.
         """
         args = recipe_dict.get("args", {})
-        modifiers: List[Modifier] = []
+        modifiers: list[Modifier] = []
         stage = "default"
 
         if not ModifierFactory._loaded:
@@ -198,7 +232,7 @@ class Recipe(BaseModel):
             modifiers=modifiers,
         )
 
-    def dict(self, *args, **kwargs) -> Dict[str, Any]:
+    def dict(self, *args, **kwargs) -> dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
         """
@@ -207,8 +241,8 @@ class Recipe(BaseModel):
 
     def yaml(
         self,
-        file_path: Optional[str] = None,
-        existing_recipe_path: Optional[str] = None,
+        file_path: str | None = None,
+        existing_recipe_path: str | None = None,
     ) -> str:
         """
         Return a YAML string representation of the recipe,
@@ -251,6 +285,6 @@ class Recipe(BaseModel):
         return yaml_str
 
 
-RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
-RecipeStageInput = Union[str, List[str], List[List[str]]]
-RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
+RecipeInput = Union[str, list[str], Recipe, list[Recipe], Modifier, list[Modifier]]
+RecipeStageInput = Union[str, list[str], list[list[str]]]
+RecipeArgsInput = Union[dict[str, Any], list[dict[str, Any]]]
