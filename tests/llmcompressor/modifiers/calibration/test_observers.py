@@ -63,7 +63,6 @@ def assert_alike(a, b):
     assert a.shape == b.shape
 
 
-@pytest.mark.parametrize("is_global", [False, True])
 @pytest.mark.parametrize(
     "name,kwargs,observed,exp_min_vals,exp_max_vals",
     (
@@ -104,18 +103,10 @@ def assert_alike(a, b):
         ),
     ),
 )
-def test_observer_min_max_vals(
-    name, kwargs, observed, exp_min_vals, exp_max_vals, is_global
-):
+def test_observer_min_max_vals(name, kwargs, observed, exp_min_vals, exp_max_vals):
     observer = Observer.load_from_registry(
         name, base_name="input", args=QuantizationArgs(strategy="tensor"), **kwargs
     )
-
-    if is_global:
-        # Skip - these observers compute global min/max on-the-fly
-        pytest.skip(
-            f"{name} observers compute global min/max on-the-fly from min_vals/max_vals"
-        )
 
     min_vals, max_vals = [], []
     for _observed in observed:
