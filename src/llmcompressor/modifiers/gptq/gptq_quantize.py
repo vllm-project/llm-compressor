@@ -111,17 +111,19 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
     # handle g_idx and activation ordering
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP, QuantizationStrategy.BLOCK):
+    g_idx_to_save = None
+    if strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+        QuantizationStrategy.BLOCK,
+    ):
         # mapping from column index to group index
         divisor = (
             quant_args.group_size
             if strategy != QuantizationStrategy.BLOCK
             else quant_args.block_structure[1]
         )
-        g_idx = (
-            torch.arange(num_columns, device=W.device, dtype=torch.int)
-            // divisor
-        )
+        g_idx = torch.arange(num_columns, device=W.device, dtype=torch.int) // divisor
 
         if actorder == ActivationOrdering.GROUP:
             W, H, perm = _apply_activation_ordering(W, H)
@@ -258,24 +260,18 @@ def quantize_weight(
         else:
             W[:, i2:] -= w_err
 
-    has_gidx = False
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        if actorder == ActivationOrdering.WEIGHT:
+    if strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+        QuantizationStrategy.BLOCK,
+    ):
+        if actorder in (ActivationOrdering.WEIGHT, ActivationOrdering.GROUP):
             # restore original permutation
             invperm = torch.argsort(perm)
             W = W[:, invperm]
 
-        elif actorder == ActivationOrdering.GROUP:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
-            g_idx = g_idx[invperm]
-
-            # only save g_idx if mapping is not identity
-            has_gidx = True
-
-    if not has_gidx:
-        g_idx = None
+            if actorder == ActivationOrdering.GROUP:
+                g_idx_to_save = g_idx[invperm]
 
     if isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
@@ -287,8 +283,8 @@ def quantize_weight(
         "weight_scale": scale.to(dtype=final_dtype),
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
     }
-    if g_idx is not None:
-        q_param_dict["weight_g_idx"] = g_idx
+    if g_idx_to_save is not None:
+        q_param_dict["weight_g_idx"] = g_idx_to_save
     return (loss, q_param_dict)
 
 
