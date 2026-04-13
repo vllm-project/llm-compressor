@@ -242,10 +242,10 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     sequential_targets_per_subgraph: int = field(
-    default=1,
-    metadata={
-        "help": "Number of sequential targets to include per subgraph. "
-        "Higher values use more VRAM but are faster. Default is 1."
+        default=1,
+        metadata={
+            "help": "Number of sequential targets to include per subgraph. "
+            "Higher values use more VRAM but are faster. Default is 1."
         },
     )
     quantization_aware_calibration: bool = field(

@@ -84,7 +84,7 @@ def trace_subgraphs(
     sample_input: dict[str, Any],
     sequential_targets: list[str],
     ignore: list[str],
-    targets_per_subgraph: int = 1
+    targets_per_subgraph: int = 1,
 ) -> list[Subgraph]:
     """
     Trace a model to produce subgraphs, where each sequential target belongs to exactly
@@ -259,7 +259,9 @@ def find_target_nodes(graph: GraphModule, targets: set[Module]) -> set[Node]:
     )
 
 
-def topological_partition(graph: GraphModule, targets: set[Module], targets_per_subgraph: int = 1) -> list[list[Node]]:
+def topological_partition(
+    graph: GraphModule, targets: set[Module], targets_per_subgraph: int = 1
+) -> list[list[Node]]:
     """
     Partition the graph into partitions such that each `target` belongs to exactly one
     partition and executing each partition depends only on intermediate values produced
@@ -273,9 +275,11 @@ def topological_partition(graph: GraphModule, targets: set[Module], targets_per_
     """
     assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
-    
-    if(targets_per_subgraph <= 0):
-        raise ValueError("targets_per_subgraph is required to be greater than or equal to one")
+
+    if targets_per_subgraph <= 0:
+        raise ValueError(
+            "targets_per_subgraph is required to be greater than or equal to one"
+        )
 
     partitions: list[list[Node]] = [[]]
     remaining_indegrees = {
@@ -283,8 +287,8 @@ def topological_partition(graph: GraphModule, targets: set[Module], targets_per_
         for node in graph.graph.nodes
     }
     partition_index = 0  # global counter
-    targets_seen = 0 # number of targets encountered so far
-    
+    targets_seen = 0  # number of targets encountered so far
+
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
     queue = deque(
@@ -301,7 +305,7 @@ def topological_partition(graph: GraphModule, targets: set[Module], targets_per_
         # guarantee targets are assigned to disjoint partitions
         if node in target_nodes:
             targets_seen += 1
-            
+
             if targets_seen % targets_per_subgraph == 0:
                 partition_index += 1
                 partitions.append([])
