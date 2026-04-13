@@ -3,14 +3,13 @@ import tempfile
 import pytest
 import yaml
 
+from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
 from llmcompressor.recipe import Recipe
 from tests.llmcompressor.helpers import valid_recipe_strings
-
-from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.gptq import GPTQModifier
 
 
 @pytest.mark.parametrize("recipe_str", valid_recipe_strings())
