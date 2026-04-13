@@ -694,6 +694,11 @@ class AWQModifier(Modifier):
 
                 # Q(W * s)
                 for balance_layer in balance_layers_to_patch:
+                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
+                        balance_layer.quantization_scheme, "weights"
+                    ):
+                        continue
+
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.data.copy_(
                         orig_layer_weights[balance_layer].to(_scalesview.device)
@@ -721,10 +726,10 @@ class AWQModifier(Modifier):
 
                 # Apply fused global scales for TENSOR_GROUP during grid search
                 # to match inference behavior
-                if mapping.balance_layers and all(
+                if balance_layers_to_patch and all(
                     getattr(layer.quantization_scheme.weights, "strategy", None)
                     == QuantizationStrategy.TENSOR_GROUP
-                    for layer in mapping.balance_layers
+                    for layer in balance_layers_to_patch
                 ):
                     update_fused_layer_weight_global_scales(mapping.parent)
 
