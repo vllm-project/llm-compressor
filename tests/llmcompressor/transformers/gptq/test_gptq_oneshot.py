@@ -117,7 +117,7 @@ recipe_modifier_block_actorder_weight = GPTQModifier(
         "group_0": QuantizationScheme(
             targets=["re:.*model.layers.2.self_attn.q_proj$"],
             weights=QuantizationArgs(
-                num_bits=4,
+                num_bits=8,
                 strategy="block",
                 block_structure=[2, 8],
                 actorder=ActivationOrdering.WEIGHT,
