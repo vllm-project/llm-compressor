@@ -20,7 +20,7 @@ def _make_observer(cls, **kwargs):
 @pytest.mark.unit
 def test_memoryless_synchronize_returns_empty():
     observer = _make_observer(MemorylessMinMaxObserver)
-    assert observer.synchronize_observer() == []
+    assert observer.synchronize_ranks() == []
 
 
 @pytest.mark.unit
@@ -33,7 +33,7 @@ def test_memoryless_get_qparams_raises_without_observation():
 @pytest.mark.unit
 def test_static_synchronize_returns_empty_before_observation():
     observer = _make_observer(StaticMinMaxObserver)
-    assert observer.synchronize_observer() == []
+    assert observer.synchronize_ranks() == []
 
 
 @pytest.mark.unit
@@ -45,7 +45,7 @@ def test_static_synchronize_issues_all_reduce(mock_dist):
     observer.min_vals = torch.tensor([-1.0])
     observer.max_vals = torch.tensor([1.0])
 
-    comms = observer.synchronize_observer()
+    comms = observer.synchronize_ranks()
     assert len(comms) == 2
     assert mock_dist.all_reduce.call_count == 2
 
@@ -64,7 +64,7 @@ def test_static_synchronize_with_global_state(mock_dist):
     observer.min_vals = torch.tensor([-1.0])
     observer.max_vals = torch.tensor([1.0])
 
-    comms = observer.synchronize_observer()
+    comms = observer.synchronize_ranks()
     assert len(comms) == 2
     assert mock_dist.all_reduce.call_count == 2
 
@@ -78,7 +78,7 @@ def test_moving_avg_synchronize_issues_all_reduce(mock_dist):
     observer.min_vals = torch.tensor([-1.0])
     observer.max_vals = torch.tensor([1.0])
 
-    comms = observer.synchronize_observer()
+    comms = observer.synchronize_ranks()
     assert len(comms) == 2
 
     # verify AVG ops used

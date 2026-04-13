@@ -1,18 +1,20 @@
-from abc import abstractmethod
 from typing import Optional
 
 import torch
 from compressed_tensors.quantization import QuantizationArgs
 from torch import distributed as dist
 
-from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.base import Observer
 
 __all__ = ["MovingAverageObserverBase"]
 
 
 class MovingAverageObserverBase(Observer):
     """
-    Compute quantization parameters by taking the moving average of min/max values
+    Base class for observers that use exponential moving average of statistics.
+
+    Provides the averaging constant and helper method for moving average computation.
+    Subclasses implement _update_statistics with their specific logic and averaging.
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
@@ -35,25 +37,6 @@ class MovingAverageObserverBase(Observer):
     ):
         super().__init__(base_name, args, module, **observer_kwargs)
         self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
-
-    @abstractmethod
-    def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate the min and max value of the observed value (without moving average)
-        """
-        raise NotImplementedError()
-
-    def _update_statistics(self, observed: torch.Tensor) -> None:
-        """Update exponential moving average statistics."""
-        # Update per-group/channel min/max with EMA
-        min_vals, max_vals = self.get_current_min_max(observed)
-
-        if hasattr(self, "min_vals") and self.avg_constant != 1.0:
-            min_vals = self._lerp(self.min_vals, min_vals, self.avg_constant)
-            max_vals = self._lerp(self.max_vals, max_vals, self.avg_constant)
-
-        self.min_vals = min_vals
-        self.max_vals = max_vals
 
     def _lerp(
         self, input: torch.Tensor, end: torch.Tensor, weight: float

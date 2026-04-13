@@ -183,7 +183,7 @@ class Observer(InternalModule, RegistryMixin):
         """
         self._use_module_global_scale = False
 
-    def synchronize_observer(self) -> List[dist.Work]:
+    def synchronize_ranks(self) -> List[dist.Work]:
         """All-reduce accumulated statistics across DDP ranks.
 
         Issues async all-reduce operations on statistic attributes specified in

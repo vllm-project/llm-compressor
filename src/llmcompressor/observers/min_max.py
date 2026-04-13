@@ -71,8 +71,18 @@ class MinMaxObserver(MovingAverageObserverBase):
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
-    def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
+    def _update_statistics(self, observed: torch.Tensor) -> None:
+        """Update exponential moving average statistics."""
+        # Compute per-group/channel min/max
+        min_vals, max_vals = _get_min_max(observed)
+
+        # Apply exponential moving average
+        if hasattr(self, "min_vals") and self.avg_constant != 1.0:
+            min_vals = self._lerp(self.min_vals, min_vals, self.avg_constant)
+            max_vals = self._lerp(self.max_vals, max_vals, self.avg_constant)
+
+        self.min_vals = min_vals
+        self.max_vals = max_vals
 
 
 def _get_min_max(observed: torch.Tensor) -> MinMaxTuple:

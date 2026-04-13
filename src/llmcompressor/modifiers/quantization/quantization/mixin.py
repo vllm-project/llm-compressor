@@ -282,7 +282,7 @@ class QuantizationMixin(HooksMixin):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue
-                pending_comms.extend(observer.synchronize_observer())
+                pending_comms.extend(observer.synchronize_ranks())
                 modules_to_update.append((module, base_name, observer))
 
         wait_for_comms(pending_comms)

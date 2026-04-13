@@ -49,14 +49,12 @@ def test_observer_synchronize_reduces_min_max():
         else torch.tensor([15.0, 10.0], device="cuda")
     )
 
-    comms = observer.synchronize()
+    comms = observer.synchronize_ranks()
     wait_for_comms(comms)
 
     # after sync, min should be element-wise minimum, max element-wise maximum
-    assert torch.equal(observer.past_min_vals, torch.tensor([1.0, 1.0], device="cuda"))
-    assert torch.equal(
-        observer.past_max_vals, torch.tensor([15.0, 20.0], device="cuda")
-    )
+    assert torch.equal(observer.min_vals, torch.tensor([1.0, 1.0], device="cuda"))
+    assert torch.equal(observer.max_vals, torch.tensor([15.0, 20.0], device="cuda"))
 
 
 @pytest.mark.multi_gpu
@@ -79,7 +77,7 @@ def test_synced_qparams_are_identical_across_ranks():
         else torch.tensor([1.0], device="cuda")
     )
 
-    comms = observer.synchronize_observer()
+    comms = observer.synchronize_ranks()
     wait_for_comms(comms)
 
     qparams = observer.get_qparams()

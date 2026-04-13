@@ -96,9 +96,10 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
 
-    def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        # min[min_vals, max_vals](mse_quant_error)
-        return _grid_search_mse(
+    def _update_statistics(self, observed: torch.Tensor) -> None:
+        """Update exponential moving average statistics."""
+        # Compute optimal min/max via MSE grid search
+        min_vals, max_vals = _grid_search_mse(
             observed,
             self.args,
             self.maxshrink,
@@ -106,6 +107,14 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
             self.grid,
             self.norm,
         )
+
+        # Apply exponential moving average
+        if hasattr(self, "min_vals") and self.avg_constant != 1.0:
+            min_vals = self._lerp(self.min_vals, min_vals, self.avg_constant)
+            max_vals = self._lerp(self.max_vals, max_vals, self.avg_constant)
+
+        self.min_vals = min_vals
+        self.max_vals = max_vals
 
 
 def _grid_search_mse(
