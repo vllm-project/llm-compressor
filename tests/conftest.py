@@ -14,9 +14,8 @@ emulated XPU identity on real CUDA hardware:
 """
 
 from types import SimpleNamespace
+
 import torch
-
-
 
 # ---------------------------------------------------------------------------
 # XPU emulation tests (part 2): TorchFunctionMode device emulation
@@ -118,4 +117,3 @@ def pytest_unconfigure(config):
         import compressed_tensors.offload.cache.base as _base
 
         _base.is_accelerator_type = orig_base_is_accel
-
