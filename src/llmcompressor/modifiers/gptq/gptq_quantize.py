@@ -7,7 +7,9 @@ from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
+    QuantizationType,
     fake_quantize,
+    round_to_quantized_type_dtype,
 )
 from loguru import logger
 
@@ -18,6 +20,39 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
+
+
+def _round_scales_to_dtype(
+    scale: torch.Tensor,
+    zero_point: torch.Tensor,
+    quant_args: QuantizationArgs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Round scales and zero points to their final storage dtype.
+
+    This is important for float quantization (e.g., nvfp4) where scales are stored
+    in fp8. By rounding scales before GPTQ optimization, we ensure GPTQ uses the
+    actual deployed scale values rather than higher-precision values that will
+    later be rounded.
+
+    :param scale: quantization scales
+    :param zero_point: quantization zero points
+    :param quant_args: quantization arguments specifying dtypes
+    :return: rounded scale and zero_point tensors
+    """
+    # Only round for float quantization types where scale_dtype differs from storage
+    if quant_args.type == QuantizationType.FLOAT and quant_args.scale_dtype is not None:
+        # Round scale to its final dtype (e.g., fp8 for nvfp4)
+        scale = round_to_quantized_type_dtype(
+            scale, quant_args.scale_dtype, cast_to_original_dtype=True
+        )
+        # Round zero_point to its final dtype if applicable
+        if quant_args.zp_dtype is not None:
+            zero_point = round_to_quantized_type_dtype(
+                zero_point, quant_args.zp_dtype, cast_to_original_dtype=True
+            )
+
+    return scale, zero_point
 
 
 def make_empty_hessian(
@@ -72,6 +107,7 @@ def quantize_weight(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
+    round_scales: bool = False,
 ) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
@@ -81,6 +117,7 @@ def quantize_weight(
     :param hessian_dict: dictionary containing preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
+    :param round_scales: whether to round scales to final dtype after calculation
     :return: loss, quantized_weight, scale, zero_point, g_idx
     """
     strategy = quant_args.strategy
@@ -122,13 +159,24 @@ def quantize_weight(
             W, H, perm = _apply_activation_ordering(W, H)
             # actually need scale/zp for permuted weight for this format
             scale, zero_point = observer(W)
+            if round_scales:
+                scale, zero_point = _round_scales_to_dtype(scale, zero_point, quant_args)
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # permute weights and g_idx
+            if round_scales:
+                scale, zero_point = _round_scales_to_dtype(scale, zero_point, quant_args)
             W, H, perm = _apply_activation_ordering(W, H)
             g_idx = g_idx[perm]
-
+        else:
+            # No actorder - round scales if requested
+            if round_scales:
+                scale, zero_point = _round_scales_to_dtype(scale, zero_point, quant_args)
+    else:
+        # Non-group strategies (TENSOR, CHANNEL, BLOCK)
+        if round_scales:
+            scale, zero_point = _round_scales_to_dtype(scale, zero_point, quant_args)
     # sparsity mask
     sparsity = tensor_sparsity(W)
     preserve_zeros = sparsity >= SPARSITY_THRESHOLD
