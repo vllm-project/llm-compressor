@@ -10,7 +10,7 @@ emulated XPU identity on real CUDA hardware:
 
   1. DeviceRemapMode — intercepts torch.* calls, remaps "xpu" -> "cuda"
   2. Accelerator mock — torch.accelerator.current_accelerator() reports "xpu"
-  3. is_accelerator_type patch — accepts both "xpu" and "cuda"
+  3. Local is_accelerator_type patches — accept both "xpu" and "cuda"
 """
 
 from types import SimpleNamespace
@@ -20,6 +20,13 @@ import torch
 # ---------------------------------------------------------------------------
 # XPU emulation tests (part 2): TorchFunctionMode device emulation
 # ---------------------------------------------------------------------------
+
+
+def _build_emulated_is_accelerator_type(fake_type: str, real_type: str):
+    def patched_is_accelerator_type(device_type: str) -> bool:
+        return device_type in (fake_type, real_type)
+
+    return patched_is_accelerator_type
 
 
 def pytest_addoption(parser):
@@ -37,7 +44,7 @@ def pytest_configure(config):
     Three layers of patching:
       1. DeviceRemapMode — intercepts torch.* functions, remaps "xpu" -> "cuda"
       2. Accelerator mock — torch.accelerator.current_accelerator() reports "xpu"
-      3. is_accelerator_type patch — accepts both "xpu" and "cuda"
+      3. Local is_accelerator_type patches — accept both "xpu" and "cuda"
 
     Layer 3 is necessary because DeviceRemapMode converts torch.device("xpu") ->
     torch.device("cuda"), so tensor.device.type is "cuda".  But is_accelerator_type
@@ -76,22 +83,18 @@ def pytest_configure(config):
     torch.accelerator.device_count = lambda: real_device_count
     torch.accelerator.is_available = lambda: real_is_available
 
-    # Layer 3: Patch is_accelerator_type to accept both types
-    import compressed_tensors.utils as _utils
+    patched_is_accelerator_type = _build_emulated_is_accelerator_type(
+        fake_type=fake_type, real_type=real_type
+    )
 
-    config._emulate_orig_is_accelerator_type = _utils.is_accelerator_type
-
-    def patched_is_accelerator_type(device_type: str) -> bool:
-        return device_type in (fake_type, real_type)
-
-    _utils.is_accelerator_type = patched_is_accelerator_type
-
-    # Also patch base.py's binding since it imported is_accelerator_type directly
-    # and captured the original function before pytest_configure ran
+    # Layer 3: Patch the local compressed-tensors import sites used by this flow
     import compressed_tensors.offload.cache.base as _base
+    import compressed_tensors.offload.convert.helpers as _helpers
 
     config._emulate_orig_base_is_accelerator_type = _base.is_accelerator_type
+    config._emulate_orig_convert_is_accelerator_type = _helpers.is_accelerator_type
     _base.is_accelerator_type = patched_is_accelerator_type
+    _helpers.is_accelerator_type = patched_is_accelerator_type
 
 
 def pytest_unconfigure(config):
@@ -106,14 +109,16 @@ def pytest_unconfigure(config):
         torch.accelerator.device_count = config._emulate_orig_device_count
         torch.accelerator.is_available = config._emulate_orig_is_available
 
-    orig_is_accel = getattr(config, "_emulate_orig_is_accelerator_type", None)
-    if orig_is_accel is not None:
-        import compressed_tensors.utils as _utils
-
-        _utils.is_accelerator_type = orig_is_accel
-
     orig_base_is_accel = getattr(config, "_emulate_orig_base_is_accelerator_type", None)
     if orig_base_is_accel is not None:
         import compressed_tensors.offload.cache.base as _base
 
         _base.is_accelerator_type = orig_base_is_accel
+
+    orig_convert_is_accel = getattr(
+        config, "_emulate_orig_convert_is_accelerator_type", None
+    )
+    if orig_convert_is_accel is not None:
+        import compressed_tensors.offload.convert.helpers as _helpers
+
+        _helpers.is_accelerator_type = orig_convert_is_accel
