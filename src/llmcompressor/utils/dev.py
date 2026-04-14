@@ -135,7 +135,7 @@ def get_main_device() -> torch.device:
             raise RuntimeError("Parallelism has not been supported for MPS")
         return torch.device("mps")
 
-    if torch.accelerator.is_available():
+    elif torch.accelerator.is_available():
         accel_type = torch.accelerator.current_accelerator().type
         return torch.device(accel_type, rank)
     else:
