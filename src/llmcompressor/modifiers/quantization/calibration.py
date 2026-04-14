@@ -20,7 +20,7 @@ from llmcompressor.observers import Observer
 
 __all__ = [
     "initialize_observer",
-    "call_observer",
+    "update_qparams",
     "calibrate_input_hook",
     "calibrate_output_hook",
     "freeze_module_quantization",
@@ -84,30 +84,23 @@ def initialize_observer(
         observer.attach(module)
 
 
-def call_observer(
+def update_qparams(
     module: Module,
     base_name: str,
-    value: Optional[torch.Tensor] = None,
     update_global_scale: bool = True,
     update_scale_zp: bool = True,
 ):
     """
-    Call a module's attached input/weight/output observer using a provided value.
-    Optionally update the module's quantization parameters using the returned qparams.
+    Compute quantization parameters from observer statistics and store on module.
 
-    :param module: torch.nn.Module
+    :param module: torch.nn.Module with attached observer
     :param base_name: substring used to fetch the observer, scales, and zp
-    :param value: torch.Tensor to be passed to the observer for activations. If
-        base_name is "weight", then the module's weight tensor will be used
     :param update_global_scale: if True, update module global_scale (when not None)
     :param update_scale_zp: if True, update module scale and zero_point (when not None)
     """
     with align_module_device(module):
-        if value is None and base_name == "weight":
-            value = module.weight
         observer: Observer = getattr(module, f"{base_name}_observer")
-
-        qparams = observer(value).get_qparams()
+        qparams = observer.get_qparams()
 
         # Map qparam names to their corresponding update flags
         qparam_update_flags = {
@@ -125,39 +118,24 @@ def call_observer(
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     """
-    Calibrate input or output activations by calling the a module's attached
-    observer.
+    Calibrate input or output activations by accumulating statistics in the observer.
+
+    For static quantization, qparams are computed later in sync_activation_observers
+    after synchronizing statistics across DDP ranks.
+
+    For dynamic quantization, qparams are computed at inference time, not stored.
 
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer
-
     """
-    # If empty tensor, can't update zp/scale
+    # If empty tensor, can't update statistics
     # Case for MoEs
     if value.numel() == 0:
         return
 
-    field_name = "input" if base_name != "output" else "output"  # input,q,k,v,output
-    args_attr = f"quantization_scheme.{field_name}_activations"
-    quantization_args = getattr_chain(module, args_attr, None)
-
-    update_scale_zp = True
-    update_global_scale = False
-
-    if quantization_args is not None:
-        if quantization_args.dynamic in (True, DynamicType.LOCAL):
-            update_scale_zp = False
-        if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            update_global_scale = True
-
-    call_observer(
-        module=module,
-        base_name=base_name,
-        value=value,
-        update_global_scale=update_global_scale,
-        update_scale_zp=update_scale_zp,
-    )
+    observer = getattr(module, f"{base_name}_observer")
+    observer(value)  # accumulate statistics only
 
 
 def calibrate_input_hook(module: Module, args: Any):

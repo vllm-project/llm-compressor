@@ -70,7 +70,8 @@ class QuantizationMixin(HooksMixin):
 
     NOTE: QuantizationMixin does not update scales and zero-points on its own,
         as this is not desired for all Modifiers inheriting from it. Modifier must
-        explicitly call `call_observer(module, base_name="weight")` on each module.
+        explicitly call `module.weight_observer(module.weight)` then
+        `update_qparams(module, base_name="weight")` on each module.
         See QuantizationModifier.on_start method for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
@@ -265,16 +266,16 @@ class QuantizationMixin(HooksMixin):
 
     def sync_activation_observers(self, model: torch.nn.Module):
         """
-        All-reduce activation observer min/max values across DDP ranks,
-        then recompute scale/zp from the global statistics. No-op when
-        not distributed.
+        Synchronize activation observer statistics across DDP ranks (if distributed),
+        then compute and store quantization parameters from the (synchronized) statistics.
+
+        In DDP: syncs min/max across ranks, then computes qparams from global statistics
+        Non-DDP: just computes qparams from local statistics
 
         :param model: model containing quantized modules
         """
-        if not is_distributed():
-            return
+        from llmcompressor.modifiers.quantization.calibration import update_qparams
 
-        pending_comms = []
         modules_to_update = []
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
@@ -282,20 +283,43 @@ class QuantizationMixin(HooksMixin):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue
+                modules_to_update.append((module, base_name))
+
+        # Synchronize statistics across DDP ranks
+        if is_distributed():
+            pending_comms = []
+            for module, base_name in modules_to_update:
+                observer = getattr(module, f"{base_name}_observer")
                 pending_comms.extend(observer.synchronize_ranks())
-                modules_to_update.append((module, base_name, observer))
+            wait_for_comms(pending_comms)
 
-        wait_for_comms(pending_comms)
+        # Compute and store qparams from (synchronized) statistics
+        for module, base_name in modules_to_update:
+            # Determine which qparams to update based on quantization args
+            field_name = "input" if base_name != "output" else "output"
+            args_attr = f"quantization_scheme.{field_name}_activations"
+            from compressed_tensors.utils import getattr_chain
+            from compressed_tensors.quantization import QuantizationStrategy
+            from compressed_tensors.quantization.quant_args import DynamicType
 
-        # recompute qparams from synchronized statistics
-        for module, base_name, observer in modules_to_update:
-            qparams = observer.get_qparams()
+            quantization_args = getattr_chain(module, args_attr, None)
 
-            for param_name, param_val in qparams.items():
-                if param_val is not None:
-                    update_offload_parameter(
-                        module, f"{base_name}_{param_name}", param_val
-                    )
+            update_scale_zp = True
+            update_global_scale = False
+
+            if quantization_args is not None:
+                # Dynamic quantization: don't store scale/zp (computed at inference)
+                if quantization_args.dynamic in (True, DynamicType.LOCAL):
+                    update_scale_zp = False
+                if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+                    update_global_scale = True
+
+            update_qparams(
+                module=module,
+                base_name=base_name,
+                update_global_scale=update_global_scale,
+                update_scale_zp=update_scale_zp,
+            )
 
     def has_config(self) -> bool:
         """
@@ -436,7 +460,7 @@ class QuantizationMixin(HooksMixin):
                     initialize_observer(module, base_name="k")
                     initialize_observer(module, base_name="v")
 
-        # weight observers (used by `call_observer(module, "weight")` or child modifier)
+        # weight observers (used by child modifier via `module.weight_observer(module.weight)` + `update_qparams()`)
         if weight:
             initialize_observer(module, base_name="weight")
 
