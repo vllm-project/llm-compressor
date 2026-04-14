@@ -259,13 +259,10 @@ def quantize_weight(
         else:
             W[:, i2:] -= w_err
 
-    if actorder in (ActivationOrdering.WEIGHT, ActivationOrdering.GROUP):
+    if actorder:
         # restore original permutation
         invperm = torch.argsort(perm)
         W = W[:, invperm]
-
-        if actorder == ActivationOrdering.GROUP:
-            g_idx = g_idx[invperm]
 
     if isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
@@ -278,7 +275,7 @@ def quantize_weight(
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
     }
     if actorder == ActivationOrdering.GROUP:
-        q_param_dict["weight_g_idx"] = g_idx
+        q_param_dict["weight_g_idx"] = g_idx[invperm]
     return (loss, q_param_dict)
 
 
