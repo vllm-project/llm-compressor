@@ -111,7 +111,6 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
     # handle g_idx and activation ordering
-    g_idx_to_save = None
     if strategy in (
         QuantizationStrategy.GROUP,
         QuantizationStrategy.TENSOR_GROUP,
@@ -260,18 +259,13 @@ def quantize_weight(
         else:
             W[:, i2:] -= w_err
 
-    if strategy in (
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-        QuantizationStrategy.BLOCK,
-    ):
-        if actorder in (ActivationOrdering.WEIGHT, ActivationOrdering.GROUP):
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
+    if actorder in (ActivationOrdering.WEIGHT, ActivationOrdering.GROUP):
+        # restore original permutation
+        invperm = torch.argsort(perm)
+        W = W[:, invperm]
 
-            if actorder == ActivationOrdering.GROUP:
-                g_idx_to_save = g_idx[invperm]
+        if actorder == ActivationOrdering.GROUP:
+            g_idx = g_idx[invperm]
 
     if isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
@@ -283,8 +277,8 @@ def quantize_weight(
         "weight_scale": scale.to(dtype=final_dtype),
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
     }
-    if g_idx_to_save is not None:
-        q_param_dict["weight_g_idx"] = g_idx_to_save
+    if actorder is ActivationOrdering.GROUP:
+        q_param_dict["weight_g_idx"] = g_idx
     return (loss, q_param_dict)
 
 
