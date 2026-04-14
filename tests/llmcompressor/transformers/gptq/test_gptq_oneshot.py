@@ -96,7 +96,7 @@ recipe_modifier_group_actorder_group = GPTQModifier(
     },
 )
 
-# Test block quantization variant
+# Test block quantization variants
 recipe_modifier_full_block = GPTQModifier(
     ignore=["lm_head"],
     config_groups={
