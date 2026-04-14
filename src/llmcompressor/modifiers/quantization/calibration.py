@@ -1,11 +1,9 @@
-from typing import Any, Optional
+from typing import Any
 
 import torch
 from compressed_tensors.quantization import (
-    DynamicType,
     QuantizationArgs,
     QuantizationStatus,
-    QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import (
@@ -116,49 +114,21 @@ def update_qparams(
                 update_offload_parameter(module, f"{base_name}_{param_name}", param_val)
 
 
-def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
-    """
-    Calibrate input or output activations by accumulating statistics in the observer.
-
-    For static quantization, qparams are computed later in sync_activation_observers
-    after synchronizing statistics across DDP ranks.
-
-    For dynamic quantization, qparams are computed at inference time, not stored.
-
-    :param module: torch.nn.Module
-    :param base_name: substring used to fetch the observer, scales, and zp
-    :param value: torch.Tensor to be passed to the observer
-    """
-    # If empty tensor, can't update statistics
-    # Case for MoEs
-    if value.numel() == 0:
-        return
-
-    observer = getattr(module, f"{base_name}_observer")
-    observer(value)  # accumulate statistics only
-
-
 def calibrate_input_hook(module: Module, args: Any):
     """
-    Hook to calibrate input activations.
-    Will call the observers to update the scales/zp before applying
-    input QDQ in the module's forward pass.
+    Hook to calibrate input activations by accumulating statistics in the observer.
     """
     args = args[0] if isinstance(args, tuple) else args
-    calibrate_activations(module, value=args, base_name="input")
+    if args.numel() > 0:  # skip empty tensors (MoEs)
+        module.input_observer(args)
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
-    Hook to calibrate output activations.
-    Will call the observers to update the scales/zp before applying
-    output QDQ.
+    Hook to calibrate output activations by accumulating statistics in the observer.
     """
-    calibrate_activations(
-        module,
-        value=output,
-        base_name="output",
-    )
+    if output.numel() > 0:  # skip empty tensors (MoEs)
+        module.output_observer(output)
     output = forward_quantize(
         module=module,
         value=output,
@@ -169,15 +139,18 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
 
 
 def calibrate_query_hook(module: Module, query_states: torch.Tensor):
-    calibrate_activations(module, query_states, base_name="q")
+    if query_states.numel() > 0:
+        module.q_observer(query_states)
 
 
 def calibrate_key_hook(module: Module, key_states: torch.Tensor):
-    calibrate_activations(module, key_states, base_name="k")
+    if key_states.numel() > 0:
+        module.k_observer(key_states)
 
 
 def calibrate_value_hook(module: Module, value_states: torch.Tensor):
-    calibrate_activations(module, value_states, base_name="v")
+    if value_states.numel() > 0:
+        module.v_observer(value_states)
 
 
 def apply_calibration_status(module: Module):
