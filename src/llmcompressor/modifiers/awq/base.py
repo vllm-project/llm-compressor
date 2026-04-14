@@ -3,6 +3,9 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.distributed import wait_for_comms
+from compressed_tensors.modeling.kvcache import QuantizedKVCache
+from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
     disable_quantization,
@@ -20,16 +23,17 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, field_validator
+from torch import distributed as dist
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.awq.dynamic_mappings import get_layer_mappings_from_model
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
-    get_layer_mappings_from_architecture,
 )
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
@@ -43,10 +47,9 @@ from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.utils import get_high_precision
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import (
-    get_module_to_name_dict,
-)
+from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["AWQModifier"]
 
@@ -117,8 +120,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     - on_finalize
         - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of module names to compress in
-        the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -154,7 +155,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
@@ -166,8 +166,8 @@ class AWQModifier(Modifier, QuantizationMixin):
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
-    # Dict[smooth layer name, (activation means, activation counts)]
-    _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
+    # Dict[smooth layer name, [activation sums, activation counts]]
+    _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
     # List to store error metrics for each layer
@@ -194,6 +194,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 if (
                     hasattr(module, "quantization_scheme")
                     and hasattr(module.quantization_scheme, "weights")
+                    and hasattr(module.quantization_scheme.weights, "strategy")
                     and module.quantization_scheme.weights.strategy
                     == QuantizationStrategy.TENSOR
                 ):
@@ -206,9 +207,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
-            self.mappings = get_layer_mappings_from_architecture(
-                architecture=state.model.__class__.__name__
-            )
+            self.mappings = get_layer_mappings_from_model(state.model)
 
         # Set default offload_device
         if self.offload_device == Sentinel("not_provided"):
@@ -261,10 +260,12 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             # Run smoothing in case of sequential pipeline
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self._apply_smoothing(state.model)
 
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
             # Run smoothing in case of basic pipeline
+            QuantizationMixin.sync_activation_observers(self, state.model)
             self._apply_smoothing(state.model)
 
             if not self.ended_:
@@ -314,7 +315,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         self._log_error_metrics()
 
         self._parent_args_cache.clear()
-        self._smooth_activation_means.clear()
+        self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
         self._error_metrics.clear()
 
@@ -431,6 +432,12 @@ class AWQModifier(Modifier, QuantizationMixin):
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
+
+            # replace any quantized kv cache with None
+            for k, v in values.arguments.items():
+                if isinstance(v, QuantizedKVCache):
+                    values.arguments[k] = None
+
             self._parent_args_cache[module].append(values.arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
@@ -459,11 +466,16 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     masked_activations = activations.flatten(0, -2)
 
-                act_mean, count = _accumulate_mean(
-                    masked_activations,
-                    self._smooth_activation_means.get(smooth_name, None),
-                )
-                self._smooth_activation_means[smooth_name] = (act_mean.cpu(), count)
+                # accumulate activation sum&count
+                new_sum = masked_activations.float().sum(dim=0).cpu()
+                new_count = torch.tensor(masked_activations.size(0)).cpu()
+                if smooth_name not in self._smooth_activation_stats:
+                    self._smooth_activation_stats[smooth_name] = [
+                        torch.zeros_like(new_sum),
+                        torch.zeros_like(new_count),
+                    ]
+                self._smooth_activation_stats[smooth_name][0] += new_sum
+                self._smooth_activation_stats[smooth_name][1] += new_count
 
             return cache_smooth_activations_hook
 
@@ -511,7 +523,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
-            if mapping.smooth_name in self._smooth_activation_means
+            if mapping.smooth_name in self._smooth_activation_stats
         ]
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
@@ -531,7 +543,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         "found to scale. This can occasionally occur in MoE models "
                         "when certain experts are not activated by calibration samples."
                     )
-                    del self._smooth_activation_means[mapping.smooth_name]
+                    del self._smooth_activation_stats[mapping.smooth_name]
                     continue
                 if not all(
                     [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
@@ -545,7 +557,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         "ways. If you encounter this consistently, raise an issue at "
                         "https://github.com/vllm-project/llm-compressor/issues"
                     )
-                    del self._smooth_activation_means[mapping.smooth_name]
+                    del self._smooth_activation_stats[mapping.smooth_name]
                     continue
 
                 orig_layer_weights = {
@@ -598,7 +610,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 _smooth(smooth_layer, orig_layer_weights)
 
                 # remove caches needed to smooth this mapping
-                del self._smooth_activation_means[mapping.smooth_name]
+                del self._smooth_activation_stats[mapping.smooth_name]
                 del orig_layer_weights
 
         for v in self._parent_args_cache.values():
@@ -647,7 +659,11 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_mean = self._smooth_activation_means[mapping.smooth_name][0].to(device)
+        x_sum, count = self._smooth_activation_stats[mapping.smooth_name]
+        if is_distributed():
+            x_sum, count = _allreduce_data_sum([x_sum, count])
+        x_mean = x_sum.to(device) / count.to(device)
+
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
@@ -808,8 +824,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         session = active_session()
         loss_masks = session.state.loss_masks if session.state else None
 
-        loss = 0.0
-        num_elements = 0
+        device = fp16_outputs[0].device
+        loss = torch.tensor(0.0, device=device)
+        num_elements = torch.tensor(0, device=device)
 
         # Compute the MSE loss for each batch
         for batch_idx, (fp16_batch, int_w_batch) in enumerate(
@@ -831,6 +848,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
                 num_elements += fp16_batch.numel()
 
+        if is_distributed():
+            loss, num_elements = _allreduce_data_sum([loss, num_elements])
         # Normalize the loss by the total number of elements
         return (loss / num_elements).item()
 
@@ -870,7 +889,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         Confirm all activations have been consumed
         If not, something has gone wrong
         """
-        if len(self._smooth_activation_means) != 0:
+        if len(self._smooth_activation_stats) != 0:
             raise RuntimeError("Some cached activations were not used")
 
     def _has_moe_up_down_proj_mapping(self) -> bool:
@@ -957,7 +976,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = weight.reshape(orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
-            weight_sum = weight.sum(0, dtype=torch.float64)
+            weight_sum = weight.sum(0, dtype=get_high_precision())
             weight_total_sum += weight_sum
 
         return weight_total_sum / weight_total_count
@@ -1025,19 +1044,17 @@ def get_lowest_common_ancestor_with_avoid(
         ancestor_name = ".".join(ancestor_name.split(".")[:-1])
 
 
-def _accumulate_mean(
-    inp: torch.Tensor,
-    prev_mean_and_count: tuple[torch.FloatTensor, int] | None,
-) -> tuple[torch.FloatTensor, int]:
-    sum_added = inp.sum(dim=0)
-    num_added = inp.size(0)
-    if prev_mean_and_count is None:
-        return sum_added / num_added, num_added
+def _allreduce_data_sum(data: list[torch.Tensor]) -> list[torch.Tensor]:
+    # needs to be on device to broadcast
+    device = torch.device(f"cuda:{torch.cuda.current_device()}")
+    data = [datum.to(device) for datum in data]
 
-    prev_mean, prev_count = prev_mean_and_count
-    prev_mean = prev_mean.to(inp.device)
-
-    prev_sum = prev_mean * prev_count
-    new_count = prev_count + num_added
-
-    return (prev_sum + sum_added) / new_count, new_count
+    pending_comms = []
+    for datum in data:
+        pending_comms.append(
+            dist.all_reduce(
+                as_broadcastable(datum), op=dist.ReduceOp.SUM, async_op=True
+            )
+        )
+    wait_for_comms(pending_comms)
+    return data

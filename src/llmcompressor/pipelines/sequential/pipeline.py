@@ -12,7 +12,6 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
-    get_sequential_targets,
     handle_sequential_oom,
     trace_subgraphs,
 )
@@ -22,6 +21,7 @@ from llmcompressor.utils.helpers import (
     DisableQuantization,
     calibration_forward_context,
 )
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -92,13 +92,20 @@ class SequentialPipeline(CalibrationPipeline):
         dispatch_for_sequential(model, onload_device)
 
         # prepare to trace subgraphs
-        modifiers = session.lifecycle.recipe.modifiers
-        sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
+        sequential_targets = infer_sequential_targets(
+            model, dataset_args.sequential_targets
+        )
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+        subgraphs = trace_subgraphs(
+            model,
+            sample_input,
+            sequential_targets,
+            ignore,
+            dataset_args.sequential_targets_per_subgraph,
+        )
         num_subgraphs = len(subgraphs)
 
         LifecycleCallbacks.calibration_epoch_start()

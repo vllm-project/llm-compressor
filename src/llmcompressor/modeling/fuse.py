@@ -7,10 +7,12 @@ from compressed_tensors import (
     update_offload_parameter,
 )
 
+from llmcompressor.utils import get_high_precision
+
 __all__ = ["center_embeddings", "fuse_norm_linears"]
 
 
-PRECISION = torch.float64
+PRECISION = get_high_precision()
 
 
 def center_embeddings(embedding: torch.nn.Module):

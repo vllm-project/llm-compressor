@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en"
+early_access: false
+reviews:
+  request_changes_workflow: false # prevent code rabbit from approving PRs
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true # Only show high-level summary in walkthrough, not the PR description
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_apply_labels: true
+  path_filters:
+    - "!**/*.pyc"
+    - "!**/build/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/__pycache__/**"
+    - "!**/.lmeval_cache/**"
+  path_instructions:
+    - path: "**/*.py"
+      instructions: "Focus on code correctness, quantization algorithm implementation, numerical stability, and tensor operations. Check for major PEP 8 violations and Python best practices. Pay attention to GPU memory management and model loading patterns. Ignore trivial formatting issues."
+    - path: "tests/**/*.py"
+      instructions: "Ensure PyTest tests are clear, comprehensive, and cover edge cases for quantization scenarios. Verify proper mocking and test isolation. Don't focus on minor stylistic details."
+    - path: "examples/**/*.py"
+      instructions: "Review for clarity, correctness, and educational value. Ensure examples follow best practices and are runnable. Verify that comments and documentation are helpful for users learning the library."
+    - path: "src/llmcompressor/modifiers/**/*.py"
+      instructions: "Pay special attention to quantization modifier implementations. Verify algorithm correctness, proper handling of different quantization schemes (FP8, INT4, etc.), and compatibility with various model architectures."
+    - path: "docs/**/*.md"
+      instructions: "Check for clarity, accuracy, and completeness of documentation. Ensure code examples in docs are correct and align with current API."
+    - path: "**/README.md"
+      instructions: "Review for clarity, accuracy, and up-to-date information. Ensure installation instructions and examples are correct."
+  labeling_instructions:
+    - label: "bug"
+      instructions: "Indicates a bug in the code that needs to be fixed. Match case-insensitively (e.g., 'Bug', 'BUG', 'bug' all qualify)."
+    - label: "enhancement"
+      instructions: "Indicates a new feature or improvement to existing functionality. Match case-insensitively (e.g., 'Enhancement', 'ENHANCEMENT')."
+    - label: "rfc"
+      instructions: "Issues proposing a design or requesting feedback before implementation. Match case-insensitively — 'rfc', 'RFC', 'Rfc' all qualify."
+    - label: "refactor"
+      instructions: "Issues or PRs that restructure or clean up existing code without changing external behavior. Match case-insensitively — 'refactor', 'Refactor', 'REFACTOR' all qualify."
+    # Model architectures
+    - label: "qwen"
+      instructions: "Issues or PRs related to Qwen models (Qwen, Qwen2, Qwen3, etc.). Match case-insensitively — 'QWEN', 'Qwen', 'qwen' all qualify."
+    - label: "llama"
+      instructions: "Issues or PRs related to Llama models (Llama2, Llama3, etc.). Match case-insensitively — 'LLAMA', 'Llama', 'llama' all qualify."
+    # Quantization formats
+    - label: "fp8"
+      instructions: "Issues or PRs related to FP8 quantization format. Match case-insensitively — 'fp8', 'FP8', 'Fp8' all qualify."
+    - label: "nvfp4"
+      instructions: "Issues or PRs related to NVIDIA FP4 quantization format. Match case-insensitively — 'nvfp4', 'NVFP4', 'NvFP4' all qualify."
+    - label: "w4a16"
+      instructions: "Issues or PRs related to W4A16, W8A16, or wNa16 quantization schemes. Match case-insensitively — 'w4a16', 'W4A16', 'w8a16', 'W8A16', 'wna16', 'WNA16' all qualify."
+    # Quantization algorithms
+    - label: "gptq"
+      instructions: "Issues or PRs related to GPTQ quantization algorithm. Match case-insensitively — 'gptq', 'GPTQ', 'Gptq' all qualify."
+    - label: "awq"
+      instructions: "Issues or PRs related to AWQ (Activation-aware Weight Quantization) algorithm. Match case-insensitively — 'awq', 'AWQ', 'Awq' all qualify."
+    - label: "autoround"
+      instructions: "Issues or PRs related to AutoRound quantization algorithm. Match case-insensitively — 'autoround', 'AutoRound', 'AUTOROUND' all qualify."
+    - label: "smoothquant"
+      instructions: "Issues or PRs related to SmoothQuant algorithm. Match case-insensitively — 'smoothquant', 'SmoothQuant', 'SMOOTHQUANT' all qualify."
+    # Components and integrations
+    - label: "model_free_ptq"
+      instructions: "Issues or PRs related to model-free PTQ (Post-Training Quantization) pathway. Match case-insensitively — 'model_free_ptq', 'Model_Free_PTQ', 'MODEL_FREE_PTQ' all qualify."
+    - label: "transforms"
+      instructions: "Issues or PRs related to model transforms functionality. Match case-insensitively — 'transforms', 'Transforms', 'TRANSFORMS' all qualify."
+    - label: "tracing"
+      instructions: "Issues or PRs related to model tracing functionality. Match case-insensitively — 'tracing', 'Tracing', 'TRACING' all qualify."
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
+    drafts: false
+    auto_incremental_review: false
+    base_branches:
+      - "main"
+knowledge_base:
+  linked_repositories:
+    - repository: "vllm-project/compressed-tensors"
+      instructions: "Contains compressed model checkpoint format and offloading utilities. Useful for understanding model loading, memory management strategies, available compression formats, the lifecycle for managing compression, and compressed checkpoint."
+chat:
+  auto_reply: true
+issue_enrichment:
+  auto_enrich:
+    enabled: true

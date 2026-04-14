@@ -8,7 +8,6 @@ from loguru import logger
 
 __all__ = [
     "gpu_if_available",
-    "find_safetensors_index_file",
     "match_names_set_eager",
     "MatchedNamesSet",
     "invert_mapping",
@@ -37,14 +36,6 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
             "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
         )
         return torch.device("cpu")
-
-
-def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors.index.json"):
-            return resolved_path
-
-    return None
 
 
 def match_names_set_eager(
@@ -96,3 +87,23 @@ def invert_mapping(
         inverse[value].append(key)
 
     return inverse
+
+
+def build_weights_map(
+    weight_map: dict[str, str],
+    model_files: dict[str, str],
+) -> dict[str, str]:
+    """
+    Build a mapping of tensor name -> resolved file path from the model's
+    weight_map (index.json). This allows any process to locate fused partner
+    tensors from other shards without loading entire files.
+
+    :param weight_map: mapping of tensor name -> shard filename (from index.json)
+    :param model_files: mapping of shard filename -> resolved absolute path
+    :return: mapping of tensor name -> resolved absolute path
+    """
+    return {
+        tensor_name: model_files[shard_name]
+        for tensor_name, shard_name in weight_map.items()
+        if shard_name in model_files
+    }
