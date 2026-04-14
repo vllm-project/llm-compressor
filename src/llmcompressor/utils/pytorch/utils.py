@@ -1,6 +1,7 @@
 import gc
 
 import torch
+from compressed_tensors.utils import deprecated
 
 __all__ = ["measure_accelerator_memory", "measure_cuda_memory"]
 
@@ -36,5 +37,6 @@ class measure_accelerator_memory:
         gc.collect()
 
 
-# Alias `measure_cuda_memory` to `measure_accelerator_memory` for backward compatibility
-measure_cuda_memory = measure_accelerator_memory
+@deprecated("measure_accelerator_memory")
+def measure_cuda_memory(device=None):
+    return measure_accelerator_memory(device=device)
