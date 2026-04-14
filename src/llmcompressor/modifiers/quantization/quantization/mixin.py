@@ -13,6 +13,7 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
+    QuantizationStrategy,
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
@@ -21,7 +22,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
-from compressed_tensors.utils import match_named_modules, update_offload_parameter
+from compressed_tensors.utils import getattr_chain, match_named_modules, update_offload_parameter
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -35,6 +36,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     freeze_module_quantization,
     initialize_observer,
     reset_quantization_status,
+    update_qparams,
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
@@ -290,11 +292,6 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model containing quantized modules
         """
-        from llmcompressor.modifiers.quantization.calibration import update_qparams
-        from compressed_tensors.utils import getattr_chain
-        from compressed_tensors.quantization import QuantizationStrategy
-        from compressed_tensors.quantization.quant_args import DynamicType
-
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             for base_name in ("input", "output", "q", "k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
