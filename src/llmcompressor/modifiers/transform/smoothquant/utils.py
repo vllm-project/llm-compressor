@@ -71,10 +71,10 @@ QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
         balance_layers=["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
         smooth_layers="re:.*input_layernorm$",
     ),
-    LayerMap(
-        balance_layers=["re:.*gate_proj$", "re:.*up_proj$", "re:.*gate_up_proj$"],
-        smooth_layers="re:.*post_attention_layernorm$",
-    ),
+    # MLP smoothing (post_attention_layernorm) is intentionally omitted for MoE.
+    # A single smoothing scale across all experts causes inter-expert imbalance,
+    # degrading PPL even with the router gate properly balanced.
+    # This matches the Mixtral convention in this repo and TensorRT-LLM's approach.
 ]
 
 AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
