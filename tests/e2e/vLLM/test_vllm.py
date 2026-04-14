@@ -217,8 +217,10 @@ class TestvLLM:
 
         # if FP8A16 scheme, must set VLLM_TEST_FORCE_FP8_MARLIN=1
         # to force usage of marlin kernel
-        if "FP8A16" in self.scheme.upper():
+        if self.scheme and "FP8A16" in self.scheme.upper():
             os.environ["VLLM_TEST_FORCE_FP8_MARLIN"] = "1"
+        else:
+            os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
 
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
