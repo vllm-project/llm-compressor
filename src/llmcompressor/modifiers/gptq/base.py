@@ -28,7 +28,7 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import update_qparams
+from llmcompressor.modifiers.quantization.calibration import observe_and_update_qparams
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
@@ -204,9 +204,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Optionally generate global scales if using TENSOR_GROUP quantization
         for _, module in named_modules:
-            module.weight_observer(module.weight)
-            update_qparams(module, base_name="weight")
-            # once global scale is fused, will use that for GPTQ, no recalculation
+            observe_and_update_qparams(module, base_name="weight")
+            # once global scale is fused, will use that for GPTQ
             module.weight_observer.use_module_global_scale()
 
         for module in state.model.modules():
@@ -225,10 +224,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             QuantizationMixin.sync_activation_observers(self, state.model)
+            QuantizationMixin.update_activation_qparams(self, state.model)
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             QuantizationMixin.sync_activation_observers(self, state.model)
+            QuantizationMixin.update_activation_qparams(self, state.model)
             self.compress_modules()
 
             if not self.ended_:

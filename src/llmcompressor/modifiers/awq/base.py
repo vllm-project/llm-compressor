@@ -35,7 +35,7 @@ from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
 )
-from llmcompressor.modifiers.quantization.calibration import update_qparams
+from llmcompressor.modifiers.quantization.calibration import observe_and_update_qparams
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -257,11 +257,13 @@ class AWQModifier(Modifier, QuantizationMixin):
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             # Run smoothing in case of sequential pipeline
             QuantizationMixin.sync_activation_observers(self, state.model)
+            QuantizationMixin.update_activation_qparams(self, state.model)
             self._apply_smoothing(state.model)
 
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
             # Run smoothing in case of basic pipeline
             QuantizationMixin.sync_activation_observers(self, state.model)
+            QuantizationMixin.update_activation_qparams(self, state.model)
             self._apply_smoothing(state.model)
 
             if not self.ended_:
@@ -282,8 +284,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # Calculate scales and zero points and global scales
         for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            module.weight_observer(module.weight)
-            update_qparams(module, base_name="weight")
+            observe_and_update_qparams(module, base_name="weight")
 
         # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
         # This is a requirement for vLLM inference.
@@ -727,8 +728,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         * _scalesview
                     )
 
-                    balance_layer.weight_observer(balance_layer.weight)
-                    update_qparams(balance_layer, base_name="weight")
+                    observe_and_update_qparams(balance_layer, base_name="weight")
                     balance_layer.weight.data = (
                         forward_quantize(
                             balance_layer,

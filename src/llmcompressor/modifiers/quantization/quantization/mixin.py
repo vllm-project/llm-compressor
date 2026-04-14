@@ -266,60 +266,62 @@ class QuantizationMixin(HooksMixin):
 
     def sync_activation_observers(self, model: torch.nn.Module):
         """
-        Synchronize activation observer statistics across DDP ranks (if distributed),
-        then compute and store quantization parameters from the (synchronized) statistics.
+        Synchronize activation observer statistics across DDP ranks.
+        No-op when not distributed.
 
-        In DDP: syncs min/max across ranks, then computes qparams from global statistics
-        Non-DDP: just computes qparams from local statistics
+        :param model: model containing quantized modules
+        """
+        if not is_distributed():
+            return
+
+        pending_comms = []
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            for base_name in ("input", "output", "q", "k", "v"):
+                observer = getattr(module, f"{base_name}_observer", None)
+                if observer is None:
+                    continue
+                pending_comms.extend(observer.synchronize_ranks())
+        wait_for_comms(pending_comms)
+
+    def update_activation_qparams(self, model: torch.nn.Module):
+        """
+        Compute and store quantization parameters for all activation observers
+        (input, output, q, k, v) from accumulated statistics.
 
         :param model: model containing quantized modules
         """
         from llmcompressor.modifiers.quantization.calibration import update_qparams
-
-        modules_to_update = []
+        from compressed_tensors.utils import getattr_chain
+        from compressed_tensors.quantization import QuantizationStrategy
+        from compressed_tensors.quantization.quant_args import DynamicType
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             for base_name in ("input", "output", "q", "k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue
-                modules_to_update.append((module, base_name))
 
-        # Synchronize statistics across DDP ranks
-        if is_distributed():
-            pending_comms = []
-            for module, base_name in modules_to_update:
-                observer = getattr(module, f"{base_name}_observer")
-                pending_comms.extend(observer.synchronize_ranks())
-            wait_for_comms(pending_comms)
+                # Determine which qparams to update based on quantization args
+                field_name = "input" if base_name != "output" else "output"
+                args_attr = f"quantization_scheme.{field_name}_activations"
+                quantization_args = getattr_chain(module, args_attr, None)
 
-        # Compute and store qparams from (synchronized) statistics
-        for module, base_name in modules_to_update:
-            # Determine which qparams to update based on quantization args
-            field_name = "input" if base_name != "output" else "output"
-            args_attr = f"quantization_scheme.{field_name}_activations"
-            from compressed_tensors.utils import getattr_chain
-            from compressed_tensors.quantization import QuantizationStrategy
-            from compressed_tensors.quantization.quant_args import DynamicType
+                update_scale_zp = True
+                update_global_scale = False
 
-            quantization_args = getattr_chain(module, args_attr, None)
+                if quantization_args is not None:
+                    # Dynamic quantization: don't store scale/zp (computed at inference)
+                    if quantization_args.dynamic in (True, DynamicType.LOCAL):
+                        update_scale_zp = False
+                    if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+                        update_global_scale = True
 
-            update_scale_zp = True
-            update_global_scale = False
-
-            if quantization_args is not None:
-                # Dynamic quantization: don't store scale/zp (computed at inference)
-                if quantization_args.dynamic in (True, DynamicType.LOCAL):
-                    update_scale_zp = False
-                if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
-                    update_global_scale = True
-
-            update_qparams(
-                module=module,
-                base_name=base_name,
-                update_global_scale=update_global_scale,
-                update_scale_zp=update_scale_zp,
-            )
+                update_qparams(
+                    module=module,
+                    base_name=base_name,
+                    update_global_scale=update_global_scale,
+                    update_scale_zp=update_scale_zp,
+                )
 
     def has_config(self) -> bool:
         """
@@ -460,7 +462,7 @@ class QuantizationMixin(HooksMixin):
                     initialize_observer(module, base_name="k")
                     initialize_observer(module, base_name="v")
 
-        # weight observers (used by child modifier via `module.weight_observer(module.weight)` + `update_qparams()`)
+        # weight observers (used by child modifier or `observe_and_update_qparams`)
         if weight:
             initialize_observer(module, base_name="weight")
 

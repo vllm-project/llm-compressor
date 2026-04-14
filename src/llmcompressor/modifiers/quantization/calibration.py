@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 import torch
 from compressed_tensors.quantization import (
@@ -19,6 +19,7 @@ from llmcompressor.observers import Observer
 __all__ = [
     "initialize_observer",
     "update_qparams",
+    "observe_and_update_qparams",
     "calibrate_input_hook",
     "calibrate_output_hook",
     "freeze_module_quantization",
@@ -97,7 +98,9 @@ def update_qparams(
     :param update_scale_zp: if True, update module scale and zero_point (when not None)
     """
     with align_module_device(module):
-        observer: Observer = getattr(module, f"{base_name}_observer")
+        observer = getattr(module, f"{base_name}_observer", None)
+        if observer is None:
+            return
         qparams = observer.get_qparams()
 
         # Map qparam names to their corresponding update flags
@@ -112,6 +115,41 @@ def update_qparams(
             update_flag = qparam_update_flags.get(param_name)
             if update_flag and param_val is not None:
                 update_offload_parameter(module, f"{base_name}_{param_name}", param_val)
+
+
+def observe_and_update_qparams(
+    module: Module,
+    base_name: str,
+    value: Optional[torch.Tensor] = None,
+    update_global_scale: bool = True,
+    update_scale_zp: bool = True,
+):
+    """
+    Call observer to accumulate statistics, then compute and store quantization parameters.
+
+    Convenience function that combines observer(value) + update_qparams() into a single call.
+
+    :param module: torch.nn.Module with attached observer
+    :param base_name: substring used to fetch the observer, scales, and zp
+    :param value: torch.Tensor to pass to observer. If None and base_name is "weight",
+        uses module.weight
+    :param update_global_scale: if True, update module global_scale (when not None)
+    :param update_scale_zp: if True, update module scale and zero_point (when not None)
+    """
+    if value is None and base_name == "weight":
+        value = module.weight
+
+    observer = getattr(module, f"{base_name}_observer", None)
+    if observer is None:
+        return
+    observer(value)
+
+    update_qparams(
+        module=module,
+        base_name=base_name,
+        update_global_scale=update_global_scale,
+        update_scale_zp=update_scale_zp,
+    )
 
 
 def calibrate_input_hook(module: Module, args: Any):

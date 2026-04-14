@@ -3,7 +3,7 @@ from compressed_tensors.utils import match_named_modules
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import update_qparams
+from llmcompressor.modifiers.quantization.calibration import observe_and_update_qparams
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 
@@ -75,10 +75,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
 
-        # Calculate scales, zero points, and global scales from weight statistics
         for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
-            module.weight_observer(module.weight)
-            update_qparams(module, base_name="weight")
+            observe_and_update_qparams(module, base_name="weight")
 
         # NOTE: update_fused_layer_weight_global_scales operates on Attention
         # and MLP layers, not quantizable Linear layers. Rather than running
@@ -95,9 +93,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             QuantizationMixin.sync_activation_observers(self, state.model)
+            QuantizationMixin.update_activation_qparams(self, state.model)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             QuantizationMixin.sync_activation_observers(self, state.model)
+            QuantizationMixin.update_activation_qparams(self, state.model)
             if not self.ended_:
                 self.on_end(state, None)
 
