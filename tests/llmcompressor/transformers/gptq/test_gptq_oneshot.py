@@ -5,6 +5,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
+from compressed_tensors.quantization.quant_args import QuantizationType
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -104,6 +105,7 @@ recipe_modifier_full_block = GPTQModifier(
             targets=["re:.*model.layers.2.self_attn.q_proj$"],
             weights=QuantizationArgs(
                 num_bits=8,
+                type=QuantizationType.FLOAT,
                 strategy="block",
                 block_structure=[2, 8],
             ),
@@ -118,6 +120,7 @@ recipe_modifier_block_actorder_weight = GPTQModifier(
             targets=["re:.*model.layers.2.self_attn.q_proj$"],
             weights=QuantizationArgs(
                 num_bits=8,
+                type=QuantizationType.FLOAT,
                 strategy="block",
                 block_structure=[2, 8],
                 actorder=ActivationOrdering.WEIGHT,
