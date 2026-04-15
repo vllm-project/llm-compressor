@@ -225,6 +225,8 @@ class Recipe(BaseModel):
                             )
                             modifiers.append(modifier)
 
+        cls.validate_modifiers(modifiers)
+
         return Recipe(
             args=args,
             stage=stage,
