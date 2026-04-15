@@ -8,7 +8,6 @@ from compressed_tensors.modeling.kvcache import QuantizedKVCache
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
-    disable_quantization,
     forward_quantize,
 )
 from compressed_tensors.utils import (
@@ -37,7 +36,6 @@ from llmcompressor.modifiers.awq.mappings import (
 )
 from llmcompressor.modifiers.quantization.calibration import observe_and_update_qparams
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
@@ -241,11 +239,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
-        # AWQ performs forward passes during _apply_smoothing
-        # before any scales or zero points are updated
-        # Quantization must be disabled, otherwise NaNs will
-        # appear in quantized forward method
-        state.model.apply(disable_quantization)
+        # Quantization stays disabled (start_calibration does not enable it).
+        # AWQ needs unquantized forward passes during smoothing.
 
         self._setup_activation_cache_hooks()
 
@@ -278,18 +273,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-
-        # Calculate scales and zero points and global scales
-        for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            observe_and_update_qparams(module, base_name="weight")
-
-        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # This is a requirement for vLLM inference.
-        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
-            update_fused_layer_weight_global_scales(module)
+        QuantizationMixin.update_weight_qparams(self, state.model)
+        QuantizationMixin.fuse_weight_global_scales(self, state.model)
 
         QuantizationMixin.end_calibration(self, state.model)
 

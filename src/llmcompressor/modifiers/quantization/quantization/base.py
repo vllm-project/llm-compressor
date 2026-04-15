@@ -1,11 +1,8 @@
-import tqdm
-from compressed_tensors.utils import match_named_modules
+from compressed_tensors.quantization import enable_quantization
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import observe_and_update_qparams
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
-from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 
 __all__ = ["QuantizationModifier"]
 
@@ -65,26 +62,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
-        Begin calibrating activations and weights. Calibrate weights only once
-        on start. Each rank calibrates weights independently.
+        Begin calibrating activations. Quantization stays disabled during
+        calibration — weight and activation qparams are computed at epoch end.
         """
         self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
-
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-
-        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
-            observe_and_update_qparams(module, base_name="weight")
-
-        # NOTE: update_fused_layer_weight_global_scales operates on Attention
-        # and MLP layers, not quantizable Linear layers. Rather than running
-        # on targeted modules, we need to run on all modules.
-        # Because this call is idempotent, setting all global_scales to the
-        # min value, it is ok to run potentially multiple times for all modules
-        for module in state.model.modules():
-            update_fused_layer_weight_global_scales(module)
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -94,10 +76,16 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             QuantizationMixin.sync_activation_observers(self, state.model)
             QuantizationMixin.update_activation_qparams(self, state.model)
+            QuantizationMixin.update_weight_qparams(self, state.model)
+            QuantizationMixin.fuse_weight_global_scales(self, state.model)
+            state.model.apply(enable_quantization)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             QuantizationMixin.sync_activation_observers(self, state.model)
             QuantizationMixin.update_activation_qparams(self, state.model)
+            QuantizationMixin.update_weight_qparams(self, state.model)
+            QuantizationMixin.fuse_weight_global_scales(self, state.model)
+            state.model.apply(enable_quantization)
             if not self.ended_:
                 self.on_end(state, None)
 

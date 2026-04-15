@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
+import tqdm
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -35,9 +36,11 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_value_hook,
     freeze_module_quantization,
     initialize_observer,
+    observe_and_update_qparams,
     reset_quantization_status,
     update_qparams,
 )
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
@@ -237,8 +240,9 @@ class QuantizationMixin(HooksMixin):
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Attach observers, register activation calibration hooks (including
-        kv_cache quantization) and enable quantization as we calibrate
+        Attach observers and register activation calibration hooks (including
+        kv_cache quantization). Quantization remains disabled — each modifier
+        enables it when appropriate (e.g. after computing weight qparams).
 
         :param model: model to prepare for calibration
         """
@@ -250,8 +254,6 @@ class QuantizationMixin(HooksMixin):
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
-
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def end_calibration(self, model: torch.nn.Module):
         """
@@ -319,6 +321,28 @@ class QuantizationMixin(HooksMixin):
                     update_global_scale=update_global_scale,
                     update_scale_zp=update_scale_zp,
                 )
+
+    def update_weight_qparams(self, model: torch.nn.Module):
+        """
+        Compute and store quantization parameters for all weight observers.
+
+        :param model: model containing quantized modules
+        """
+        named_modules = list(
+            match_named_modules(model, self.resolved_targets, self.ignore)
+        )
+        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
+            observe_and_update_qparams(module, base_name="weight")
+
+    def fuse_weight_global_scales(self, model: torch.nn.Module):
+        """
+        Fuse global scales across attention/MLP layers for TENSOR_GROUP
+        (e.g. NVFP4). Idempotent — safe to call multiple times.
+
+        :param model: model containing quantized modules
+        """
+        for module in model.modules():
+            update_fused_layer_weight_global_scales(module)
 
     def has_config(self) -> bool:
         """
