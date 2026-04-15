@@ -3,6 +3,8 @@ _compile_chunk_size = 5
 
 
 def set_torch_compile(enabled: bool, chunk_size: int = 5):
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be a positive integer, got {chunk_size}")
     global _enable_torch_compile, _compile_chunk_size
     _enable_torch_compile = enabled
     _compile_chunk_size = chunk_size
