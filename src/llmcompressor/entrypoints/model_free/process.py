@@ -7,7 +7,11 @@ from compressed_tensors.compressors import compress_module
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
-from safetensors import safe_open
+from compressed_tensors.utils.safetensors_load import (
+    InverseWeightMap,
+    load_tensors_from_inverse_weight_map,
+)
+from loguru import logger
 from safetensors.torch import save_file
 from torch.nn import Module
 
@@ -30,7 +34,7 @@ __all__ = [
 
 
 def validate_file(
-    inverse_weights_map: dict[str, list[str] | None],
+    inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -40,7 +44,7 @@ def validate_file(
     """
     Validate that each quantizable tensor in a safetensors file can be quantized.
 
-    :param inverse_weights_map: mapping of source file path -> tensor names to validate
+    :param inverse_weight_map: mapping of source file path -> tensor names to validate
     :param save_path: save path of file with quantized weights
     :param scheme: quantization scheme to apply to tensors
     :param ignore: modules to ignore. Modules ending with "norm" are automatically
@@ -49,7 +53,7 @@ def validate_file(
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
     """
-    tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:
         converter.validate(tensors)
@@ -59,7 +63,7 @@ def validate_file(
 
 
 def process_file(
-    inverse_weights_map: dict[str, list[str] | None],
+    inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -69,7 +73,7 @@ def process_file(
     """
     Quantize and compress tensors in a given safetensors file.
 
-    :param inverse_weights_map: mapping of source file path -> tensor names.
+    :param inverse_weight_map: mapping of source file path -> tensor names.
         For standard mode: {{resolved_path: None}} means load all tensors to process
     :param save_path: save path of file with quantized weights
     :param scheme: quantization scheme to apply to tensors
@@ -81,7 +85,9 @@ def process_file(
     """
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
 
-    tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+
+    tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
         converter.process(tensors)
@@ -111,7 +117,7 @@ def process_file(
 
 
 def process_file_microscale_scheme(
-    inverse_weights_map: dict[str, list[str]],
+    inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
@@ -122,7 +128,7 @@ def process_file_microscale_scheme(
     Quantize and compress tensors for a single output shard using a microscale
     scheme (NVFP4, MXFP4).
 
-    Accepts a precomputed inverse_weights_map that specifies exactly which tensors
+    Accepts a precomputed inverse_weight_map that specifies exactly which tensors
     to load from which source files — including any fused partner tensors from
     other shards needed for global scale computation. This avoids runtime
     discovery of fused partners and redundant tensor reads.
@@ -130,9 +136,8 @@ def process_file_microscale_scheme(
     Partner tensors fetched from other shards are re-saved into this shard's
     output. The caller updates the safetensors index to reflect new locations.
 
-    :param inverse_weights_map: mapping of resolved source file path ->
-        list of tensor names to load from that file. Precomputed by
-        build_microscale_inverse_weights_map() in the job-building phase.
+    :param inverse_weight_map: mapping of resolved source file path ->
+        list of tensor names to load from that file.
         Example: {"/path/shard0.safetensors": ["q_proj.weight"],
                   "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
     :param save_path: output path for this shard's compressed weights
@@ -145,7 +150,9 @@ def process_file_microscale_scheme(
     """
     assert is_microscale_scheme(scheme), "Use `process_file` for non-microscale scheme"
 
-    tensors = _load_tensors_from_inverse_weights_map(inverse_weights_map, device)
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+
+    tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
         converter.process(tensors)
@@ -218,38 +225,64 @@ def process_file_microscale_scheme(
     return total_size, weight_map
 
 
-# TODO brian-dellabetta (#2491): move to compressed-tensors.utils.safetensors_load
-def _load_tensors_from_inverse_weights_map(
-    inverse_weights_map: dict[str, list[str] | None],
-    device: str | torch.device,
+def split_fused_moe_experts(
+    tensors: dict[str, torch.Tensor],
 ) -> dict[str, torch.Tensor]:
     """
-    Given an inverse_weights_map, which is a dictionary of file name to list of
-    tensor names, load up all listed tensor names
+    Find fused MoE experts (with gate_up_proj/down_proj).
+    Split them from 3D tensors into individual 2D expert tensors.
 
-    :param inverse_weights_map: mapping of resolved source file path ->
-        list of tensor names to load from that file. Precomputed by
-        build_inverse_weights_map() in the job-building phase.
-        If list is empty, all tensors are pulled
-        Example: {"/path/shard0.safetensors": ["q_proj.weight"],
-                  "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
-    :param device: tensors will be loaded onto this device.
+    Args:
+        tensors: Dictionary of loaded tensors from safetensors file
 
-    :returns: mapping of tensor name to actual tensor loaded from safetensors file
-        Example: {"q_proj.weight": torch.Tensor(...), "k_proj.weight: torch.Tensor(...)}
+    Returns:
+        split_tensors: New dictionary with split expert weights
     """
-    tensors: dict[str, torch.Tensor] = {}
-    for source_file, tensor_names in inverse_weights_map.items():
-        with safe_open(source_file, framework="pt", device=str(device)) as f:
-            keys = f.keys()
-            # if tensor_names is empty, pull all tensors
-            if tensor_names is None or len(tensor_names) == 0:
-                tensor_names = keys
-            for tensor_name in tensor_names:
-                if tensor_name not in keys:
-                    raise ValueError(
-                        f"Expected to find tensor {tensor_name} in "
-                        f"{source_file}, but tensor was not found."
+    split_tensors = {}
+
+    params_to_split = {
+        # If a 3D gate_up_proj layer is found, split it into a
+        # 2D gate_proj and up_proj layer for each expert
+        "gate_up_proj": ["gate_proj", "up_proj"],
+        # If a 3D down_proj layer is found, split it into a
+        # 2D down_proj layer for each expert
+        "down_proj": ["down_proj"],
+    }
+
+    for name, tensor in tensors.items():
+        keys_to_split = [key for key in params_to_split if key in name]
+        if len(keys_to_split) >= 2:
+            raise ValueError(f"Found multiple keys matching {name}: {keys_to_split}")
+
+        elif len(keys_to_split) == 1 and tensor.ndim == 3:
+            unsplit_name = keys_to_split[0]
+            split_names = params_to_split[unsplit_name]
+
+            # Get number of experts
+            num_experts = tensor.shape[0]
+
+            if tensor.shape[1] % len(split_names) != 0:
+                raise ValueError(
+                    f"{unsplit_name} expects a second dimension divisible by "
+                    f"{len(split_names)} but got shape: {tensor.shape}"
+                )
+
+            # Split into experts
+            intermediate_size = tensor.shape[1] // len(split_names)
+            for expert_idx in range(num_experts):
+                expert_tensor = tensor[expert_idx]
+                # Split into layers
+                split_layers = expert_tensor.split(intermediate_size, dim=0)
+                for split_name, split_layer in zip(split_names, split_layers):
+                    key = name.replace(
+                        unsplit_name, f"{expert_idx}.{split_name}.weight"
                     )
-                tensors[tensor_name] = f.get_tensor(tensor_name)
-    return tensors
+                    split_tensors[key] = split_layer
+
+            logger.info(f"Split {name} into {num_experts} experts")
+
+        else:
+            # Non-MoE or non-3D tensors, keep as is
+            split_tensors[name] = tensor
+
+    return split_tensors

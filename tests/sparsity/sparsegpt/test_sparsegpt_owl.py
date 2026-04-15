@@ -8,6 +8,7 @@ from llmcompressor.args import DatasetArguments
 from llmcompressor.core.session_functions import create_session
 from llmcompressor.datasets import format_calibration_data
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 
 @pytest.mark.integration
@@ -30,7 +31,7 @@ def test_infer_owl_layer_sparsity():
         args = DatasetArguments(data_collator="truncation")
         dataloader = format_calibration_data(args, dataset, None)
 
-        sequential_targets = modifier._infer_sequential_targets(model)
+        sequential_targets = infer_sequential_targets(model)
         layers = dict(match_named_modules(model, sequential_targets))
         sparsities = modifier._infer_owl_layer_sparsity(model, layers, dataloader)
         assert sparsities.keys() == layers.keys()
