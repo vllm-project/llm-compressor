@@ -11,9 +11,11 @@ from pydantic import ValidationError
 from torch.nn import Linear
 from torch.testing import assert_close
 
-from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import get_lowest_common_ancestor_with_avoid
 from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.transform.awq.base import (
+    get_lowest_common_ancestor_with_avoid,
+)
 from llmcompressor.utils import get_high_precision
 from tests.testing_utils import requires_gpu
 
