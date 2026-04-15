@@ -14,6 +14,7 @@ from llmcompressor.observers.base import MinMaxTuple
 # Same approach as GPTQ compile path (commit a4f9ba2e).
 torch._dynamo.config.capture_scalar_outputs = True
 
+
 def _compute_candidate_error(
     observed: torch.Tensor,
     args: QuantizationArgs,

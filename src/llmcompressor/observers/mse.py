@@ -14,7 +14,6 @@ from llmcompressor.observers.mse_quant import _grid_search_mse  # noqa: E402
 __all__ = ["MovingAverageMSEObserver"]
 
 
-
 @Observer.register("memoryless_mse")
 class MemorylessMSEObserver(Observer):
     """
@@ -161,5 +160,3 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
     def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         # min[min_vals, max_vals, global_scale](mse_quant_error)
         return self._call_grid_search(observed, None, True)
-
-
