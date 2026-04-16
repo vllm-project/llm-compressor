@@ -68,6 +68,11 @@ class AWQModifier(Modifier):
     in one-shot and not during training. Activation ranges are determined by running a
     small set of calibration data through the model.
 
+    AWQModifier is a transform-based modifier, in that it does not perform quantization
+    or compression on its own. It just scales activation channels according to a
+    quantization scheme. It must be applied in conjunction with a modifier that inherits
+    from QuantizationMixin in order to create a compressed checkpoint.
+
     example recipe:
     ```yaml
     AWQModifier:
@@ -86,7 +91,7 @@ class AWQModifier(Modifier):
 
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - (quantization config applied by subsequent QuantizationMixin on_initialize)
+    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
     - on_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
@@ -101,7 +106,6 @@ class AWQModifier(Modifier):
             - raise error if any unused activations remain
     - on_end
         - re-run logic of sequential epoch end (in case of basic pipeline)
-        - set scales and zero points
         - remove activation hooks
     - on_finalize
         - clear resolved mappings and captured activations
