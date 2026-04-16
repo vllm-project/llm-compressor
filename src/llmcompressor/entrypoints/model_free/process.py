@@ -11,6 +11,7 @@ from compressed_tensors.utils.safetensors_load import (
     InverseWeightMap,
     load_tensors_from_inverse_weight_map,
 )
+from loguru import logger
 from safetensors.torch import save_file
 from torch.nn import Module
 
@@ -86,6 +87,8 @@ def process_file(
 
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
+    tensors = split_fused_moe_experts(tensors)
+
     if converter is not None:
         converter.process(tensors)
 
@@ -148,6 +151,8 @@ def process_file_microscale_scheme(
     assert is_microscale_scheme(scheme), "Use `process_file` for non-microscale scheme"
 
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+
+    tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
         converter.process(tensors)
@@ -218,3 +223,66 @@ def process_file_microscale_scheme(
     total_size = sum(t.nbytes for t in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
     return total_size, weight_map
+
+
+def split_fused_moe_experts(
+    tensors: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """
+    Find fused MoE experts (with gate_up_proj/down_proj).
+    Split them from 3D tensors into individual 2D expert tensors.
+
+    Args:
+        tensors: Dictionary of loaded tensors from safetensors file
+
+    Returns:
+        split_tensors: New dictionary with split expert weights
+    """
+    split_tensors = {}
+
+    params_to_split = {
+        # If a 3D gate_up_proj layer is found, split it into a
+        # 2D gate_proj and up_proj layer for each expert
+        "gate_up_proj": ["gate_proj", "up_proj"],
+        # If a 3D down_proj layer is found, split it into a
+        # 2D down_proj layer for each expert
+        "down_proj": ["down_proj"],
+    }
+
+    for name, tensor in tensors.items():
+        keys_to_split = [key for key in params_to_split if key in name]
+        if len(keys_to_split) >= 2:
+            raise ValueError(f"Found multiple keys matching {name}: {keys_to_split}")
+
+        elif len(keys_to_split) == 1 and tensor.ndim == 3:
+            unsplit_name = keys_to_split[0]
+            split_names = params_to_split[unsplit_name]
+
+            # Get number of experts
+            num_experts = tensor.shape[0]
+
+            if tensor.shape[1] % len(split_names) != 0:
+                raise ValueError(
+                    f"{unsplit_name} expects a second dimension divisible by "
+                    f"{len(split_names)} but got shape: {tensor.shape}"
+                )
+
+            # Split into experts
+            intermediate_size = tensor.shape[1] // len(split_names)
+            for expert_idx in range(num_experts):
+                expert_tensor = tensor[expert_idx]
+                # Split into layers
+                split_layers = expert_tensor.split(intermediate_size, dim=0)
+                for split_name, split_layer in zip(split_names, split_layers):
+                    key = name.replace(
+                        unsplit_name, f"{expert_idx}.{split_name}.weight"
+                    )
+                    split_tensors[key] = split_layer
+
+            logger.info(f"Split {name} into {num_experts} experts")
+
+        else:
+            # Non-MoE or non-3D tensors, keep as is
+            split_tensors[name] = tensor
+
+    return split_tensors
