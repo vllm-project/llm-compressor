@@ -82,15 +82,13 @@ class Recipe(BaseModel):
         if any(not isinstance(modifier, Modifier) for modifier in modifiers):
             raise ValueError("modifiers must be a list of Modifier instances")
 
-        cls.validate_modifiers(modifiers)
-
         group_name = modifier_group_name or "default"
 
         # assume one stage for modifier instances
-        recipe = cls()
-        recipe.stage = group_name
-        recipe.modifiers = modifiers
-        return recipe
+        return cls(
+            stage=group_name,
+            modifiers=modifiers,
+        )
 
     @classmethod
     def create_instance(
@@ -205,8 +203,6 @@ class Recipe(BaseModel):
                             )
                             modifiers.append(modifier)
 
-        cls.validate_modifiers(modifiers)
-
         return Recipe(
             args=args,
             stage=stage,
@@ -219,6 +215,11 @@ class Recipe(BaseModel):
         Ensure modifiers are in a suitable order -- if a modifier that requires a
         follow-on quantization modifier is found without one, raise an error
         """
+        # NOTE: early return necessary before imports, as global compression session
+        # is instantiated before modifiers can be imported
+        if not model.modifiers:
+            return model
+
         from llmcompressor.modifiers.quantization import QuantizationMixin
         from llmcompressor.modifiers.transform import AWQModifier
 

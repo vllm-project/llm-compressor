@@ -178,7 +178,7 @@ def test_recipe_can_be_created_from_modifier_instances():
         ),
     ],
 )
-def test_recipe_valide_modifiers(modifiers, is_valid):
+def test_recipe_validate_after(modifiers, is_valid):
     if is_valid:
         Recipe.create_instance(modifiers)
     else:
