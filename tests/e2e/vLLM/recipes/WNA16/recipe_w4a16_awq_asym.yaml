@@ -1,6 +1,7 @@
 quant_stage:
   quant_modifiers:
     AWQModifier:
+    QuantizationModifier:
       ignore: [lm_head]
       config_groups:
         group_0:
