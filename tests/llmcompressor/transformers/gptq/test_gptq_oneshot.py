@@ -36,6 +36,18 @@ recipe_modifier_full = GPTQModifier(
     },
 )
 
+recipe_modifier_full_actorder_weight = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(
+                num_bits=4, strategy="channel", actorder=ActivationOrdering.WEIGHT
+            ),
+        )
+    },
+)
+
 recipe_modifier_full_group = GPTQModifier(
     ignore=["lm_head"],
     config_groups={
@@ -66,7 +78,7 @@ recipe_modifier_shorthand_b = GPTQModifier(
     },
 )
 
-# Test activation ordering variants
+# Test group quantization variants
 recipe_modifier_group_actorder_weight = GPTQModifier(
     ignore=["lm_head"],
     config_groups={
@@ -135,6 +147,7 @@ recipe_modifier_block_actorder_weight = GPTQModifier(
     [
         recipe_str,
         recipe_modifier_full,
+        recipe_modifier_full_actorder_weight,
         recipe_modifier_full_group,
         recipe_modifier_shorthand_a,
         recipe_modifier_shorthand_b,

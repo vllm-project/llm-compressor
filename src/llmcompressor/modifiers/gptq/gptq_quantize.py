@@ -78,7 +78,7 @@ def quantize_weight(
 
     :param module: module with weight being quantized
     :param quant_args: quantization arguments used to find quantization parameters
-    :param hessian_dict: dictionary containing preaccumulated hessian for quantization
+    :param hessian: preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
     :return: loss, quantized_weight, scale, zero_point, g_idx
@@ -110,7 +110,17 @@ def quantize_weight(
     num_columns = W.shape[1]
 
     scale, zero_point = observer(W)
-    # handle g_idx and activation ordering
+
+    # handle activation ordering
+    if actorder:
+        W, H, perm = _apply_activation_ordering(W, H)
+
+        if actorder == ActivationOrdering.GROUP:
+            # actually need scale/zp for permuted weight for this format
+            scale, zero_point = observer(W)
+            # use identity g_idx (invert permutation later)
+
+    # handle g_idx
     if strategy in (
         QuantizationStrategy.GROUP,
         QuantizationStrategy.TENSOR_GROUP,
@@ -124,15 +134,7 @@ def quantize_weight(
         )
         g_idx = torch.arange(num_columns, device=W.device, dtype=torch.int) // divisor
 
-        if actorder == ActivationOrdering.GROUP:
-            W, H, perm = _apply_activation_ordering(W, H)
-            # actually need scale/zp for permuted weight for this format
-            scale, zero_point = observer(W)
-            # use identity g_idx (invert permutation later)
-
-        elif actorder == ActivationOrdering.WEIGHT:
-            # permute weights and g_idx
-            W, H, perm = _apply_activation_ordering(W, H)
+        if actorder == ActivationOrdering.WEIGHT:
             g_idx = g_idx[perm]
 
     # sparsity mask
