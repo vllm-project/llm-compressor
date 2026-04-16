@@ -4,7 +4,7 @@ from typing import Any, Union
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.utils import (
@@ -172,26 +172,6 @@ class Recipe(BaseModel):
                     )
             return cls.from_dict(filter_dict(obj, target_stage=target_stage))
 
-    @staticmethod
-    def validate_modifiers(modifiers: list[Modifier]):
-        """
-        Ensure modifiers are in a suitable order -- if a modifier that requires a
-        follow-on quantization modifier is found without one, raise an error
-        """
-        from llmcompressor.modifiers.quantization import QuantizationMixin
-        from llmcompressor.modifiers.transform import AWQModifier, SmoothQuantModifier
-
-        for modifier_idx, modifier in enumerate(modifiers):
-            if isinstance(modifier, (AWQModifier, SmoothQuantModifier)):
-                if not any(
-                    isinstance(mod, QuantizationMixin)
-                    for mod in modifiers[(modifier_idx + 1) :]
-                ):
-                    raise ValueError(
-                        f"Recipe includes a {modifier.__class__.__name__} but no "
-                        f"subsequent quantization modifier was found in {modifiers}."
-                    )
-
     @classmethod
     def from_dict(cls, recipe_dict: dict[str, Any]) -> "Recipe":
         """
@@ -232,6 +212,27 @@ class Recipe(BaseModel):
             stage=stage,
             modifiers=modifiers,
         )
+
+    @model_validator(mode="after")
+    def validate_model_after(model: "Recipe") -> "Recipe":
+        """
+        Ensure modifiers are in a suitable order -- if a modifier that requires a
+        follow-on quantization modifier is found without one, raise an error
+        """
+        from llmcompressor.modifiers.quantization import QuantizationMixin
+        from llmcompressor.modifiers.transform import AWQModifier
+
+        for modifier_idx, modifier in enumerate(model.modifiers):
+            if isinstance(modifier, (AWQModifier)) and not any(
+                isinstance(mod, QuantizationMixin)
+                for mod in model.modifiers[(modifier_idx + 1) :]
+            ):
+                raise ValueError(
+                    f"Recipe includes AWQModifier with no subsequent quantization "
+                    f"modifer: {model.modifiers}. AWQ must be run with "
+                )
+
+        return model
 
     def dict(self, *args, **kwargs) -> dict[str, Any]:
         """
