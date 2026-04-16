@@ -272,6 +272,11 @@ class TestvLLM:
             run_file_path = os.path.join(test_file_dir, "run_vllm.py")
             logger.info("Run vllm in subprocess.Popen using python env:")
             logger.info(self.vllm_env)
+            # Ensure the venv's bin dir is on PATH so tools like ninja
+            # (needed by flashinfer JIT compilation) can be found.
+            env = os.environ.copy()
+            venv_bin = os.path.dirname(self.vllm_env)
+            env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
             result = subprocess.Popen(
                 [
                     self.vllm_env,
@@ -283,6 +288,7 @@ class TestvLLM:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=env,
             )
 
         stdout, stderr = result.communicate()
