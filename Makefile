@@ -43,6 +43,8 @@ style:
 test:
 	@echo "Running python tests";
 	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval
+	# run tests under emulated XPU (requires CUDA hardware)
+	pytest -ra -c pytest-xpu.ini --emulate-xpu;
 
 # creates wheel file
 .PHONY: build
