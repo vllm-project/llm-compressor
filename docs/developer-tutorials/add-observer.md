@@ -42,8 +42,8 @@ class MyObserver(Observer):
         """
         Compute global min and max for global scale calculation (e.g., NVFP4, MXFP4).
 
-        The base class reshapes the tensor to (1, 1, total_elements) before calling
-        this method. The returned values are passed to generate_gparam in
+        The base class reshapes the tensor to (num_observations, 1, group_size) before
+        calling this method. The returned values are passed to generate_gparam in
         compressed-tensors to produce a global scale that keeps per-group local
         scales within the target dtype range.
 
@@ -135,13 +135,13 @@ class PercentileObserver(Observer):
 
         min_vals = torch.tensor(
             [
-                torch.quantile(observed[..., i], lower / 100.0).item()
+                torch.quantile(observed[:, i, :].flatten(), lower / 100.0).item()
                 for i in range(observed.shape[-2])
             ]
         )
         max_vals = torch.tensor(
             [
-                torch.quantile(observed[..., i], upper / 100.0).item()
+                torch.quantile(observed[:, i, :].flatten(), upper / 100.0).item()
                 for i in range(observed.shape[-2])
             ]
         )

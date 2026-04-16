@@ -92,10 +92,12 @@ class MyModifier(Modifier):
 The `Modifier` base class is a subclass of the Pydantic `BaseModel` class, meaning that all algorithm parameters are declared as class-level fields. This structure allows modifiers to be instantiated directly as python objects or loaded a YAML recipe.
 
 ```python
+from pydantic import Field
+
 class MyModifier(Modifier):
-    targets: list[str] = field(default_factory=lambda: ["Linear"])
+    targets: list[str] = Field(default_factory=lambda: ["Linear"])
     scale_factor: float = 0.5
-    ignore: list[str] = []
+    ignore: list[str] = Field(default_factory=list)
 ```
 
 ## Attaching Hooks with `HooksMixin`
@@ -127,10 +129,11 @@ class MyModifier(Modifier):
 
 ## Example: A Weight-Clamping Modifier
 
-The following modifier clamps the stored weight tensors of all `Linear` layers to a fixed absolute magnitude. When using the sequential pipeline, it clamps weights layer-by-layer as each subgraph completes (`SEQUENTIAL_EPOCH_END`), and when using the basic pipeline it clamps all weights at once at the end of calibration (`CALIBRATION_EPOCH_END`).
+The following modifier clamps the stored weight tensors of all `Linear` layers to a fixed absolute magnitude after calibration completes (`CALIBRATION_EPOCH_END`).
 
 ```python
 import torch
+from pydantic import Field, PrivateAttr
 from compressed_tensors.utils import match_named_modules
 from llmcompressor.modifiers import Modifier
 from llmcompressor.core import State, Event, EventType
@@ -147,8 +150,8 @@ class WeightClampModifier(Modifier):
     """
 
     max_weight_magnitude: float = 1.0
-    targets: list[str] = field(default_factory=lambda: ["Linear"])
-    ignore: list[str] = []
+    targets: list[str] = Field(default_factory=lambda: ["Linear"])
+    ignore: list[str] = Field(default_factory=list)
     _clamped: set[str] = PrivateAttr(default_factory=set)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -168,14 +171,8 @@ class WeightClampModifier(Modifier):
             if not self.started_:
                 self.on_start(state, event)
 
-        elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            # Sequential pipeline: clamp weights for the just-finished subgraph
-            subgraph = kwargs.get("subgraph")
-            if subgraph is not None:
-                self._clamp_modules(state, modules=subgraph.modules())
-
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            # Basic pipeline: clamp any modules not yet handled
+            # Clamp all target modules at the end of calibration
             self._clamp_modules(state)
             if not self.ended_:
                 self.on_end(state, event)
@@ -186,13 +183,11 @@ class WeightClampModifier(Modifier):
     def on_end(self, state: State, event: Event, **kwargs):
         self.ended_ = True
 
-    def _clamp_modules(self, state: State, modules=None):
+    def _clamp_modules(self, state: State):
         for name, module in match_named_modules(
             state.model, self.targets, self.ignore
         ):
             if name in self._clamped:
-                continue
-            if modules is not None and module not in modules:
                 continue
             with torch.no_grad():
                 module.weight.clamp_(
