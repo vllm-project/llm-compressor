@@ -1,6 +1,6 @@
 import pytest
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -10,14 +10,6 @@ MODEL_ID = "nm-testing/tinysmokellama-3.2"
 DATASET = "open_platypus"
 NUM_CALIB_SAMPLES = 4
 MAX_SEQ_LEN = 128
-
-
-@pytest.fixture(scope="module")
-def model_and_tokenizer():
-    """Load the tiny model and tokenizer once per module."""
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    return model, tokenizer
 
 
 def _get_linear_layer_names(model, ignore=None):
