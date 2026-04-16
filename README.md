@@ -24,13 +24,14 @@
 
 ---
 
+📊 Help us improve by taking our [1-minute user survey](http://red.ht/llm-compressor-user-survey)
+
 💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:
 
 - `#sig-quantization`
 - `#llm-compressor`
 
 ---
-
 ## 🚀 What's New!
 
 Big updates have landed in LLM Compressor! To get a more in-depth look, check out the [LLM Compressor overview](https://docs.google.com/presentation/d/1WNkYBKv_CsrYs69lb7bJKjh2dWt8U1HXUw7Gr4Wn3gE/edit?usp=sharing).
