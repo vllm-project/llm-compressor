@@ -158,7 +158,6 @@ setup(
             "pytest-rerunfailures>=13.0",
             "lm_eval==0.4.9.2",
             # test dependencies
-            "ninja",
             "beautifulsoup4~=4.12.3",
             "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
