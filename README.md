@@ -196,4 +196,4 @@ If you find LLM Compressor useful in your research or projects, please consider 
 
 
 !!! warning
-    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due lack of hardware support and usage
+    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due to lack of hardware support and usage
