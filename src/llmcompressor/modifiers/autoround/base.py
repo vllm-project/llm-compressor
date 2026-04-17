@@ -352,7 +352,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         if torch.distributed.is_initialized():
             rank = torch.distributed.get_rank()
             ar_kwargs["device_map"] = (
-                f"cuda:{rank}" if torch.cuda.is_available() else "cpu"
+                f"{torch.accelerator.current_accelerator().type}:{rank}"
+                if torch.accelerator.is_available()
+                else "cpu"
             )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
