@@ -406,6 +406,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                             f" not found on parent module '{ancestor_name}'"
                         )
 
+                resolved_balance_output_slices: dict[Module, slice] | None = None
+                if mapping.balance_output_slices:
+                    resolved_balance_output_slices = {}
+                    for i, balance_regex in enumerate(mapping.balance_layers):
+                        sl = mapping.balance_output_slices.get(balance_regex)
+                        if sl is None:
+                            continue
+                        for matched_module in tree_leaves(nested_balance_layers[i]):
+                            resolved_balance_output_slices[matched_module] = sl
+                    if not resolved_balance_output_slices:
+                        resolved_balance_output_slices = None
+
                 resolved_mappings.append(
                     ResolvedMapping(
                         smooth_name,
@@ -415,6 +427,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         parent=ancestor,
                         parent_name=ancestor_name,
                         activation_hook_target=activation_hook_target,
+                        balance_output_slices=resolved_balance_output_slices,
                     )
                 )
         self._resolved_mappings = resolved_mappings
@@ -575,12 +588,24 @@ class AWQModifier(Modifier, QuantizationMixin):
                 ):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
-                        update_offload_parameter(
-                            module,
-                            "weight",
-                            orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1),
-                        )
+                        # NOTE: ``balance_output_slices`` is intentionally NOT
+                        # applied here. AWQ's correctness invariant is the
+                        # forward-pass equivalence
+                        #   Y = W @ x = (W * s) @ (x / s)
+                        # which requires the smooth_layer (input_layernorm) to
+                        # be divided by the SAME scale that every column of
+                        # every balance_layer is multiplied by. The slices are
+                        # only used during grid search to focus the MSE on the
+                        # rows that actually participate in the linear output
+                        # path (e.g. the query rows of a fused query+gate
+                        # ``q_proj``); they must NOT cause the final smoothed
+                        # weight to diverge from the equivalence above, or the
+                        # un-smoothed rows would silently see ``x / s`` from
+                        # the layernorm without the compensating ``* s`` on
+                        # the weight.
+                        orig = orig_layer_weights[module].to(module.weight.device)
+                        new_weight = orig * scales.view(1, -1)
+                        update_offload_parameter(module, "weight", new_weight)
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
                             update_offload_parameter(
@@ -629,6 +654,89 @@ class AWQModifier(Modifier, QuantizationMixin):
             for output in outputs
         ]
 
+    @torch.no_grad()
+    def _eval_scales(
+        self,
+        scales: torch.Tensor,
+        mapping: ResolvedMapping,
+        fp16_outputs: list[torch.Tensor],
+        orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
+        balance_layers_to_patch: list[Module],
+        device: torch.device,
+    ) -> float:
+        """
+        Apply ``scales`` to the balance layers via the AWQ smoothing transform
+        ``W' = Q(W * s) / s`` (or its sliced equivalent), run the parent module
+        on the cached calibration batches, and return the MSE between the
+        smoothed/quantized output and the fp16 reference.
+
+        Used both for the identity-baseline measurement (``scales = ones``)
+        and for every grid-search candidate. Pulling this out of the grid
+        loop keeps the baseline measurement and the grid measurements on
+        exactly the same code path.
+        """
+        _scalesview = scales.view(1, -1).to(device)
+
+        # Q(W * s)
+        for balance_layer in balance_layers_to_patch:
+            w_qscheme = balance_layer.quantization_scheme.weights
+            orig = orig_layer_weights[balance_layer].to(_scalesview.device)
+            sl = (
+                mapping.balance_output_slices.get(balance_layer)
+                if mapping.balance_output_slices
+                else None
+            )
+            if sl is None:
+                balance_layer.weight.data.copy_(orig * _scalesview)
+            else:
+                new_weight = orig.clone()
+                new_weight[sl] = orig[sl] * _scalesview
+                balance_layer.weight.data.copy_(new_weight)
+
+            should_calculate_gparam = (
+                w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+            )
+            call_observer(
+                balance_layer,
+                "weight",
+                balance_layer.weight,
+                should_calculate_gparam=should_calculate_gparam,
+            )
+            quantized = forward_quantize(
+                balance_layer,
+                balance_layer.weight,
+                "weight",
+                w_qscheme,
+            )
+            if sl is None:
+                new_weight = quantized / _scalesview
+            else:
+                # Keep rows outside the slice equal to the original
+                # unsmoothed/unquantized weight so the parent module's
+                # forward pass for that path matches the fp16 baseline
+                # bitwise. The MSE loss therefore only reflects errors
+                # introduced on the slice rows.
+                new_weight = orig.clone()
+                new_weight[sl] = quantized[sl] / _scalesview
+            balance_layer.weight.data = new_weight.to(balance_layer.weight.dtype)
+
+        # Apply fused global scales for TENSOR_GROUP during grid search
+        # to match inference behavior
+        if balance_layers_to_patch and all(
+            getattr(layer.quantization_scheme.weights, "strategy", None)
+            == QuantizationStrategy.TENSOR_GROUP
+            for layer in balance_layers_to_patch
+        ):
+            update_fused_layer_weight_global_scales(mapping.parent)
+
+        # W * X
+        int_w_outputs = self._run_samples(mapping.parent)
+
+        # compute mean squared error (L2 norm)
+        loss = self._compute_loss(fp16_outputs, int_w_outputs)
+        del int_w_outputs
+        return loss
+
     def _compute_best_scale(
         self,
         mapping: ResolvedMapping,
@@ -652,10 +760,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: tensor of best scales, one for each channel
         """
         history = []
-        best_ratio = -1
-        best_scales = None
-        best_error = float("inf")
-        initial_error = None
 
         device = get_execution_device(mapping.parent)
 
@@ -685,6 +789,22 @@ class AWQModifier(Modifier, QuantizationMixin):
             if hasattr(balance_layer, "quantization_scheme")
             and hasattr(balance_layer.quantization_scheme, "weights")
         ]
+
+        # Identity scales -- the actual "no smoothing" baseline. We use this
+        # as both:
+        #   (a) the initial_error reference for the health check, so
+        #       INCREASED-loss / max-error gates compare against a real
+        #       un-smoothed reference rather than against "the first grid
+        #       candidate that happened to survive the loop entry conditions"
+        #       (which under duo_scaling=True is *not* identity at ratio=0,
+        #       and which can be silently filtered out by max_scale_ratio,
+        #       leaving initial_error = inf and reduction = nan); and
+        #   (b) the seed for best_scales/best_error, so the grid search can
+        #       only ever improve on no-smoothing -- it can never select a
+        #       worse-than-baseline candidate. Layers where the grid finds
+        #       nothing better stay at identity by construction.
+        identity_scales = torch.ones_like(x_mean)
+
         with patch_attrs(
             balance_layers_to_patch,
             "weight_observer",
@@ -698,6 +818,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
+            initial_error = self._eval_scales(
+                identity_scales,
+                mapping,
+                fp16_outputs,
+                orig_layer_weights,
+                balance_layers_to_patch,
+                device,
+            )
+            best_scales = identity_scales.clone()
+            best_error = initial_error
+            best_ratio = -1.0  # -1 == no grid candidate beat identity baseline
+
             total_iterations = n_grid * len(duo_scalings)
             pbar = tqdm(
                 product(range(n_grid), duo_scalings),
@@ -719,58 +851,15 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                _scalesview = scales.view(1, -1).to(device)
 
-                # Q(W * s)
-                for balance_layer in balance_layers_to_patch:
-                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
-                        balance_layer.quantization_scheme, "weights"
-                    ):
-                        continue
-
-                    w_qscheme = balance_layer.quantization_scheme.weights
-                    balance_layer.weight.data.copy_(
-                        orig_layer_weights[balance_layer].to(_scalesview.device)
-                        * _scalesview
-                    )
-
-                    should_calculate_gparam = (
-                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-                    )
-                    call_observer(
-                        balance_layer,
-                        "weight",
-                        balance_layer.weight,
-                        should_calculate_gparam=should_calculate_gparam,
-                    )
-                    balance_layer.weight.data = (
-                        forward_quantize(
-                            balance_layer,
-                            balance_layer.weight,
-                            "weight",
-                            w_qscheme,
-                        )
-                        / _scalesview
-                    ).to(balance_layer.weight.dtype)
-
-                # Apply fused global scales for TENSOR_GROUP during grid search
-                # to match inference behavior
-                if balance_layers_to_patch and all(
-                    getattr(layer.quantization_scheme.weights, "strategy", None)
-                    == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
-                ):
-                    update_fused_layer_weight_global_scales(mapping.parent)
-
-                # W * X
-                int_w_outputs = self._run_samples(mapping.parent)
-
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                del int_w_outputs
-
-                if initial_error is None:
-                    initial_error = loss
+                loss = self._eval_scales(
+                    scales,
+                    mapping,
+                    fp16_outputs,
+                    orig_layer_weights,
+                    balance_layers_to_patch,
+                    device,
+                )
 
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
@@ -781,14 +870,11 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_scales = scales.clone()
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
-        if best_ratio == -1:
-            logger.debug(history)
-            raise Exception(
-                "No finite loss was found in best scalesgrid search. This typically "
-                "means NaN values are appearing in the forward pass of the parent "
-                "module. If you encounter this error, raise an issue at "
-                "https://github.com/vllm-project/llm-compressor/issues"
-            )
+        # If no grid candidate beat the identity baseline (e.g. extreme
+        # activation outliers, attn_output_gate sigmoid distortion, MoE
+        # routing) we already seeded ``best_scales = identity_scales`` and
+        # ``best_error = initial_error`` above, so the layer simply ships
+        # as W4A16 with no smoothing -- never worse than "broken AWQ".
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.debug(

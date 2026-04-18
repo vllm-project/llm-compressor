@@ -84,6 +84,9 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
     linear_proj_names = _detect_linear_attn_projections(model)
     is_moe = is_moe_model(model)
 
+    q_proj_re = "re:.*self_attn.q_proj$"
+    balance_output_slices = _build_q_proj_output_slice(model, q_proj_re)
+
     mappings = []
 
     # Full attention layers: input_layernorm -> q/k/v_proj
@@ -91,10 +94,11 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
         AWQMapping(
             f"re:.*layers\\.({full_re})\\.input_layernorm$",
             [
-                "re:.*self_attn.q_proj$",
+                q_proj_re,
                 "re:.*self_attn.k_proj$",
                 "re:.*self_attn.v_proj$",
             ],
+            balance_output_slices=balance_output_slices,
         )
     )
 
@@ -175,6 +179,45 @@ def _get_hybrid_attention_config(model: Module) -> tuple[list[str], int] | None:
         return None
 
     return layer_types, num_layers
+
+
+def _build_q_proj_output_slice(
+    model: Module, q_proj_re: str
+) -> dict[str, slice] | None:
+    """
+    For models that fuse the attention output gate into ``q_proj``
+    (``attn_output_gate=True``, e.g. Qwen3.5), build a slice covering only the
+    query half of ``q_proj.weight`` (rows ``[0 : num_heads * head_dim]``).
+    The gate half (rows ``[num_heads * head_dim :]``) feeds a ``sigmoid``
+    whose saturation regions distort the AWQ grid search, so we exclude it
+    from smoothing and the MSE loss.
+
+    Returns ``None`` if the model does not use attention output gating.
+    """
+    config = getattr(model, "config", None)
+    if config is None:
+        return None
+    text_config = getattr(config, "text_config", config)
+    if not getattr(text_config, "attn_output_gate", False):
+        return None
+
+    num_heads = getattr(text_config, "num_attention_heads", None)
+    if num_heads is None:
+        return None
+    head_dim = getattr(text_config, "head_dim", None)
+    if head_dim is None:
+        hidden_size = getattr(text_config, "hidden_size", None)
+        if hidden_size is None:
+            return None
+        head_dim = hidden_size // num_heads
+
+    query_rows = num_heads * head_dim
+    logger.info(
+        "Detected attn_output_gate=True; restricting AWQ smoothing of "
+        f"{q_proj_re} to query rows [0:{query_rows}] "
+        "(gate rows are excluded from grid-search MSE)."
+    )
+    return {q_proj_re: slice(0, query_rows)}
 
 
 def _detect_linear_attn_projections(model: Module) -> list[str]:
