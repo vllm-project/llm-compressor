@@ -708,9 +708,14 @@ class AWQModifier(Modifier, QuantizationMixin):
             if sl is None:
                 balance_layer.weight.data.copy_(orig * _scalesview)
             else:
-                new_weight = orig.clone()
-                new_weight[sl] = orig[sl] * _scalesview
-                balance_layer.weight.data.copy_(new_weight)
+                # In-place patch on the slice avoids a full ``orig.clone()``
+                # per grid candidate. ``copy_(orig)`` resets every row to the
+                # un-smoothed FP16 weight so rows outside the slice stay
+                # bit-identical to the FP16 reference; ``[sl].mul_`` then
+                # applies the smoothing scales only to the rows that
+                # participate in the grid-search MSE.
+                balance_layer.weight.data.copy_(orig)
+                balance_layer.weight.data[sl].mul_(_scalesview)
 
             should_calculate_gparam = (
                 w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
@@ -728,16 +733,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                 w_qscheme,
             )
             if sl is None:
-                new_weight = quantized / _scalesview
+                balance_layer.weight.data.copy_(quantized / _scalesview)
             else:
                 # Keep rows outside the slice equal to the original
                 # unsmoothed/unquantized weight so the parent module's
                 # forward pass for that path matches the fp16 baseline
                 # bitwise. The MSE loss therefore only reflects errors
-                # introduced on the slice rows.
-                new_weight = orig.clone()
-                new_weight[sl] = quantized[sl] / _scalesview
-            balance_layer.weight.data = new_weight.to(balance_layer.weight.dtype)
+                # introduced on the slice rows. Patch in place via
+                # ``copy_`` (rather than reassigning ``weight.data``) so
+                # any offload hook holding a reference to the original
+                # tensor stays attached to the live storage.
+                balance_layer.weight.data.copy_(orig)
+                balance_layer.weight.data[sl].copy_(quantized[sl] / _scalesview)
 
         # Apply fused global scales for TENSOR_GROUP during grid search
         # to match inference behavior
