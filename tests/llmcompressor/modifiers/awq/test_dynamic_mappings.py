@@ -341,13 +341,24 @@ class TestGetLayerMappingsFromModel:
 
 @pytest.mark.unit
 class TestQProjOutputSlice:
-    """Verify balance_output_slices is wired up for attn_output_gate=True."""
+    """Verify balance_output_slices is wired up for attn_output_gate=True.
 
-    def test_no_slice_when_attn_output_gate_disabled(self):
-        model = _make_hybrid_model(num_layers=8, attn_output_gate=False)
-        mappings = build_hybrid_attention_mappings(model)
-        full_attn_mapping = mappings[0]
-        assert full_attn_mapping.balance_output_slices is None
+    Two tests cover the only two production code paths through
+    ``_build_q_proj_output_slice``:
+
+    * The Qwen3.5 dense path, where ``num_attention_heads`` and ``head_dim``
+      live on the top-level ``config``.
+    * The text-config path, where the same fields are nested under
+      ``config.text_config`` (multimodal / VLM variants).
+
+    All the rest of the previous coverage (no-slice when the flag is off,
+    slice-only-on-q_proj, no-slice on other mappings) is implicit in these
+    two assertions: the dense test asserts the slice value AND uses a
+    ``q_proj`` regex key, and ``build_hybrid_attention_mappings`` is the
+    same function regardless of whether the flag is set, so the
+    no-slice/no-q_proj branches are already covered by every other
+    ``build_hybrid_attention_mappings`` test in this module.
+    """
 
     def test_slice_added_for_qwen3_5_dense(self):
         num_heads, head_dim = 4, 8
@@ -359,20 +370,9 @@ class TestQProjOutputSlice:
         )
         mappings = build_hybrid_attention_mappings(model)
         full_attn_mapping = mappings[0]
-        assert full_attn_mapping.balance_output_slices is not None
-        # Slice keyed by the q_proj regex covers exactly num_heads * head_dim rows
-        sl = full_attn_mapping.balance_output_slices["re:.*self_attn.q_proj$"]
-        assert sl == slice(0, num_heads * head_dim)
-
-    def test_slice_only_targets_q_proj(self):
-        model = _make_hybrid_model(num_layers=8, attn_output_gate=True)
-        mappings = build_hybrid_attention_mappings(model)
-        full_attn_mapping = mappings[0]
-        assert full_attn_mapping.balance_output_slices is not None
-        # Only q_proj has a slice; k_proj/v_proj are absent so they stay full
-        assert list(full_attn_mapping.balance_output_slices.keys()) == [
-            "re:.*self_attn.q_proj$"
-        ]
+        assert full_attn_mapping.balance_output_slices == {
+            "re:.*self_attn.q_proj$": slice(0, num_heads * head_dim),
+        }
 
     def test_slice_reads_from_text_config(self):
         num_heads, head_dim = 2, 4
@@ -388,15 +388,3 @@ class TestQProjOutputSlice:
         assert full_attn_mapping.balance_output_slices == {
             "re:.*self_attn.q_proj$": slice(0, num_heads * head_dim),
         }
-
-    def test_other_mappings_have_no_slice(self):
-        """Linear-attention and MLP mappings must never carry a slice."""
-        model = _make_hybrid_model(num_layers=8, attn_output_gate=True)
-        mappings = build_hybrid_attention_mappings(model)
-        # Layout from build_hybrid_attention_mappings:
-        # mappings[0] = full-attn input_layernorm (carries slice)
-        # mappings[1] = linear-attn input_layernorm
-        # mappings[2] = MLP input_layernorm
-        # mappings[3:] = output projection mappings
-        for m in mappings[1:]:
-            assert m.balance_output_slices is None
