@@ -1,4 +1,5 @@
 import inspect
+import math
 from itertools import product
 from typing import Iterator, Literal
 
@@ -159,6 +160,23 @@ class AWQModifier(Modifier, QuantizationMixin):
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
+    # Optional safety guard: maximum allowed s_max / s_min span for the
+    # per-channel smoothing scale produced by the grid search. Healthy AWQ
+    # scales typically span 2-4x; extreme activation distributions (e.g.
+    # mixed full/linear attention, attn_output_gate, severely outlier-heavy
+    # MoE routing) can push the search to 20x+ which destroys group-wise W4
+    # quantization. Candidates exceeding this ratio are skipped; combined
+    # with the identity-scales seed in ``_compute_best_scale``, the layer
+    # falls back to W4A16 with no smoothing rather than picking a degenerate
+    # candidate. Default ``None`` preserves upstream behaviour; set to e.g.
+    # ``4.0`` for architectures known to suffer from extreme activations.
+    max_scale_ratio: float | None = None
+    # Hard upper bound on the per-layer best_error from the grid search.
+    # When set, _assert_smoothing_health raises RuntimeError if any layer
+    # exceeds this bound, preventing a silently-broken artifact from being
+    # written to disk. Default None preserves the previous behaviour
+    # (warning only, no raise).
+    smoothing_health_max_error: float | None = None
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -313,6 +331,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         self._log_error_metrics()
+        self._assert_smoothing_health()
 
         self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
@@ -826,6 +845,27 @@ class AWQModifier(Modifier, QuantizationMixin):
                 balance_layers_to_patch,
                 device,
             )
+            # The identity-scales baseline IS the W4A16-without-smoothing
+            # measurement that the rest of this method compares against.
+            # If it is already non-finite (NaN/Inf in fp16_outputs, NaN/Inf
+            # propagated from the parent forward, broken upstream layer
+            # state, ...) then nothing downstream can recover: every grid
+            # candidate's ``loss < non_finite`` is False, ``best_ratio``
+            # stays at -1, and the previous code path silently labelled
+            # the layer ``fell_back_to_identity=True``. That hid a
+            # genuine numerical failure behind the legitimate
+            # max_scale_ratio fallback. Fail fast instead so the
+            # artifact is never written.
+            if not math.isfinite(initial_error):
+                raise RuntimeError(
+                    f"AWQ identity-scales baseline for "
+                    f"{mapping.smooth_name} is non-finite "
+                    f"({initial_error}). The unsmoothed forward pass "
+                    "produced NaN or Inf outputs, which means the "
+                    "calibration data, mapping, or upstream layer state "
+                    "is broken. Aborting to avoid shipping a silently "
+                    "degraded artifact."
+                )
             best_scales = identity_scales.clone()
             best_error = initial_error
             best_ratio = -1.0  # -1 == no grid candidate beat identity baseline
@@ -852,6 +892,21 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
 
+                if self.max_scale_ratio is not None:
+                    s_min = scales.min().item()
+                    span = (scales.max().item() / s_min) if s_min > 0 else float("inf")
+                    if span > self.max_scale_ratio:
+                        history.append(
+                            {
+                                "ratio": ratio,
+                                "duo_scaling": use_duo_scaling,
+                                "error": float("inf"),
+                                "skipped": "max_scale_ratio",
+                                "span": span,
+                            }
+                        )
+                        continue
+
                 loss = self._eval_scales(
                     scales,
                     mapping,
@@ -870,11 +925,55 @@ class AWQModifier(Modifier, QuantizationMixin):
                     best_scales = scales.clone()
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
-        # If no grid candidate beat the identity baseline (e.g. extreme
-        # activation outliers, attn_output_gate sigmoid distortion, MoE
-        # routing) we already seeded ``best_scales = identity_scales`` and
-        # ``best_error = initial_error`` above, so the layer simply ships
-        # as W4A16 with no smoothing -- never worse than "broken AWQ".
+        # Three distinct outcomes converge to "no grid candidate beat identity":
+        #   1. Every candidate was filtered by the max_scale_ratio guard.
+        #   2. Every candidate ran but produced a loss >= the identity
+        #      baseline (e.g. attn_output_gate sigmoid distortion, MoE
+        #      routing, severely outlier-heavy activations).
+        #   3. Every candidate that *actually executed* produced a
+        #      non-finite loss (NaN/Inf from the quantized forward of
+        #      the scaled weights -- e.g. fp16 overflow when W * s
+        #      saturates the dtype). Identity is finite (we checked
+        #      above) so on paper the layer could ship as W4A16, but
+        #      the search itself is genuinely broken and silently
+        #      labelling the layer ``fell_back_to_identity=True`` would
+        #      hide a numerical failure behind the legitimate
+        #      max_scale_ratio safety fallback. Surface it instead.
+        # Only outcomes 1 and 2 are valid identity fallbacks; outcome 3
+        # must raise so the artifact is never written.
+        ran_history = [h for h in history if "skipped" not in h]
+        non_finite_ran = [
+            h for h in ran_history if not math.isfinite(h.get("error", float("nan")))
+        ]
+        if ran_history and len(non_finite_ran) == len(ran_history):
+            raise RuntimeError(
+                f"AWQ grid search for {mapping.smooth_name} produced a "
+                f"non-finite loss for every executed candidate "
+                f"({len(non_finite_ran)}/{len(ran_history)}). The "
+                "identity baseline is finite, but the quantized forward "
+                "of the scaled weights is numerically broken (NaN/Inf "
+                "in Q(W*s)/s @ x). This is a genuine search failure, "
+                "not a safe identity fallback; aborting to avoid "
+                "shipping a silently degraded artifact."
+            )
+
+        fell_back_to_identity = best_ratio == -1.0
+        if fell_back_to_identity and self.max_scale_ratio is not None:
+            all_skipped_by_guard = len(history) > 0 and all(
+                h.get("skipped") == "max_scale_ratio" for h in history
+            )
+            if all_skipped_by_guard:
+                max_span = max(
+                    (h.get("span", float("inf")) for h in history), default=0
+                )
+                logger.warning(
+                    f"AWQ smoothing for {mapping.smooth_name} fell back to "
+                    f"identity scales: every grid candidate exceeded "
+                    f"max_scale_ratio={self.max_scale_ratio} (max span seen "
+                    f"{max_span:.2f}x). The layer will behave like plain W4A16 "
+                    "(no smoothing). Consider using a recipe with explicit "
+                    "balance_output_slices or an architecture-aware mapping."
+                )
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.debug(
@@ -892,6 +991,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "initial_error": initial_error,
                 "best_error": best_error,
                 "reduction": err_reduction,
+                "fell_back_to_identity": fell_back_to_identity,
             }
         )
 
@@ -969,6 +1069,98 @@ class AWQModifier(Modifier, QuantizationMixin):
             f"avg={avg_reduction:.4f}, median={median_reduction:.4f}, "
             f"min={min_reduction:.4f}, max={max_reduction:.4f}"
         )
+
+    def _assert_smoothing_health(self) -> None:
+        """
+        Inspect per-layer grid-search results and surface degenerate cases.
+
+        Always: emit a logger.warning for each layer whose smoothing
+        STRICTLY INCREASED the loss (``best_error > initial_error``). This is
+        a strong signal that the AWQ mapping is incompatible with the
+        architecture (e.g. attention output gating, MoE routing) and the
+        artifact will likely be broken end-to-end.
+
+        Layers that ``fell_back_to_identity`` (every grid candidate rejected
+        by ``max_scale_ratio``) are deliberately skipped here: the fallback
+        is the *intended* safe degradation and was already announced by
+        ``_compute_best_scale``. Re-warning them as "increased loss" would
+        be misleading because identity smoothing matches the un-smoothed
+        baseline by construction.
+
+        When ``smoothing_health_max_error`` is set, additionally raise
+        ``RuntimeError`` if any layer's ``best_error`` exceeds the bound,
+        preventing a silently broken artifact from being written to disk.
+        Fallback layers are excluded from this gate too -- a layer that
+        skipped smoothing inherits the W4A16 baseline behaviour, which is
+        evaluated separately.
+        """
+        if not self._error_metrics:
+            return
+
+        # Defense in depth: ``_compute_best_scale`` already refuses to
+        # write non-finite ``initial_error`` / ``best_error`` into
+        # ``_error_metrics`` (it raises before reaching the append).
+        # If a future refactor introduces a code path that bypasses
+        # that guard, the gates below would silently skip the layer
+        # because ``nan > X`` is always False -- the exact failure
+        # mode that hid silently-degraded artifacts before the
+        # identity-baseline fix. Re-assert finiteness here so the
+        # invariant lives in two places.
+        non_finite = [
+            m
+            for m in self._error_metrics
+            if not (
+                math.isfinite(m["initial_error"]) and math.isfinite(m["best_error"])
+            )
+        ]
+        if non_finite:
+            preview = [
+                (m["layer_name"], m["initial_error"], m["best_error"])
+                for m in non_finite[:5]
+            ]
+            raise RuntimeError(
+                f"AWQ smoothing produced non-finite metrics for "
+                f"{len(non_finite)} layer(s). First offenders: {preview}. "
+                "This indicates a broken numerical state in "
+                "_compute_best_scale and must not be silently treated as "
+                "an identity fallback."
+            )
+
+        increased_loss_layers: list[dict] = []
+        over_threshold_layers: list[dict] = []
+        for m in self._error_metrics:
+            if m.get("fell_back_to_identity"):
+                continue
+            if m["initial_error"] > 0 and m["best_error"] > m["initial_error"]:
+                increased_loss_layers.append(m)
+            if (
+                self.smoothing_health_max_error is not None
+                and m["best_error"] > self.smoothing_health_max_error
+            ):
+                over_threshold_layers.append(m)
+
+        for m in increased_loss_layers:
+            logger.warning(
+                f"AWQ smoothing for {m['layer_name']} INCREASED loss "
+                f"({m['initial_error']:.3e} -> {m['best_error']:.3e}). "
+                "This usually indicates an incompatible mapping for the "
+                "architecture; consider a recipe with explicit "
+                "balance_output_slices or fall back to "
+                "QuantizationModifier(scheme='W4A16_ASYM')."
+            )
+
+        if over_threshold_layers:
+            preview = [
+                (m["layer_name"], m["best_error"]) for m in over_threshold_layers[:5]
+            ]
+            raise RuntimeError(
+                f"AWQ smoothing failed health check for "
+                f"{len(over_threshold_layers)} layer(s) with best_error > "
+                f"smoothing_health_max_error={self.smoothing_health_max_error}. "
+                f"First failures: {preview}. Aborting to avoid shipping a "
+                "silently broken artifact. Lower the threshold or relax it to "
+                "None to bypass."
+            )
 
     def _assert_all_activations_consumed(self):
         """

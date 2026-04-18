@@ -198,25 +198,78 @@ def test_best_error_never_exceeds_initial_error():
 
 
 @pytest.mark.unit
-def test_extreme_activation_outlier_falls_back_to_identity_loss():
+def test_health_check_does_not_false_positive_under_duo_scaling():
     """
-    Without any safety guard, an extreme activation outlier still must
-    not select a worse-than-baseline candidate. Because the search is
-    seeded with identity scales, the worst case is "no improvement" and
-    the recorded ``best_error`` equals ``initial_error`` -- never NaN
-    or inf, never larger than baseline.
+    Pre-fix this exact configuration (``duo_scaling=True``, no extreme
+    activations) would frequently emit "INCREASED loss" warnings because
+    ``initial_error`` was the loss at ``scales = 1 / (w_mean + eps)`` --
+    a strong smoothing -- and the eventual ``best_error`` from a more
+    moderate ratio could trivially exceed it. Post-fix the baseline is
+    identity smoothing, so the gate must stay silent on this benign case.
+    """
+    from loguru import logger
+
+    in_features, out_features = 32, 16
+    parent = _Wrapper(in_features, out_features)
+    balance_layer = parent.proj
+    _attach_w4a16_scheme(balance_layer)
+
+    batch_inputs = _make_inputs(1, 4, in_features)
+    with torch.no_grad():
+        fp16_outputs = [parent(x).clone() for x in batch_inputs]
+    orig_layer_weights = {balance_layer: balance_layer.weight.detach().clone()}
+
+    awq = AWQModifier(scheme="W4A16_ASYM", n_grid=4, duo_scaling=True)
+    mapping = _build_resolved_mapping(parent, balance_layer)
+    _setup_modifier(awq, parent, balance_layer, mapping.smooth_name, batch_inputs)
+
+    with create_session():
+        awq._compute_best_scale(mapping, fp16_outputs, orig_layer_weights)
+
+    captured: list[str] = []
+    handler = logger.add(
+        lambda m: captured.append(m.record["message"]),
+        level="WARNING",
+        format="{message}",
+    )
+    try:
+        awq._assert_smoothing_health()
+    finally:
+        logger.remove(handler)
+
+    assert not any("INCREASED loss" in m for m in captured), (
+        f"duo_scaling=True benign case must not raise 'INCREASED loss' "
+        f"warnings: {captured}"
+    )
+
+
+@pytest.mark.unit
+def test_max_scale_ratio_fallback_does_not_produce_nan_metrics():
+    """
+    When ``max_scale_ratio`` rejects every grid candidate the layer falls
+    back to identity. The recorded ``initial_error`` and ``best_error``
+    must both be the identity loss (a real finite number, not inf), so
+    ``reduction = best_error / initial_error == 1.0`` and downstream
+    aggregations don't see ``inf / inf == NaN``.
     """
     in_features, out_features = 32, 16
     parent = _Wrapper(in_features, out_features)
     balance_layer = parent.proj
     _attach_w4a16_scheme(balance_layer)
 
+    # Heavy activation outlier guarantees every non-trivial ratio's
+    # normalised scale span explodes past max_scale_ratio=2.0.
     batch_inputs = _make_inputs(1, 4, in_features, outlier_channel=11)
     with torch.no_grad():
         fp16_outputs = [parent(x).clone() for x in batch_inputs]
     orig_layer_weights = {balance_layer: balance_layer.weight.detach().clone()}
 
-    awq = AWQModifier(scheme="W4A16_ASYM", n_grid=4, duo_scaling=False)
+    awq = AWQModifier(
+        scheme="W4A16_ASYM",
+        n_grid=4,
+        duo_scaling=False,  # use pure x_mean^ratio so the outlier dominates
+        max_scale_ratio=2.0,
+    )
     mapping = _build_resolved_mapping(parent, balance_layer)
     _setup_modifier(awq, parent, balance_layer, mapping.smooth_name, batch_inputs)
 
@@ -227,4 +280,6 @@ def test_extreme_activation_outlier_falls_back_to_identity_loss():
     assert torch.isfinite(torch.tensor(metrics["initial_error"])), metrics
     assert torch.isfinite(torch.tensor(metrics["best_error"])), metrics
     assert torch.isfinite(torch.tensor(metrics["reduction"])), metrics
-    assert metrics["best_error"] <= metrics["initial_error"]
+    assert metrics["best_error"] == pytest.approx(metrics["initial_error"])
+    assert metrics["reduction"] == pytest.approx(1.0)
+    assert metrics["fell_back_to_identity"] is True
