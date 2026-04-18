@@ -1,6 +1,96 @@
 [build-system]
-requires = ["setuptools", "wheel", "setuptools_scm==8.2.0"]
+requires = ["setuptools>=61.0", "wheel", "setuptools-git-versioning>=2.0,<3"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["llmcompressor*"]
+
+[project]
+name = "llmcompressor"
+description = "A library for compressing large language models utilizing the latest techniques and research in the field for both training aware and post training techniques. The library is designed to be flexible and easy to use on top of PyTorch and HuggingFace Transformers, allowing for quick experimentation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache 2.0"}
+keywords = [
+    "llmcompressor", "llms", "large language models", "transformers", "pytorch",
+    "huggingface", "compressors", "compression", "quantization", "pruning",
+    "sparsity", "optimization", "model optimization", "model compression",
+]
+authors = [
+    {name = "The vLLM Project", email = "vllm-questions@lists.berkeley.edu"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dynamic = ["version"]
+
+dependencies = [
+    "loguru>=0.7.2,<=0.7.3",
+    "pyyaml>=6.0.1,<=6.0.3",
+    "numpy>=2.0.0,<=2.4.2",
+    "requests>=2.32.2,<=2.32.5",
+    "tqdm>=4.66.3,<=4.67.3",
+    "torch>=2.9.0,<=2.11.0",
+    "transformers>=4.56.1,<=4.57.6",
+    "datasets>=4.0.0,<=4.6.0",
+    "auto-round>=0.10.2,<=0.10.2",
+    "accelerate>=1.6.0,<=1.12.0",
+    "nvidia-ml-py>=12.560.30,<=13.590.48",
+    "pillow>=10.4.0,<=12.1.1",
+    "compressed-tensors>=0.14.0,<=0.15.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    # testing framework
+    "pytest>=6.0.0",
+    "pytest-mock>=3.6.0",
+    "pytest-rerunfailures>=13.0",
+    "lm_eval==0.4.9.2",
+    # test dependencies
+    "beautifulsoup4~=4.12.3",
+    "cmarkgfm>=2024.1.14",
+    "trl>=0.10.1",
+    "pandas<2.3.0",
+    "torchvision",
+    "librosa==0.11.0",
+    "soundfile",
+    "torchcodec",
+    # linting, formatting, and type checking
+    "mypy~=1.10.0",
+    "ruff~=0.4.8",
+    # pre commit hooks
+    "pre-commit",
+    # docs - zensical
+    "mkdocstrings-python",
+    "zensical",
+    "markdown",
+    "pymdown-extensions",
+]
+qwen = [
+    "qwen_vl_utils",
+]
+
+[project.scripts]
+"llmcompressor.trace" = "llmcompressor.transformers.tracing.debug:main"
+"llmcompressor.reindex_fused_weights" = "llmcompressor.entrypoints.model_free.reindex_fused_weights:main"
+
+[project.urls]
+Homepage = "https://github.com/vllm-project/llm-compressor"
 
 [tool.mypy]
 files = "src/guidellm"
