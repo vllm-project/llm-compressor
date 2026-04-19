@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
 import torch
 import torch.distributed as dist
+from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.offload import update_offload_parameter
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
@@ -17,7 +18,6 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
-from llmcompressor.utils.dist import wait_for_comms
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
@@ -104,6 +104,7 @@ class SmoothQuantModifier(Modifier):
     ignore: list[str] | None = None
     num_calibration_steps: int | None = None
     calibration_function: Callable | None = None
+    algorithm: Literal["smoothquant", "log_equalization"] = "smoothquant"
 
     resolved_mappings_: list[SmoothQuantMapping] | None = Field(
         default=None, repr=False
@@ -400,7 +401,14 @@ class SmoothQuantModifier(Modifier):
         :param activation_scales: channel-wise dynamic range of activations to smooth
         :return: channel-wise scales to use for smoothing activations
         """
-        # get the channel-wise dynamic range for each layer to be balanced
+        # Logarithmic Equalization does not use weight scales — skip the
+        # per-layer weight computation to avoid unnecessary overhead.
+        if self.algorithm == "log_equalization":
+            # Logarithmic Equalization (https://arxiv.org/abs/2308.15987):
+            # s_j = max(|X_j|) / log2( 2 + max(|X_j|) )
+            return activation_scales / torch.log2(2 + activation_scales)
+
+        # SmoothQuant: get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
             scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
@@ -408,14 +416,12 @@ class SmoothQuantModifier(Modifier):
 
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
-        # calculate the amount of smoothing to apply
+        # SmoothQuant (https://arxiv.org/abs/2211.10438):
         # s_j = max(|X_j|)^alpha / max(|W_j|)^(1-alpha)
         # where j is the input channel, alpha is smoothing strength
         scales = activation_scales.pow(self.smoothing_strength) / weight_scales.pow(
             1 - self.smoothing_strength
         )
-        scales = torch.where(weight_scales > 0.0, scales, activation_scales)
-
-        return scales
+        return torch.where(weight_scales > 0.0, scales, activation_scales)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

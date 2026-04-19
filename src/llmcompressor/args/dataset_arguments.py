@@ -63,8 +63,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
         metadata={
             "help": (
                 "Typically a function which applies a chat template. Can take the form "
-                "of either a function to apply to the dataset, a name defined in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
+                "of either a function to apply to the dataset or "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
         },
@@ -240,6 +239,13 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "Device used to offload intermediate activations between "
             "sequential layers. It is recommended to use `cuda:1` if using more "
             "than one gpu. Default is cpu."
+        },
+    )
+    sequential_targets_per_subgraph: int = field(
+        default=1,
+        metadata={
+            "help": "Number of sequential targets to include per subgraph. "
+            "Higher values use more VRAM but are faster to calibrate. Default is 1."
         },
     )
     quantization_aware_calibration: bool = field(
