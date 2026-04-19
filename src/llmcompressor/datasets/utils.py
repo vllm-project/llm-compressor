@@ -138,7 +138,7 @@ def format_calibration_data(
     # Pin memory only when using workers (saves RAM for low-memory users when
     # num_workers=0; when num_workers>0, pin_memory speeds CPU->GPU transfer)
     num_workers = args.dataloader_num_workers
-    pin_memory = torch.cuda.is_available() and num_workers > 0
+    pin_memory = torch.accelerator.is_available() and num_workers > 0
     # persistent_workers avoids worker respawn between epochs (only when
     # num_workers > 0). prefetch_factor is left at DataLoader default (2).
     kwargs: dict[str, Any] = {}

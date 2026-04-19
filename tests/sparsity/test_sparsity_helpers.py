@@ -1,6 +1,6 @@
 import pytest
 
-from llmcompressor.transformers.compression.helpers import (
+from llmcompressor.transformers.compression.sparsity_helpers import (
     _reduce_targets_and_ignores_into_lists,
 )
 
