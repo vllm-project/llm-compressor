@@ -16,7 +16,7 @@ env:
   CADENCE: "commit"
   HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
   UV_SYSTEM_PYTHON: 1
-  UV_TORCH_BACKEND: "auto"
+  UV_TORCH_BACKEND: "cu130"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
