@@ -6,6 +6,56 @@ import sys
 from pathlib import Path
 from typing import Optional, Union
 
+
+def _bootstrap_torchvision_before_transformers() -> None:
+    """
+    `transformers` caches torchvision availability at import time. `lm_eval` pulls
+    in `transformers` when this module loads, so installing torchvision in `set_up`
+    is too late for `is_torchvision_available()`. Ensure torchvision is importable
+    before any Hugging Face imports below.
+    """
+    try:
+        import torchvision  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        return
+
+    if os.environ.get("LLMCOMPRESSOR_DISABLE_TORCHVISION_PIP"):
+        print(
+            "WARNING: torchvision is not installed; hf-multimodal LM Eval tests will "
+            "fail until it is available. Install torchvision in the image or unset "
+            "LLMCOMPRESSOR_DISABLE_TORCHVISION_PIP to allow a pip install at startup.",
+            file=sys.stderr,
+        )
+        return
+
+    print(
+        "torchvision not found; running `pip install torchvision` before importing "
+        "lm_eval/transformers",
+        file=sys.stderr,
+    )
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "torchvision"],
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            "torchvision is required for hf-multimodal LM Eval tests but "
+            f"`pip install torchvision` failed ({exc}). Install torchvision in the "
+            "test image using the same PyTorch/CUDA channel as torch."
+        ) from exc
+    try:
+        import torchvision  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "torchvision still not importable after pip install. "
+            "Install a build that matches your PyTorch/CUDA stack."
+        ) from exc
+
+
+_bootstrap_torchvision_before_transformers()
+
 import numpy
 import pandas as pd
 import pytest
@@ -49,51 +99,6 @@ except ImportError:
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
-
-_TORCHVISION_ENSURED = False
-
-
-def _ensure_torchvision() -> None:
-    """
-    Transformers `AutoProcessor` for some VLMs (e.g. Qwen3-VL) touches
-    `AutoVideoProcessor`, which requires an importable `torchvision`. CI images
-    that install an older llmcompressor wheel or use frozen deps may omit it;
-    try a one-time pip install when import fails.
-    """
-    global _TORCHVISION_ENSURED
-    if _TORCHVISION_ENSURED:
-        return
-    try:
-        import torchvision  # noqa: F401
-    except ImportError:
-        if os.environ.get("LLMCOMPRESSOR_DISABLE_TORCHVISION_PIP"):
-            pytest.fail(
-                "torchvision is required for hf-multimodal LM Eval tests. "
-                "Install torchvision in the test image (same PyTorch build as torch), "
-                "or unset LLMCOMPRESSOR_DISABLE_TORCHVISION_PIP to allow pip install."
-            )
-        logger.warning(
-            "torchvision not importable; running pip install torchvision "
-            "(needed for hf-multimodal / Transformers processors)."
-        )
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--upgrade", "torchvision"],
-            )
-        except subprocess.CalledProcessError as exc:
-            pytest.fail(
-                "torchvision is required for hf-multimodal LM Eval tests but "
-                f"`pip install torchvision` failed ({exc}). Install torchvision in the "
-                "test image using the same channel / CUDA variant as PyTorch."
-            )
-        try:
-            import torchvision  # noqa: F401
-        except ImportError as exc:
-            pytest.fail(
-                "torchvision still not importable after pip install. "
-                f"Install a build that matches your PyTorch/CUDA stack. ({exc})"
-            )
-    _TORCHVISION_ENSURED = True
 
 
 # Will run each test case in its own process through run_tests_in_python.sh
@@ -140,8 +145,6 @@ class TestLMEval:
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
         self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))
-        if self.lmeval.model == "hf-multimodal":
-            _ensure_torchvision()
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
