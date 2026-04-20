@@ -1,60 +1,8 @@
 import os
 import random
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 from typing import Optional, Union
-
-
-def _bootstrap_torchvision_before_transformers() -> None:
-    """
-    `transformers` caches torchvision availability at import time. `lm_eval` pulls
-    in `transformers` when this module loads, so installing torchvision in `set_up`
-    is too late for `is_torchvision_available()`. Ensure torchvision is importable
-    before any Hugging Face imports below.
-    """
-    try:
-        import torchvision  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        return
-
-    if os.environ.get("LLMCOMPRESSOR_DISABLE_TORCHVISION_PIP"):
-        print(
-            "WARNING: torchvision is not installed; hf-multimodal LM Eval tests will "
-            "fail until it is available. Install torchvision in the image or unset "
-            "LLMCOMPRESSOR_DISABLE_TORCHVISION_PIP to allow a pip install at startup.",
-            file=sys.stderr,
-        )
-        return
-
-    print(
-        "torchvision not found; running `pip install torchvision` before importing "
-        "lm_eval/transformers",
-        file=sys.stderr,
-    )
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "torchvision"],
-        )
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(
-            "torchvision is required for hf-multimodal LM Eval tests but "
-            f"`pip install torchvision` failed ({exc}). Install torchvision in the "
-            "test image using the same PyTorch/CUDA channel as torch."
-        ) from exc
-    try:
-        import torchvision  # noqa: F401
-    except ImportError as exc:
-        raise RuntimeError(
-            "torchvision still not importable after pip install. "
-            "Install a build that matches your PyTorch/CUDA stack."
-        ) from exc
-
-
-_bootstrap_torchvision_before_transformers()
 
 import numpy
 import pandas as pd
