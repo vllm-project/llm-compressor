@@ -8,7 +8,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # NOTE: This example requires transformers >= v5
 
-MODEL_ID = "/Qwen/Qwen3.5-122B-A10B"
+MODEL_ID = "Qwen/Qwen3.5-122B-A10B"
 
 # Load model.
 model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
