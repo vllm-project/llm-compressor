@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import torch._dynamo.config
@@ -13,6 +13,20 @@ from llmcompressor.observers.base import MinMaxTuple
 # compressed_tensors' calculate_qparams (float(bit_range)).
 # Same approach as GPTQ compile path (commit a4f9ba2e).
 torch._dynamo.config.capture_scalar_outputs = True
+
+_step_log: List[int] = []
+_step_log_enabled = False
+
+
+def enable_step_logging(enabled: bool = True):
+    global _step_log_enabled
+    _step_log_enabled = enabled
+    if enabled:
+        _step_log.clear()
+
+
+def get_step_log() -> List[int]:
+    return list(_step_log)
 
 
 def _compute_candidate_error(
@@ -190,6 +204,7 @@ def _grid_search_mse(
 
     total_steps = int(maxshrink * grid)
     no_improve_count = 0
+    steps_taken = 0
 
     if enable_compile:
         # [recompile fix] Eliminate stride/duck-sizing guards from view tensors
@@ -231,10 +246,13 @@ def _grid_search_mse(
             if torch.equal(prev_best, best_error):
                 no_improve_count += current_chunk
                 if no_improve_count >= patience:
+                    steps_taken = chunk_end
                     break
             else:
                 no_improve_count = 0
             idx = chunk_end
+        else:
+            steps_taken = total_steps
     else:
         # Eager path.
         compute_fn = _compute_candidate_error
@@ -264,6 +282,12 @@ def _grid_search_mse(
             else:
                 no_improve_count += 1
                 if no_improve_count >= patience:
+                    steps_taken = i + 1
                     break
+        else:
+            steps_taken = total_steps
+
+    if _step_log_enabled:
+        _step_log.append(steps_taken)
 
     return best_min_val, best_max_val
