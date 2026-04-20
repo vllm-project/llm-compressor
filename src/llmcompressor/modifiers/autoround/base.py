@@ -15,12 +15,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     enable_quantization,
 )
-from compressed_tensors.utils import (
-    align_module_device,
-    delete_offload_parameter,
-    match_named_modules,
-    register_offload_parameter,
-)
+from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -408,10 +403,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     if name not in llmc_registered_qparams:
                         llmc_registered_qparams[name] = {}
                     llmc_registered_qparams[name][key] = getattr(module, key).clone()
-                    delete_offload_parameter(module, key)
+                    delattr(module, key)
         return llmc_registered_qparams
 
-    def _postprocess_qparams(self, model, llmc_registered_qparams):
+    def _postprocess_qparams(
+        self, model: torch.nn.Module, llmc_registered_qparams: dict[str, torch.Tensor]
+    ):
         """Mapping qparam name from AutoRound to LLMC and register qparams in model."""
         qparams_mapping = {
             # AutoRound parameter name: LLMCompressor parameter name
@@ -457,7 +454,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     # Register to LLMC
                     param_value = torch.nn.Parameter(ar_value, requires_grad=False)
                     delattr(module, ar_param_name)
-                    register_offload_parameter(module, llmc_param_name, param_value)
+                    module.register_parameter(llmc_param_name, param_value)
 
             # Set place holder for other qparams.
             if name in llmc_registered_qparams:
@@ -467,7 +464,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                             llmc_registered_qparams[name][qparam_name],
                             requires_grad=False,
                         )
-                        register_offload_parameter(module, qparam_name, param_value)
+                        module.register_parameter(qparam_name, param_value)
 
     def _mapping_config_to_autoround(self):
         if isinstance(self.scheme, str):
