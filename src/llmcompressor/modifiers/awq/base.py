@@ -3,6 +3,8 @@ from itertools import product
 from typing import Iterator, Literal
 
 import torch
+from compressed_tensors.distributed import wait_for_comms
+from compressed_tensors.modeling.kvcache import QuantizedKVCache
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
@@ -45,11 +47,9 @@ from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils import wait_for_comms
+from llmcompressor.utils import get_high_precision
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import (
-    get_module_to_name_dict,
-)
+from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["AWQModifier"]
 
@@ -120,8 +120,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     - on_finalize
         - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of module names to compress in
-        the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -157,7 +155,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: str | list[str] | None = None
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
@@ -197,6 +194,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 if (
                     hasattr(module, "quantization_scheme")
                     and hasattr(module.quantization_scheme, "weights")
+                    and hasattr(module.quantization_scheme.weights, "strategy")
                     and module.quantization_scheme.weights.strategy
                     == QuantizationStrategy.TENSOR
                 ):
@@ -434,6 +432,12 @@ class AWQModifier(Modifier, QuantizationMixin):
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
+
+            # replace any quantized kv cache with None
+            for k, v in values.arguments.items():
+                if isinstance(v, QuantizedKVCache):
+                    values.arguments[k] = None
+
             self._parent_args_cache[module].append(values.arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
@@ -972,7 +976,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = weight.reshape(orig_shape)
             # Gets the average rescaled magnitude for each output channel
             weight_total_count += weight.size(0)
-            weight_sum = weight.sum(0, dtype=torch.float64)
+            weight_sum = weight.sum(0, dtype=get_high_precision())
             weight_total_sum += weight_sum
 
         return weight_total_sum / weight_total_count
@@ -1042,7 +1046,10 @@ def get_lowest_common_ancestor_with_avoid(
 
 def _allreduce_data_sum(data: list[torch.Tensor]) -> list[torch.Tensor]:
     # needs to be on device to broadcast
-    device = torch.device(f"cuda:{torch.cuda.current_device()}")
+    device = torch.device(
+        torch.accelerator.current_accelerator().type,
+        torch.accelerator.current_device_index(),
+    )
     data = [datum.to(device) for datum in data]
 
     pending_comms = []

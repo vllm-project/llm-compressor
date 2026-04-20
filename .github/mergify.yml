@@ -18,6 +18,19 @@ pull_request_rules:
         add:
           - documentation
 
+  - name: auto-rebase if approved, ready, and 5 commits behind main
+    conditions:
+      - base = main
+      - label = ready
+      - label != stale
+      - "#approved-reviews-by >= 2"
+      - "#commits-behind >= 5"
+      - -closed
+      - -draft
+      - -conflict
+    actions:
+      rebase: {}
+
   - name: ping author on conflicts and add 'needs-rebase' label
     conditions:
       - label != stale

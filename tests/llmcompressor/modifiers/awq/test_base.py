@@ -12,10 +12,10 @@ from torch.nn import Linear
 from torch.testing import assert_close
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import (
-    get_lowest_common_ancestor_with_avoid,
-)
+from llmcompressor.modifiers.awq.base import get_lowest_common_ancestor_with_avoid
 from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.utils import get_high_precision
+from tests.testing_utils import requires_gpu
 
 
 @pytest.mark.unit
@@ -651,7 +651,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
                 i * block_height : (i + 1) * block_height,
                 j * block_width : (j + 1) * block_width,
             ] = block
-    ref_means = ref_weight.sum(0, dtype=torch.float64) / ref_weight.size(0)
+    ref_means = ref_weight.sum(0, dtype=get_high_precision()) / ref_weight.size(0)
 
     # auto awq
     # we first reshape the weight such that it is effectively per-channel quantization
@@ -675,3 +675,47 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
     # check
     assert_close(llmc_awq_means, ref_means, atol=1e-5, rtol=1e-5)
     assert_close(llmc_awq_means, auto_awq_means, atol=1e-5, rtol=1e-5)
+
+
+@requires_gpu(1)
+@pytest.mark.smoke
+def test_awq_with_kv_cache_quantization():
+    """Test AWQModifier with kv_cache_scheme runs without errors"""
+    from compressed_tensors.quantization import (
+        QuantizationArgs,
+        QuantizationStrategy,
+        QuantizationType,
+    )
+    from datasets import Dataset
+    from transformers import AutoModelForCausalLM
+
+    from llmcompressor import oneshot
+
+    model_id = "nm-testing/tinysmokellama-3.2"
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, torch_dtype="auto", device_map="cuda"
+    )
+    dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
+
+    modifier = AWQModifier(
+        targets="Linear",
+        scheme="W8A16",
+        kv_cache_scheme=QuantizationArgs(
+            num_bits=8,
+            type=QuantizationType.FLOAT,
+            strategy=QuantizationStrategy.TENSOR,
+            symmetric=True,
+            dynamic=False,
+        ),
+    )
+
+    oneshot(
+        model=model,
+        dataset=dataset,
+        recipe=[modifier],
+        max_seq_length=16,
+        num_calibration_samples=1,
+    )
+
+    # Verify quantization was applied
+    assert hasattr(model.model.layers[0].self_attn, "kv_cache")
