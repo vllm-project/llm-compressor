@@ -87,14 +87,30 @@ _phi_mappings = [
     ),
 ]
 
-# Gemma includes a pre_feedforward_layernorm in between
+# Gemma2 includes a pre_feedforward_layernorm in between
 #  post_attention_layernorm and the mlp down/gate proj layers
 #  use that instead of post_attention_layernorm in 3rd mapping:
-_gemma_mappings = [
+_gemma2_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",
         ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
     ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*pre_feedforward_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
+# Gemma3 applies RMSNorm to outputs of q/k proj layers (q_norm, k_norm), unlike Gemma2.
+#  These tend to degrade performance over round-to-nearest when smoothed
+#  (https://github.com/vllm-project/llm-compressor/issues/2522)
+#  exclude input_layernorm -> q/k/v mapping:
+_gemma3_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_feedforward_layernorm$",
@@ -222,9 +238,9 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Cohere2VisionForConditionalGeneration": _cohere_mappings,
     "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Exaone4ForCausalLM": _exaone4_mappings,
-    "Gemma2ForCausalLM": _gemma_mappings,
-    "Gemma3ForCausalLM": _gemma_mappings,
-    "Gemma3ForConditionalGeneration": _gemma_mappings,
+    "Gemma2ForCausalLM": _gemma2_mappings,
+    "Gemma3ForCausalLM": _gemma3_mappings,
+    "Gemma3ForConditionalGeneration": _gemma3_mappings,
     "Glm4MoeForCausalLM": default_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": default_mappings,
