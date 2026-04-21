@@ -3,11 +3,11 @@ End-to-end-ish tests that drive ``AWQModifier`` through its real code
 path on a tiny synthetic module.
 
 Every test in this file exercises production code (``_compute_best_scale``,
-``_eval_scales``, ``_apply_smoothing``) by attaching a real W4A16
-quantization scheme + observer to a tiny ``Linear``, hand-populating
-the activation/parent caches that the production hooks would otherwise
-populate during calibration, and then invoking the public-facing entry
-points.
+``_eval_scales``, ``_assert_smoothing_health``, ``_apply_smoothing``) by
+attaching a real W4A16 quantization scheme + observer to a tiny
+``Linear``, hand-populating the activation/parent caches that the
+production hooks would otherwise populate during calibration, and then
+invoking the public-facing entry points.
 
 This is the only AWQ test file that walks the real grid search loop;
 contract / dataclass / shape tests have been deliberately removed in
@@ -48,6 +48,22 @@ class _Wrapper(Module):
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.proj(hidden_states)
+
+
+class _LayerNormBlock(Module):
+    """LayerNorm -> Linear, mirroring an ``input_layernorm -> q_proj`` path.
+
+    Used by the forward-equivalence regression to verify the AWQ
+    smoothing transform is a no-op on the FP forward pass.
+    """
+
+    def __init__(self, hidden: int, out_features: int | None = None):
+        super().__init__()
+        self.input_layernorm = LayerNorm(hidden)
+        self.proj = Linear(hidden, out_features or hidden, bias=False)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.proj(self.input_layernorm(hidden_states))
 
 
 def _attach_w4a16_scheme(
@@ -112,6 +128,7 @@ def _build_resolved_mapping(
     *,
     smooth_layer: Module | None = None,
     smooth_name: str = "layers.0.input_layernorm",
+    balance_output_slices: dict[Module, slice] | None = None,
 ) -> ResolvedMapping:
     return ResolvedMapping(
         smooth_name=smooth_name,
@@ -120,6 +137,7 @@ def _build_resolved_mapping(
         balance_names=["layers.0.proj"],
         parent=parent,
         parent_name="layers.0",
+        balance_output_slices=balance_output_slices,
     )
 
 
@@ -215,6 +233,171 @@ def test_best_error_never_exceeds_initial_error():
         f"identity baseline, but got best={metrics['best_error']:.3e} > "
         f"initial={metrics['initial_error']:.3e}"
     )
+
+
+@pytest.mark.unit
+def test_balance_output_slices_changes_grid_outcome_for_fused_q_proj():
+    """
+    Production-path regression for ``balance_output_slices``.
+
+    For Qwen3.5's fused query+gate ``q_proj`` the gate half (top H*D rows
+    in a 2*H*D output Linear) is sigmoid'd downstream and its weight
+    magnitude is *wildly* out of distribution from the query half. If the
+    grid search is allowed to see MSE on the gate rows it gets pulled
+    toward scales that minimise gate error and degrade query error -- the
+    exact failure mode that originally pushed Qwen3.5-27B AWQ to
+    ``bpb=3.8`` versus baseline ``bpb=0.5``.
+
+    Setting ``balance_output_slices`` to scope the MSE to the query rows
+    must therefore (a) actually be consulted by the search and (b)
+    produce a different ``best_scales`` than the un-sliced run on a model
+    constructed to make the gate rows dominate. We assert both. If either
+    fails, the slice field is dead code and the Qwen3.5 fix is gone.
+    """
+    in_features = 32
+    out_features = 32  # 16 query rows + 16 gate rows
+    batch_inputs = _make_inputs(1, 4, in_features)
+
+    def _run(use_slice: bool) -> dict:
+        torch.manual_seed(0)
+        parent = _Wrapper(in_features, out_features)
+        balance_layer = parent.proj
+        with torch.no_grad():
+            # Query rows: small magnitude. Gate rows: 100x larger so they
+            # dominate the un-sliced MSE and the un-sliced baseline.
+            balance_layer.weight[:16].mul_(0.1)
+            balance_layer.weight[16:].mul_(10.0)
+        _attach_w4a16_scheme(balance_layer)
+
+        with torch.no_grad():
+            fp16_outputs = [parent(x).clone() for x in batch_inputs]
+        orig_layer_weights = {
+            balance_layer: balance_layer.weight.detach().clone()
+        }
+
+        slices = {balance_layer: slice(0, 16)} if use_slice else None
+        awq = AWQModifier(scheme="W4A16_ASYM", n_grid=8, duo_scaling=True)
+        mapping = _build_resolved_mapping(
+            parent, balance_layer, balance_output_slices=slices
+        )
+        _setup_modifier(
+            awq, parent, balance_layer, mapping.smooth_name, batch_inputs
+        )
+        with create_session():
+            awq._compute_best_scale(mapping, fp16_outputs, orig_layer_weights)
+        return awq._error_metrics[0]
+
+    metrics_no_slice = _run(use_slice=False)
+    metrics_with_slice = _run(use_slice=True)
+
+    # Both the identity baseline (initial_error) and the chosen
+    # best_error are computed by ``_eval_scales``, which is the only
+    # place the production code consults ``balance_output_slices``. If
+    # the slice were silently ignored both runs would compute MSE over
+    # the same rows and produce the same baseline. The huge magnitude
+    # gap between query and gate rows guarantees that scoping the MSE to
+    # the query rows must produce a strictly smaller baseline -- not
+    # just a slightly different one. This is what proves the slice is
+    # actually consulted by the real grid loop.
+    assert metrics_with_slice["initial_error"] < 0.5 * metrics_no_slice[
+        "initial_error"
+    ], (
+        "balance_output_slices did not change the grid baseline: "
+        f"no_slice={metrics_no_slice['initial_error']:.3e}, "
+        f"with_slice={metrics_with_slice['initial_error']:.3e}. The "
+        "field is plumbed but not actually consulted by the search -- "
+        "the Qwen3.5 fused q_proj fix is silently broken."
+    )
+
+    # Same argument for best_error: if the slice were ignored the search
+    # would find the same minimum on both runs. Even when both runs fall
+    # back to identity (best_error == initial_error), the inequality
+    # below still holds because identity loss itself differs.
+    assert metrics_with_slice["best_error"] < 0.5 * metrics_no_slice[
+        "best_error"
+    ], (
+        f"no_slice best_error={metrics_no_slice['best_error']:.3e}, "
+        f"with_slice best_error={metrics_with_slice['best_error']:.3e}"
+    )
+
+
+@pytest.mark.unit
+def test_apply_smoothing_preserves_forward_equivalence():
+    """
+    Production-path regression for the ``_apply_smoothing`` algebraic
+    invariant -- the bug that pushed Qwen3.5-27B AWQ from ``bpb=0.57``
+    (fix1) to ``bpb=0.51`` (fix2).
+
+    AWQ's correctness rests on the identity
+
+        Y = balance(LN(x))
+          = (balance with W*s)((LN with gamma/s, beta/s)(x))
+
+    which holds element-wise in floating point. The slice-aware
+    grid-search optimisation MUST NOT leak into the persisted ``_smooth``
+    step: if the final balance_layer weight only scales the slice rows
+    while the smooth_layer is divided by ``s`` on all input channels,
+    then the un-scaled rows silently see ``x / s`` from the layernorm
+    without the compensating ``* s`` on the weight. The forward pass on
+    those rows then drifts away from the FP baseline -- which is exactly
+    how the gate half of a fused ``q_proj`` (sigmoid'd downstream)
+    catastrophically fails after quantization.
+
+    This test runs the full ``_apply_smoothing`` path -- including
+    ``_compute_best_scale`` with a non-trivial slice -- and verifies the
+    parent module's FP forward output is preserved bit-close before vs
+    after smoothing. If the per-mapping ``_smooth`` step ever regresses
+    to a slice-aware update (the original fix1 implementation), this
+    test fails with a ``> 1e-3`` divergence on the un-scaled rows.
+    """
+    torch.manual_seed(0)
+    hidden = 32
+    out_features = 32  # mimic 2*H*D fused query+gate q_proj
+    parent = _LayerNormBlock(hidden=hidden, out_features=out_features)
+    balance_layer = parent.proj
+    smooth_layer = parent.input_layernorm
+
+    with torch.no_grad():
+        # Make query rows and gate rows differ in magnitude; this
+        # combined with the slice gives the grid search a real
+        # opportunity to pick scales that are good for query rows but
+        # would be wrong for gate rows if naively applied to *only* the
+        # slice in the persisted weight.
+        balance_layer.weight[:16].mul_(0.1)
+        balance_layer.weight[16:].mul_(10.0)
+    _attach_w4a16_scheme(balance_layer)
+
+    batch_inputs = _make_inputs(1, 4, hidden)
+    with torch.no_grad():
+        y_before = parent(batch_inputs[0]).clone()
+
+    awq = AWQModifier(scheme="W4A16_ASYM", n_grid=4, duo_scaling=True)
+    mapping = _build_resolved_mapping(
+        parent,
+        balance_layer,
+        smooth_layer=smooth_layer,
+        smooth_name="input_layernorm",
+        balance_output_slices={balance_layer: slice(0, 16)},
+    )
+    awq._resolved_mappings = [mapping]
+    _setup_modifier(
+        awq, parent, balance_layer, mapping.smooth_name, batch_inputs
+    )
+
+    with create_session():
+        awq._apply_smoothing(parent)
+
+    with torch.no_grad():
+        y_after = parent(batch_inputs[0])
+
+    # The smoothing transform is exact in FP, so the only allowed
+    # divergence is round-off from the divide/multiply pair on
+    # ``smooth_layer.weight`` and ``balance_layer.weight``. Tolerances
+    # below are chosen to fit FP32 round-off but will easily catch a
+    # regression that drops the all-columns scaling on balance_layer
+    # (the original fix1 bug produced O(weight magnitude) divergence on
+    # the un-scaled gate rows, well above 1e-3).
+    torch.testing.assert_close(y_after, y_before, rtol=1e-4, atol=1e-4)
 
 
 @pytest.mark.unit

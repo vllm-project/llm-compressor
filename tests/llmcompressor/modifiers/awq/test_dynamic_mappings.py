@@ -18,6 +18,9 @@ def _make_hybrid_model(
     moe=False,
     num_experts=2,
     use_text_config=False,
+    attn_output_gate=False,
+    num_attention_heads=2,
+    head_dim=4,
 ):
     """Build a minimal hybrid attention model for testing."""
     layer_types = [
@@ -29,24 +32,27 @@ def _make_hybrid_model(
         for i in range(num_layers)
     ]
 
+    hidden_size = num_attention_heads * head_dim
+    q_out = 2 * hidden_size if attn_output_gate else hidden_size
+
     layers = []
     for i in range(num_layers):
         if layer_types[i] == "full_attention":
             attn = torch.nn.ModuleDict(
                 {
-                    "q_proj": Linear(8, 8),
-                    "k_proj": Linear(8, 8),
-                    "v_proj": Linear(8, 8),
-                    "o_proj": Linear(8, 8),
+                    "q_proj": Linear(hidden_size, q_out),
+                    "k_proj": Linear(hidden_size, hidden_size),
+                    "v_proj": Linear(hidden_size, hidden_size),
+                    "o_proj": Linear(hidden_size, hidden_size),
                 }
             )
             layer = torch.nn.ModuleDict({"self_attn": attn})
         else:
             attn = torch.nn.ModuleDict(
-                {name: Linear(8, 8) for name in linear_proj_names}
+                {name: Linear(hidden_size, hidden_size) for name in linear_proj_names}
             )
-            attn["norm"] = torch.nn.LayerNorm(8)
-            attn["out_proj"] = Linear(8, 8)
+            attn["norm"] = torch.nn.LayerNorm(hidden_size)
+            attn["out_proj"] = Linear(hidden_size, hidden_size)
             layer = torch.nn.ModuleDict({"linear_attn": attn})
 
         if moe:
@@ -54,9 +60,9 @@ def _make_hybrid_model(
                 [
                     torch.nn.ModuleDict(
                         {
-                            "gate_proj": Linear(8, 8),
-                            "up_proj": Linear(8, 8),
-                            "down_proj": Linear(8, 8),
+                            "gate_proj": Linear(hidden_size, hidden_size),
+                            "up_proj": Linear(hidden_size, hidden_size),
+                            "down_proj": Linear(hidden_size, hidden_size),
                         }
                     )
                     for _ in range(num_experts)
@@ -64,9 +70,9 @@ def _make_hybrid_model(
             )
             shared = torch.nn.ModuleDict(
                 {
-                    "gate_proj": Linear(8, 8),
-                    "up_proj": Linear(8, 8),
-                    "down_proj": Linear(8, 8),
+                    "gate_proj": Linear(hidden_size, hidden_size),
+                    "up_proj": Linear(hidden_size, hidden_size),
+                    "down_proj": Linear(hidden_size, hidden_size),
                 }
             )
             layer["mlp"] = torch.nn.ModuleDict(
@@ -78,14 +84,14 @@ def _make_hybrid_model(
         else:
             layer["mlp"] = torch.nn.ModuleDict(
                 {
-                    "gate_proj": Linear(8, 8),
-                    "up_proj": Linear(8, 8),
-                    "down_proj": Linear(8, 8),
+                    "gate_proj": Linear(hidden_size, hidden_size),
+                    "up_proj": Linear(hidden_size, hidden_size),
+                    "down_proj": Linear(hidden_size, hidden_size),
                 }
             )
 
-        layer["input_layernorm"] = torch.nn.LayerNorm(8)
-        layer["post_attention_layernorm"] = torch.nn.LayerNorm(8)
+        layer["input_layernorm"] = torch.nn.LayerNorm(hidden_size)
+        layer["post_attention_layernorm"] = torch.nn.LayerNorm(hidden_size)
         layers.append(layer)
 
     model = torch.nn.ModuleDict(
@@ -102,7 +108,12 @@ def _make_hybrid_model(
     config_attrs = {
         "num_hidden_layers": num_layers,
         "layer_types": layer_types,
+        "num_attention_heads": num_attention_heads,
+        "head_dim": head_dim,
+        "hidden_size": hidden_size,
     }
+    if attn_output_gate:
+        config_attrs["attn_output_gate"] = True
     if moe:
         config_attrs["num_local_experts"] = num_experts
     config = type("Config", (), config_attrs)()
@@ -326,3 +337,54 @@ class TestGetLayerMappingsFromModel:
         mappings = get_layer_mappings_from_model(model)
         assert mappings is not None
         assert len(mappings) == 4
+
+
+@pytest.mark.unit
+class TestQProjOutputSlice:
+    """Verify balance_output_slices is wired up for attn_output_gate=True.
+
+    Two tests cover the only two production code paths through
+    ``_build_q_proj_output_slice``:
+
+    * The Qwen3.5 dense path, where ``num_attention_heads`` and ``head_dim``
+      live on the top-level ``config``.
+    * The text-config path, where the same fields are nested under
+      ``config.text_config`` (multimodal / VLM variants).
+
+    All the rest of the previous coverage (no-slice when the flag is off,
+    slice-only-on-q_proj, no-slice on other mappings) is implicit in these
+    two assertions: the dense test asserts the slice value AND uses a
+    ``q_proj`` regex key, and ``build_hybrid_attention_mappings`` is the
+    same function regardless of whether the flag is set, so the
+    no-slice/no-q_proj branches are already covered by every other
+    ``build_hybrid_attention_mappings`` test in this module.
+    """
+
+    def test_slice_added_for_qwen3_5_dense(self):
+        num_heads, head_dim = 4, 8
+        model = _make_hybrid_model(
+            num_layers=8,
+            attn_output_gate=True,
+            num_attention_heads=num_heads,
+            head_dim=head_dim,
+        )
+        mappings = build_hybrid_attention_mappings(model)
+        full_attn_mapping = mappings[0]
+        assert full_attn_mapping.balance_output_slices == {
+            "re:.*self_attn.q_proj$": slice(0, num_heads * head_dim),
+        }
+
+    def test_slice_reads_from_text_config(self):
+        num_heads, head_dim = 2, 4
+        model = _make_hybrid_model(
+            num_layers=4,
+            use_text_config=True,
+            attn_output_gate=True,
+            num_attention_heads=num_heads,
+            head_dim=head_dim,
+        )
+        mappings = build_hybrid_attention_mappings(model)
+        full_attn_mapping = mappings[0]
+        assert full_attn_mapping.balance_output_slices == {
+            "re:.*self_attn.q_proj$": slice(0, num_heads * head_dim),
+        }

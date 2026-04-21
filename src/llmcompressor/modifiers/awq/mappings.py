@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Sequence, Union
 
 from torch.nn import Module
 
@@ -7,6 +8,77 @@ __all__ = [
     "AWQ_MAPPING_REGISTRY",
     "default_mappings",
 ]
+
+
+# YAML-friendly representation of a half-open ``[start, stop)`` range.
+# Accepted forms (all normalised to ``slice`` in ``__post_init__``):
+#   * ``slice(0, 8)``               (Python recipes)
+#   * ``[0, 8]`` or ``(0, 8)``      (most YAML loaders)
+#   * ``{"start": 0, "stop": 8}``   (explicit-keys YAML)
+#   * ``{"start": 0, "stop": 8, "step": 2}`` (rare; ``step`` honoured)
+SliceLike = Union[
+    slice,
+    Sequence[int],  # [start, stop] or [start, stop, step]
+    dict,  # {"start": ..., "stop": ..., "step": ...}
+]
+
+
+def _coerce_slice(value: SliceLike) -> slice:
+    """Normalise YAML-friendly slice encodings into a real ``slice`` object.
+
+    Numeric components (``start`` / ``stop`` / ``step``) are coerced to
+    ``int`` regardless of whether they came from a list/tuple or a dict,
+    so YAML configurations that quote the numbers (``{"start": "0",
+    "stop": "8"}``) fail at recipe-load time with a clear ``TypeError``
+    rather than mid-quantization with an opaque tensor-indexing error.
+
+    Raises ``TypeError`` with the offending value preserved so
+    configuration errors surface at recipe-load time rather than during
+    grid search.
+    """
+
+    def _maybe_int(component, *, allow_none: bool = True):
+        if component is None:
+            if allow_none:
+                return None
+            raise TypeError(
+                f"balance_output_slices: required slice component is None "
+                f"in {value!r}"
+            )
+        try:
+            return int(component)
+        except (TypeError, ValueError) as e:
+            raise TypeError(
+                f"balance_output_slices: slice component {component!r} in "
+                f"{value!r} is not coercible to int"
+            ) from e
+
+    if isinstance(value, slice):
+        return value
+    if isinstance(value, dict):
+        # ``stop`` is required (a slice with stop=None is technically valid
+        # but useless for our out_features dimension scoping), so reject
+        # that explicitly. ``start`` defaults to 0 and ``step`` to None
+        # to match Python's ``slice`` semantics.
+        return slice(
+            _maybe_int(value.get("start", 0)),
+            _maybe_int(value.get("stop"), allow_none=False),
+            _maybe_int(value.get("step")),
+        )
+    if isinstance(value, (list, tuple)):
+        if len(value) == 2:
+            return slice(_maybe_int(value[0]), _maybe_int(value[1], allow_none=False))
+        if len(value) == 3:
+            return slice(
+                _maybe_int(value[0]),
+                _maybe_int(value[1], allow_none=False),
+                _maybe_int(value[2]),
+            )
+    raise TypeError(
+        f"balance_output_slices entry must be a slice, [start, stop], "
+        f"[start, stop, step], or {{'start':..., 'stop':..., 'step':...}}; "
+        f"got {value!r} ({type(value).__name__})"
+    )
 
 
 @dataclass
@@ -29,11 +101,36 @@ class AWQMapping:
         blocks (e.g. Cohere, Gemma 3) where the first balance layer is not the
         correct place to capture activations. When ``None`` (default), the hook
         is placed on ``balance_layers[0]``.
+    :param balance_output_slices: optional mapping from a balance-layer regex to
+        a ``slice`` over its ``out_features`` dimension. Only the rows in the
+        slice participate in the AWQ grid-search MSE; rows outside keep their
+        original (unsmoothed, unquantized) weights for the duration of grid
+        search. After grid search the chosen scales are applied uniformly to
+        every column of every balance layer so the AWQ algebraic invariant
+        ``Y = (W * s) @ (x / s)`` continues to hold for the un-sliced rows.
+
+        This is required for architectures like Qwen3.5 where a single
+        ``q_proj`` produces both the query stream and an attention output
+        gate — the gate path runs through ``sigmoid`` whose saturation
+        regions distort the AWQ grid search.
+
+        For YAML recipes, each value may be a ``[start, stop]`` /
+        ``[start, stop, step]`` list/tuple or a
+        ``{"start": ..., "stop": ..., "step": ...}`` dict; Python callers
+        may pass a real ``slice``. ``None`` (default) means the full weight
+        participates, preserving the original behaviour.
     """
 
     smooth_layer: str
     balance_layers: list[str]
     activation_hook_target: str | None = None
+    balance_output_slices: dict[str, SliceLike] | None = field(default=None)
+
+    def __post_init__(self):
+        if self.balance_output_slices is not None:
+            self.balance_output_slices = {
+                k: _coerce_slice(v) for k, v in self.balance_output_slices.items()
+            }
 
 
 default_mappings = [
@@ -261,6 +358,11 @@ class ResolvedMapping:
         caching. When set, the activation cache hook is placed on this module
         instead of ``balance_layers[0]``. Populated from
         ``AWQMapping.activation_hook_target``.
+    :param balance_output_slices: optional resolved mapping from balance-layer
+        ``Module`` to a ``slice`` over its ``out_features`` dimension. Populated
+        from ``AWQMapping.balance_output_slices``. Rows outside the slice keep
+        their original weights and do not participate in smoothing or in the
+        grid-search MSE.
     """
 
     smooth_name: str
@@ -270,3 +372,4 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
+    balance_output_slices: dict[Module, slice] | None = None

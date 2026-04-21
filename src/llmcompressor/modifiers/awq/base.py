@@ -407,6 +407,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                             f" not found on parent module '{ancestor_name}'"
                         )
 
+                resolved_balance_output_slices: dict[Module, slice] | None = None
+                if mapping.balance_output_slices:
+                    resolved_balance_output_slices = {}
+                    for i, balance_regex in enumerate(mapping.balance_layers):
+                        sl = mapping.balance_output_slices.get(balance_regex)
+                        if sl is None:
+                            continue
+                        for matched_module in tree_leaves(nested_balance_layers[i]):
+                            resolved_balance_output_slices[matched_module] = sl
+                    if not resolved_balance_output_slices:
+                        resolved_balance_output_slices = None
+
                 resolved_mappings.append(
                     ResolvedMapping(
                         smooth_name,
@@ -416,6 +428,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         parent=ancestor,
                         parent_name=ancestor_name,
                         activation_hook_target=activation_hook_target,
+                        balance_output_slices=resolved_balance_output_slices,
                     )
                 )
         self._resolved_mappings = resolved_mappings
@@ -576,12 +589,24 @@ class AWQModifier(Modifier, QuantizationMixin):
                 ):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
-                        update_offload_parameter(
-                            module,
-                            "weight",
-                            orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1),
-                        )
+                        # NOTE: ``balance_output_slices`` is intentionally NOT
+                        # applied here. AWQ's correctness invariant is the
+                        # forward-pass equivalence
+                        #   Y = W @ x = (W * s) @ (x / s)
+                        # which requires the smooth_layer (input_layernorm) to
+                        # be divided by the SAME scale that every column of
+                        # every balance_layer is multiplied by. The slices are
+                        # only used during grid search to focus the MSE on the
+                        # rows that actually participate in the linear output
+                        # path (e.g. the query rows of a fused query+gate
+                        # ``q_proj``); they must NOT cause the final smoothed
+                        # weight to diverge from the equivalence above, or the
+                        # un-smoothed rows would silently see ``x / s`` from
+                        # the layernorm without the compensating ``* s`` on
+                        # the weight.
+                        orig = orig_layer_weights[module].to(module.weight.device)
+                        new_weight = orig * scales.view(1, -1)
+                        update_offload_parameter(module, "weight", new_weight)
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
                             update_offload_parameter(
@@ -643,9 +668,9 @@ class AWQModifier(Modifier, QuantizationMixin):
     ) -> float:
         """
         Apply ``scales`` to the balance layers via the AWQ smoothing transform
-        ``W' = Q(W * s) / s``, run the parent module on the cached calibration
-        batches, and return the MSE between the smoothed/quantized output and
-        the fp16 reference.
+        ``W' = Q(W * s) / s`` (or its sliced equivalent), run the parent module
+        on the cached calibration batches, and return the MSE between the
+        smoothed/quantized output and the fp16 reference.
 
         Used both for the identity-baseline measurement (``scales = ones``)
         and for every grid-search candidate. Pulling this out of the grid
@@ -667,7 +692,22 @@ class AWQModifier(Modifier, QuantizationMixin):
         for balance_layer in balance_layers_to_patch:
             w_qscheme = balance_layer.quantization_scheme.weights
             orig = orig_layer_weights[balance_layer]
-            balance_layer.weight.data.copy_(orig * _scalesview)
+            sl = (
+                mapping.balance_output_slices.get(balance_layer)
+                if mapping.balance_output_slices
+                else None
+            )
+            if sl is None:
+                balance_layer.weight.data.copy_(orig * _scalesview)
+            else:
+                # In-place patch on the slice avoids a full ``orig.clone()``
+                # per grid candidate. ``copy_(orig)`` resets every row to the
+                # un-smoothed FP16 weight so rows outside the slice stay
+                # bit-identical to the FP16 reference; ``[sl].mul_`` then
+                # applies the smoothing scales only to the rows that
+                # participate in the grid-search MSE.
+                balance_layer.weight.data.copy_(orig)
+                balance_layer.weight.data[sl].mul_(_scalesview)
 
             should_calculate_gparam = (
                 w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
@@ -684,7 +724,19 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "weight",
                 w_qscheme,
             )
-            balance_layer.weight.data.copy_(quantized / _scalesview)
+            if sl is None:
+                balance_layer.weight.data.copy_(quantized / _scalesview)
+            else:
+                # Keep rows outside the slice equal to the original
+                # unsmoothed/unquantized weight so the parent module's
+                # forward pass for that path matches the fp16 baseline
+                # bitwise. The MSE loss therefore only reflects errors
+                # introduced on the slice rows. Patch in place via
+                # ``copy_`` (rather than reassigning ``weight.data``) so
+                # any offload hook holding a reference to the original
+                # tensor stays attached to the live storage.
+                balance_layer.weight.data.copy_(orig)
+                balance_layer.weight.data[sl].copy_(quantized[sl] / _scalesview)
 
         # Apply fused global scales for TENSOR_GROUP during grid search
         # to match inference behavior. ``update_fused`` is precomputed
