@@ -19,8 +19,26 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for markdown changes
+      id: changes
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          git fetch origin ${{ github.base_ref }}
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '\.md$'; then
+            echo "markdown=true" >> $GITHUB_OUTPUT
+          else
+            echo "markdown=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          # For push events, always run
+          echo "markdown=true" >> $GITHUB_OUTPUT
+        fi
 
     - name: Run linkspector
+      if: steps.changes.outputs.markdown == 'true'
       uses: umbrelladocs/action-linkspector@v1
       with:
         github_token: ${{ secrets.github_token }}
