@@ -62,10 +62,20 @@ def _grid_search_mse(
 
     dispatch = _grid_search_compiled if get_torch_compile() else _grid_search_eager
     return dispatch(
-        observed, args, token_args, min_val, max_val,
-        best_error, best_min_val, best_max_val,
-        total_steps, patience, grid, norm,
-        global_scale, optimize_global_scale,
+        observed,
+        args,
+        token_args,
+        min_val,
+        max_val,
+        best_error,
+        best_min_val,
+        best_max_val,
+        total_steps,
+        patience,
+        grid,
+        norm,
+        global_scale,
+        optimize_global_scale,
     )
 
 
@@ -94,8 +104,14 @@ def _grid_search_eager(
         shrinked_min_val = min_val * p
         shrinked_max_val = max_val * p
         err = _calculate_error(
-            observed, args, token_args, shrinked_min_val, shrinked_max_val,
-            norm, global_scale, optimize_global_scale,
+            observed,
+            args,
+            token_args,
+            shrinked_min_val,
+            shrinked_max_val,
+            norm,
+            global_scale,
+            optimize_global_scale,
         )
 
         improved = err < best_error
@@ -154,9 +170,19 @@ def _grid_search_compiled(
 
         prev_best = best_error.clone()
         best_error, best_min_val, best_max_val = _compute_chunk(
-            observed, args, token_args, min_val, max_val,
-            ps, current_chunk, norm, global_scale, optimize_global_scale,
-            best_error, best_min_val, best_max_val,
+            observed,
+            args,
+            token_args,
+            min_val,
+            max_val,
+            ps,
+            current_chunk,
+            norm,
+            global_scale,
+            optimize_global_scale,
+            best_error,
+            best_min_val,
+            best_max_val,
         )
 
         if torch.equal(prev_best, best_error):
@@ -168,6 +194,7 @@ def _grid_search_compiled(
         idx = chunk_end
 
     return best_min_val, best_max_val
+
 
 @torch.compile(dynamic=True)
 def _compute_chunk(
@@ -200,8 +227,14 @@ def _compute_chunk(
         shrinked_max = max_val * ps[j]
 
         err = _calculate_error(
-            observed, args, token_args, shrinked_min, shrinked_max,
-            norm, global_scale, optimize_global_scale,
+            observed,
+            args,
+            token_args,
+            shrinked_min,
+            shrinked_max,
+            norm,
+            global_scale,
+            optimize_global_scale,
         )
 
         improved = err < best_error
@@ -249,4 +282,3 @@ def _calculate_error(
     err = torch.sum((q - observed).abs().pow(norm), dim=(0, -1))
     del q
     return err
-
