@@ -1,4 +1,5 @@
 import inspect
+import math
 from itertools import product
 from typing import Iterator, Literal
 
@@ -629,6 +630,77 @@ class AWQModifier(Modifier, QuantizationMixin):
             for output in outputs
         ]
 
+    @torch.no_grad()
+    def _eval_scales(
+        self,
+        scales: torch.Tensor,
+        mapping: ResolvedMapping,
+        fp16_outputs: list[torch.Tensor],
+        orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
+        balance_layers_to_patch: list[Module],
+        device: torch.device,
+        update_fused: bool = False,
+    ) -> float:
+        """
+        Apply ``scales`` to the balance layers via the AWQ smoothing transform
+        ``W' = Q(W * s) / s``, run the parent module on the cached calibration
+        batches, and return the MSE between the smoothed/quantized output and
+        the fp16 reference.
+
+        Used both for the identity-baseline measurement (``scales = ones``)
+        and for every grid-search candidate. Pulling this out of the grid
+        loop keeps the baseline measurement and the grid measurements on
+        exactly the same code path.
+
+        ``update_fused`` is hoisted out of the per-iteration check at the
+        call site (whether every balance layer is on TENSOR_GROUP strategy
+        is static during the search), so this method just dispatches on
+        the precomputed flag instead of re-evaluating ``getattr`` chains
+        per grid candidate. ``scales`` and the ``orig_layer_weights``
+        tensors are also assumed to already live on ``device`` (the
+        caller pre-moves both before the grid loop) so this method
+        contains no per-iteration host-to-device transfers.
+        """
+        _scalesview = scales.view(1, -1)
+
+        # Q(W * s)
+        for balance_layer in balance_layers_to_patch:
+            w_qscheme = balance_layer.quantization_scheme.weights
+            orig = orig_layer_weights[balance_layer]
+            balance_layer.weight.data.copy_(orig * _scalesview)
+
+            should_calculate_gparam = (
+                w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
+            )
+            call_observer(
+                balance_layer,
+                "weight",
+                balance_layer.weight,
+                should_calculate_gparam=should_calculate_gparam,
+            )
+            quantized = forward_quantize(
+                balance_layer,
+                balance_layer.weight,
+                "weight",
+                w_qscheme,
+            )
+            balance_layer.weight.data.copy_(quantized / _scalesview)
+
+        # Apply fused global scales for TENSOR_GROUP during grid search
+        # to match inference behavior. ``update_fused`` is precomputed
+        # by ``_compute_best_scale`` so we don't re-walk the layer list
+        # for every grid candidate.
+        if update_fused:
+            update_fused_layer_weight_global_scales(mapping.parent)
+
+        # W * X
+        int_w_outputs = self._run_samples(mapping.parent)
+
+        # compute mean squared error (L2 norm)
+        loss = self._compute_loss(fp16_outputs, int_w_outputs)
+        del int_w_outputs
+        return loss
+
     def _compute_best_scale(
         self,
         mapping: ResolvedMapping,
@@ -652,10 +724,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: tensor of best scales, one for each channel
         """
         history = []
-        best_ratio = -1
-        best_scales = None
-        best_error = float("inf")
-        initial_error = None
 
         device = get_execution_device(mapping.parent)
 
@@ -685,6 +753,41 @@ class AWQModifier(Modifier, QuantizationMixin):
             if hasattr(balance_layer, "quantization_scheme")
             and hasattr(balance_layer.quantization_scheme, "weights")
         ]
+
+        # Hoist out of the per-candidate _eval_scales call -- both
+        # checks are static during the grid search and were previously
+        # re-evaluated for every candidate.
+        #   * ``update_fused``: whether every balance layer is on the
+        #     TENSOR_GROUP strategy (controls whether per-iteration
+        #     fused-global-scale fusion is needed).
+        #   * Pre-move ``orig_layer_weights`` to the execution device
+        #     once, so ``_eval_scales`` doesn't redo the host-to-device
+        #     transfer for every grid candidate (relevant when the
+        #     model is offloaded).
+        update_fused = bool(balance_layers_to_patch) and all(
+            getattr(layer.quantization_scheme.weights, "strategy", None)
+            == QuantizationStrategy.TENSOR_GROUP
+            for layer in balance_layers_to_patch
+        )
+        orig_layer_weights = {
+            layer: weight.to(device)
+            for layer, weight in orig_layer_weights.items()
+        }
+
+        # Identity scales -- the actual "no smoothing" baseline. We use this
+        # as both:
+        #   (a) the ``initial_error`` reference for the per-layer reduction
+        #       metric, so ``best_error / initial_error`` compares against a
+        #       real un-smoothed reference rather than against "the first
+        #       grid candidate that happened to survive the loop entry
+        #       conditions" (which under ``duo_scaling=True`` is *not*
+        #       identity at ratio=0); and
+        #   (b) the seed for best_scales/best_error, so the grid search can
+        #       only ever improve on no-smoothing -- it can never select a
+        #       worse-than-baseline candidate. Layers where the grid finds
+        #       nothing better stay at identity by construction.
+        identity_scales = torch.ones_like(x_mean)
+
         with patch_attrs(
             balance_layers_to_patch,
             "weight_observer",
@@ -698,6 +801,43 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
+            initial_error = self._eval_scales(
+                identity_scales,
+                mapping,
+                fp16_outputs,
+                orig_layer_weights,
+                balance_layers_to_patch,
+                device,
+                update_fused=update_fused,
+            )
+            # The identity-scales baseline IS the W4A16-without-smoothing
+            # measurement that the rest of this method compares against.
+            # If it is already non-finite (NaN/Inf in fp16_outputs, NaN/Inf
+            # propagated from the parent forward, broken upstream layer
+            # state, ...) then nothing downstream can recover: every grid
+            # candidate's ``loss < non_finite`` is False, no candidate
+            # ever wins, and the previous code path silently labelled
+            # the layer ``fell_back_to_identity=True``. That hid a
+            # genuine numerical failure behind what looks like a normal
+            # identity fallback. Fail fast instead so the artifact is
+            # never written.
+            if not math.isfinite(initial_error):
+                raise RuntimeError(
+                    f"AWQ identity-scales baseline for "
+                    f"{mapping.smooth_name} is non-finite "
+                    f"({initial_error}). The unsmoothed forward pass "
+                    "produced NaN or Inf outputs, which means the "
+                    "calibration data, mapping, or upstream layer state "
+                    "is broken. Aborting to avoid shipping a silently "
+                    "degraded artifact."
+                )
+            best_scales = identity_scales.clone()
+            best_error = initial_error
+            # Tracks whether any grid candidate strictly improved over the
+            # identity baseline. Used as an explicit fallback indicator at
+            # the end of the search instead of a float-sentinel comparison.
+            grid_improved_over_identity = False
+
             total_iterations = n_grid * len(duo_scalings)
             pbar = tqdm(
                 product(range(n_grid), duo_scalings),
@@ -719,76 +859,56 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                _scalesview = scales.view(1, -1).to(device)
 
-                # Q(W * s)
-                for balance_layer in balance_layers_to_patch:
-                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
-                        balance_layer.quantization_scheme, "weights"
-                    ):
-                        continue
-
-                    w_qscheme = balance_layer.quantization_scheme.weights
-                    balance_layer.weight.data.copy_(
-                        orig_layer_weights[balance_layer].to(_scalesview.device)
-                        * _scalesview
-                    )
-
-                    should_calculate_gparam = (
-                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-                    )
-                    call_observer(
-                        balance_layer,
-                        "weight",
-                        balance_layer.weight,
-                        should_calculate_gparam=should_calculate_gparam,
-                    )
-                    balance_layer.weight.data = (
-                        forward_quantize(
-                            balance_layer,
-                            balance_layer.weight,
-                            "weight",
-                            w_qscheme,
-                        )
-                        / _scalesview
-                    ).to(balance_layer.weight.dtype)
-
-                # Apply fused global scales for TENSOR_GROUP during grid search
-                # to match inference behavior
-                if balance_layers_to_patch and all(
-                    getattr(layer.quantization_scheme.weights, "strategy", None)
-                    == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
-                ):
-                    update_fused_layer_weight_global_scales(mapping.parent)
-
-                # W * X
-                int_w_outputs = self._run_samples(mapping.parent)
-
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                del int_w_outputs
-
-                if initial_error is None:
-                    initial_error = loss
+                loss = self._eval_scales(
+                    scales,
+                    mapping,
+                    fp16_outputs,
+                    orig_layer_weights,
+                    balance_layers_to_patch,
+                    device,
+                    update_fused=update_fused,
+                )
 
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
                 )
                 if loss < best_error:
                     best_error = loss
-                    best_ratio = ratio
                     best_scales = scales.clone()
+                    grid_improved_over_identity = True
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
-        if best_ratio == -1:
-            logger.debug(history)
-            raise Exception(
-                "No finite loss was found in best scalesgrid search. This typically "
-                "means NaN values are appearing in the forward pass of the parent "
-                "module. If you encounter this error, raise an issue at "
-                "https://github.com/vllm-project/llm-compressor/issues"
+        # Two outcomes converge to "no grid candidate beat identity":
+        #   1. Every candidate ran and produced a loss >= the identity
+        #      baseline (e.g. attn_output_gate sigmoid distortion, MoE
+        #      routing, severely outlier-heavy activations). The layer
+        #      stays at identity, which is the safe degradation.
+        #   2. Every candidate produced a non-finite loss (NaN/Inf from
+        #      the quantized forward of the scaled weights -- e.g. fp16
+        #      overflow when ``W * s`` saturates the dtype). Identity is
+        #      finite (we checked above), but the search itself is
+        #      genuinely broken and silently labelling the layer
+        #      ``fell_back_to_identity=True`` would hide the numerical
+        #      failure. Surface it instead.
+        # Outcome 1 is the legitimate fallback; outcome 2 must raise so
+        # the artifact is never written.
+        non_finite_history = [
+            h for h in history if not math.isfinite(h.get("error", float("nan")))
+        ]
+        if history and len(non_finite_history) == len(history):
+            raise RuntimeError(
+                f"AWQ grid search for {mapping.smooth_name} produced a "
+                f"non-finite loss for every grid candidate "
+                f"({len(non_finite_history)}/{len(history)}). The "
+                "identity baseline is finite, but the quantized forward "
+                "of the scaled weights is numerically broken (NaN/Inf "
+                "in Q(W*s)/s @ x). This is a genuine search failure, "
+                "not a safe identity fallback; aborting to avoid "
+                "shipping a silently degraded artifact."
             )
+
+        fell_back_to_identity = not grid_improved_over_identity
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.debug(
@@ -806,6 +926,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "initial_error": initial_error,
                 "best_error": best_error,
                 "reduction": err_reduction,
+                "fell_back_to_identity": fell_back_to_identity,
             }
         )
 
