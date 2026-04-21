@@ -1,5 +1,4 @@
 import inspect
-from itertools import product
 from typing import Iterator, Literal
 
 import torch
