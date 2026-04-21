@@ -4,12 +4,8 @@ import torch
 from compressed_tensors.quantization import QuantizationStrategy
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
-from llmcompressor.observers.compile_config import (
-    get_compile_chunk_size,
-    get_torch_compile,
-)
 from llmcompressor.observers.moving_base import MovingAverageObserverBase
-from llmcompressor.observers.mse_quant import _grid_search_mse  # noqa: E402
+from llmcompressor.observers.mse_quant import _grid_search_mse
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -74,8 +70,6 @@ class MemorylessMSEObserver(Observer):
             self.norm,
             global_scale=global_scale,
             optimize_global_scale=optimize_global_scale,
-            enable_compile=get_torch_compile(),
-            chunk_size=get_compile_chunk_size(),
         )
 
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
@@ -148,8 +142,6 @@ class MovingAverageMSEObserver(MovingAverageObserverBase):
             self.norm,
             global_scale=global_scale,
             optimize_global_scale=optimize_global_scale,
-            enable_compile=get_torch_compile(),
-            chunk_size=get_compile_chunk_size(),
         )
 
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
