@@ -29,6 +29,38 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
+def _iter_batches(
+    activations: IntermediatesCache,
+    input_names: list[str],
+) -> Iterator[dict]:
+    """
+    Iterate over batches without prefetching.
+    """
+    batch_idx = 0
+    while True:
+        inputs = {}
+        for name in input_names:
+            key = (batch_idx, name)
+            if key in activations:
+                inputs[name] = activations.fetch(key)
+        if not inputs:
+            return
+        yield inputs
+        batch_idx += 1
+
+
+def _iter_batches_prefetch(
+    activations: IntermediatesCache,
+    input_names: list[str],
+) -> Iterator[dict]:
+    """
+    Iterate over batches with prefetching using iter_prefetch_grouped.
+    """
+    keys = [k for k in activations._store.keys() if k[1] in input_names]
+    for group_dict in activations.iter_prefetch_grouped(keys, group_by=lambda k: k[0]):
+        yield {k[1]: v for k, v in group_dict.items()}
+
+
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
@@ -39,13 +71,12 @@ def _get_batches(
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched in a
     background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass. Delegates to
-    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
+    main-thread forward pass.
     """
     batch_source = (
-        activations.iter_prefetch(input_names)
+        _iter_batches_prefetch(activations, input_names)
         if sequential_prefetch
-        else activations.iter(input_names)
+        else _iter_batches(activations, input_names)
     )
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
@@ -132,7 +163,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations.fetch(batch_idx, ["loss_mask"]).get("loss_mask")
+                    activations.fetch((batch_idx, "loss_mask"))
                     for batch_idx in range(len(dataloader))
                 ]
             else:
@@ -174,8 +205,14 @@ class SequentialPipeline(CalibrationPipeline):
                         ):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                if isinstance(output, tuple) and len(output) == 1:
+                                    output = output[0]
+                                if output is not None:
+                                    for name, value in output.items():
+                                        activations.update((batch_idx, name), value)
+                                if subgraph.consumed_names:
+                                    for name in subgraph.consumed_names:
+                                        activations.delete((batch_idx, name))
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
