@@ -42,6 +42,7 @@ def find_project_root() -> Path:
         current = current.parent
     raise FileNotFoundError("Could not find zensical.toml")
 
+
 # ---------------------------------------------------------------------------
 # Copy files into docs/
 # ---------------------------------------------------------------------------
@@ -112,13 +113,9 @@ def generate_copied_files(project_root: Path):
     specs: list[CopySpec] = []
 
     # Examples and experimental READMEs
+    specs.extend(_collect_readmes(project_root / "examples", "examples", project_root))
     specs.extend(
-        _collect_readmes(project_root / "examples", "examples", project_root)
-    )
-    specs.extend(
-        _collect_readmes(
-            project_root / "experimental", "experimental", project_root
-        )
+        _collect_readmes(project_root / "experimental", "experimental", project_root)
     )
 
     copy_files(specs, project_root)
@@ -265,9 +262,7 @@ def _expand_glob_dir(
             if (subdir / "index.md").exists():
                 title = _get_title_from_file(subdir / "index.md")
             else:
-                title = (
-                    subdir.name.replace("-", " ").replace("_", " ").title()
-                )
+                title = subdir.name.replace("-", " ").replace("_", " ").title()
             entries.append({title: children})
 
     for f in regular_files:
@@ -322,9 +317,7 @@ def _process_nav_item(
                 child_explicit = _collect_explicit_paths(value)
                 children = []
                 for child in value:
-                    children.extend(
-                        _process_nav_item(child, docs_dir, child_explicit)
-                    )
+                    children.extend(_process_nav_item(child, docs_dir, child_explicit))
                 results.append({title: children})
             elif value is None:
                 results.append({title: []})
