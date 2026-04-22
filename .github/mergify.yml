@@ -81,3 +81,29 @@ pull_request_rules:
       label:
         remove:
           - quality-failed
+
+  - name: label community PRs for two reviews
+    conditions:
+      - label != stale
+      - -closed
+      - -draft
+      - author_association != OWNER
+      - author_association != MEMBER
+      - author_association != COLLABORATOR
+    actions:
+      label:
+        add:
+          - two-reviews
+
+merge_protections:
+  - name: Require two reviews
+    description: >-
+      PRs labelled "two-reviews" must have at least two approving reviews
+      before merging.
+    if:
+      - label = two-reviews
+    success_conditions:
+      - "#approved-reviews-by >= 2"
+
+merge_protections_settings:
+  reporting_method: check-runs
