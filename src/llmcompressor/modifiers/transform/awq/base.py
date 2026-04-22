@@ -270,12 +270,14 @@ class AWQModifier(Modifier):
         # Recompute weight scales/zps for layers modified by smoothing
         for mapping in self._resolved_mappings:
             for layer in mapping.balance_layers + [mapping.smooth_layer]:
-                update_weight_global_scale(layer)
+                if hasattr(layer, "weight_observer"):
+                    update_weight_global_scale(layer)
         for mapping in self._resolved_mappings:
             update_fused_layer_weight_global_scales(mapping.parent)
         for mapping in self._resolved_mappings:
             for layer in mapping.balance_layers + [mapping.smooth_layer]:
-                update_weight_zp_scale(layer)
+                if hasattr(layer, "weight_observer"):
+                    update_weight_zp_scale(layer)
 
         self.ended_ = True
 
