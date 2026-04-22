@@ -5,9 +5,12 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.utils import getattr_chain
+from compressed_tensors.utils.safetensors_load import (
+    find_safetensors_index_file,
+)
 from loguru import logger
 
-from .helpers import find_safetensors_index_file, invert_mapping
+from .helpers import invert_mapping
 from .microscale import get_fused_names, is_microscale_scheme
 
 __all__ = ["validate_scheme", "validate_safetensors_index"]
@@ -23,7 +26,7 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
     # weight quantization must be provided
     if scheme.weights is None:
         raise ValueError(
-            "Must provide a weights quanitization scheme to perform weights-only PTQ"
+            "Must provide a weights quantization scheme to perform weights-only PTQ"
         )
 
     # activation quantization must be dynamic
@@ -47,7 +50,8 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
     # target all modules; filter by ignore list
     # technically this should be "re:.*", but vllm's
     # ct moe layer has a hard coded check for "Linear"
-    scheme.targets = ["Linear"]
+    if len(scheme.targets) == 0:
+        scheme.targets.append("Linear")
     return scheme_name, scheme
 
 
@@ -58,19 +62,19 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
 
     if is_microscale_scheme(scheme):
         with open(index_file_path, "r") as file:
-            weight_map: dict[str, str] = json.load(file)["weight_map"]
+            weights_map: dict[str, str] = json.load(file)["weight_map"]
 
-        file_map = invert_mapping(weight_map)
+        file_map = invert_mapping(weights_map)
         for file in sorted(file_map):
             tensor_names = file_map[file]
             _fused_sets, unmatched_sets = get_fused_names(tensor_names)
             if len(unmatched_sets) > 0:
-                raise NotImplementedError(
-                    "When using a microscale scheme (NVFP4, MXFP4), global scales "
-                    "will be fused. Current implmentation requires that all fused "
-                    "modules (attention and mlp) be stored in the same file. "
-                    f"However, {file} has an unmatched set of fused weights: "
-                    f"\n{json.dumps(unmatched_sets, indent=4)}\n\n"
-                    "Please use `reindex_fused_weights.py` to reindex your safetensors "
-                    "before running `model_free_ptq` again."
+                # Cross-shard fused weights detected. model_free_ptq handles
+                # this automatically via precomputed inverse_weight_map —
+                # fused partner tensors are fetched via partial reads and
+                # re-saved into the requesting shard's output.
+                logger.debug(
+                    f"{file} has fused weights split across shards: "
+                    f"{json.dumps(unmatched_sets, indent=4)}\n"
+                    "These will be resolved via precomputed inverse_weight_map."
                 )

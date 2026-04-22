@@ -85,7 +85,7 @@ In our case, we will apply the default GPTQ recipe for `int4` (which uses static
 
 ```python
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Configure the quantization algorithm to run.
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
@@ -138,6 +138,3 @@ We can see the resulting scores look good!
 |     |       |strict-match    |     5|exact_match|↑  |0.720|±  |0.0285|
 ```
 
-### Questions or Feature Request?
-
-Please open up an issue on `vllm-project/llm-compressor`

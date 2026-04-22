@@ -6,18 +6,16 @@ from typing import Any
 
 import numpy
 import torch
+from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.pytorch.module import (
-    get_layers,
-    get_no_split_params,
-    get_prunable_layers,
-    match_targets,
-)
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
+
+PRUNABLE_LAYER_TYPES = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
 
 
 class SparsityModifierBase(Modifier):
@@ -35,7 +33,6 @@ class SparsityModifierBase(Modifier):
 
     # data pipeline arguments
     sequential_update: bool | None = False  # deprecated
-    sequential_targets: str | list[str] | None = None
     targets: str | list[str] = ["Linear"]
     ignore: list[str] = Field(default_factory=list)
 
@@ -115,12 +112,12 @@ class SparsityModifierBase(Modifier):
         # infer module and sequential targets
         # Note: only pass sequential_targets from kwargs, not the full kwargs dict
         # which may contain 'model' and cause duplicate argument errors
-        self.sequential_targets = self._infer_sequential_targets(
+        self._sequential_targets = infer_sequential_targets(
             model, sequential_targets=kwargs.get("sequential_targets")
         )
-        layers = get_layers(self.sequential_targets, model)
-        self._target_layers = get_layers(
-            self.targets, model
+        layers = dict(match_named_modules(model, self._sequential_targets))
+        self._target_layers = dict(
+            match_named_modules(model, self.targets)
         )  # layers containing targets
 
         # infer layer sparsities
@@ -155,10 +152,10 @@ class SparsityModifierBase(Modifier):
                 case _:
                     layer_sparsity = self.sparsity
 
-            for name, module in get_prunable_layers(layer).items():
+            for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
                 name = f"{layer_name}.{name}"
 
-                if match_targets(name, self.ignore)[0]:
+                if match_targets(name, module, self.ignore):
                     continue
 
                 # HACK: previously, embeddings were not quantized because they were not
@@ -196,33 +193,6 @@ class SparsityModifierBase(Modifier):
         self.ended_ = True
         self.remove_hooks()
 
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module, **kwargs
-    ) -> str | list[str]:
-        targets_from_kwargs = kwargs.get("sequential_targets")
-
-        # Validate that sequential_targets is not provided from both sources
-        if self.sequential_targets is not None and targets_from_kwargs is not None:
-            raise ValueError(
-                "sequential_targets was provided both in the modifier config and in "
-                "oneshot() dataset_args. Please provide sequential_targets in only "
-                "one location to avoid conflicts."
-            )
-
-        match self.sequential_targets:
-            case None:
-                # Check if sequential_targets was passed via kwargs (from dataset_args)
-                if targets_from_kwargs is not None:
-                    if isinstance(targets_from_kwargs, str):
-                        return [targets_from_kwargs]
-                    return targets_from_kwargs
-                # Fall back to auto-inference
-                return get_no_split_params(model)
-            case str():
-                return [self.sequential_targets]
-            case _:
-                return self.sequential_targets
-
     def _infer_owl_layer_sparsity(
         self,
         model: torch.nn.Module,
@@ -233,7 +203,7 @@ class SparsityModifierBase(Modifier):
 
         groups = {}
         for name, layer in layers.items():
-            prunable_layers = get_prunable_layers(layer)
+            prunable_layers = dict(match_named_modules(layer, PRUNABLE_LAYER_TYPES))
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
                 for n, m in prunable_layers.items()

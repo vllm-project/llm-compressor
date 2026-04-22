@@ -12,10 +12,8 @@ from typing import Any, Callable
 from loguru import logger
 
 from llmcompressor.core.events import EventType
-from llmcompressor.core.helpers import log_model_info, should_log_model_info
 from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.core.state import ModifiedState, State
-from llmcompressor.metrics import BaseLogger, LoggerManager
 from llmcompressor.recipe import Recipe
 
 __all__ = [
@@ -90,7 +88,6 @@ class CompressionSession:
         start: float | None = None,
         steps_per_epoch: int | None = None,
         batches_per_step: int | None = None,
-        loggers: LoggerManager | list[BaseLogger] | None = None,
         **kwargs,
     ) -> ModifiedState:
         """
@@ -118,8 +115,6 @@ class CompressionSession:
             compression
         :param batches_per_step: the number of batches per step to use for
             compression
-        :param loggers: the metrics manager to setup logging important info
-            and milestones to, also accepts a list of BaseLogger(s)
         :param kwargs: additional kwargs to pass to the lifecycle's initialize method
         :return: the modified state of the session after initializing
         """
@@ -139,7 +134,6 @@ class CompressionSession:
             start=start,
             steps_per_epoch=steps_per_epoch,
             batches_per_step=batches_per_step,
-            loggers=loggers,
             **kwargs,
         )
 
@@ -194,16 +188,6 @@ class CompressionSession:
             modifier_data=mod_data,
         )
 
-    def log(self, event_type: EventType, loss: Any | None = None):
-        """
-        Log model and loss information for the current event type
-
-        :param event_type: the event type to log for
-        :param loss: the loss to log if any
-        """
-        self._log_model_info()
-        self._log_loss(event_type=event_type, loss=loss)
-
     def reset(self):
         """
         Reset the session to its initial state
@@ -227,37 +211,3 @@ class CompressionSession:
             return recipe.yaml()
 
         logger.warning("Recipe not found in session - it may have been reset")
-
-    def _log_model_info(self):
-        # Log model level logs if cadence reached
-        current_index = self._lifecycle.global_step
-
-        if (
-            should_log_model_info(
-                model=self.state.model,
-                loggers=self.state.loggers,
-                current_log_step=current_index,
-                last_log_step=self.state._last_log_step,
-            )
-            and self.state.loggers.frequency_manager.is_epoch_frequency_manager
-        ):
-            log_model_info(
-                state=self.state,
-                current_log_step=current_index,
-            )
-            # update last log epoch
-            self.state.loggers.log_written(current_index)
-
-    def _log_loss(self, event_type: EventType, loss: Any):
-        if event_type != EventType.LOSS_CALCULATED:
-            # only log loss when loss is calculated
-            return
-
-        current_index = self._lifecycle.global_step
-
-        # always log loss if available
-        if loss is not None:
-            loss = loss if isinstance(loss, dict) else {"loss": loss}
-            self.state.loggers.metric.log_scalars(
-                tag="Loss", values=loss, step=current_index
-            )

@@ -1,5 +1,5 @@
 import contextlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.utils import disable_offloading
@@ -12,7 +12,6 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
-    get_sequential_targets,
     handle_sequential_oom,
     trace_subgraphs,
 )
@@ -22,11 +21,36 @@ from llmcompressor.utils.helpers import (
     DisableQuantization,
     calibration_forward_context,
 )
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
+
+
+def _get_batches(
+    activations: IntermediatesCache,
+    num_batches: int,
+    input_names: list[str],
+    desc: str,
+    sequential_prefetch: bool = False,
+) -> Iterator[tuple[int, dict]]:
+    """
+    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
+    background thread to overlap fetch (onload from offload device) with the
+    main-thread forward pass. Delegates to
+    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
+    """
+    batch_source = (
+        activations.iter_prefetch(input_names)
+        if sequential_prefetch
+        else activations.iter(input_names)
+    )
+    for batch_idx, inputs in tqdm(
+        enumerate(batch_source), total=num_batches, desc=desc
+    ):
+        yield batch_idx, inputs
 
 
 @CalibrationPipeline.register("sequential")
@@ -65,16 +89,23 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        dispatch_for_sequential(model, onload_device, offload_device)
+        dispatch_for_sequential(model, onload_device)
 
         # prepare to trace subgraphs
-        modifiers = session.lifecycle.recipe.modifiers
-        sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
+        sequential_targets = infer_sequential_targets(
+            model, dataset_args.sequential_targets
+        )
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+        subgraphs = trace_subgraphs(
+            model,
+            sample_input,
+            sequential_targets,
+            ignore,
+            dataset_args.sequential_targets_per_subgraph,
+        )
         num_subgraphs = len(subgraphs)
 
         LifecycleCallbacks.calibration_epoch_start()
@@ -107,20 +138,26 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
+            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
+            session.state.sequential_prefetch = sequential_prefetch
+
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # reduce memory movement by keeping modules onloaded
+                num_batches = len(dataloader)
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
-                        inputs = activations.fetch(batch_idx, subgraph.input_names)
-
-                        # Set current batch index before forward pass for AWQ masking
+                    for batch_idx, inputs in _get_batches(
+                        activations,
+                        num_batches,
+                        subgraph.input_names,
+                        calib_desc,
+                        sequential_prefetch,
+                    ):
                         session.state.current_batch_idx = batch_idx
-
                         subgraph.forward(model, **inputs)
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
@@ -128,10 +165,14 @@ class SequentialPipeline(CalibrationPipeline):
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
                     with HooksMixin.disable_hooks():
-                        for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
-                            inputs = activations.fetch(batch_idx, subgraph.input_names)
+                        for batch_idx, inputs in _get_batches(
+                            activations,
+                            num_batches,
+                            subgraph.input_names,
+                            prop_desc,
+                            sequential_prefetch,
+                        ):
                             output = subgraph.forward(model, **inputs)
-
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)

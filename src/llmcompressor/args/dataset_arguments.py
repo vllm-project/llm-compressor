@@ -10,6 +10,9 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 from dataclasses import dataclass, field
 from typing import Callable
 
+from datasets import Dataset, DatasetDict
+from torch.utils.data import DataLoader
+
 
 @dataclass
 class DVCDatasetArguments:
@@ -60,8 +63,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
         metadata={
             "help": (
                 "Typically a function which applies a chat template. Can take the form "
-                "of either a function to apply to the dataset, a name defined in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
+                "of either a function to apply to the dataset or "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
         },
@@ -101,12 +103,13 @@ class DatasetArguments(CustomDatasetArguments):
     arguments to be able to specify them on the command line
     """
 
-    dataset: str | None = field(
+    dataset: str | Dataset | DatasetDict | DataLoader | None = field(
         default=None,
         metadata={
             "help": (
-                "The name of the dataset to use (via the datasets library). "
-                "Supports input as a string or DatasetDict from HF"
+                "The dataset to use for calibration. Supports a dataset name "
+                "(str, via the datasets library), a DatasetDict from HF, or a "
+                "pre-built PyTorch DataLoader."
             )
         },
     )
@@ -238,6 +241,13 @@ class DatasetArguments(CustomDatasetArguments):
             "than one gpu. Default is cpu."
         },
     )
+    sequential_targets_per_subgraph: int = field(
+        default=1,
+        metadata={
+            "help": "Number of sequential targets to include per subgraph. "
+            "Higher values use more VRAM but are faster to calibrate. Default is 1."
+        },
+    )
     quantization_aware_calibration: bool = field(
         default=True,
         metadata={
@@ -258,9 +268,18 @@ class DatasetArguments(CustomDatasetArguments):
     dataloader_num_workers: int = field(
         default=0,
         metadata={
-            "help": "Number of worker processes for data loading. Set to 0 to disable "
-            "multiprocessing. Note: Custom data collators may not work with "
-            "multiprocessing. Default is 0."
+            "help": "Number of worker processes for data loading. Default is 0 (safe "
+            "for low CPU/GPU memory). Set to 2 or more for faster calibration if you "
+            "have sufficient RAM. Custom data collators may not work with "
+            "multiprocessing."
+        },
+    )
+    sequential_prefetch: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, prefetch the next batch in a "
+            "background thread to overlap onload with forward. Default False; set True "
+            "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
 

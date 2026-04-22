@@ -100,16 +100,24 @@ def get_processed_dataset(
 def get_calibration_dataloader(
     dataset_args: DatasetArguments,
     processor: Processor,
-) -> torch.utils.data.DataLoader:
+) -> DataLoader | None:
     """
     Get the dataloader used for oneshot calibration.
+
+    If dataset_args.dataset is already a PyTorch DataLoader,
+    it is returned directly, bypassing dataset loading and tokenization.
+
     :param dataset_args: DatasetArguments that contains the dataset parameters.
     :param processor: Processor or the tokenizer of the model.
-    :return: PyTorch dataloader object that contains the calibration dataset.
+    :return: PyTorch dataloader object that contains the calibration
+        dataset, or None for data-free flows.
     """
     if dataset_args.dataset is None:
         # weight-only quantization or dynamic quantization
-        return
+        return None
+
+    if isinstance(dataset_args.dataset, DataLoader):
+        return dataset_args.dataset
 
     datasets = get_processed_dataset(
         dataset_args=dataset_args,
@@ -127,13 +135,23 @@ def format_calibration_data(
     tokenized_dataset: Dataset,
     processor: Processor,
 ) -> DataLoader:
+    # Pin memory only when using workers (saves RAM for low-memory users when
+    # num_workers=0; when num_workers>0, pin_memory speeds CPU->GPU transfer)
+    num_workers = args.dataloader_num_workers
+    pin_memory = torch.accelerator.is_available() and num_workers > 0
+    # persistent_workers avoids worker respawn between epochs (only when
+    # num_workers > 0). prefetch_factor is left at DataLoader default (2).
+    kwargs: dict[str, Any] = {}
+    if num_workers > 0:
+        kwargs["persistent_workers"] = True
     return DataLoader(
         tokenized_dataset,
         batch_size=args.batch_size,
         sampler=_make_sampler(args, tokenized_dataset),
         collate_fn=_make_collate_fn(args, processor),
-        pin_memory=False,
-        num_workers=args.dataloader_num_workers,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
+        **kwargs,
     )
 
 
@@ -260,7 +278,7 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
         start, end = _get_partition_start_end(
             num_samples, dist.get_rank(), dist.get_world_size()
         )
-        dataset = dataset[start:end]
+        dataset = dataset.select(range(start, end))
 
     if num_samples is not None and num_samples > len(dataset):
         logger.warning(
@@ -394,9 +412,10 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     DATASET_SPLIT = "train_sft"
     NUM_CALIBRATION_SAMPLES = 256
 
-    split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
+    split = get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
     ds = load_dataset(
-        DATASET_ID, split=split
+        DATASET_ID,
+        split=split,
     )
 
     for S samples and D devices, when S is not perfectly divisible by D,

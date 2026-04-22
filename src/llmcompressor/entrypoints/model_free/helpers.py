@@ -1,18 +1,13 @@
-import os
 import re
 from collections import defaultdict
 from typing import Mapping, TypeVar
 
 import torch
-from compressed_tensors.utils.match import _match_name
+from compressed_tensors.utils.match import match_name
 from loguru import logger
-from transformers.file_utils import CONFIG_NAME
 
 __all__ = [
     "gpu_if_available",
-    "find_safetensors_index_path",
-    "find_config_path",
-    "find_safetensors_index_file",
     "match_names_set_eager",
     "MatchedNamesSet",
     "invert_mapping",
@@ -27,44 +22,13 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
     if device is not None:
         return torch.device(device)
 
-    elif torch.cuda.is_available():
-        return torch.device("cuda:0")
-
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu:0")
-
-    elif hasattr(torch, "npu") and torch.npu.is_available():
-        return torch.device("npu:0")
+    elif torch.accelerator.is_available():
+        accel_type = torch.accelerator.current_accelerator().type
+        return torch.device(accel_type, 0)
 
     else:
-        logger.warning(
-            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
-        )
+        logger.warning("No accelerator available! Compressing model on CPU instead")
         return torch.device("cpu")
-
-
-def find_safetensors_index_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name.endswith("safetensors.index.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None
-
-
-def find_config_path(save_directory: str | os.PathLike) -> str | None:
-    for file_name in os.listdir(save_directory):
-        if file_name in (CONFIG_NAME, "params.json"):
-            return os.path.join(save_directory, file_name)
-
-    return None
-
-
-def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors.index.json"):
-            return resolved_path
-
-    return None
 
 
 def match_names_set_eager(
@@ -84,7 +48,7 @@ def match_names_set_eager(
     for name in names:
         # match until we get a full set
         for target in targets:
-            if _match_name(name, target):
+            if match_name(name, target):
                 if matches[target] is None:
                     matches[target] = name
                 else:
@@ -116,3 +80,23 @@ def invert_mapping(
         inverse[value].append(key)
 
     return inverse
+
+
+def build_weights_map(
+    weight_map: dict[str, str],
+    model_files: dict[str, str],
+) -> dict[str, str]:
+    """
+    Build a mapping of tensor name -> resolved file path from the model's
+    weight_map (index.json). This allows any process to locate fused partner
+    tensors from other shards without loading entire files.
+
+    :param weight_map: mapping of tensor name -> shard filename (from index.json)
+    :param model_files: mapping of shard filename -> resolved absolute path
+    :return: mapping of tensor name -> resolved absolute path
+    """
+    return {
+        tensor_name: model_files[shard_name]
+        for tensor_name, shard_name in weight_map.items()
+        if shard_name in model_files
+    }

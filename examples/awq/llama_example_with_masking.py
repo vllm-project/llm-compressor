@@ -11,12 +11,13 @@ quantization to preserve the quality of generated responses.
 """
 
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -106,8 +107,11 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+    AWQModifier(duo_scaling="both"),
+    QuantizationModifier(
+        ignore=["lm_head"],
+        scheme="W4A16_ASYM",
+        targets=["Linear"],
     ),
 ]
 
@@ -126,7 +130,7 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

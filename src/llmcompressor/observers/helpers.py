@@ -7,11 +7,12 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
-from typing import Optional
-
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
-from compressed_tensors.quantization.utils import strategy_cdiv
+from compressed_tensors.quantization.utils import (
+    maybe_pad_tensor_for_block_quant,
+    strategy_cdiv,
+)
 
 __all__ = ["flatten_for_calibration"]
 
@@ -20,13 +21,17 @@ def flatten_for_calibration(
     value: torch.Tensor,
     base_name: str,
     args: QuantizationArgs,
-    g_idx: Optional[torch.Tensor] = None,
+    g_idx: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Reshapes the value according to the quantization strategy for the purposes of
     scale/zp calibration. The value after flattening has the following shape:
 
     `(num_observations, *qparam_shape, group_size)`
+
+    For block quantization, value will be zero-padded if it is not evenly
+    divisible by block_size, so as not to distort the calculated qparams and to be
+    compatible with vllm block-wise kernels that do not require even divisibility.
 
     The first dim is the number of observations (usually the batch size times number of
     tokens), the middle dims are the dimension of the scales, and the last dim is the
@@ -50,7 +55,7 @@ def flatten_for_calibration(
 
 
 def _flatten_weight(
-    value: torch.Tensor, args: QuantizationArgs, g_idx: Optional[torch.Tensor] = None
+    value: torch.Tensor, args: QuantizationArgs, g_idx: torch.Tensor | None = None
 ):
     # value.shape = (num_rows, num_cols)
 
@@ -75,7 +80,12 @@ def _flatten_weight(
     if args.strategy == QuantizationStrategy.BLOCK:
         # (1, num_block_rows, num_block_cols, block_width * block_height)
         block_height, block_width = args.block_structure
+
+        # If shape is incompatible, zero-pad to compatible shape
+        # so as not to distort resultant qparams
+        value = maybe_pad_tensor_for_block_quant(value, args.block_structure)
         rows, cols = value.shape
+
         block_rows = strategy_cdiv(rows, block_height, args.strategy, strict=True)
         block_cols = strategy_cdiv(cols, block_width, args.strategy, strict=True)
         return (
@@ -88,7 +98,7 @@ def _flatten_weight(
     if args.strategy == QuantizationStrategy.ATTN_HEAD:
         raise ValueError("Attention head quantization cannot be applied to weights")
 
-    assert False, f"Unknown strategy {args.strategy}"
+    raise ValueError(f"Unknown strategy {args.strategy}")
 
 
 def _flatten_activation(value: torch.Tensor, args: QuantizationArgs):
@@ -117,7 +127,7 @@ def _flatten_activation(value: torch.Tensor, args: QuantizationArgs):
     if args.strategy == QuantizationStrategy.ATTN_HEAD:
         raise ValueError("Attention head quantization cannot be applied to activations")
 
-    assert False, f"Unknown strategy {args.strategy}"
+    raise ValueError(f"Unknown strategy {args.strategy}")
 
 
 def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
@@ -143,4 +153,4 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
         # (batch_size * seq_len, num_heads, 1, 1, head_dim)
         return value.transpose(1, 2).flatten(0, 1).unsqueeze(-2).unsqueeze(-2)
 
-    assert False, f"Unknown strategy {args.strategy}"
+    raise ValueError(f"Unknown strategy {args.strategy}")
