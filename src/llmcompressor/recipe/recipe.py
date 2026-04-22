@@ -5,6 +5,7 @@ from typing import Any, Union
 import yaml
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from torch.utils._pytree import tree_leaves
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.utils import (
@@ -70,14 +71,7 @@ class Recipe(BaseModel):
         # workaround for modifiers that can be nested lists of Modifiers
         # backward-compatibility for llmcompressor.modifiers.awq.AWQModifier, which
         # returns [AWQTransformModifier, QuantizationModifier]
-        def flatten(nested):
-            if isinstance(nested, list):
-                for item in nested:
-                    yield from flatten(item)
-            else:
-                yield nested
-
-        modifiers = list(flatten(modifiers))
+        modifiers = tree_leaves(modifiers)
 
         if any(not isinstance(modifier, Modifier) for modifier in modifiers):
             raise ValueError("modifiers must be a list of Modifier instances")
