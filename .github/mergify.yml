@@ -87,9 +87,7 @@ pull_request_rules:
       - label != stale
       - -closed
       - -draft
-      - -author_association = OWNER
-      - -author_association = MEMBER
-      - -author_association = COLLABORATOR
+      - author != @vllm-project
     actions:
       label:
         add:
