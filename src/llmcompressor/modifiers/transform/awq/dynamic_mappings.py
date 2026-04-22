@@ -12,7 +12,7 @@ from collections.abc import Callable
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.awq.mappings import (
+from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
     AWQMapping,
     default_mappings,

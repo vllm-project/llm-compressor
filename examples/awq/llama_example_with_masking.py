@@ -16,7 +16,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -106,8 +107,11 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
+    AWQModifier(duo_scaling="both"),
+    QuantizationModifier(
+        ignore=["lm_head"],
+        scheme="W4A16_ASYM",
+        targets=["Linear"],
     ),
 ]
 
