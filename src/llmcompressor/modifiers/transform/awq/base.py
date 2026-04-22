@@ -7,7 +7,6 @@ from compressed_tensors.modeling.kvcache import QuantizedKVCache
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
-    disable_quantization,
     forward_quantize,
 )
 from compressed_tensors.utils import (
@@ -16,7 +15,6 @@ from compressed_tensors.utils import (
     get_lowest_common_ancestor_name,
     getattr_chain,
     match_modules_set,
-    match_named_modules,
     patch_attrs,
     update_offload_parameter,
 )
@@ -29,17 +27,18 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.awq.dynamic_mappings import get_layer_mappings_from_model
-from llmcompressor.modifiers.awq.mappings import (
-    AWQMapping,
-    ResolvedMapping,
-)
 from llmcompressor.modifiers.quantization.calibration import (
     call_observer,
     update_weight_global_scale,
     update_weight_zp_scale,
 )
-from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
+    get_layer_mappings_from_model,
+)
+from llmcompressor.modifiers.transform.awq.mappings import (
+    AWQMapping,
+    ResolvedMapping,
+)
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
@@ -53,7 +52,7 @@ from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 __all__ = ["AWQModifier"]
 
 
-class AWQModifier(Modifier, QuantizationMixin):
+class AWQModifier(Modifier):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
     as described in https://arxiv.org/pdf/2306.00978. The algorithm
@@ -70,6 +69,11 @@ class AWQModifier(Modifier, QuantizationMixin):
     in one-shot and not during training. Activation ranges are determined by running a
     small set of calibration data through the model.
 
+    AWQModifier is a transform-based modifier, in that it does not perform quantization
+    or compression on its own. It just scales activation channels according to a
+    quantization scheme. It must be applied in conjunction with a modifier that inherits
+    from QuantizationMixin in order to create a compressed checkpoint.
+
     example recipe:
     ```yaml
     AWQModifier:
@@ -82,27 +86,16 @@ class AWQModifier(Modifier, QuantizationMixin):
         # for activation caching.
         # This change is only useful for MoE models with parallel transformer blocks,
         # and one should use the default value (None) in most cases.
-      ignore: ["lm_head"]
-      config_groups:
-        group_0:
-          targets:
-            - "Linear"
-          input_activations: null
-          output_activations: null
-          weights:
-            num_bits: 4
-            type: int
-            symmetric: false
-            strategy: group
-            group_size: 128
     ```
 
     Lifecycle:
 
     - on_initialize
+        - set unresolved mappings if not set by user, based on model architecture
+    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
+    - on_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
-    - on_start
         - set up activation cache hooks to capture input activations
             to balance layers
     - on sequential epoch end
@@ -114,7 +107,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             - raise error if any unused activations remain
     - on_end
         - re-run logic of sequential epoch end (in case of basic pipeline)
-        - set scales and zero points
         - remove activation hooks
     - on_finalize
         - clear resolved mappings and captured activations
@@ -131,9 +123,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         specifying which submodule to hook for activation caching. This is useful
         for parallel transformer blocks where the default (hooking
         ``balance_layers[0]``) would capture the wrong activations.
-    :param ignore: list of layers to ignore during quantization (not smoothed).
-        It should match the name of layers whose outputs are scaled to achieve
-        smoothing (the second entry of the mappings list).
     :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
@@ -174,35 +163,14 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize AWQ on the given state
-        Initialize quantization, resolve mappings, cache module kwargs
+        Start AWQ on the given state. This runs before quantization config has been
+        applied
+
+        - infer unresolved mappings based on model architecture, if not set manually
 
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
         """
-
-        # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
-
-        # Validate that duo_scaling is only used with per-channel quantization
-        if self.duo_scaling is not False:
-            for _, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            ):
-                if (
-                    hasattr(module, "quantization_scheme")
-                    and hasattr(module.quantization_scheme, "weights")
-                    and hasattr(module.quantization_scheme.weights, "strategy")
-                    and module.quantization_scheme.weights.strategy
-                    == QuantizationStrategy.TENSOR
-                ):
-                    raise ValueError(
-                        "duo_scaling is only supported with per-channel quantization "
-                        "strategies (group or channel), but found TENSOR strategy. "
-                        "Please set duo_scaling=False or use a per-channel "
-                        "quantization strategy."
-                    )
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
@@ -223,12 +191,23 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # (no offloading by default)
                 self.offload_device = None
 
-        self._set_resolved_mappings(state.model)
-
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
+        """
+        Start AWQ on the given state. This runs after quantization mixin has been
+        initialized (i.e. after quantization config has been applied)
+
+        - resolve mappings
+        - validate mappings and quant scheme
+        - setup activation cache hooks
+
+        :param state: state to run AWQ on
+        :return: True on a successful run, False otherwise
+        """
         self.started_ = True
+
+        self._set_resolved_mappings(state.model)
 
         # Check for unsupported token masking with MoE up_proj -> down_proj mappings
         if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
@@ -241,14 +220,28 @@ class AWQModifier(Modifier, QuantizationMixin):
                 "for MoE layers from the AWQ configuration."
             )
 
-        # register quantization calibration hooks
-        # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
-        # AWQ performs forward passes during _apply_smoothing
-        # before any scales or zero points are updated
-        # Quantization must be disabled, otherwise NaNs will
-        # appear in quantized forward method
-        state.model.apply(disable_quantization)
+        # Validate that duo_scaling is only used with per-channel quantization
+        if self.duo_scaling is not False:
+
+            def _validate_balance_layer(name, module):
+                if (
+                    hasattr(module, "quantization_scheme")
+                    and hasattr(module.quantization_scheme, "weights")
+                    and module.quantization_scheme.weights.strategy
+                    == QuantizationStrategy.TENSOR
+                ):
+                    raise ValueError(
+                        "duo_scaling is only supported with per-channel quantization "
+                        "strategies (group or channel), but found TENSOR strategy on "
+                        f"layer {name}. Please set duo_scaling=False or use a "
+                        "per-channel quantization strategy."
+                    )
+
+            for mapping in self._resolved_mappings:
+                for balance_name, balance_layer in zip(
+                    mapping.balance_names, mapping.balance_layers
+                ):
+                    _validate_balance_layer(balance_name, balance_layer)
 
         self._setup_activation_cache_hooks()
 
@@ -258,13 +251,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            # Run smoothing in case of sequential pipeline
-            QuantizationMixin.sync_activation_observers(self, state.model)
             self._apply_smoothing(state.model)
 
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            # Run smoothing in case of basic pipeline
-            QuantizationMixin.sync_activation_observers(self, state.model)
             self._apply_smoothing(state.model)
 
             if not self.ended_:
@@ -277,26 +266,19 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         self._assert_all_activations_consumed()
 
+        # Recompute weight scales/zps for layers modified by smoothing
+        for mapping in self._resolved_mappings:
+            for layer in mapping.balance_layers + [mapping.smooth_layer]:
+                if hasattr(layer, "weight_observer"):
+                    update_weight_global_scale(layer)
+        for mapping in self._resolved_mappings:
+            update_fused_layer_weight_global_scales(mapping.parent)
+        for mapping in self._resolved_mappings:
+            for layer in mapping.balance_layers + [mapping.smooth_layer]:
+                if hasattr(layer, "weight_observer"):
+                    update_weight_zp_scale(layer)
+
         self.ended_ = True
-
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-
-        # For TENSOR_GROUP (nvfp4), calculate global scales after smoothing
-        for _, module in tqdm(named_modules, desc="Updating global scales"):
-            update_weight_global_scale(module)
-
-        # For TENSOR_GROUP (nvfp4), fuse global scales for attention and MLP layers
-        # This is a requirement for vLLM inference.
-        for module in tqdm(state.model.modules(), desc="Fusing global scales"):
-            update_fused_layer_weight_global_scales(module)
-
-        # Calculate scales and zero points using the fused global scales
-        for _, module in tqdm(named_modules, desc="Calibrating weights"):
-            update_weight_zp_scale(module)
-
-        QuantizationMixin.end_calibration(self, state.model)
 
         # remove activation hooks
         self.remove_hooks()
@@ -334,17 +316,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
-        # Get names of modules targeted for quantization (excludes ignored)
-        targeted_names = set(
-            name
-            for name, _ in match_named_modules(
-                model, self.resolved_targets, self.ignore
-            )
-        )
+
+        num_incompatible = 0
         for mapping in self.mappings:
-            # we deliberately don't use the ignore list when matching mappings,
-            # so that we can handle layers that need smoothing but not quantization
-            # we only skip if no layers in mapping are targeted for quantization.
             for smooth_layers, *nested_balance_layers in match_modules_set(
                 model, (mapping.smooth_layer, *mapping.balance_layers)
             ):
@@ -366,25 +340,36 @@ class AWQModifier(Modifier, QuantizationMixin):
                 ]
 
                 # Check if at least one layer is targeted for quantization
-                any_targeted = smooth_name in targeted_names or any(
-                    bn in targeted_names for bn in balance_names
+                any_targeted = hasattr(smooth_layer, "quantization_scheme") or any(
+                    [
+                        hasattr(balance_layer, "quantization_scheme")
+                        for balance_layer in balance_layers
+                    ]
                 )
 
                 all_compatible = _check_layers_are_compatible(
                     smooth_layer, smooth_name, balance_layers, balance_names
                 )
 
-                skip_message: str | None = None
+                # Incompatibility occurs frequently depending on model size
                 if not all_compatible:
-                    skip_message = " because found incompatible balance layers"
-                elif not any_targeted:
-                    skip_message = " because no layers are targeted for quantization"
-                elif len(balance_layers) == 0:
-                    skip_message = " because no balance layers were found"
+                    num_incompatible += 1
+                    logger.debug(
+                        f"Skipping {smooth_name} for mapping {mapping} because "
+                        + "incompatible balance layers were found."
+                    )
+                    continue
 
-                if skip_message:
+                # Warn that mappings or quantization config are malformed for model
+                if (not any_targeted) or len(balance_layers) == 0:
+                    skip_message = (
+                        "no balance layers were found."
+                        if len(balance_layers) == 0
+                        else "no layers are targeted for quantization."
+                    )
+
                     logger.warning(
-                        f"skipping AWQ for {smooth_name} for mapping {mapping}"
+                        f"Skipping {smooth_name} for mapping {mapping} because "
                         + skip_message
                     )
 
@@ -416,6 +401,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                         activation_hook_target=activation_hook_target,
                     )
                 )
+        if num_incompatible > 0:
+            logger.warning(
+                f"{num_incompatible} mappings were skipped due to incompatible shapes. "
+                + "Set logging to DEBUG to view full list."
+            )
+
         self._resolved_mappings = resolved_mappings
         return
 
@@ -1011,7 +1002,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
 
 def _check_layers_are_compatible(
-    smooth_layer, smooth_name, balance_layers, balance_names
+    smooth_layer: Module,
+    smooth_name: str,
+    balance_layers: list[Module],
+    balance_names: list[str],
 ):
     """
     returns True if they are all compatible
