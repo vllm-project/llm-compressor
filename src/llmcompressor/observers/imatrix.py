@@ -1,5 +1,4 @@
 import math
-from typing import Optional
 
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
@@ -145,7 +144,7 @@ class IMatrixMSEObserver(Observer):
 
     # ------------------------------------------------------------------
 
-    def _prepare_importance(self, observed: torch.Tensor) -> Optional[torch.Tensor]:
+    def _prepare_importance(self, observed: torch.Tensor) -> torch.Tensor | None:
         """Validate → reorder (g_idx) → normalize → broadcast."""
         imp = self._get_validated_importance(observed)
         if imp is None:
@@ -164,9 +163,7 @@ class IMatrixMSEObserver(Observer):
         g_idx = getattr(module, f"{self.base_name}_g_idx", None)
         return flatten_for_calibration(imp_2d, self.base_name, self.args, g_idx)
 
-    def _get_validated_importance(
-        self, observed: torch.Tensor
-    ) -> Optional[torch.Tensor]:
+    def _get_validated_importance(self, observed: torch.Tensor) -> torch.Tensor | None:
         """Return 1D importance tensor or None (with warning/raise)."""
         if self.base_name != "weight":
             if self.strict:
@@ -233,8 +230,7 @@ class IMatrixMSEObserver(Observer):
             if self.strict:
                 raise ValueError("imatrix_mse: contains non-finite values")
             logger.warning(
-                "imatrix_mse: contains non-finite values."
-                " Falling back to uniform MSE.",
+                "imatrix_mse: contains non-finite values. Falling back to uniform MSE.",
                 log_once=True,
             )
             return None
@@ -242,8 +238,7 @@ class IMatrixMSEObserver(Observer):
             if self.strict:
                 raise ValueError("imatrix_mse: contains negative values")
             logger.warning(
-                "imatrix_mse: contains negative values."
-                " Falling back to uniform MSE.",
+                "imatrix_mse: contains negative values. Falling back to uniform MSE.",
                 log_once=True,
             )
             return None
@@ -301,9 +296,9 @@ def _grid_search(
     patience: int,
     grid: int,
     norm: float,
-    global_scale: Optional[torch.Tensor] = None,
+    global_scale: torch.Tensor | None = None,
     optimize_global_scale: bool = False,
-    importance_weights: Optional[torch.Tensor] = None,
+    importance_weights: torch.Tensor | None = None,
 ) -> MinMaxTuple:
     """Grid search for min/max minimizing (importance-weighted) quant error."""
     min_val = torch.amin(observed, dim=(0, -1))
