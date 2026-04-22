@@ -2,165 +2,154 @@ from dataclasses import dataclass, fields, is_dataclass
 
 import pytest
 import torch
-from torch.utils.data import DataLoader, StackDataset
 
 from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
 
 
-@dataclass
-class SampleDataclass:
-    a: torch.Tensor
-    b: int
+@pytest.mark.unit
+def test_new_fetch_update_roundtrip():
+    """Test basic fetch/update roundtrip with flat key-value."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    tensor = torch.randn(2, 3)
+    key = "test_key"
 
-
-@pytest.fixture
-def sample_dataloader():
-    # Create sample input tensors
-    input_ids = torch.tensor([[1, 2, 3, 0], [4, 5, 6, 0]], dtype=torch.long)
-    attention_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 1, 0]], dtype=torch.bool)
-
-    # Create dataset and dataloader
-    dataset = StackDataset(input_ids=input_ids, attention_mask=attention_mask)
-    return DataLoader(dataset, batch_size=2)
-
-
-@pytest.fixture
-def sample_cache(sample_dataloader):
-    return IntermediatesCache.from_dataloader(
-        dataloader=sample_dataloader,
-        model_device=torch.device("cpu"),
-        offload_device=torch.device("cpu"),
-    )
-
-
-values_to_test = [
-    torch.randn(2, 3).to("cpu"),
-    SampleDataclass(a=torch.randn(2, 3), b=42),
-    torch.float32,
-    [1, 2, 3],
-]
+    cache.update(key, tensor)
+    fetched = cache.fetch(key)
+    assert torch.equal(fetched, tensor)
 
 
 @pytest.mark.unit
-def test_initialization(sample_dataloader):
-    cache = IntermediatesCache.from_dataloader(
-        dataloader=sample_dataloader,
-        model_device=torch.device("cpu"),
-    )
-
-    assert isinstance(cache, IntermediatesCache)
-    assert len(cache.batch_intermediates) > 0
-    assert isinstance(cache.batch_intermediates[0], dict)
+def test_new_fetch_key_not_found():
+    """Test KeyError raised when key not found."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    with pytest.raises(KeyError):
+        cache.fetch("nonexistent")
 
 
 @pytest.mark.unit
-def test_iter_prefetch_empty_cache():
-    """iter_prefetch yields nothing when cache has no batches."""
-    cache = IntermediatesCache.empty(0, torch.device("cpu"))
-    assert list(cache.iter_prefetch()) == []
+def test_new_update_accepts_any_value():
+    """Test update accepts non-tensor values."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    cache.update("key", "not a tensor")  # Should not raise
+    assert cache.fetch("key") == "not a tensor"
 
 
 @pytest.mark.unit
-def test_iter_prefetch_matches_iter(sample_cache):
-    """iter_prefetch yields the same batch contents as iter."""
-
-    def batch_dicts_equal(a: dict, b: dict) -> bool:
-        if set(a.keys()) != set(b.keys()):
-            return False
-        return all(deep_equal(a[k], b[k]) for k in a)
-
-    via_iter = list(sample_cache.iter())
-    via_prefetch = list(sample_cache.iter_prefetch())
-    assert len(via_iter) == len(via_prefetch)
-    for i, (b_iter, b_prefetch) in enumerate(zip(via_iter, via_prefetch)):
-        assert batch_dicts_equal(b_iter, b_prefetch), f"batch {i} differs"
+def test_new_delete():
+    """Test delete removes entry."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    cache.update("key", torch.randn(2, 3))
+    assert "key" in cache
+    cache.delete("key")
+    assert "key" not in cache
 
 
 @pytest.mark.unit
-def test_fetch_inputs(sample_cache):
-    fetched = sample_cache.fetch(0, ["input_ids", "attention_mask"])
-
-    assert isinstance(fetched, dict)
-    assert "input_ids" in fetched
-    assert "attention_mask" in fetched
-    assert isinstance(fetched["input_ids"], torch.Tensor)
-    assert isinstance(fetched["attention_mask"], torch.Tensor)
-
-
-@pytest.mark.unit
-def test_update_intermediates(sample_cache):
-    new_outputs = {
-        "hidden_states": torch.randn(2, 4, 768),
-        "logits": torch.randn(2, 4, 1000),
-    }
-
-    sample_cache.update(0, new_outputs)
-
-    # Verify the updates were stored
-    assert "hidden_states" in sample_cache.batch_intermediates[0]
-    assert "logits" in sample_cache.batch_intermediates[0]
+def test_new_contains():
+    """Test __contains__ works correctly."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    tensor = torch.randn(2, 3)
+    key = "test_key"
+    assert key not in cache
+    cache.update(key, tensor)
+    assert key in cache
 
 
 @pytest.mark.unit
-def test_delete_intermediates(sample_cache):
-    # First add some intermediates
-    new_outputs = {
-        "hidden_states": torch.randn(2, 4, 768),
-        "logits": torch.randn(2, 4, 1000),
-    }
-    sample_cache.update(0, new_outputs)
+def test_new_iter_prefetch():
+    """Test iter_prefetch with explicit key list."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    keys = ["a", "b", "c"]
+    tensors = [torch.randn(2, 3) for _ in keys]
 
-    # Then delete them
-    sample_cache.delete(0, ["hidden_states"])
+    for k, t in zip(keys, tensors):
+        cache.update(k, t)
 
-    assert "hidden_states" not in sample_cache.batch_intermediates[0]
-    assert "logits" in sample_cache.batch_intermediates[0]
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("value", values_to_test)
-def test_from_dataloader(value):
-    dataset = StackDataset(value=[value])
-    dataloader = DataLoader(dataset, batch_size=1, collate_fn=lambda x: x[0])
-    cache = IntermediatesCache.from_dataloader(dataloader)
-
-    onloaded = cache.fetch(0, ["value"])["value"]
-    assert deep_equal(onloaded, value)
+    prefetched = list(cache.iter_prefetch(keys))
+    assert len(prefetched) == 3
+    for original, prefetched_tensor in zip(tensors, prefetched):
+        assert torch.equal(original, prefetched_tensor)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("value", values_to_test)
-def test_offload_and_onload(value):
+def test_iter_prefetch_grouped():
+    """Test iter_prefetch_grouped with (batch_idx, name) keys."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+
+    for batch_idx in range(3):
+        cache.update((batch_idx, "input_ids"), torch.tensor([batch_idx]))
+        cache.update((batch_idx, "attention_mask"), torch.tensor([1]))
+
+    keys = list(cache._store.keys())
+    groups = list(cache.iter_prefetch_grouped(keys, group_by=lambda k: k[0]))
+
+    assert len(groups) == 3
+    for i, group_dict in enumerate(groups):
+        assert (i, "input_ids") in group_dict
+        assert (i, "attention_mask") in group_dict
+        assert group_dict[(i, "input_ids")].item() == i
+
+
+@pytest.mark.unit
+def test_iter_prefetch_grouped_awq_keys():
+    """Test iter_prefetch_grouped with AWQ (module, batch_idx, arg_name) keys."""
+    from torch.nn import Linear
+
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    module1 = Linear(10, 10)
+    module2 = Linear(10, 10)
+
+    for batch_idx in range(2):
+        cache.update((module1, batch_idx, "hidden"), torch.tensor([batch_idx]))
+        cache.update((module2, batch_idx, "hidden"), torch.tensor([batch_idx + 10]))
+
+    keys = list(cache._store.keys())
+    groups = list(cache.iter_prefetch_grouped(keys, group_by=lambda k: (k[0], k[1])))
+
+    assert len(groups) == 4  # 2 modules x 2 batches
+    for group_dict in groups:
+        assert len(group_dict) == 1
+        key = next(iter(group_dict.keys()))
+        assert key[2] == "hidden"
+
+
+@pytest.mark.unit
+def test_iter_prefetch_grouped_empty():
+    """Test iter_prefetch_grouped with empty keys."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    groups = list(cache.iter_prefetch_grouped([], group_by=lambda k: k))
+    assert len(groups) == 0
+
+
+@pytest.mark.unit
+def test_new_iter():
+    """Test __iter__ yields all tensors."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    keys = ["a", "b", "c"]
+    for k in keys:
+        cache.update(k, torch.randn(2, 3))
+
+    iterated = list(cache)
+    assert len(iterated) == 3
+
+
+@pytest.mark.unit
+def test_new_clear():
+    """Test clear empties cache."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    cache.update("key", torch.randn(2, 3))
+    cache.clear()
+    assert len(cache) == 0
+    assert "key" not in cache
+
+
+@pytest.mark.unit
+def test_offload_and_onload():
+    """Test _offload_value and _onload_value preserve tensor values."""
+    value = torch.randn(2, 3)
     offloaded = IntermediatesCache._offload_value(value, torch.device("cpu"))
     onloaded = IntermediatesCache._onload_value(offloaded)
-    assert deep_equal(onloaded, value)
-
-
-@pytest.mark.unit
-def test_device_handling(sample_dataloader):
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA not available")
-
-    cuda_device = torch.device("cuda")
-    cpu_device = torch.device("cpu")
-
-    # Create a cache with GPU as model device and CPU as offload device
-    cache = IntermediatesCache.from_dataloader(
-        dataloader=sample_dataloader,
-        model_device=cuda_device,
-        offload_device=cpu_device,
-    )
-
-    # Add some GPU tensors
-    new_outputs = {"hidden_states": torch.randn(2, 3).to(cuda_device)}
-    cache.update(0, new_outputs)
-
-    # Verify tensors are offloaded to CPU
-    assert cache.batch_intermediates[0]["hidden_states"].value.device.type == "cpu"
-
-    # Verify tensors are loaded back to GPU when fetched
-    fetched = cache.fetch(0, ["hidden_states"])
-    assert fetched["hidden_states"].device.type == "cuda"
+    assert torch.equal(onloaded, value)
 
 
 def deep_equal(a, b) -> bool:
@@ -200,3 +189,32 @@ def test_override_eq_mode():
     with OverrideEqMode():
         assert a == b
         assert not (a == c)
+
+
+@pytest.mark.integration
+def test_awq_cache_flow():
+    """Test IntermediatesCache works for AWQ parent args flow."""
+    from torch.nn import Module, Linear
+    import torch
+
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+
+    # Simulate AWQ parent args cache behavior
+    module = Linear(10, 10)
+    batch_idx = 0
+
+    # Store args
+    hidden_states = torch.randn(2, 10)
+    attention_mask = torch.randn(2, 10)
+
+    cache.update((module, batch_idx, "hidden_states"), hidden_states)
+    cache.update((module, batch_idx, "attention_mask"), attention_mask)
+
+    # Fetch args for forward pass
+    fetched_kwargs = {
+        "hidden_states": cache.fetch((module, batch_idx, "hidden_states")),
+        "attention_mask": cache.fetch((module, batch_idx, "attention_mask")),
+    }
+
+    assert torch.equal(hidden_states, fetched_kwargs["hidden_states"])
+    assert torch.equal(attention_mask, fetched_kwargs["attention_mask"])

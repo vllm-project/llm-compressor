@@ -150,15 +150,11 @@ class AWQModifier(Modifier):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
-    # Cache list of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
-        default_factory=dict
-    )
-    # dict[smooth layer name, [activation sums, activation counts]]
+    _parent_args_cache: IntermediatesCache = PrivateAttr(default=None)
+    _parent_args_batch_idx: dict[Module, int] = PrivateAttr(default_factory=dict)
     _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
-    # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -281,7 +277,9 @@ class AWQModifier(Modifier):
 
         self._log_error_metrics()
 
-        self._parent_args_cache.clear()
+        if self._parent_args_cache is not None:
+            self._parent_args_cache.clear()
+        self._parent_args_batch_idx.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
         self._error_metrics.clear()
@@ -414,7 +412,12 @@ class AWQModifier(Modifier):
                 if isinstance(v, QuantizedKVCache):
                     values.arguments[k] = None
 
-            self._parent_args_cache[module].append(values.arguments)
+            batch_idx = self._parent_args_batch_idx.get(module, 0)
+            for arg_name, arg_value in values.arguments.items():
+                self._parent_args_cache.update(
+                    (module, batch_idx, arg_name), arg_value
+                )
+            self._parent_args_batch_idx[module] = batch_idx + 1
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -456,13 +459,10 @@ class AWQModifier(Modifier):
             return cache_smooth_activations_hook
 
         for mapping in self._resolved_mappings:
-            # parent kwargs needed for future forward passes
-            # same parent may appear multiple times in resolved mappings
-            if mapping.parent not in self._parent_args_cache:
-                self._parent_args_cache[mapping.parent] = IntermediatesCache(
-                    None,
-                    self.offload_device,
-                )
+            if self._parent_args_cache is None:
+                self._parent_args_cache = IntermediatesCache(self.offload_device)
+            if mapping.parent not in self._parent_args_batch_idx:
+                self._parent_args_batch_idx[mapping.parent] = 0
                 self.register_hook(
                     mapping.parent,
                     cache_parent_kwargs_hook,
@@ -589,21 +589,33 @@ class AWQModifier(Modifier):
                 del self._smooth_activation_stats[mapping.smooth_name]
                 del orig_layer_weights
 
-        for v in self._parent_args_cache.values():
-            v.batch_intermediates.clear()
+        self._parent_args_cache.clear()
         self._assert_all_activations_consumed()
 
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
-        cache = self._parent_args_cache[module]
+        cache = self._parent_args_cache
         use_prefetch = active_session().state.sequential_prefetch
-        batch_iter = cache.iter_prefetch() if use_prefetch else cache
-        outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
-        return [
-            # If tuple, assume that first argument is the input
-            output[0] if isinstance(output, tuple) else output
-            for output in outputs
-        ]
+
+        module_keys = [k for k in cache._store.keys() if k[0] == module]
+        if not module_keys:
+            return []
+
+        def group_by_fn(k):
+            return (k[0], k[1])
+
+        if use_prefetch:
+            batch_iter = cache.iter_prefetch_grouped(module_keys, group_by=group_by_fn)
+        else:
+            batch_iter = cache.iter_prefetch_grouped(module_keys, group_by=group_by_fn)
+
+        outputs = []
+        for group_dict in batch_iter:
+            batch_kwargs = {k[2]: v for k, v in group_dict.items()}
+            output = module(**batch_kwargs)
+            outputs.append(output[0] if isinstance(output, tuple) else output)
+
+        return outputs
 
     def _compute_best_scale(
         self,
