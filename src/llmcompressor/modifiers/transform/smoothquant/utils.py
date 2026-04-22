@@ -81,13 +81,13 @@ QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 COHERE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=[
-            "re:.*self_attn.q_proj",
-            "re:.*self_attn.k_proj",
-            "re:.*self_attn.v_proj",
-            "re:.*mlp.gate_proj",
-            "re:.*mlp.up_proj",
+            "re:.*self_attn\\.q_proj$",
+            "re:.*self_attn\\.k_proj$",
+            "re:.*self_attn\\.v_proj$",
+            "re:.*mlp\\.gate_proj$",
+            "re:.*mlp\\.up_proj$",
         ],
-        smooth_layers="re:.*input_layernorm",
+        smooth_layers="re:.*input_layernorm$",
     ),
 ]
 
