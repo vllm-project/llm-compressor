@@ -37,7 +37,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | W8A8-INT8     | 8-bit integer (INT8) quantization for weights and activations, providing ~2× smaller weights with 8-bit arithmetic operations |
 | Weights       | Compressed using per-channel, per group |
 | Activations   | Quantized to 8-bit using dynamic or static methods; can also be asymmetric        |
-| Calibration   | Requires calibration dataset if using GPTQ/AWQ for weight qwuantization and for static activation quantization |
+| Calibration   | Requires calibration dataset if using GPTQ/AWQ for weight quantization and for static activation quantization |
 | Use case      | Optimized for general performance and compression, especially for server, batch inference, and high-QPS or offline serving with vLLM |
 
 

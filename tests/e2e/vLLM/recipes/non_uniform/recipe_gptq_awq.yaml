@@ -1,14 +1,16 @@
 quant_stage:
   quant_modifiers:
     AWQModifier:
-      ignore: ["lm_head"]
       duo_scaling: true
-      scheme: "W4A16"
-      targets:
-        - "re:.*self_attn\\.(k|q|o|v)_proj$"
       mappings:
         - smooth_layer: "re:.*input_layernorm$"
           balance_layers: ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"]
+    
+    QuantizationModifier:
+      ignore: ["lm_head"]
+      scheme: "W4A16"
+      targets:
+        - "re:.*self_attn\\.(k|q|o|v)_proj$"
 
     GPTQModifier:
       ignore: ["lm_head"]

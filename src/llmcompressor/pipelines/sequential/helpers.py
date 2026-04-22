@@ -84,6 +84,7 @@ def trace_subgraphs(
     sample_input: dict[str, Any],
     sequential_targets: list[str],
     ignore: list[str],
+    targets_per_subgraph: int = 1,
 ) -> list[Subgraph]:
     """
     Trace a model to produce subgraphs, where each sequential target belongs to exactly
@@ -95,6 +96,7 @@ def trace_subgraphs(
         __len__, __bool__, and __contains__ values are assumed constant across batches
     :param sequential_targets: list of patterns matching sequential targets
     :param ignore: function and method names to skip during tracing
+    :param targets_per_subgraph: number of targets to include per subgraph
     :return: a list of Subgraphs in order of execution
     """
     # find modules
@@ -149,7 +151,7 @@ def trace_subgraphs(
     graph.device = model.device
 
     # perform subgraph partition
-    partitions = topological_partition(graph, targets)
+    partitions = topological_partition(graph, targets, targets_per_subgraph)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
 
@@ -257,7 +259,9 @@ def find_target_nodes(graph: GraphModule, targets: set[Module]) -> set[Node]:
     )
 
 
-def topological_partition(graph: GraphModule, targets: set[Module]) -> list[list[Node]]:
+def topological_partition(
+    graph: GraphModule, targets: set[Module], targets_per_subgraph: int = 1
+) -> list[list[Node]]:
     """
     Partition the graph into partitions such that each `target` belongs to exactly one
     partition and executing each partition depends only on intermediate values produced
@@ -265,11 +269,17 @@ def topological_partition(graph: GraphModule, targets: set[Module]) -> list[list
 
     :param graph: graph being partitioned
     :param targets: target modules which will be assigned to disjoint partitions
+    :param targets_per_subgraph: number of targets to include per subgraph
     :return: list of partitions, where each partition is a list of nodes belonging to
         that partition
     """
     assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
+
+    if targets_per_subgraph <= 0:
+        raise ValueError(
+            "targets_per_subgraph is required to be greater than or equal to one"
+        )
 
     partitions: list[list[Node]] = [[]]
     remaining_indegrees = {
@@ -277,6 +287,7 @@ def topological_partition(graph: GraphModule, targets: set[Module]) -> list[list
         for node in graph.graph.nodes
     }
     partition_index = 0  # global counter
+    targets_seen = 0  # number of targets encountered so far
 
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
@@ -293,8 +304,12 @@ def topological_partition(graph: GraphModule, targets: set[Module]) -> list[list
 
         # guarantee targets are assigned to disjoint partitions
         if node in target_nodes:
-            partition_index += 1
-            partitions.append([])
+            targets_seen += 1
+
+            if targets_seen >= targets_per_subgraph:
+                partition_index += 1
+                partitions.append([])
+                targets_seen = 0
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition
@@ -491,8 +506,8 @@ def handle_sequential_oom(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except torch.cuda.OutOfMemoryError as e:
-            raise torch.cuda.OutOfMemoryError(
+        except torch.OutOfMemoryError as e:
+            raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module "
                 "for `sequential_targets` argument, ex. 'Linear'"
