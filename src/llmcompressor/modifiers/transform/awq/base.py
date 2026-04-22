@@ -1,5 +1,4 @@
 import inspect
-from itertools import product
 from typing import Iterator, Literal
 
 import torch
@@ -658,16 +657,6 @@ class AWQModifier(Modifier):
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
-        match self.duo_scaling:
-            # if self.duo_scaling is "both", perform half the grid search with
-            # duo_scaling off and half with duo_scaling on
-            case "both":
-                n_grid = int(self.n_grid / 2)
-                duo_scalings = [False, True]
-            case _:
-                n_grid = self.n_grid
-                duo_scalings = [self.duo_scaling]
-
         # Where appropriate, replace observers with memoryless_minmax
         # for duration of grid search
         balance_layers_to_patch = [
@@ -689,17 +678,12 @@ class AWQModifier(Modifier):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
-            total_iterations = n_grid * len(duo_scalings)
             pbar = tqdm(
-                product(range(n_grid), duo_scalings),
-                total=total_iterations,
+                self._get_grid_search_params(),
                 desc=f"Grid search for {mapping.smooth_name}",
                 leave=False,
             )
-            for grid_idx, use_duo_scaling in pbar:
-                # create new scales
-                ratio = grid_idx / n_grid
-
+            for ratio, use_duo_scaling in pbar:
                 # NOTE: s^-1 * x is fused here, according to paper
                 if use_duo_scaling:
                     scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
@@ -843,6 +827,42 @@ class AWQModifier(Modifier):
             loss, num_elements = _allreduce_data_sum([loss, num_elements])
         # Normalize the loss by the total number of elements
         return (loss / num_elements).item()
+
+    def _get_grid_search_params(self) -> list[tuple[float, bool]]:
+        """
+        Get list of grid search parameters (ratio, duo_scaling) to use in grid
+        search sweep to find best scales. ratio ∈ [0.0, 1.0]
+
+        :returns: list of (ratio, duo_scaling) tuples, each of which will be run
+            during grid seaarch.
+        """
+
+        match self.duo_scaling:
+            # if self.duo_scaling is "both", perform half the grid search with
+            # duo_scaling off and half with duo_scaling on
+            case "both":
+                n_grid = int(self.n_grid / 2)
+                return [
+                    (grid_idx / (n_grid - 1), duo_scaling)
+                    for grid_idx in range(n_grid)
+                    for duo_scaling in [False, True]
+                ]
+            case False:
+                return [
+                    (grid_idx / (self.n_grid - 1), False)
+                    for grid_idx in range(self.n_grid)
+                ]
+            # if self.duo_scaling is True, explicitly include the (0.0, False)
+            # case, so that identity scaling is included in grid search
+            case True:
+                return [(0.0, False)] + [
+                    (grid_idx / (self.n_grid - 2), True)
+                    for grid_idx in range(self.n_grid - 1)
+                ]
+            case _:
+                raise ValueError(
+                    f"Found unexpected duo_scaling configuration {self.duo_scaling}"
+                )
 
     def _log_error_metrics(self):
         """

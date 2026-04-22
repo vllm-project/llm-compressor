@@ -685,3 +685,46 @@ def test_awq_with_kv_cache_quantization():
 
     # Verify quantization was applied
     assert hasattr(model.model.layers[0].self_attn, "kv_cache")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "n_grid, duo_scaling",
+    [
+        (20, True),
+        (10, False),
+        (30, "both"),
+    ],
+)
+def test_get_grid_search_params(n_grid, duo_scaling):
+    awq = AWQModifier(n_grid=n_grid, duo_scaling=duo_scaling)
+
+    grid_search_params = awq._get_grid_search_params()
+
+    assert (
+        0.0,
+        False,
+    ) in grid_search_params, "Identity scale case (0.0, False) should be in grid search"
+
+    assert all(ratio >= 0.0 for ratio, _ in grid_search_params), "ratio<0 found"
+    assert all(ratio <= 1.0 for ratio, _ in grid_search_params), "ratio>1 found"
+
+    assert (
+        len(grid_search_params) == n_grid
+    ), f"Expected {n_grid} grid points, found {len(grid_search_params)}"
+
+    n_false = len(
+        [ratio for (ratio, duo_scaling) in grid_search_params if duo_scaling is False]
+    )
+    n_true = len(
+        [ratio for (ratio, duo_scaling) in grid_search_params if duo_scaling is True]
+    )
+    if duo_scaling is False:
+        assert n_false == n_grid
+        assert n_true == 0
+    elif duo_scaling is True:
+        # duo_scaling True is hard-coded to include (0.0, False) case
+        assert n_false == 1
+        assert n_true == n_grid - 1
+    else:
+        assert abs(n_false - n_true) <= 1
