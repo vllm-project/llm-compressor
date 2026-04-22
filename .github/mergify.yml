@@ -87,7 +87,10 @@ pull_request_rules:
       - label != stale
       - -closed
       - -draft
-      - author != @vllm-project
+      - author != kylesayrs
+      - author != dsikka
+      - author != HDCharles
+      - author != brian-dellabetta
     actions:
       label:
         add:
