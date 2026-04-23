@@ -90,6 +90,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         For more information, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
+    :param round_scales: Set to True to round scales to their final dtype immediately
+        after calculation, before using them in GPTQ. This is important for float
+        quantization (e.g., nvfp4) where scales are stored in fp8, ensuring GPTQ
+        optimizes with the actual deployed scale values. Defaults to False.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -121,6 +125,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     # TODO: this does not serialize / will be incorrectly written
     actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
+    round_scales: bool = False
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -314,6 +319,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     hessian=self._hessians.pop(module) / self._num_samples.pop(module),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
+                    round_scales=self.round_scales,
                 )
                 comp_logger.set_results(name="GPTQ", loss=loss)
 
