@@ -100,12 +100,18 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
-        self.seed = eval_config.get("seed", None)
+        self.seed = eval_config.get("seed", 42)
 
-        if self.seed is not None:
-            random.seed(self.seed)
-            numpy.random.seed(self.seed)
-            torch.manual_seed(self.seed)
+        random.seed(self.seed)
+        numpy.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
+        logger.info(f"Seed set to {self.seed} with deterministic mode enabled")
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
@@ -187,6 +193,11 @@ class TestLMEval:
             limit=self.lmeval.limit,
             apply_chat_template=self.lmeval.apply_chat_template,
             batch_size=self.lmeval.batch_size,
+            # Pass seeds to lm_eval for deterministic evaluation
+            random_seed=self.seed,
+            numpy_random_seed=self.seed,
+            torch_random_seed=self.seed,
+            fewshot_random_seed=self.seed,
         )
 
         return results

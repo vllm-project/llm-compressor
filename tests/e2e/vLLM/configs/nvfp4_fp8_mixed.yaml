@@ -1,0 +1,9 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/non_uniform/recipe_nvfp4_fp8_mixed.yaml
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+scheme: nvfp4_fp8_mixed
+save_dir: TinyLlama-1.1B-Chat-v1.0-nvfp4-fp8-mixed
+num_calibration_samples: 20

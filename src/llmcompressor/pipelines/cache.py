@@ -3,10 +3,13 @@ from __future__ import annotations
 import sys
 import warnings
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
+from weakref import WeakKeyDictionary
 
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
 
@@ -42,6 +45,10 @@ class IntermediatesCache:
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
 
+    # map of onload value -> offload value
+    # used to avoid excess memory usage when shared tensors are offloaded
+    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
+
     def __init__(
         self,
         batch_intermediates: list[IntermediateValues] | None = None,
@@ -74,7 +81,10 @@ class IntermediatesCache:
         This method iterates through all batches in the dataloader and offloads
         them to the specified device. For faster cache preparation, consider:
         - Increasing batch_size to reduce the number of iterations
-        - Using num_workers > 0 in the DataLoader for parallel loading
+        - Using num_workers > 0 in the DataLoader for parallel loading (e.g. the
+          calibration DataLoader from format_calibration_data uses
+          dataloader_num_workers; when > 0, pin_memory and prefetch_factor are
+          also set where applicable, which speeds both cache build and calibration)
         - Ensuring data preprocessing is done before creating the dataloader
 
         :param dataloader: dataloader which generates values to be cached
@@ -154,13 +164,16 @@ class IntermediatesCache:
         :return: dictionary mapping torch device to number of bytes in cache
         """
         sizes = defaultdict(lambda: 0)
+        memo = set()
 
         def _size_helper(intermediate: IntermediateValue) -> int:
             value = intermediate.value
 
             match value:
                 case torch.Tensor():
-                    sizes[value.device] += value.nbytes
+                    if value not in memo:
+                        sizes[value.device] += value.nbytes
+                    memo.add(value)
                 case list() | tuple():
                     for v in value:
                         _size_helper(v)
@@ -184,6 +197,59 @@ class IntermediatesCache:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
+    def iter_prefetch(
+        self, input_names: list[str] | None = None
+    ) -> Generator[Any, None, None]:
+        """
+        Iterate over batches with the next batch prefetched in a background thread.
+        Overlaps onload from offload_device with consumption of the current batch,
+        which can reduce wall-clock time when offloading to CPU.
+
+        When CUDA is available, uses non_blocking transfers (requires pinned CPU
+        tensors, set up by _offload_value) and synchronises via CUDA events so the
+        main stream waits for each H2D copy before running GPU kernels on the data.
+
+        Yields the same fetched batch dicts as :meth:`iter`; only the timing
+        of onloads differs.
+        """
+        num_batches = len(self.batch_intermediates)
+        if num_batches == 0:
+            return
+
+        # Create a dedicated CUDA stream for H2D transfers so they run on a
+        # separate stream from the main thread's compute stream. Without this,
+        # both threads default to the null stream (stream 0) which serializes
+        # all operations and prevents any overlap.
+        h2d_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+
+        def _fetch_and_record(batch_index):
+            event = None
+            if h2d_stream is not None:
+                with torch.cuda.stream(h2d_stream):
+                    data = self.fetch(batch_index, input_names)
+                event = torch.cuda.Event()
+                event.record(h2d_stream)
+            else:
+                data = self.fetch(batch_index, input_names)
+            return data, event
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = None
+            for batch_index in range(num_batches):
+                if future is not None:
+                    current, event = future.result()
+                else:
+                    current, event = _fetch_and_record(batch_index)
+                if batch_index + 1 < num_batches:
+                    future = executor.submit(_fetch_and_record, batch_index + 1)
+                else:
+                    future = None
+                # Make the main CUDA stream wait for the background H2D copy
+                # before any GPU kernel consumes the prefetched tensors
+                if event is not None:
+                    torch.cuda.current_stream().wait_event(event)
+                yield current
+
     def __iter__(self) -> Generator[Any, None, None]:
         yield from self.iter()
 
@@ -203,7 +269,16 @@ class IntermediatesCache:
 
         match value:
             case torch.Tensor():
-                return value.to(device=device)
+                # use non_blocking when source is pinned and target is an accelerator
+                # so the H2D DMA can overlap with compute on a separate stream
+                non_blocking = (
+                    value.is_pinned()
+                    and device is not None
+                    and torch.accelerator.is_available()
+                    and torch.device(device).type
+                    == torch.accelerator.current_accelerator().type
+                )
+                return value.to(device=device, non_blocking=non_blocking)
             case list():
                 return [cls._onload_value(v) for v in value]
             case tuple():
@@ -239,8 +314,25 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
+                with OverrideEqMode():
+                    # check for cache hit between shared tensors
+                    if value in cls.offload_values:
+                        offloaded = cls.offload_values[value]
+                    else:
+                        # move to offload if no hit
+                        offloaded = value.to(device=offload_device)
+                        if offloaded is not value:  # avoid circular ref
+                            # pin CPU tensors so onload can use non_blocking DMA
+                            if (
+                                torch.device(offload_device).type == "cpu"
+                                and torch.accelerator.is_available()
+                                and not offloaded.is_pinned()
+                            ):
+                                offloaded = offloaded.pin_memory()
+                            cls.offload_values[value] = offloaded
+
                 return IntermediateValue(
-                    value=value.to(device=offload_device),
+                    value=offloaded,
                     device=(onload_device if onload_device else value.device),
                 )
             case list():
@@ -274,3 +366,34 @@ class IntermediatesCache:
                 ):
                     warnings.warn(f"Offloading not implemented for type {type(value)}.")
                 return IntermediateValue(value=value, device=None)
+
+
+class OverrideEqMode(TorchDispatchMode):
+    """
+    When using a torch.Tensor as a key in a dictionary, the equality
+    check must return a single value instead of a torch.Tensor
+    of bool values.
+    Use this override context for such cases, to swap out the torch.eq
+    equality check for a check on id
+    >>> a = torch.tensor([1,2,3])
+    >>> b = torch.tensor([1,2,3])
+    >>> a == b
+    tensor([True, True, True])
+    >>> with OverrideEqMode():
+    ...     a == b
+    tensor(True)
+    """
+
+    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+
+        # Check if the operation is equality
+        if func is torch.ops.aten.eq.Tensor:
+            # Override to use torch.equal
+            assert len(args) == 2, "Exactly 2 args must be provided"
+
+            # NOTE: Errors out without cast to torch.tensor
+            return torch.tensor(id(args[0]) == id(args[1]))
+
+        # For all other operations, just run them normally
+        return func(*args, **kwargs)

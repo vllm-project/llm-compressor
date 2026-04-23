@@ -1,12 +1,13 @@
 import argparse
 
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
 
 
 def parse_args():
@@ -62,7 +63,6 @@ def tokenize(sample):
 recipe = [
     GPTQModifier(targets=r"re:.*self_attn\.(k|q|o|v)_proj$", scheme="W8A8"),
     AWQModifier(
-        targets=r"re:.*mlp\.(down|gate|up)_proj$",
         mappings=[
             AWQMapping(
                 "re:.*post_attention_layernorm$",
@@ -73,6 +73,9 @@ recipe = [
                 ["re:.*down_proj$"],
             ),
         ],
+    ),
+    QuantizationModifier(
+        targets=r"re:.*mlp\.(down|gate|up)_proj$",
         scheme="W4A16",
     ),
 ]
@@ -98,7 +101,7 @@ if __name__ == "__main__":
     # Confirm generations of the quantized model look sane.
     print("\n\n")
     print("========== SAMPLE GENERATION ==============")
-    dispatch_for_generation(model)
+    dispatch_model(model)
     sample = tokenizer("Hello my name is", return_tensors="pt")
     sample = {key: value.to(model.device) for key, value in sample.items()}
     output = model.generate(**sample, max_new_tokens=100)
