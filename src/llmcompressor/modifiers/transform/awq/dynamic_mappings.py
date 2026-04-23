@@ -116,6 +116,7 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
                     # TODO: should add "re:.*mlp.gate.weight$" but is a Parameter
                     "re:.*mlp.experts.*.gate_proj$",
                     "re:.*mlp.experts.*.up_proj$",
+                    "re:.*mlp.shared_expert_gate$",
                     "re:.*mlp.shared_expert.gate_proj$",
                     "re:.*mlp.shared_expert.up_proj$",
                 ],
