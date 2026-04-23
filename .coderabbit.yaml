@@ -66,6 +66,8 @@ reviews:
       instructions: "Issues or PRs related to model transforms functionality. Match case-insensitively — 'transforms', 'Transforms', 'TRANSFORMS' all qualify."
     - label: "tracing"
       instructions: "Issues or PRs related to model tracing functionality. Match case-insensitively — 'tracing', 'Tracing', 'TRACING' all qualify."
+    - label: "two-reviews"
+      instructions: "Apply when the PR makes significant or substantial changes to source code under src/ (e.g. large refactors, new core functionality, public API changes, or modifications spanning multiple components), or when it changes dependency version bounds in pyproject.toml or setup.py."
   auto_review:
     enabled: true
     ignore_title_keywords:

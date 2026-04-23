@@ -6,14 +6,18 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
     QuantizationStrategy,
+    apply_quantization_config,
 )
 from pydantic import ValidationError
 from torch.nn import Linear
 from torch.testing import assert_close
 
-from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import get_lowest_common_ancestor_with_avoid
 from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.transform.awq.base import (
+    get_lowest_common_ancestor_with_avoid,
+)
 from llmcompressor.utils import get_high_precision
 from tests.testing_utils import requires_gpu
 
@@ -26,7 +30,7 @@ def test_awq_is_registered():
         type_="AWQModifier",
         allow_experimental=False,
         allow_registered=True,
-        scheme="W4A16_ASYM",
+        duo_scaling="both",
     )
 
     assert isinstance(modifier, AWQModifier), "AWQModifier not registered"
@@ -46,7 +50,6 @@ def test_set_resolved_mappings():
                 ["re:.*down_proj"],
             ),
         ],
-        scheme="W4A16_ASYM",
     )
     self_attn = torch.nn.ModuleDict(
         {
@@ -83,6 +86,10 @@ def test_set_resolved_mappings():
             )
         }
     )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
     awq._set_resolved_mappings(model)
     for mapping in awq._resolved_mappings:
         if "input_layernorm" in mapping.smooth_name:
@@ -115,7 +122,6 @@ def test_set_resolved_mappings():
             # make sure we exclude mapping if any balance layers are skipped
             AWQMapping("re:.*v_proj", ["re:.*z_proj", "re:.*o_proj"]),
         ],
-        scheme="W4A16_ASYM",
     )
     model = torch.nn.ModuleDict(
         {
@@ -134,6 +140,10 @@ def test_set_resolved_mappings():
             )
         }
     )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
     awq._set_resolved_mappings(model)
     if len(awq._resolved_mappings) > 0:
         assert all(
@@ -150,70 +160,11 @@ def test_set_resolved_mappings():
 
 @pytest.mark.unit
 def test_validate():
-    AWQModifier(scheme="W4A16", duo_scaling="both")
+    AWQModifier(duo_scaling="both")
     with pytest.raises(ValidationError):
-        AWQModifier(scheme="W4A16", duo_scaling="Both")
+        AWQModifier(duo_scaling="Both")
     with pytest.raises(ValidationError):
-        AWQModifier(scheme="W4A16", duo_scaling="x")
-
-
-@pytest.mark.unit
-def test_ignore_behavior():
-    """Test that mapping is skipped when NO layers are targeted for quantization"""
-    # Test case 1: Some balance layers ignored but at least one is targeted
-    # Mapping should proceed
-    awq = AWQModifier(
-        mappings=[
-            AWQMapping(
-                "re:.*input_layernorm",
-                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-            ),
-        ],
-        ignore=["re:.*q_proj", "re:.*k_proj"],  # Only 2 of 3 balance layers ignored
-        scheme="W4A16_ASYM",
-    )
-
-    self_attn = torch.nn.ModuleDict(
-        {
-            "q_proj": Linear(4, 4),
-            "k_proj": Linear(4, 4),
-            "v_proj": Linear(4, 4),
-        }
-    )
-    model = torch.nn.ModuleDict(
-        {
-            "decoder": torch.nn.ModuleDict(
-                {
-                    "self_attn": self_attn,
-                    "input_layernorm": torch.nn.LayerNorm(4),
-                }
-            )
-        }
-    )
-
-    awq._set_resolved_mappings(model)
-
-    # Mapping should exist because v_proj is targeted for quantization
-    assert len(awq._resolved_mappings) == 1
-
-    # Test case 2: All Linear layers ignored - mapping should be skipped
-    # because no layers are targeted for quantization
-    awq2 = AWQModifier(
-        mappings=[
-            AWQMapping(
-                "re:.*input_layernorm",
-                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-            ),
-        ],
-        ignore=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-        scheme="W4A16_ASYM",
-    )
-
-    awq2._set_resolved_mappings(model)
-
-    # Mapping should be skipped because no layers are targeted for quantization
-    # (input_layernorm is LayerNorm, not Linear, so not targeted anyway)
-    assert len(awq2._resolved_mappings) == 0
+        AWQModifier(duo_scaling="x")
 
 
 @pytest.mark.unit
@@ -227,7 +178,6 @@ def test_moe_multiple_balance_layers():
                 ["re:.*gate_proj", "re:.*up_proj"],
             ),
         ],
-        scheme="W4A16_ASYM",
     )
 
     # Create a simplified MoE model structure
@@ -256,6 +206,10 @@ def test_moe_multiple_balance_layers():
                 }
             )
         }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
     )
 
     awq._set_resolved_mappings(model)
@@ -299,7 +253,6 @@ def test_qwen3_next_moe_with_shared_expert():
                 ],
             ),
         ],
-        scheme="W4A16_ASYM",
     )
 
     # Create a Qwen3Next-like MoE model structure with shared_expert
@@ -335,6 +288,11 @@ def test_qwen3_next_moe_with_shared_expert():
                 }
             )
         }
+    )
+
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
     )
 
     awq._set_resolved_mappings(model)
@@ -387,7 +345,6 @@ def test_qwen3_next_hybrid_attention():
             ),
             AWQMapping("re:.*linear_attn.norm$", ["re:.*linear_attn.out_proj$"]),
         ],
-        scheme="W4A16_ASYM",
     )
 
     # Create a Qwen3Next-like model with both self_attn and linear_attn layers
@@ -425,6 +382,11 @@ def test_qwen3_next_hybrid_attention():
         {
             "layers": torch.nn.ModuleList([linear_attn_layer, self_attn_layer]),
         }
+    )
+
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
     )
 
     awq._set_resolved_mappings(model)
@@ -690,6 +652,7 @@ def test_awq_with_kv_cache_quantization():
     from transformers import AutoModelForCausalLM
 
     from llmcompressor import oneshot
+    from llmcompressor.modifiers.quantization import QuantizationModifier
 
     model_id = "nm-testing/tinysmokellama-3.2"
     model = AutoModelForCausalLM.from_pretrained(
@@ -697,25 +660,71 @@ def test_awq_with_kv_cache_quantization():
     )
     dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
 
-    modifier = AWQModifier(
-        targets="Linear",
-        scheme="W8A16",
-        kv_cache_scheme=QuantizationArgs(
-            num_bits=8,
-            type=QuantizationType.FLOAT,
-            strategy=QuantizationStrategy.TENSOR,
-            symmetric=True,
-            dynamic=False,
+    recipe = [
+        AWQModifier(),
+        QuantizationModifier(
+            targets="Linear",
+            scheme="W8A16",
+            kv_cache_scheme=QuantizationArgs(
+                num_bits=8,
+                type=QuantizationType.FLOAT,
+                strategy=QuantizationStrategy.TENSOR,
+                symmetric=True,
+                dynamic=False,
+            ),
         ),
-    )
+    ]
 
     oneshot(
         model=model,
         dataset=dataset,
-        recipe=[modifier],
+        recipe=recipe,
         max_seq_length=16,
         num_calibration_samples=1,
     )
 
     # Verify quantization was applied
     assert hasattr(model.model.layers[0].self_attn, "kv_cache")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "n_grid, duo_scaling",
+    [
+        (20, True),
+        (10, False),
+        (30, "both"),
+    ],
+)
+def test_get_grid_search_params(n_grid, duo_scaling):
+    awq = AWQModifier(n_grid=n_grid, duo_scaling=duo_scaling)
+
+    grid_search_params = awq._get_grid_search_params()
+
+    assert (
+        0.0,
+        False,
+    ) in grid_search_params, "Identity scale case (0.0, False) should be in grid search"
+
+    assert all(ratio >= 0.0 for ratio, _ in grid_search_params), "ratio<0 found"
+    assert all(ratio <= 1.0 for ratio, _ in grid_search_params), "ratio>1 found"
+
+    assert (
+        len(grid_search_params) == n_grid
+    ), f"Expected {n_grid} grid points, found {len(grid_search_params)}"
+
+    n_false = len(
+        [ratio for (ratio, duo_scaling) in grid_search_params if duo_scaling is False]
+    )
+    n_true = len(
+        [ratio for (ratio, duo_scaling) in grid_search_params if duo_scaling is True]
+    )
+    if duo_scaling is False:
+        assert n_false == n_grid
+        assert n_true == 0
+    elif duo_scaling is True:
+        # duo_scaling True is hard-coded to include (0.0, False) case
+        assert n_false == 1
+        assert n_true == n_grid - 1
+    else:
+        assert abs(n_false - n_true) <= 1

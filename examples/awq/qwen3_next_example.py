@@ -2,7 +2,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Thinking"
