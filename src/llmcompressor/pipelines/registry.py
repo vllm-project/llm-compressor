@@ -11,6 +11,7 @@ from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modifiers.pruning.sparsegpt.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -61,7 +62,13 @@ class CalibrationPipeline(ABC, RegistryMixin):
         def _modifier_requires_calibration(modifier: Modifier):
             if isinstance(
                 modifier,
-                (SmoothQuantModifier, SparsityModifierBase, GPTQModifier, AWQModifier),
+                (
+                    SmoothQuantModifier,
+                    SparsityModifierBase,
+                    GPTQModifier,
+                    AWQModifier,
+                    IMatrixGatherer,
+                ),
             ):
                 return True
             elif isinstance(modifier, QuantizationModifier):
