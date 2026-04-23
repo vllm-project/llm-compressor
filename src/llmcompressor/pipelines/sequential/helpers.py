@@ -165,11 +165,7 @@ class SequentialTracer(HFTracer):
     inside of sequential targets, nor any modules which are not call graph ancestors of
     sequential targets
 
-    Tracing within sequential targets is unnecessary, and tracing within offloaded
-    modules may result in meta tensors being added to the model graph
-
     :param ancestors: modules which are ancestors of sequential targets
-    :param offloaded: modules which have offloaded params and should not be traced
     """
 
     def __init__(self, ancestors: set[Module]):
@@ -188,7 +184,7 @@ class SequentialTracer(HFTracer):
             return super().create_arg(a)
 
     def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-        # do not trace non-ancestors or modules with offloaded params
+        # do not trace non-ancestors; trace sequential ancestors only
         return module not in self.ancestors
 
 
