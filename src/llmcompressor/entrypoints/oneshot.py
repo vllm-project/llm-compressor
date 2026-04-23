@@ -106,6 +106,7 @@ class Oneshot:
     def __init__(
         self,
         log_dir: str | None = None,
+        clean_offload_dir: bool = True,
         **kwargs,
     ):
         """
@@ -124,6 +125,8 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
+        :param clean_offload_dir: Whether to clean up intermediate offload files
+            after oneshot completes. Defaults to True.
         """
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
@@ -163,6 +166,7 @@ class Oneshot:
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
+        self.clean_offload_dir = clean_offload_dir
 
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
@@ -194,6 +198,7 @@ class Oneshot:
             model_args=self.model_args,
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
+            clean_offload_dir=self.clean_offload_dir,
         )
 
     def apply_recipe_modifiers(
@@ -305,6 +310,7 @@ def oneshot(
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
+    clean_offload_dir: bool = True,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -402,6 +408,9 @@ def oneshot(
         Nothing is saved if None.
     :param log_dir: Path to save logs during oneshot run.
         Nothing is logged to file if None.
+    :param clean_offload_dir: Whether to clean up intermediate offload files after
+        oneshot completes. These are temporary files created during disk offloading
+        (symlinks and intermediate tensors). Defaults to True.
 
     :return: The calibrated PreTrainedModel
     """
