@@ -344,15 +344,17 @@ class AWQModifier(Modifier):
                     for balance_layer in balance_layers
                 ]
 
-                smooth_layer_targeted = smooth_name in targeted_names
                 do_smooth_fake_quant = (
                     self.smooth_layer_fake_quant
-                    and smooth_layer_targeted
-                    and smooth_name is not None
+                    and hasattr(smooth_layer, "quantization_scheme")
+                    and hasattr(smooth_layer.quantization_scheme, "weights")
                 )
                 # Check if at least one layer is targeted for quantization
                 any_targeted = do_smooth_fake_quant or any(
-                    bn in targeted_names for bn in balance_names
+                    [
+                        hasattr(balance_layer, "quantization_scheme")
+                        for balance_layer in balance_layers
+                    ]
                 )
 
                 all_compatible = _check_layers_are_compatible(
@@ -586,15 +588,18 @@ class AWQModifier(Modifier):
                     module: Module, orig_layer_weights: dict[Module, torch.Tensor]
                 ):
                     device = module.weight.device
-                    weight = orig_layer_weights.get(module, smooth_layer.weight).to(device)
-                    scales = best_scales.to(device).to(weight.dtype)
+                    scales = best_scales.to(device)
                     if module in balance_layers:
+                        weight = orig_layer_weights[module].to(device)
+                        scales = scales.to(weight.dtype)
                         update_offload_parameter(
                             module,
                             "weight",
                             weight * scales.view(1, -1),
                         )
                     elif module == smooth_layer:
+                        weight = orig_layer_weights.get(module, smooth_layer.weight).to(device)
+                        scales = scales.to(weight.dtype)
                         if smooth_layer.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
