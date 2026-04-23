@@ -7,11 +7,6 @@ An ideal compression technique reduces memory footprint while maintaining accura
 PTQ is performed to reduce the precision of quantizable weights (e.g., linear layers) to a lower bit-width. 
 A complete list of formats can be found here: https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/compression_schemes/
 
-### Sparsification
-Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
--  [2:4-Sparsity with FP4 Weight](../../../examples/quantization_2of4_sparse_w4a16/README.md)
--  [2:4-Sparsity with FP8 Weight, FP8 Input Activation](../../../examples/sparse_2of4_quantization_fp8/README.md)
-
 ### Example
 
 Example scripts for all the above formats are located in the [examples](../../../examples/) folder. The [W8A8-FP8](../../../examples/quantization_w8a8_fp8/llama3_example.py) example is shown below: 

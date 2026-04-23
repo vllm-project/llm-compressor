@@ -1,17 +1,18 @@
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 MODEL_ID = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-W4A16-awq"
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(
-        duo_scaling=False,
+    AWQModifier(duo_scaling=False),
+    QuantizationModifier(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
@@ -68,7 +69,7 @@ if __name__ == "__main__":
 
     # Confirm generations of the quantized model look sane.
     print("========== SAMPLE GENERATION ==============")
-    dispatch_for_generation(model)
+    dispatch_model(model)
     input_ids = tokenizer(
         "Write a binary search function", return_tensors="pt"
     ).input_ids.to(model.device)

@@ -86,8 +86,8 @@ setup(
         "local_scheme": localversion_func,
         "version_file": "src/llmcompressor/version.py",
     },
-    author="Neuralmagic, Inc.",
-    author_email="support@neuralmagic.com",
+    author="The vLLM Project",
+    author_email="vllm-questions@lists.berkeley.edu",
     description=(
         "A library for compressing large language models utilizing the "
         "latest techniques and research in the field for both "
@@ -102,7 +102,7 @@ setup(
         "huggingface, compressors, compression, quantization, pruning, "
         "sparsity, optimization, model optimization, model compression, "
     ),
-    license="Apache",
+    license="Apache 2.0",
     url="https://github.com/vllm-project/llm-compressor",
     include_package_data=True,
     package_dir={"": "src"},
@@ -112,27 +112,26 @@ setup(
     install_requires=[
         ("loguru>=0.7.2,<=0.7.3" if BUILD_TYPE == "release" else "loguru>=0.7.2"),
         ("pyyaml>=6.0.1,<=6.0.3" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
-        # librosa dependency numba is currently not compatible with numpy>=2.3
-        # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
-        ("numpy>=2.0.0,<=2.3.5" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
+        # librosa 0.11.0 supports numpy 2.x
+        # https://librosa.org/doc/0.11.0/changelog.html
+        ("numpy>=2.0.0,<=2.4.2" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         (
             "requests>=2.32.2,<=2.32.5"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
-        ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.7.0,<=2.9.1" if BUILD_TYPE == "release" else "torch>=2.7.0"),
+        ("tqdm>=4.66.3,<=4.67.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
+        ("torch>=2.10.0,<=2.11.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=4.56.1,<=4.57.5"
+            "transformers>=4.56.1,<=4.57.6"
             if BUILD_TYPE == "release"
-            else "transformers>=4.56.1,<=4.57.5"
+            else "transformers>=4.56.1,<=4.57.6"
         ),
-        ("datasets>=4.0.0,<=4.4.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("datasets>=4.0.0,<=4.6.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
-            # auto-round 0.9.1 cannot work with accelerate <1.10.0
-            "auto-round>=0.9.4,<=0.9.4"
+            "auto-round>=0.10.2,<=0.10.2"
             if BUILD_TYPE == "release"
-            else "auto-round>=0.9.4"
+            else "auto-round>=0.10.2"
         ),
         (
             "accelerate>=1.6.0,<=1.12.0"
@@ -140,15 +139,15 @@ setup(
             else "accelerate>=1.6.0"
         ),
         (
-            "nvidia-ml-py>=12.560.30,<=13.590.44"
+            "nvidia-ml-py>=12.560.30,<=13.590.48"
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<=12.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=10.4.0,<=12.1.1" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.13.0"
+            "compressed-tensors==0.14.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.13.1a2"
+            else "compressed-tensors>=0.15.1a2"
         ),
     ],
     extras_require={
@@ -172,17 +171,14 @@ setup(
             "ruff~=0.4.8",
             # pre commit hooks
             "pre-commit",
-            # docs
-            "mkdocs",
-            "mkdocs-material[imaging]",
+            # docs - zensical
+            "mkdocstrings-python",
+            "zensical",
             "markdown",
             "pymdown-extensions",
-            "mkdocs-section-index",
-            "mkdocs-minify-plugin",
-            "mkdocs-api-autonav",
-            "mkdocstrings-python",
-            "mkdocs-gen-files",
-            "mkdocs-nav-weight",
+        ],
+        "qwen": [
+            "qwen_vl_utils",
         ],
     },
     entry_points={

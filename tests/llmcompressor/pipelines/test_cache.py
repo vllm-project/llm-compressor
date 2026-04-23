@@ -5,7 +5,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
 
-from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,29 @@ def test_initialization(sample_dataloader):
     assert isinstance(cache, IntermediatesCache)
     assert len(cache.batch_intermediates) > 0
     assert isinstance(cache.batch_intermediates[0], dict)
+
+
+@pytest.mark.unit
+def test_iter_prefetch_empty_cache():
+    """iter_prefetch yields nothing when cache has no batches."""
+    cache = IntermediatesCache.empty(0, torch.device("cpu"))
+    assert list(cache.iter_prefetch()) == []
+
+
+@pytest.mark.unit
+def test_iter_prefetch_matches_iter(sample_cache):
+    """iter_prefetch yields the same batch contents as iter."""
+
+    def batch_dicts_equal(a: dict, b: dict) -> bool:
+        if set(a.keys()) != set(b.keys()):
+            return False
+        return all(deep_equal(a[k], b[k]) for k in a)
+
+    via_iter = list(sample_cache.iter())
+    via_prefetch = list(sample_cache.iter_prefetch())
+    assert len(via_iter) == len(via_prefetch)
+    for i, (b_iter, b_prefetch) in enumerate(zip(via_iter, via_prefetch)):
+        assert batch_dicts_equal(b_iter, b_prefetch), f"batch {i} differs"
 
 
 @pytest.mark.unit
@@ -164,3 +187,18 @@ def deep_equal(a, b) -> bool:
             return deep_equal(a_dict, b_dict)
         case _:
             return a == b
+
+
+def test_override_eq_mode():
+    a = torch.tensor([1, 2, 3])
+    b = a
+    c = torch.tensor([2, 2, 2])
+
+    with pytest.raises(RuntimeError):
+        assert a == b
+    with pytest.raises(RuntimeError):
+        assert not (a == c)
+
+    with OverrideEqMode():
+        assert a == b
+        assert not (a == c)

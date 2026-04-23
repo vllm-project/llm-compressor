@@ -1,9 +1,10 @@
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -40,11 +41,11 @@ ds = ds.map(preprocess)
 # W4AFP8 scheme: 4-bit integer weights (group 128) + FP8 dynamic per-token activations
 # AWQ smooths the weights before quantization to reduce quantization error.
 recipe = [
-    AWQModifier(
+    AWQModifier(duo_scaling=True),
+    QuantizationModifier(
         ignore=["lm_head"],
         scheme="W4AFP8",
         targets=["Linear"],
-        duo_scaling=True,
     ),
 ]
 
@@ -60,7 +61,7 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

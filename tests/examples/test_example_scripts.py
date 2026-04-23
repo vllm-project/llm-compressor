@@ -8,76 +8,44 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple
 
 import pytest
-from transformers import AutoConfig
+from compressed_tensors.config import CompressionFormat
 
 from tests.testing_utils import requires_gpu, run_cli_command
 
 
-def replace_2of4_w4a16_recipe(content: str) -> str:
-    return content.replace("2of4_w4a16_recipe.yaml", "2of4_w4a16_group-128_recipe.yaml")
-
-
-def verify_2of4_w4a16_output(tmp_path: Path, example_dir: str):
-    output_dir = Path("output_llama7b_2of4_w4a16_channel")
-
-    stages = {
-        "quantization": {
-            "path": Path("quantization_stage"),
-            "format": "marlin-24",
-        },
-        "sparsity": {
-            "path": Path("sparsity_stage"),
-            "format": "sparse-24-bitmask",
-        },
-    }
-
-    for stage, stage_info in stages.items():
-        stage_path = tmp_path / example_dir / output_dir / stage_info["path"]
-        recipe_path = stage_path / "recipe.yaml"
-        config_path = stage_path / "config.json"
-
-        assert recipe_path.exists(), f"Missing recipe file in {stage}: {recipe_path}"
-        assert config_path.exists(), f"Missing config file in {stage}: {config_path}"
-
-        config = AutoConfig.from_pretrained(stage_path)
-        assert config is not None, f"Failed to load config in {stage}"
-
-        quant_config = getattr(config, "quantization_config", {})
-        if stage == "quantization":
-            actual_format = quant_config.get("format")
-        else:
-            actual_format = quant_config.get("sparsity_config", {}).get("format")
-
-        assert actual_format, f"Missing expected format field in {stage} config"
-        assert actual_format == stage_info["format"], (
-            f"Unexpected format in {stage}: got '{actual_format}', "
-            f"expected '{stage_info['format']}'"
-        )
-
-
-def verify_w4a4_fp4_output(tmp_path: Path, example_dir: str):
+def verify_quantization_config(
+    tmp_path: Path, prefix: str, compressed_format: CompressionFormat
+):
     # verify the expected directory was generated
-    nvfp4_dirs: List[Path] = [p for p in tmp_path.rglob("*-NVFP4") if p.is_dir()]
-    assert (
-        len(nvfp4_dirs)
-    ) == 1, f"did not find exactly one generated folder: {nvfp4_dirs}"
+    dirs: List[Path] = [p for p in tmp_path.rglob(f"*-{prefix}") if p.is_dir()]
+    assert (len(dirs)) == 1, f"did not find exactly one generated folder: {dirs}"
 
     # verify the format in the generated config
-    config_json = json.loads((nvfp4_dirs[0] / "config.json").read_text())
+    config_json = json.loads((dirs[0] / "config.json").read_text())
     config_format = config_json["quantization_config"]["format"]
-    assert config_format == "nvfp4-pack-quantized"
+    assert config_format == compressed_format.value
 
 
 class TestCase(NamedTuple):
     path: str
     flags: tuple[str] = ()
     preprocess_fn: None | Callable[[str], str] = None
-    # verify_fn(tmp_path, example_dir)
-    verify_fn: Callable[[Path, str], None] | None = None
+    # verify_fn(tmp_path, prefix, compressed_format)
+    verify_fn: Callable[[Path, str, CompressionFormat], None] | None = (
+        verify_quantization_config
+    )
+    compressed_format: CompressionFormat | None = None
+    prefix: str | None = None
 
     def __repr__(self):
         values = [f"'{self.path}'"]
-        for attr_name in ["flags", "preprocess_fn", "verify_fn"]:
+        for attr_name in [
+            "flags",
+            "preprocess_fn",
+            "verify_fn",
+            "prefix",
+            "compressed_format",
+        ]:
             attr = getattr(self, attr_name)
             if attr:
                 if callable(attr):
@@ -95,74 +63,109 @@ class TestCase(NamedTuple):
 @pytest.mark.parametrize(
     "test_case",
     [
-        "awq/llama_example.py",
-        "awq/qwen3_moe_example.py",
-        "big_models_with_sequential_onloading/llama3.3_70b.py",
-        "compressed_inference/fp8_compressed_inference.py",
-        "quantization_kv_cache/llama3_fp8_kv_example.py",
-        "quantization_w4a16/llama3_example.py",
-        "quantization_w8a8_fp8/gemma2_example.py",
-        "quantization_w8a8_fp8/fp8_block_example.py",
-        "quantization_w8a8_fp8/llama3_example.py",
-        "quantization_w8a8_int8/llama3_example.py",
-        "quantization_w8a8_int8/gemma2_example.py",
-        "quantizing_moe/mixtral_example.py",
         pytest.param(
-            "quantizing_moe/mixtral_example.py",
+            TestCase(
+                "quantization_w4a16/llama3_ddp_example.py",
+                compressed_format=CompressionFormat.pack_quantized,
+                prefix="W4A16-G128-DDP2",
+            ),
             marks=(requires_gpu(2), pytest.mark.multi_gpu),
         ),
-        "quantizing_moe/qwen_example.py",
-        # sparse_2of4
-        "sparse_2of4_quantization_fp8/llama3_8b_2of4.py",
         TestCase(
-            "sparse_2of4_quantization_fp8/llama3_8b_2of4.py",
-            flags=["--fp8"],
+            "awq/llama_example.py",
+            compressed_format=CompressionFormat.pack_quantized,
+            prefix="awq-asym",
         ),
         TestCase(
-            "quantization_2of4_sparse_w4a16/llama7b_sparse_w4a16.py",
-            preprocess_fn=replace_2of4_w4a16_recipe,
+            "awq/qwen3_moe_example.py",
+            compressed_format=CompressionFormat.pack_quantized,
+            prefix="awq-sym",
         ),
         TestCase(
-            "quantization_2of4_sparse_w4a16/llama7b_sparse_w4a16.py",
-            verify_fn=verify_2of4_w4a16_output,
-        ),
-        # w4a4_fp4
-        TestCase(
-            "quantization_w4a4_fp4/llama3_example.py", verify_fn=verify_w4a4_fp4_output
+            "big_models_with_sequential_onloading/llama3.3_70b.py",
+            compressed_format=CompressionFormat.int_quantized,
+            prefix="W8A8",
         ),
         TestCase(
-            "quantization_w4a4_fp4/llama4_example.py", verify_fn=verify_w4a4_fp4_output
+            "quantization_kv_cache/llama3_fp8_kv_example.py",
+            compressed_format=CompressionFormat.float_quantized,
+            prefix="FP8-KV",
         ),
         TestCase(
-            "quantization_w4a4_fp4/qwen_30b_a3b.py", verify_fn=verify_w4a4_fp4_output
+            "quantization_w4a16/llama3_example.py",
+            compressed_format=CompressionFormat.pack_quantized,
+            prefix="W4A16-G128",
         ),
-        # skips
-        pytest.param(
-            "quantizing_moe/deepseek_r1_example.py",
-            marks=pytest.mark.skip("exceptionally long run time"),
+        TestCase(
+            "quantization_w8a8_fp8/fp8_block_example.py",
+            compressed_format=CompressionFormat.float_quantized,
+            prefix="30B-A3B-FP8-BLOCK",
         ),
-        pytest.param(
-            "trl_mixin/ex_trl_constant.py",
-            marks=pytest.mark.skip("disabled until further updates"),
+        TestCase(
+            "quantization_w8a8_fp8/llama3_example.py",
+            compressed_format=CompressionFormat.float_quantized,
+            prefix="FP8-Dynamic",
         ),
-        pytest.param(
-            "trl_mixin/ex_trl_distillation.py",
-            marks=(
-                pytest.mark.skip("disabled until further updates"),
-                pytest.mark.multi_gpu,
-            ),
+        TestCase(
+            "quantization_w8a8_fp8/qwen3_vl_moe_fp8_example.py",
+            compressed_format=CompressionFormat.float_quantized,
+            prefix="235B-A22B-Instruct-FP8-DYNAMIC",
+        ),
+        TestCase(
+            "disk_offloading/qwen3_example.py",
+            compressed_format=CompressionFormat.nvfp4_pack_quantized,
+            prefix="NVFP4-Disk-Offload",
+        ),
+        TestCase(
+            "model_free_ptq/qwen3_fp8_block.py",
+            compressed_format=CompressionFormat.float_quantized,
+            prefix="FP8-BLOCK",
+        ),
+        TestCase(
+            "multimodal_vision/qwen3_vl_example.py",
+            compressed_format=CompressionFormat.pack_quantized,
+            prefix="W4A16",
+        ),
+        TestCase(
+            "quantization_w4a16_fp4/mxfp4/qwen3_example.py",
+            compressed_format=CompressionFormat.mxfp4_pack_quantized,
+            prefix="MXFP4A16",
+        ),
+        TestCase(
+            "quantization_w4a4_fp4/llama4_example.py",
+            compressed_format=CompressionFormat.nvfp4_pack_quantized,
+            prefix="NVFP4",
+        ),
+        TestCase(
+            "quantization_w4a4_fp4/qwen_30b_a3b.py",
+            compressed_format=CompressionFormat.nvfp4_pack_quantized,
+            prefix="30B-A3B-NVFP4",
+        ),
+        TestCase(
+            "quantization_w4a4_fp4/llama3_gptq_example.py",
+            compressed_format=CompressionFormat.nvfp4_pack_quantized,
+            prefix="NVFP4-GPTQ",
         ),
     ],
     ids=repr,
 )
-def test_example_scripts(test_case: str | TestCase, tmp_path: Path):
+def test_example_scripts(
+    test_case: str | TestCase, tmp_path: Path, request: pytest.FixtureRequest
+):
     if isinstance(test_case, str):
         test_case = TestCase(test_case)
 
     example_subdir, filename = test_case.path.rsplit("/", 1)
     example_dir = f"examples/{example_subdir}"
 
-    command = [sys.executable, filename]
+    # Check if this is a multi-GPU test
+    is_multi_gpu = "multi_gpu" in [mark.name for mark in request.node.iter_markers()]
+
+    if is_multi_gpu:
+        command = ["torchrun", "--standalone", "--nproc_per_node=2", filename]
+    else:
+        command = [sys.executable, filename]
+
     if test_case.flags:
         command.extend(test_case.flags)
 
@@ -183,4 +186,4 @@ def test_example_scripts(test_case: str | TestCase, tmp_path: Path):
     )
 
     if test_case.verify_fn:
-        test_case.verify_fn(tmp_path, example_dir)
+        test_case.verify_fn(tmp_path, test_case.prefix, test_case.compressed_format)

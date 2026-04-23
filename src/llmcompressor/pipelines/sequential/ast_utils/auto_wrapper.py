@@ -1,6 +1,6 @@
 import ast
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Union
+from typing import Any
 
 from loguru import logger
 
@@ -21,10 +21,10 @@ class AutoWrapper(ast.NodeTransformer):
     See also: https://github.com/vllm-project/llm-compressor/pull/1411
     """
 
-    def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
+    def __init__(self, namespace: dict[str, Any], ignore: list[str]):
         self.namespace = namespace
         self.ignore = ignore
-        self._wrapper_fn_defs: List[ast.FunctionDef] = list()
+        self._wrapper_fn_defs: list[ast.FunctionDef] = list()
         self._local_names = set()
         self._wrapped_counter = 0
 
@@ -96,7 +96,7 @@ class AutoWrapper(ast.NodeTransformer):
 
         return ret
 
-    def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
+    def visit_If(self, node: ast.If) -> ast.If | ast.Assign:
         """
         Attempt to statically evaluate the condition of the `if` statement. If the
         condition can not be statically evaluated (1), then attmept to wrap the `if`
@@ -122,7 +122,7 @@ class AutoWrapper(ast.NodeTransformer):
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
 
-    def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
+    def visit_Tuple(self, node: ast.Tuple) -> ast.Tuple | ast.Call:
         """
         (3) Wrap any tuples which use starred unpacking
         """
@@ -178,7 +178,7 @@ class AutoWrapper(ast.NodeTransformer):
         """
         return ControlFlowAnalyzer().is_valid(node)
 
-    def _wrap_if_possible(self, node: ast.AST) -> Union[ast.AST, ast.Assign, ast.Call]:
+    def _wrap_if_possible(self, node: ast.AST) -> ast.AST | ast.Assign | ast.Call:
         """
         Defines a wrapper function containing the wrapped node.
 
@@ -198,14 +198,13 @@ class AutoWrapper(ast.NodeTransformer):
         if not self._can_wrap(node):
             return node
 
-        if isinstance(node, ast.stmt):
-            return self._wrap_stmt(node)
-
-        elif isinstance(node, ast.expr):
-            return self._wrap_expr(node)
-
-        else:
-            raise TypeError(f"Unknown type {type(node)}")
+        match node:
+            case ast.stmt():
+                return self._wrap_stmt(node)
+            case ast.expr():
+                return self._wrap_expr(node)
+            case _:
+                raise TypeError(f"Unknown type {type(node)}")
 
     def _wrap_stmt(self, node: ast.stmt) -> ast.Assign:
         # unbound := names which are read by node before being assigned

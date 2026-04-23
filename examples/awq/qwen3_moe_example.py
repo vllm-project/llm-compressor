@@ -1,9 +1,10 @@
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
@@ -51,7 +52,8 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 # NOTE: vllm currently does not support asym MoE, using symmetric here
 recipe = [
-    AWQModifier(
+    AWQModifier(),
+    QuantizationModifier(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
@@ -70,7 +72,7 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

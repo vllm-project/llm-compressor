@@ -8,10 +8,28 @@ pull_request_rules:
           - files~=^[^/]+\.md$
           - files~=^docs/
           - files~=^examples/
+      - -files~=^src/
+      - -files~=^tests/
+      - -files~=^\.github/
+      - -files~=^Makefile$
+      - -files~=^pyproject\.toml$
     actions:
       label:
         add:
           - documentation
+
+  - name: auto-rebase if approved, ready, and 5 commits behind main
+    conditions:
+      - base = main
+      - label = ready
+      - label != stale
+      - "#approved-reviews-by >= 2"
+      - "#commits-behind >= 5"
+      - -closed
+      - -draft
+      - -conflict
+    actions:
+      rebase: {}
 
   - name: ping author on conflicts and add 'needs-rebase' label
     conditions:
@@ -63,3 +81,31 @@ pull_request_rules:
       label:
         remove:
           - quality-failed
+
+  - name: label community PRs for two reviews
+    conditions:
+      - label != stale
+      - -closed
+      - -draft
+      - author != kylesayrs
+      - author != dsikka
+      - author != HDCharles
+      - author != brian-dellabetta
+    actions:
+      label:
+        add:
+          - two-reviews
+
+merge_protections:
+  - name: Require two reviews
+    description: >-
+      PRs labelled "two-reviews" must have at least two approving reviews
+      before merging.
+    if:
+      - label = two-reviews
+    success_conditions:
+      - "#approved-reviews-by >= 2"
+      - "#changes-requested-reviews-by = 0"
+
+merge_protections_settings:
+  reporting_method: check-runs
