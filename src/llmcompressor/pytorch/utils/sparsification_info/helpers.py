@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import torch
 from torch.nn.modules.linear import Identity
 from torch.quantization import QuantWrapper
@@ -38,16 +36,13 @@ def get_leaf_operations(
     children = list(model.children())
 
     if children == []:
-        return model
+        return [model]
     else:
         for child in children:
             if isinstance(child, tuple(operations_to_unwrap)):
                 leaf_operations.append(child.module)
                 continue
-            try:
-                leaf_operations.extend(get_leaf_operations(child))
-            except TypeError:
-                leaf_operations.append(get_leaf_operations(child))
+            leaf_operations.extend(get_leaf_operations(child))
     leaf_operations = [
         op for op in leaf_operations if not isinstance(op, tuple(operations_to_skip))
     ]
