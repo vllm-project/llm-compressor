@@ -407,7 +407,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         return llmc_registered_qparams
 
     def _postprocess_qparams(
-        self, model: torch.nn.Module, llmc_registered_qparams: dict[str, dict[str, torch.Tensor]]
+        self,
+        model: torch.nn.Module,
+        llmc_registered_qparams: dict[str, dict[str, torch.Tensor]],
     ):
         """Mapping qparam name from AutoRound to LLMC and register qparams in model."""
         qparams_mapping = {
