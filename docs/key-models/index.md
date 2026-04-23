@@ -1,6 +1,6 @@
 # Key Models
 
-The following models are among the most commonly used with LLM Compressor: Llama 4, Qwen3, Kimi-K2, and Mistral Large 3. Each model page contains quantization examples with tested configurations and recommended parameters.
+The following models are among the most commonly used with LLM Compressor: Llama 4, Qwen3, Qwen3.5, Kimi-K2, and Mistral Large 3. Each model page contains quantization examples with tested configurations and recommended parameters.
 
 <div class="grid cards" markdown>
 
@@ -19,6 +19,14 @@ The following models are among the most commonly used with LLM Compressor: Llama
       Qwen3-VL MoE vision-language model.
 
       [:octicons-arrow-right-24: Qwen3](qwen3/index.md)
+
+  - **Qwen3.5**
+
+      ---
+
+      Qwen3.5 dense vision-language and sparse MoE models.
+
+      [:octicons-arrow-right-24: Qwen3.5](qwen3.5/index.md)
 
   - **Kimi-K2**
 

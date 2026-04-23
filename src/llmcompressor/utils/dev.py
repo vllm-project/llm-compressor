@@ -12,13 +12,20 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
-from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
+
+try:
+    # Transformers < v5 support
+    from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
+except ImportError:
+    # Transformers v5 support
+    from transformers.initialization import TORCH_INIT_FUNCTIONS
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 
 __all__ = [
     "skip_weights_download",
     "patch_transformers_logger_level",
     "get_main_device",
+    "get_high_precision",
     "dispatch_for_generation",
 ]
 
@@ -119,14 +126,30 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
 
 
 def get_main_device() -> torch.device:
-    rank = 0 if not torch.distributed.is_initialized() else torch.distributed.get_rank()
-    if torch.cuda.is_available():
-        return torch.device(f"cuda:{rank}")
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device(f"xpu:{rank}")
+    is_distributed_enable = torch.distributed.is_initialized()
+    rank = 0 if not is_distributed_enable else torch.distributed.get_rank()
+
+    # Check for unsupported MPS + distributed combination
+    if hasattr(torch, "mps") and torch.mps.is_available():
+        if is_distributed_enable:
+            raise RuntimeError("Parallelism has not been supported for MPS")
+        return torch.device("mps")
+
+    elif torch.accelerator.is_available():
+        accel_type = torch.accelerator.current_accelerator().type
+        return torch.device(accel_type, rank)
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning("No accelerator available! Compressing model on CPU instead")
         return torch.device("cpu")
+
+
+def get_high_precision() -> torch.dtype:
+    main_device = get_main_device()
+
+    if main_device.type == "mps":  # MPS does not support float64
+        return torch.float32
+
+    return torch.float64
 
 
 @deprecated("compressed_tensors.offload::dispatch_model")

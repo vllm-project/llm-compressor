@@ -1,11 +1,11 @@
 from pathlib import Path
 
 from auto_round.calib_dataset import get_dataset
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
-from compressed_tensors.offload import dispatch_model
 
 # Select model and load it.
 model_id = "Qwen/Qwen3-8B"

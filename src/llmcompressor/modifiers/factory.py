@@ -46,6 +46,7 @@ class ModifierFactory:
         # exclude deprecated packages from registry so
         # their new location is used instead
         deprecated_packages = [
+            "llmcompressor.modifiers.awq",
             "llmcompressor.modifiers.obcq",
             "llmcompressor.modifiers.obcq.sgpt_base",
             "llmcompressor.modifiers.quantization.gptq",

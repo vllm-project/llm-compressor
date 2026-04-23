@@ -19,6 +19,7 @@ __all__ = [
     "build_parameterized_layers",
     "qat_active",
     "get_no_split_params",
+    "infer_sequential_targets",
 ]
 
 ALL_TARGET = "__ALL__"
@@ -136,11 +137,40 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 
     :return: list of class names that shouldn't be split
     """
-    no_split_modules = model._get_no_split_modules("auto")
+    try:
+        # Transformers < v5 support
+        no_split_modules = model._get_no_split_modules("auto")
+    except AttributeError:
+        # Transformers v5 support
+        no_split_modules = model._no_split_modules
     if len(no_split_modules) <= 0:
         return ALL_TARGET
 
     return no_split_modules
+
+
+def infer_sequential_targets(
+    model: Module, sequential_targets: Union[str, List[str], None] = None
+) -> Union[str, List[str]]:
+    """
+    Infer or validate sequential targets for layer-wise processing.
+
+    When sequential_targets is None, automatically infers targets using
+    get_no_split_params(). When provided as a string, wraps it in a list.
+    Otherwise, returns the provided list as-is.
+
+    :param model: The model to infer targets from
+    :param sequential_targets: Optional sequential targets to use. If None,
+        targets are inferred from the model. If a string, it's wrapped in a list.
+    :return: List of sequential target class names or patterns
+    """
+    match sequential_targets:
+        case None:
+            return get_no_split_params(model)
+        case str():
+            return [sequential_targets]
+        case _:
+            return sequential_targets
 
 
 # https://discuss.pytorch.org/t/how-to-access-to-a-layer-by-module-name/83797/8
