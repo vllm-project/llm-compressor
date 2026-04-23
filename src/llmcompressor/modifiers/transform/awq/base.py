@@ -586,16 +586,15 @@ class AWQModifier(Modifier):
                     module: Module, orig_layer_weights: dict[Module, torch.Tensor]
                 ):
                     device = module.weight.device
-                    scales = best_scales.to(device)
+                    weight = orig_layer_weights.get(module, smooth_layer.weight).to(device)
+                    scales = best_scales.to(device).to(weight.dtype)
                     if module in balance_layers:
                         update_offload_parameter(
                             module,
                             "weight",
-                            orig_layer_weights[module].to(device) * scales.view(1, -1),
+                            weight * scales.view(1, -1),
                         )
                     elif module == smooth_layer:
-                        weight = orig_layer_weights.get(module, smooth_layer.weight)
-                        weight = weight.to(device)
                         if smooth_layer.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
@@ -730,7 +729,8 @@ class AWQModifier(Modifier):
                 for layer in layers_to_patch:
                     scales_to_apply = _scalesview.clone()
                     if layer == mapping.smooth_layer:
-                        scales_to_apply = _scalesview.reciprocal()
+                        # don't need to handle 1D cases or layer size mismatch
+                        scales_to_apply = _scalesview.reciprocal().view(-1,1)
 
                     w_qscheme = layer.quantization_scheme.weights
                     layer.weight.data.copy_(
