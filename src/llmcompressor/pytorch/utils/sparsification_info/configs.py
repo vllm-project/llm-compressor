@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
 from typing import Any, Generator
@@ -40,7 +42,7 @@ class SparsificationInfo(BaseModel, ABC):
     def loggable_items(
         self,
         **kwargs,
-    ) -> Generator[tuple[str, dict[str, int] | float | int], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationInfo object.
 
@@ -192,7 +194,7 @@ class SparsificationSummaries(SparsificationInfo):
         non_zero_only: bool = False,
         percentages_only: bool = True,
         **kwargs,
-    ) -> Generator[tuple[str, dict[str, int] | float | int], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationSummaries object.
 
@@ -261,7 +263,7 @@ class SparsificationPruning(SparsificationInfo):
         percentages_only: bool = False,
         non_zero_only: bool = False,
         **kwargs,
-    ) -> Generator[tuple[str, dict[str, int] | float | int], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationPruning object.
 
@@ -344,7 +346,7 @@ class SparsificationQuantization(SparsificationInfo):
         self,
         enabled_only: bool = False,
         **kwargs,
-    ) -> Generator[tuple[str, dict[str, int] | float | int], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationQuantization object.
 
