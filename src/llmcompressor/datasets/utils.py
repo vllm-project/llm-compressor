@@ -225,7 +225,13 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
             logger.debug("Could not find padding token. Setting PAD token to EOS token")
             tokenizer.pad_token = tokenizer.eos_token
 
-        return DataCollatorWithPadding(tokenizer, max_length=args.max_seq_length)
+        if args.max_seq_length is not None:
+            logger.warning(
+                "Cannot use `data_collator='padding'` with `max_seq_length`. Ignoring "
+                "truncation specified by `max_seq_length`"
+            )
+
+        return DataCollatorWithPadding(tokenizer)
 
     else:
         raise ValueError(f"Unknown data collator {args.data_collator}")
