@@ -470,7 +470,6 @@ def get_sequential_ancestors(model: Module, targets: set[Module]) -> set[Module]
     return ancestors
 
 
-
 def _get_autowrap_functions() -> tuple[Callable[[Any], Any], ...]:
     try:
         from transformers.masking_utils import LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING
