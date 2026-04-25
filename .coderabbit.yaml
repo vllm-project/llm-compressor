@@ -52,7 +52,7 @@ reviews:
     # Quantization formats
     - label: "fp8"
       instructions: "Issues or PRs related to FP8 quantization format. Match case-insensitively — 'fp8', 'FP8', 'Fp8' all qualify."
-
+    - label: "nvfp4"
       instructions: "Issues or PRs related to NVIDIA FP4 quantization format. Match case-insensitively — 'nvfp4', 'NVFP4', 'NvFP4' all qualify."
     - label: "w4a16"
       instructions: "Issues or PRs related to W4A16, W8A16, or wNa16 quantization schemes. Match case-insensitively — 'w4a16', 'W4A16', 'w8a16', 'W8A16', 'wna16', 'WNA16' all qualify."
