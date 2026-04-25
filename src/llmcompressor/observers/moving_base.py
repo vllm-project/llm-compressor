@@ -1,129 +1,34 @@
-from abc import abstractmethod
-
 import torch
-from compressed_tensors.offload.dist_utils import as_broadcastable
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization import QuantizationArgs
 from torch import distributed as dist
 
-from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.base import Observer
 
 __all__ = ["MovingAverageObserverBase"]
 
 
 class MovingAverageObserverBase(Observer):
     """
-    Compute quantization parameters by taking the moving average of min/max values
+    Base class for observers that use exponential moving average of statistics.
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
     :param **observer_kwargs: keyword arguments for observer initialization
     """
+
+    _act_sync_dict = {
+        "min_vals": dist.ReduceOp.AVG,
+        "max_vals": dist.ReduceOp.AVG,
+    }
 
     def __init__(
         self,
         base_name: str,
         args: QuantizationArgs,
-        module: torch.nn.Module | None = None,
         **observer_kwargs,
     ):
-        super().__init__(base_name, args, module, **observer_kwargs)
+        super().__init__(base_name, args, **observer_kwargs)
         self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
-
-        self.past_min_vals = None
-        self.past_max_vals = None
-        self.past_global_min_vals = None
-        self.past_global_max_vals = None
-
-    @abstractmethod
-    def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate the min and max value of the observed value (without moving average)
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate the min and max value of the observed value (without moving average)
-        for the purposes of global scale calculation
-        """
-        raise NotImplementedError()
-
-    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate moving average of min and max values from observed value
-
-        :param observed: value being observed whose shape is
-            (num_observations, *qparam_shape, group_size)
-        :return: minimum value and maximum value whose shapes are (*qparam_shape, )
-        """
-        min_vals, max_vals = self.get_current_min_max(observed)
-
-        if self.past_min_vals is not None and self.avg_constant != 1.0:
-            # FUTURE: consider scaling by num observations (first dim)
-            #         rather than reducing by first dim
-            min_vals = self._lerp(self.past_min_vals, min_vals, self.avg_constant)
-            max_vals = self._lerp(self.past_max_vals, max_vals, self.avg_constant)
-
-        self.past_min_vals = min_vals
-        self.past_max_vals = max_vals
-
-        return min_vals, max_vals
-
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        """
-        Calculate moving average of min and max values from observed value
-        for the purposes of global scale calculation
-
-        :param observed: value being observed whose shape is
-            (num_observations, 1, group_size)
-        :return: minimum value and maximum value whose shapes are (1, )
-        """
-        min_vals, max_vals = self.get_current_global_min_max(observed)
-
-        if self.past_global_min_vals is not None and self.avg_constant != 1.0:
-            # FUTURE: consider scaling by num observations (first dim)
-            #         rather than reducing by first dim
-            min_vals = self._lerp(
-                self.past_global_min_vals, min_vals, self.avg_constant
-            )
-            max_vals = self._lerp(
-                self.past_global_max_vals, max_vals, self.avg_constant
-            )
-
-        self.past_global_min_vals = min_vals
-        self.past_global_max_vals = max_vals
-
-        return min_vals, max_vals
-
-    def synchronize(self) -> list[dist.Work]:
-        """Average accumulated moving-average min/max statistics across DDP ranks.
-
-        Unlike :class:`StaticMinMaxObserver` which reduces via MIN/MAX,
-        moving-average observers divide by world_size first and then SUM
-        so that the result is the average across ranks.
-
-        :return: list of async communication handles
-        """
-        comms = []
-        world_size = dist.get_world_size()
-        for attr in (
-            "past_min_vals",
-            "past_max_vals",
-            "past_global_min_vals",
-            "past_global_max_vals",
-        ):
-            val = getattr(self, attr, None)
-            if val is not None:
-                val.div_(world_size)
-                comms.append(
-                    dist.all_reduce(
-                        as_broadcastable(val), op=dist.ReduceOp.AVG, async_op=True
-                    )
-                )
-        return comms
 
     def _lerp(
         self, input: torch.Tensor, end: torch.Tensor, weight: float

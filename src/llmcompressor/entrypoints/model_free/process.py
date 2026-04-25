@@ -16,8 +16,7 @@ from safetensors.torch import save_file
 from torch.nn import Module
 
 from llmcompressor.entrypoints.model_free.lifecycle import (
-    calibrate_global_scale,
-    calibrate_scale_zp,
+    calibrate_weight,
     initialize_quantized_linear,
     validate_weight_for_quantization,
 )
@@ -25,6 +24,14 @@ from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
 )
+from llmcompressor.modifiers.quantization.calibration import (
+    apply_calibration_status,
+    freeze_module_quantization,
+    initialize_observer,
+    observe,
+    update_qparams,
+)
+from llmcompressor.observers import Observer
 
 __all__ = [
     "validate_file",
@@ -99,7 +106,7 @@ def process_file(
         module = initialize_quantized_linear(tensors[name], scheme, device)
 
         # 2. calibrate weight qparams
-        calibrate_scale_zp(module)
+        calibrate_weight(module)
 
         # 3. compress module using qparams
         compress_module(module)
@@ -175,14 +182,16 @@ def process_file_microscale_scheme(
         # 1. initialize module with qparams (on device)
         module = initialize_quantized_linear(tensors[name], scheme, device)
 
-        # 2. calibrate global scale; delay scale/zp for fused modules
-        calibrate_global_scale(module)
+        # gather fused modules for later processing
         if name in fused_name_to_fused_index:
             fused_index = fused_name_to_fused_index[name]
             fused_modules[fused_index][name] = module
+            initialize_observer(module, "weight")
+            apply_calibration_status(module)
             continue
 
-        calibrate_scale_zp(module)
+        # 2. get module qparams
+        calibrate_weight(module)
 
         # 3. compress module using qparams
         compress_module(module)
@@ -195,22 +204,20 @@ def process_file_microscale_scheme(
 
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
-        # 2.1. compute fused global scale across all members of the fused set
-        global_scales = [m.weight_global_scale for m in named_modules.values()]
-        fused_global_scale = torch.min(torch.cat(global_scales, dim=0))
+        # 2. fuse observers, observe weights, and get qparams
+        Observer.fuse([mod.weight_observer for mod in named_modules.values()])
+        observe(named_modules.values(), base_name="weight")
+        update_qparams(named_modules.values(), base_name="weight")
 
         for name, module in named_modules.items():
-            module_name, _ = name.rsplit(".", 1)
-            module.weight_global_scale.data.copy_(fused_global_scale)
-
-            # 2.2. finish calibration with fused global scale
-            calibrate_scale_zp(module)
+            freeze_module_quantization(module)
 
             # 3. compress module using microscale qparams
             compress_module(module)
 
             # 4. save compressed data (on cpu)
             del tensors[name]
+            module_name, _ = name.rsplit(".", 1)
             prefix = module_name + "."
             for key, value in module.state_dict(prefix=prefix).items():
                 tensors[key] = value.to("cpu")

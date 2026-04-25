@@ -9,11 +9,6 @@ from compressed_tensors.quantization import (
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 
-def make_dummy_g_idx(columns: int, group_size: int) -> torch.Tensor:
-    perm = torch.randperm(columns)
-    return torch.tensor([index // group_size for index in range(columns)])[perm]
-
-
 @pytest.mark.parametrize(
     "args",
     [
@@ -33,19 +28,18 @@ def test_flatten_for_calibration_input(args):
 
 
 @pytest.mark.parametrize(
-    "args,g_idx",
+    "args",
     [
-        (QuantizationArgs(strategy="tensor"), None),
-        (QuantizationArgs(strategy="channel"), None),
-        (QuantizationArgs(strategy="group", group_size=4), None),
-        (QuantizationArgs(strategy="group", group_size=4), make_dummy_g_idx(8, 4)),
-        (QuantizationArgs(strategy="tensor_group", group_size=4), None),
-        (QuantizationArgs(strategy="block", block_structure=[5, 4]), None),
+        QuantizationArgs(strategy="tensor"),
+        QuantizationArgs(strategy="channel"),
+        QuantizationArgs(strategy="group", group_size=4),
+        QuantizationArgs(strategy="tensor_group", group_size=4),
+        QuantizationArgs(strategy="block", block_structure=[5, 4]),
         # When block structure does not evenly divide module.weight
-        (QuantizationArgs(strategy="block", block_structure=[3, 3]), None),
+        QuantizationArgs(strategy="block", block_structure=[3, 3]),
     ],
 )
-def test_flatten_for_calibration_weights(args, g_idx):
+def test_flatten_for_calibration_weights(args):
     module = torch.nn.Linear(8, 10)
     scheme = QuantizationScheme(targets=[], weights=args)
     initialize_module_for_quantization(module, scheme)
@@ -54,7 +48,6 @@ def test_flatten_for_calibration_weights(args, g_idx):
         module.weight,
         "weight",
         scheme.weights,
-        g_idx=g_idx,
     )
     assert weight_flattened.shape[1:-1] == module.weight_scale.shape
     assert weight_flattened.shape[1:-1] == module.weight_zero_point.shape

@@ -1,4 +1,5 @@
 import torch
+from torch import distributed as dist
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.moving_base import MovingAverageObserverBase
@@ -9,83 +10,52 @@ __all__ = ["MemorylessMinMaxObserver", "StaticMinMaxObserver", "MinMaxObserver"]
 @Observer.register("memoryless_minmax")
 class MemorylessMinMaxObserver(Observer):
     """
-    Compute quantization parameters by taking the min/max of the observed value
-
-    :param base_name: str used to name the observer attribute
-    :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
-    :param **observer_kwargs: keyword arguments for observer initialization
+    Compute quantization parameters by taking the min/max of the observed value.
     """
 
-    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
+    _act_sync_dict = {}
 
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
+    def update_statistics(self, observed: torch.Tensor) -> None:
+        self.min_vals, self.max_vals = _get_min_max(observed)
 
 
 @Observer.register("static_minmax")
-class StaticMinMaxObserver(Observer):
+class StaticMinMaxObserver(MemorylessMinMaxObserver):
     """
-    Compute quantization parameters by taking the min/max of all observed values
-
-    :param base_name: str used to name the observer attribute
-    :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
-    :param **observer_kwargs: keyword arguments for observer initialization
+    Compute quantization parameters by taking the min/max of all observed values.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.past_min_vals = None
-        self.past_max_vals = None
-        self.past_global_min_vals = None
-        self.past_global_max_vals = None
+    _act_sync_dict = {
+        "min_vals": dist.ReduceOp.MIN,
+        "max_vals": dist.ReduceOp.MAX,
+    }
 
-    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
+    def update_statistics(self, observed: torch.Tensor) -> None:
         min_vals, max_vals = _get_min_max(observed)
 
-        if self.past_min_vals is not None:
-            min_vals = torch.min(min_vals, self.past_min_vals)
-            max_vals = torch.max(max_vals, self.past_max_vals)
-
-        self.past_min_vals = min_vals
-        self.past_max_vals = max_vals
-
-        return min_vals, max_vals
-
-    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        min_vals, max_vals = _get_min_max(observed)
-
-        if self.past_global_min_vals is not None:
-            min_vals = torch.min(min_vals, self.past_global_min_vals)
-            max_vals = torch.max(max_vals, self.past_global_max_vals)
-
-        self.past_global_min_vals = min_vals
-        self.past_global_max_vals = max_vals
-
-        return min_vals, max_vals
+        if hasattr(self, "min_vals"):
+            self.min_vals = torch.min(min_vals, self.min_vals)
+            self.max_vals = torch.max(max_vals, self.max_vals)
+        else:
+            self.min_vals = min_vals
+            self.max_vals = max_vals
 
 
 @Observer.register("minmax")
 class MinMaxObserver(MovingAverageObserverBase):
     """
-    Compute quantization parameters by taking the moving average of all min/max values
-
-    :param base_name: str used to name the observer attribute
-    :param args: quantization args used to calibrate and quantize the observed value
-    :param module: optional module with attached quantization parameters. This argument
-        is required to utilize existing qparams such as global_scale or g_idx
-    :param **observer_kwargs: keyword arguments for observer initialization
+    Compute quantization parameters by taking the moving average of min/max values.
     """
 
-    def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
+    def update_statistics(self, observed: torch.Tensor) -> None:
+        min_vals, max_vals = _get_min_max(observed)
 
-    def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
-        return _get_min_max(observed)
+        if hasattr(self, "min_vals") and self.avg_constant != 1.0:
+            min_vals = self._lerp(self.min_vals, min_vals, self.avg_constant)
+            max_vals = self._lerp(self.max_vals, max_vals, self.avg_constant)
+
+        self.min_vals = min_vals
+        self.max_vals = max_vals
 
 
 def _get_min_max(observed: torch.Tensor) -> MinMaxTuple:

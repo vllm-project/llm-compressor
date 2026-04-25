@@ -12,7 +12,6 @@ from compressed_tensors.quantization import (
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
-from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
@@ -85,31 +84,16 @@ def quantize_weight(
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
-    global_scale = getattr(module, "weight_global_scale", None)
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
     H = hessian
 
-    # create observer for calculating quantization parameters
-    observer = Observer.load_from_registry(
-        quant_args.observer if quant_args.observer else "memoryless_minmax",
-        base_name="weight",
-        args=quant_args,
-        module=module,
-    )
+    observer = module.weight_observer
 
-    # standardize shape and dtype
-    match module:
-        case torch.nn.Conv2d():
-            W = W.flatten(1)
-        case transformers.Conv1D():
-            W.transpose_(0, 1)
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
-
-    scale, zero_point = observer(W)
 
     if actorder == ActivationOrdering.GROUP and strategy not in (
         QuantizationStrategy.GROUP,
@@ -121,14 +105,16 @@ def quantize_weight(
         )
         actorder = None
 
+
     # handle activation ordering
     if actorder:
         W, H, perm = _apply_activation_ordering(W, H)
 
-        if actorder == ActivationOrdering.GROUP:
-            # actually need scale/zp for permuted weight for this format
-            scale, zero_point = observer(W)
-            # use identity g_idx (invert permutation later)
+    # handle g_idx and activation ordering
+    if actorder == ActivationOrdering.GROUP:
+        # actually need scale/zp for permuted weight for this format
+        observer(W)
+        # use identity g_idx (invert permutation later)
 
     # handle g_idx
     if strategy in (
@@ -146,6 +132,13 @@ def quantize_weight(
 
         if actorder == ActivationOrdering.WEIGHT:
             g_idx = g_idx[perm]
+
+    qparams = observer.get_qparams()
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
