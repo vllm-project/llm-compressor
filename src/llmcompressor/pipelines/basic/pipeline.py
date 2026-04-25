@@ -10,6 +10,7 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
+from llmcompressor.utils.helpers import DisableQuantization
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -52,6 +53,7 @@ class BasicPipeline(CalibrationPipeline):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(DisableQuantization(model))
             for batch_idx, batch in enumerate(
                 tqdm.tqdm(dataloader, desc="Calibrating")
             ):

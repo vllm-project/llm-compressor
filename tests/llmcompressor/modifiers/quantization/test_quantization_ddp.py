@@ -38,25 +38,23 @@ def test_observer_synchronize_reduces_min_max():
     observer = StaticMinMaxObserver(base_name="input", args=args)
 
     # each rank has different local statistics
-    observer.past_min_vals = (
+    observer.min_vals = (
         torch.tensor([1.0, 3.0], device="cuda")
         if rank == 0
         else torch.tensor([2.0, 1.0], device="cuda")
     )
-    observer.past_max_vals = (
+    observer.max_vals = (
         torch.tensor([10.0, 20.0], device="cuda")
         if rank == 0
         else torch.tensor([15.0, 10.0], device="cuda")
     )
 
-    comms = observer.synchronize()
+    comms = observer.sync_activation_stats()
     wait_for_comms(comms)
 
     # after sync, min should be element-wise minimum, max element-wise maximum
-    assert torch.equal(observer.past_min_vals, torch.tensor([1.0, 1.0], device="cuda"))
-    assert torch.equal(
-        observer.past_max_vals, torch.tensor([15.0, 20.0], device="cuda")
-    )
+    assert torch.equal(observer.min_vals, torch.tensor([1.0, 1.0], device="cuda"))
+    assert torch.equal(observer.max_vals, torch.tensor([15.0, 20.0], device="cuda"))
 
 
 @pytest.mark.multi_gpu
@@ -68,23 +66,22 @@ def test_synced_qparams_are_identical_across_ranks():
     args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
     observer = StaticMinMaxObserver(base_name="input", args=args)
 
-    observer.past_min_vals = (
+    observer.min_vals = (
         torch.tensor([-2.0], device="cuda")
         if rank == 0
         else torch.tensor([-5.0], device="cuda")
     )
-    observer.past_max_vals = (
+    observer.max_vals = (
         torch.tensor([3.0], device="cuda")
         if rank == 0
         else torch.tensor([1.0], device="cuda")
     )
 
-    comms = observer.synchronize()
+    comms = observer.sync_activation_stats()
     wait_for_comms(comms)
 
-    result = observer.recompute_qparams()
-    assert result is not None
-    scale, _ = result
+    qparams = observer.get_qparams()
+    scale = qparams["scale"]
 
     gathered = [torch.zeros_like(scale) for _ in range(dist.get_world_size())]
     dist.all_gather(gathered, scale)

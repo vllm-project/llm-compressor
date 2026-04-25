@@ -28,9 +28,8 @@ from tqdm import tqdm
 from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
-    call_observer,
-    update_weight_global_scale,
-    update_weight_zp_scale,
+    observe,
+    update_qparams,
 )
 from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     get_layer_mappings_from_model,
@@ -39,7 +38,6 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
 )
-from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
@@ -267,16 +265,13 @@ class AWQModifier(Modifier):
         self._assert_all_activations_consumed()
 
         # Recompute weight scales/zps for layers modified by smoothing
+        smoothed_layers = []
         for mapping in self._resolved_mappings:
             for layer in mapping.balance_layers + [mapping.smooth_layer]:
                 if hasattr(layer, "weight_observer"):
-                    update_weight_global_scale(layer)
-        for mapping in self._resolved_mappings:
-            update_fused_layer_weight_global_scales(mapping.parent)
-        for mapping in self._resolved_mappings:
-            for layer in mapping.balance_layers + [mapping.smooth_layer]:
-                if hasattr(layer, "weight_observer"):
-                    update_weight_zp_scale(layer)
+                    smoothed_layers.append(layer)
+        observe(smoothed_layers, base_name="weight")
+        update_qparams(smoothed_layers, base_name="weight")
 
         self.ended_ = True
 
@@ -673,7 +668,6 @@ class AWQModifier(Modifier):
                     "memoryless_minmax",
                     base_name="weight",
                     args=balance_layer.quantization_scheme.weights,
-                    module=balance_layer,
                 )
                 for balance_layer in balance_layers_to_patch
             ],
@@ -708,16 +702,8 @@ class AWQModifier(Modifier):
                         orig_layer_weights[balance_layer].to(_scalesview.device)
                         * _scalesview
                     )
-
-                    should_calculate_gparam = (
-                        w_qscheme.strategy == QuantizationStrategy.TENSOR_GROUP
-                    )
-                    call_observer(
-                        balance_layer,
-                        "weight",
-                        balance_layer.weight,
-                        should_calculate_gparam=should_calculate_gparam,
-                    )
+                    observe(balance_layer, base_name="weight")
+                    update_qparams(balance_layer, base_name="weight")
                     balance_layer.weight.data = (
                         forward_quantize(
                             balance_layer,
@@ -727,15 +713,6 @@ class AWQModifier(Modifier):
                         )
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
-
-                # Apply fused global scales for TENSOR_GROUP during grid search
-                # to match inference behavior
-                if balance_layers_to_patch and all(
-                    getattr(layer.quantization_scheme.weights, "strategy", None)
-                    == QuantizationStrategy.TENSOR_GROUP
-                    for layer in balance_layers_to_patch
-                ):
-                    update_fused_layer_weight_global_scales(mapping.parent)
 
                 # W * X
                 int_w_outputs = self._run_samples(mapping.parent)

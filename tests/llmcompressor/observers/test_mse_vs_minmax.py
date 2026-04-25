@@ -28,7 +28,7 @@ def _create_base_quantization_args(num_bits, strategy, symmetric, group_size):
 
 
 def _run_observer_test(
-    tensor, observer_name, strategy, symmetric, num_bits, group_size, module=None
+    tensor, observer_name, strategy, symmetric, num_bits, group_size
 ):
     """
     Helper function to run observer and compute quantization error.
@@ -39,15 +39,15 @@ def _run_observer_test(
     weights.observer = observer_name
 
     observer = Observer.load_from_registry(
-        observer_name, base_name="weight", args=weights, module=module
+        observer_name, base_name="weight", args=weights
     )
 
-    global_scale = None
-    if strategy == "tensor_group" and module is not None:
-        global_scale = observer.get_global_scale(tensor)
-        module.weight_global_scale = global_scale
-
-    scale, zero_point = observer(tensor)
+    qparams = observer(tensor).get_qparams()
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
     assert (scale >= 0).all(), "Scale values should be non-negative"
 
     weights_clean = _create_base_quantization_args(
@@ -116,14 +116,6 @@ def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
 
     group_size = 32 if strategy == "tensor_group" else None
 
-    module_minmax = None
-    module_mse = None
-    if strategy == "tensor_group":
-        module_minmax = torch.nn.Linear(256, 128)
-        module_minmax.weight.data = tensor
-        module_mse = torch.nn.Linear(256, 128)
-        module_mse.weight.data = tensor
-
     _, _, _, minmax_mse, _ = _run_observer_test(
         tensor,
         "memoryless_minmax",
@@ -131,7 +123,6 @@ def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
         symmetric,
         num_bits,
         group_size,
-        module_minmax,
     )
 
     _, _, _, mse_mse, _ = _run_observer_test(
@@ -141,7 +132,6 @@ def test_mse_vs_minmax_on_random_tensor(strategy, symmetric, num_bits, std):
         symmetric,
         num_bits,
         group_size,
-        module_mse,
     )
 
     _assert_mse_comparison(
@@ -164,11 +154,11 @@ def test_mse_vs_minmax_various_shapes(tensor_shape):
     tensor = torch.randn(*tensor_shape) * 0.05
 
     _, _, _, minmax_mse, _ = _run_observer_test(
-        tensor, "memoryless_minmax", "channel", True, 8, None, None
+        tensor, "memoryless_minmax", "channel", True, 8, None
     )
 
     _, _, _, mse_mse, _ = _run_observer_test(
-        tensor, "memoryless_mse", "channel", True, 8, None, None
+        tensor, "memoryless_mse", "channel", True, 8, None
     )
 
     _assert_mse_comparison(mse_mse, minmax_mse, "channel", True, is_real_weights=False)
@@ -190,11 +180,11 @@ def test_mse_vs_minmax_extreme_values():
         (tensor_skewed, "skewed"),
     ]:
         _, _, _, minmax_mse, _ = _run_observer_test(
-            tensor, "memoryless_minmax", "channel", True, 8, None, None
+            tensor, "memoryless_minmax", "channel", True, 8, None
         )
 
         _, _, _, mse_mse, _ = _run_observer_test(
-            tensor, "memoryless_mse", "channel", True, 8, None, None
+            tensor, "memoryless_mse", "channel", True, 8, None
         )
 
         _assert_mse_comparison(
@@ -251,14 +241,6 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
 
     group_size = 32 if strategy == "tensor_group" else None
 
-    module_minmax = None
-    module_mse = None
-    if strategy == "tensor_group":
-        module_minmax = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
-        module_minmax.weight.data = weight_tensor
-        module_mse = torch.nn.Linear(weight_tensor.shape[1], weight_tensor.shape[0])
-        module_mse.weight.data = weight_tensor
-
     _, _, _, minmax_mse, _ = _run_observer_test(
         weight_tensor,
         "memoryless_minmax",
@@ -266,7 +248,6 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
         symmetric,
         num_bits,
         group_size,
-        module_minmax,
     )
 
     _, _, _, mse_mse, _ = _run_observer_test(
@@ -276,7 +257,6 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
         symmetric,
         num_bits,
         group_size,
-        module_mse,
     )
 
     _assert_mse_comparison(
