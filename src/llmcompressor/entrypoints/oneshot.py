@@ -273,7 +273,7 @@ def oneshot(
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
-    max_seq_length: int = 384,
+    max_seq_length: int | None = None,
     pad_to_max_length: bool = True,
     text_column: str = "text",
     concatenate_data: bool = False,
