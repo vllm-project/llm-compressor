@@ -1,4 +1,5 @@
 import inspect
+import math
 from typing import Iterator, Literal
 
 import torch
@@ -756,13 +757,20 @@ class AWQModifier(Modifier):
                     best_scales = scales.clone()
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
-        if best_ratio == -1:
+        # Symmetric to ``best_ratio == -1`` under IEEE 754: post-#2640 identity
+        # is grid candidate 0, so ``initial_error`` is the identity loss. If it
+        # is NaN/Inf, ``NaN < anything`` is False, so identity never wins, but
+        # a later finite candidate can still flip ``best_ratio``, bypassing the
+        # original guard and shipping scales picked against a non-finite
+        # baseline.
+        if best_ratio == -1 or not math.isfinite(initial_error):
             logger.debug(history)
             raise Exception(
-                "No finite loss was found in best scalesgrid search. This typically "
-                "means NaN values are appearing in the forward pass of the parent "
-                "module. If you encounter this error, raise an issue at "
-                "https://github.com/vllm-project/llm-compressor/issues"
+                "No finite loss was found in best scales grid search "
+                f"(best_ratio={best_ratio}, initial_error={initial_error}). "
+                "This typically means NaN values are appearing in the forward "
+                "pass of the parent module. If you encounter this error, raise "
+                "an issue at https://github.com/vllm-project/llm-compressor/issues"
             )
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
