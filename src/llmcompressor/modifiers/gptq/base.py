@@ -219,11 +219,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self.sync_obs_act_stats(state.model)
-            self.update_activation_qparams(state.model)
-            observe(self._num_samples.keys(), base_name="weight")
-            self.compress_modules()
-
             if not self.ended_:
                 self.on_end(state, None)
 

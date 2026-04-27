@@ -67,6 +67,7 @@ class BasicPipeline(CalibrationPipeline):
                 batch = tensors_to_device(batch, model_device)
                 model(**batch)
 
+        LifecycleCallbacks.sequential_epoch_end(subgraph=None)
         LifecycleCallbacks.calibration_epoch_end()
 
 

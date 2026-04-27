@@ -97,11 +97,12 @@ class IMatrixMSEObserver(Observer):
                 return
 
             x_f = x.detach().to(IMATRIX_PRECISION)
+            device = x_f.device
             n_tokens = math.prod(x_f.shape[:-1])
             token_sum = x_f.pow(2).sum(dim=list(range(x_f.dim() - 1)))
 
-            if mod._imatrix_sum.device != token_sum.device:
-                mod._imatrix_sum = mod._imatrix_sum.to(token_sum.device)
+            mod._imatrix_sum = mod._imatrix_sum.to(device)
+            mod._imatrix_count = mod._imatrix_count.to(device)
 
             mod._imatrix_sum.add_(token_sum)
             mod._imatrix_count += n_tokens
