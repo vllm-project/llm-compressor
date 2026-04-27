@@ -10,6 +10,10 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
+from llmcompressor.modifiers.quantization.calibration import (
+    initialize_observer,
+    observe,
+)
 
 
 @pytest.mark.parametrize(
@@ -69,6 +73,8 @@ def test_quantize_weight_supports_block_strategy(actorder):
     module.quantization_scheme = QuantizationScheme(
         targets=["Linear"], weights=quant_args
     )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
 
     hessian = make_empty_hessian(module)
     hessian += torch.eye(hessian.shape[0], dtype=hessian.dtype, device=hessian.device)

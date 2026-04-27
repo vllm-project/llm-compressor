@@ -128,6 +128,8 @@ def update_qparams(
         observer = getattr(module, f"{base_name}_observer", None)
         if observer is None:
             return
+        if not observer.has_statistics:
+            return
 
         # Dynamic (activation) quantization: only store global_scale, not scale/zp
         args = observer.args
