@@ -4,10 +4,12 @@ from typing import TYPE_CHECKING, Union
 import torch
 import tqdm
 from compressed_tensors.offload import dispatch_model, get_execution_device
+from torch.fx import Graph
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines.sequential.helpers import Subgraph
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
 from llmcompressor.utils.helpers import DisableQuantization
@@ -67,8 +69,16 @@ class BasicPipeline(CalibrationPipeline):
                 batch = tensors_to_device(batch, model_device)
                 model(**batch)
 
-        LifecycleCallbacks.sequential_epoch_end(subgraph=None)
+        LifecycleCallbacks.sequential_epoch_end(subgraph=_whole_model_subgraph(model))
         LifecycleCallbacks.calibration_epoch_end()
+
+
+def _whole_model_subgraph(model: torch.nn.Module) -> Subgraph:
+    graph = Graph(model)
+    for name, _ in model.named_children():
+        graph.call_module(name, args=())
+    graph.output(None)
+    return Subgraph(graph=graph, input_names=set(), consumed_names=set())
 
 
 def run_calibration(model: torch.nn.Module, dataloader: DataLoader):
