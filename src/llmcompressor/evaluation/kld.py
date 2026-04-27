@@ -115,10 +115,8 @@ def _worker_remove_hook(model: nn.Module) -> None:
     setattr(model, _HOOK_ATTR, None)
 
 
-def _worker_copy_lm_head(
-    model: nn.Module,
-) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
-    """Return (weight, bias) of the lm_head as CPU float32 tensors."""
+def _worker_copy_lm_head(model: nn.Module) -> dict:
+    """Return lm_head weight and bias as CPU float32 tensors in a dict."""
     head = _find_lm_head(model)
     if head is None:
         raise RuntimeError("Could not locate lm_head in the vLLM model.")
@@ -126,10 +124,10 @@ def _worker_copy_lm_head(
     if weight is None:
         raise RuntimeError("lm_head has no .weight attribute.")
     bias = getattr(head, "bias", None)
-    return (
-        weight.detach().float().cpu(),
-        bias.detach().float().cpu() if bias is not None else None,
-    )
+    return {
+        "weight": weight.detach().float().cpu(),
+        "bias": bias.detach().float().cpu() if bias is not None else None,
+    }
 
 
 # ------------------------------------------------------------------
@@ -364,8 +362,11 @@ class KLDivergenceEvaluator:
         llm.apply_model(_worker_remove_hook)
 
         # Copy lm_head weight to CPU before releasing the GPU.
-        results = llm.apply_model(_worker_copy_lm_head)
-        weight, bias = results[0]
+        # apply_model returns list[_R] (one entry per worker); with
+        # tensor_parallel_size=1 there is exactly one worker.
+        lm_head_data = llm.apply_model(_worker_copy_lm_head)[0]
+        weight: torch.Tensor = lm_head_data["weight"]
+        bias: Optional[torch.Tensor] = lm_head_data["bias"]
 
         del llm  # release GPU memory before next model loads
 
