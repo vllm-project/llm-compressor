@@ -137,7 +137,7 @@ class Observer(InternalModule, RegistryMixin):
         observers = list(observers)
         for obs in observers:
             for other in observers:
-                if other is not obs:
+                if other is not obs and other not in obs._fused_observers:
                     obs._fused_observers.append(other)
 
     def sync_activation_stats(self) -> List[dist.Work]:
