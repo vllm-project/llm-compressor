@@ -273,7 +273,16 @@ class KLDivergenceEvaluator:
     # ------------------------------------------------------------------
 
     def _build_llm(self, model_id: str) -> "LLM":
+        import os
+
         from vllm import LLM
+
+        # vLLM v1 uses spawn-based worker isolation and restricts its custom
+        # serializer to known types.  apply_model passes functions across the
+        # process boundary, which requires falling back to pickle.  Pickle can
+        # safely serialize module-level functions (our worker helpers are all
+        # module-level), so enabling insecure serialization is appropriate here.
+        os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
 
         return LLM(
             model=model_id,
