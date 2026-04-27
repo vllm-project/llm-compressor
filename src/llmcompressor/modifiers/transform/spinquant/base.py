@@ -137,7 +137,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
-            config_groups["R2"] = self._create_r2_scheme(head_dim)
+            v_head_dim = (
+                getattr(state.model.config, "v_head_dim", head_dim)
+                if getattr(self.mappings, "attn_v_is_kv_combined", False)
+                else head_dim
+            )
+            config_groups["R2"] = self._create_r2_scheme(v_head_dim)
 
         if SpinquantRotation.R3 in self.rotations:
             config_groups["R3"] = self._create_r3_scheme(head_dim)
@@ -161,7 +166,49 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         # otherwise we're applying weight transforms on CPU
         self._center_embeddings(model)
         self._fuse_norms(model)
+        if getattr(self.mappings, "attn_v_is_kv_combined", False):
+            from .partial_hadamard import PartialHadamardFactory
+
+            PartialHadamardFactory.qk_nope_head_dim = (
+                state.model.config.qk_nope_head_dim
+            )
+            PartialHadamardFactory.v_head_dim = state.model.config.v_head_dim
+        patched = self._patch_linear_like_modules(model)
         apply_transform_config(model, self.transform_config)
+        self._unpatch_linear_like_modules(patched)
+
+    @staticmethod
+    def _patch_linear_like_modules(model):
+        """
+        Temporarily make modules that behave like nn.Linear (have a weight
+        parameter and compute hidden_states @ weight.T) pass the isinstance
+        and type-equality checks in compressed_tensors. This is needed for
+        modules like DeepseekV3TopkRouter which are functionally Linear but
+        do not inherit from nn.Linear.
+        """
+        patched = []
+        try:
+            from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
+                DeepseekV3TopkRouter,
+            )
+        except ImportError:
+            return patched
+
+        for name, module in model.named_modules():
+            if isinstance(module, DeepseekV3TopkRouter):
+                orig_cls = type(module)
+                module.in_features = module.weight.shape[1]
+                module.out_features = module.weight.shape[0]
+                module.__class__ = torch.nn.Linear
+                patched.append((name, module, orig_cls))
+        return patched
+
+    @staticmethod
+    def _unpatch_linear_like_modules(patched):
+        for _name, module, orig_cls in patched:
+            module.__class__ = orig_cls
+            del module.in_features
+            del module.out_features
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -208,38 +255,48 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 fuse_norm_linears(norm[0], tree_leaves(linears))
 
     def _create_r1_scheme(self) -> TransformScheme:
+        apply_list = []
+        apply_list.append(
+            TransformArgs(
+                targets=[
+                    self.mappings.embedding,
+                    self.mappings.attn_o,
+                    *self.mappings.mlp_out,
+                ],
+                location="weight_output",
+            )
+        )
+        r1_input_targets = [
+            self.mappings.attn_q,
+            self.mappings.attn_k,
+            *self.mappings.mlp_in,
+            self.mappings.lm_head,
+        ]
+        if not getattr(self.mappings, "attn_v_is_kv_combined", False):
+            r1_input_targets.append(self.mappings.attn_v)
+        apply_list.append(
+            TransformArgs(
+                targets=r1_input_targets,
+                location="weight_input",
+                inverse=True,
+            )
+        )
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
             head_dim=self.transform_block_size,
-            apply=[
-                TransformArgs(
-                    targets=[
-                        self.mappings.embedding,
-                        self.mappings.attn_o,
-                        *self.mappings.mlp_out,
-                    ],
-                    location="weight_output",
-                ),
-                TransformArgs(
-                    targets=[
-                        self.mappings.attn_q,
-                        self.mappings.attn_k,
-                        self.mappings.attn_v,
-                        *self.mappings.mlp_in,
-                        self.mappings.lm_head,
-                    ],
-                    location="weight_input",
-                    inverse=True,
-                ),
-            ],
+            apply=apply_list,
         )
 
     def _create_r2_scheme(self, head_dim: int) -> TransformScheme:
+        transform_type = self.transform_type
+        if getattr(self.mappings, "attn_v_is_kv_combined", False):
+            assert self.transform_type == "hadamard"
+            transform_type = f"partial_{self.transform_type}"
         return TransformScheme(
-            type=self.transform_type,
+            type=transform_type,
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
