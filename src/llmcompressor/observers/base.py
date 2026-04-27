@@ -46,9 +46,6 @@ class Observer(InternalModule, RegistryMixin):
         super().__init__()
         self.base_name = base_name
         self.args = args
-        # weight observers don't need to sync
-        if base_name == "weight":
-            self._act_sync_dict = {}
 
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
