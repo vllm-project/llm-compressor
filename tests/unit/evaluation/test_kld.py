@@ -154,6 +154,8 @@ def test_compute_kld_same_hidden_states_is_zero():
     assert result.num_prompts == 2
     assert result.num_tokens == 17
     assert result.skipped == 0
+    assert len(result.per_prompt_kld) == 2
+    assert not any(math.isnan(v) for v in result.per_prompt_kld)
 
 
 def test_compute_kld_different_hidden_states_is_positive():
@@ -167,22 +169,47 @@ def test_compute_kld_different_hidden_states_is_positive():
     assert result.num_prompts == 2
 
 
-def test_compute_kld_shape_mismatch_skipped():
+def test_compute_kld_token_weighted_mean():
+    """mean_kld must be token-weighted, not a simple average of per-prompt means."""
+    head = _make_lm_head()
+    torch.manual_seed(2)
+    # Short prompt (1 token) and long prompt (100 tokens) with different noise levels.
+    h_short_base = torch.randn(1, 16)
+    h_long_base = torch.randn(100, 16)
+    h_short_quant = h_short_base + torch.randn(1, 16) * 5.0  # very noisy
+    h_long_quant = h_long_base.clone()  # identical to base
+
+    base = [h_short_base, h_long_base]
+    quant = [h_short_quant, h_long_quant]
+    result = KLDivergenceEvaluator._compute_kld(base, quant, head)
+
+    # Token-weighted mean should be dominated by the 100-token prompt (low KLD).
+    # Simple prompt average would be dominated by the noisy short prompt.
+    assert result.mean_kld < result.per_prompt_kld[0]  # lower than noisy prompt
+    assert result.num_tokens == 101
+
+
+def test_compute_kld_shape_mismatch_inserts_nan():
     head = _make_lm_head()
     base = [torch.randn(10, 16), torch.randn(8, 16)]
     quant = [torch.randn(10, 16), torch.randn(7, 16)]  # second mismatched
     result = KLDivergenceEvaluator._compute_kld(base, quant, head)
     assert result.num_prompts == 1
     assert result.skipped == 1
+    assert len(result.per_prompt_kld) == 2  # alignment preserved
+    assert math.isnan(result.per_prompt_kld[1])
+    assert not math.isnan(result.per_prompt_kld[0])
 
 
-def test_compute_kld_empty_captures_skipped():
+def test_compute_kld_empty_captures_inserts_nan():
     head = _make_lm_head()
     base = [torch.empty(0), torch.randn(8, 16)]
     quant = [torch.empty(0), torch.randn(8, 16)]
     result = KLDivergenceEvaluator._compute_kld(base, quant, head)
     assert result.num_prompts == 1
     assert result.skipped == 1
+    assert len(result.per_prompt_kld) == 2
+    assert math.isnan(result.per_prompt_kld[0])
 
 
 def test_compute_kld_all_skipped_raises():
@@ -211,10 +238,9 @@ def test_compute_kld_with_bias_lm_head():
 
 
 def test_compute_kld_handles_dtype_promotion():
-    """Hidden states in bf16/fp16 must be promoted to fp32 for KLD math."""
+    """Hidden states in fp16 must be promoted to fp32 for KLD math."""
     head = _make_lm_head()
     h = [torch.randn(5, 16, dtype=torch.float16)]
-    # Same input → KLD ≈ 0 even with low-precision input.
     result = KLDivergenceEvaluator._compute_kld(h, h, head)
     assert result.mean_kld == pytest.approx(0.0, abs=1e-3)
 
@@ -232,14 +258,24 @@ def test_evaluator_rejects_tensor_parallel():
         )
 
 
+def test_evaluator_rejects_invalid_max_tokens():
+    with pytest.raises(ValueError, match="max_tokens must be >= 1"):
+        KLDivergenceEvaluator(base_model_id="foo", max_tokens=0)
+
+
+def test_evaluator_rejects_negative_max_tokens():
+    with pytest.raises(ValueError, match="max_tokens must be >= 1"):
+        KLDivergenceEvaluator(base_model_id="foo", max_tokens=-5)
+
+
 def test_evaluator_default_quantized_falls_back_to_base():
     e = KLDivergenceEvaluator(base_model_id="foo")
     assert e.quantized_model_id == "foo"
 
 
-def test_evaluator_max_tokens_clamped_to_one():
-    e = KLDivergenceEvaluator(base_model_id="foo", max_tokens=0)
-    assert e.max_tokens == 1
+def test_evaluator_valid_max_tokens_accepted():
+    e = KLDivergenceEvaluator(base_model_id="foo", max_tokens=5)
+    assert e.max_tokens == 5
 
 
 def test_evaluator_evaluate_empty_prompts_raises():
@@ -274,10 +310,18 @@ def test_result_str_contains_key_fields():
 
 
 def test_evaluate_kl_divergence_function_exists_and_validates():
-    # Should fail validation before touching vLLM.
     with pytest.raises(ValueError, match="tensor_parallel_size"):
         evaluate_kl_divergence(
             base_model_id="foo",
             quantized_model_id="bar",
             tensor_parallel_size=4,
+        )
+
+
+def test_evaluate_kl_divergence_rejects_invalid_max_tokens():
+    with pytest.raises(ValueError, match="max_tokens must be >= 1"):
+        evaluate_kl_divergence(
+            base_model_id="foo",
+            quantized_model_id="bar",
+            max_tokens=0,
         )
