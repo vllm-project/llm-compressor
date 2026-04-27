@@ -10,14 +10,16 @@ in data volume.
 
 Pipeline
 --------
-1. Load baseline and quantized models via vLLM (sequentially, to fit one model
-   in GPU memory at a time).
+1. Load baseline and quantized models via vLLM (sequentially, one model in
+   GPU memory at a time).
 2. Register a forward hook on the model's ``LogitsProcessor`` via
    ``LLM.apply_model``.  The processor receives ``(lm_head, hidden_states)``
    as positional inputs, so the hook captures ``inputs[1]`` — the
-   pre-projection activations.
-3. Run inference one prompt at a time so each capture maps to a single
-   prompt's token sequence.
+   pre-projection activations.  Hook state is stored on the model object
+   itself so it survives the serialization boundary imposed by vLLM v1's
+   spawn-based worker isolation.
+3. Run inference one prompt at a time; retrieve captures from the worker
+   via a second ``LLM.apply_model`` call after each generate.
 4. Build a plain ``nn.Linear`` from the baseline ``lm_head.weight`` and apply
    it to both hidden state sets to obtain log-probabilities.
 5. Compute per-token ``KL(P_base || P_quant)`` and average over the dataset.
@@ -55,6 +57,85 @@ _DEFAULT_DATASET = [
     "Efficient inference is critical for deploying large language models.",
 ]
 
+# Attribute names used to stash state on the model inside the worker.
+_CAPTURES_ATTR = "__kld_captures__"
+_HOOK_ATTR = "__kld_hook_handle__"
+
+
+# ------------------------------------------------------------------
+# Module-level worker functions
+#
+# These must be module-level (not closures) so vLLM v1's serializer
+# can send them to the worker process by reference.  Any state they
+# need is stored on the model object itself.
+# ------------------------------------------------------------------
+
+
+def _worker_register_hook(model: nn.Module) -> None:
+    """Register a logits_processor hook; store handle and captures on model."""
+    processor = _find_logits_processor(model)
+    if processor is None:
+        raise RuntimeError(
+            "Could not locate LogitsProcessor in the vLLM model. "
+            "KLDivergenceEvaluator requires a decoder model that exposes a "
+            "'logits_processor' attribute (Llama, OPT, Mistral, Qwen, ...)."
+        )
+    setattr(model, _CAPTURES_ATTR, [])
+
+    def _hook(
+        module: nn.Module,
+        inputs: tuple,
+        output: torch.Tensor,
+    ) -> None:
+        # LogitsProcessor.forward(lm_head, hidden_states, embedding_bias=None)
+        # inputs[1] is the pre-projection hidden state tensor.
+        if len(inputs) < 2 or not isinstance(inputs[1], torch.Tensor):
+            return
+        getattr(model, _CAPTURES_ATTR).append(
+            inputs[1].detach().to(torch.float32).cpu()
+        )
+
+    handle = processor.register_forward_hook(_hook)
+    setattr(model, _HOOK_ATTR, handle)
+
+
+def _worker_collect_captures(model: nn.Module) -> list[torch.Tensor]:
+    """Return and clear the captured hidden states stored on the model."""
+    captures: list[torch.Tensor] = list(getattr(model, _CAPTURES_ATTR, []))
+    setattr(model, _CAPTURES_ATTR, [])
+    return captures
+
+
+def _worker_remove_hook(model: nn.Module) -> None:
+    """Remove the registered hook and clear capture storage."""
+    handle = getattr(model, _HOOK_ATTR, None)
+    if handle is not None:
+        handle.remove()
+    setattr(model, _CAPTURES_ATTR, [])
+    setattr(model, _HOOK_ATTR, None)
+
+
+def _worker_copy_lm_head(
+    model: nn.Module,
+) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """Return (weight, bias) of the lm_head as CPU float32 tensors."""
+    head = _find_lm_head(model)
+    if head is None:
+        raise RuntimeError("Could not locate lm_head in the vLLM model.")
+    weight = getattr(head, "weight", None)
+    if weight is None:
+        raise RuntimeError("lm_head has no .weight attribute.")
+    bias = getattr(head, "bias", None)
+    return (
+        weight.detach().float().cpu(),
+        bias.detach().float().cpu() if bias is not None else None,
+    )
+
+
+# ------------------------------------------------------------------
+# Public API
+# ------------------------------------------------------------------
+
 
 @dataclass
 class KLDivergenceResult:
@@ -89,10 +170,12 @@ class KLDivergenceEvaluator:
     Evaluates KL Divergence between a baseline and quantized model using
     vLLM hidden state extraction.
 
-    Extracts pre-lm_head hidden states from both models via ``LLM.apply_model``
-    hooks, then computes KL Divergence offline using the baseline model's
-    lm_head weight matrix. This is ~30x more storage-efficient than extracting
-    full logprobs.
+    Extracts pre-lm_head hidden states by hooking the model's
+    ``LogitsProcessor`` inside the vLLM worker process via ``LLM.apply_model``.
+    Captures are stored on the model object itself (to survive vLLM v1's
+    spawn-based worker isolation) and retrieved after each generate call.
+    KL Divergence is then computed offline using the baseline model's
+    lm_head weight matrix — ~30x more storage-efficient than full logprobs.
 
     Tensor parallelism is not supported (``tensor_parallel_size`` must be 1)
     because the lm_head weight is sharded across ranks under TP, which would
@@ -153,8 +236,7 @@ class KLDivergenceEvaluator:
         Run KL Divergence evaluation over the given prompts.
 
         Loads baseline and quantized models sequentially to avoid holding
-        both in GPU memory at once. Hidden states are moved to CPU after
-        extraction so the GPU can be released before loading the next model.
+        both in GPU memory at once.
 
         :param prompts: List of text prompts to evaluate on. Defaults to a
             small built-in calibration set if not provided.
@@ -207,133 +289,88 @@ class KLDivergenceEvaluator:
         prompts: list[str],
     ) -> tuple[list[torch.Tensor], nn.Linear]:
         """
-        Load *model_id* via vLLM, register a hook on the LogitsProcessor to
-        capture pre-projection hidden states, run inference one prompt at a
-        time, then return the captures along with a CPU copy of the
-        ``lm_head`` projection.
+        Load *model_id* via vLLM, register a hook on LogitsProcessor, run
+        inference one prompt at a time (retrieving captures after each), then
+        return per-prompt hidden states and a CPU copy of the lm_head.
 
         :param model_id: Model to load.
         :param prompts: Prompts to run inference on.
-        :return: ``(hidden_states_per_prompt, lm_head_cpu)``. Each hidden
-            state tensor has shape ``[seq_len, hidden_dim]`` and lives on CPU.
+        :return: ``(hidden_states_per_prompt, lm_head_cpu)``.
         """
         from vllm import SamplingParams
 
         llm = self._build_llm(model_id)
-        captures: list[torch.Tensor] = []
 
-        def _hook(
-            module: nn.Module,
-            inputs: tuple,
-            output: torch.Tensor,
-        ) -> None:
-            # LogitsProcessor.forward(lm_head, hidden_states, embedding_bias=None)
-            # so inputs[1] is the pre-projection hidden state tensor.
-            if len(inputs) < 2:
-                return
-            hidden = inputs[1]
-            if not isinstance(hidden, torch.Tensor):
-                return
-            captures.append(hidden.detach().to(torch.float32).cpu())
+        # Register the hook inside the worker process.
+        llm.apply_model(_worker_register_hook)
 
-        hook_handles: list = []
-
-        def _register(model: nn.Module) -> None:
-            processor = _find_logits_processor(model)
-            if processor is None:
-                raise RuntimeError(
-                    f"Could not locate LogitsProcessor in model {model_id}. "
-                    "This evaluator requires a vLLM decoder model with a "
-                    "logits_processor attribute."
-                )
-            hook_handles.append(processor.register_forward_hook(_hook))
-
-        llm.apply_model(_register)
-
+        # prompt_logprobs=1 forces vLLM to run compute_logits for every prompt
+        # token position, not just the final prefill token.
         sampling_params = SamplingParams(
             temperature=0.0,
             max_tokens=self.max_tokens,
-            # Force vLLM to compute logits for every prompt position.
-            prompt_logprobs=0,
+            prompt_logprobs=1,
         )
 
-        # Process prompts one at a time so each prompt maps cleanly to its
-        # own set of captures (vLLM otherwise concatenates batched prompts
-        # into a single flat hidden-state tensor).
         per_prompt_hidden: list[torch.Tensor] = []
+
         for idx, prompt in enumerate(prompts):
-            captures.clear()
             outputs = llm.generate(
                 [prompt],
                 sampling_params=sampling_params,
                 use_tqdm=False,
             )
+
+            # Retrieve captures from the worker and clear them for next prompt.
+            captures: list[torch.Tensor] = llm.apply_model(
+                _worker_collect_captures
+            )[0]
+
             if not outputs:
-                logger.warning(f"vLLM returned no output for prompt {idx}; skipping.")
+                logger.warning(
+                    f"vLLM returned no output for prompt {idx}; skipping."
+                )
+                per_prompt_hidden.append(torch.empty(0))
+                continue
+
+            if not captures:
+                logger.warning(
+                    f"No hidden states captured for prompt {idx}. "
+                    "The LogitsProcessor hook may not have fired — check "
+                    "the model architecture."
+                )
                 per_prompt_hidden.append(torch.empty(0))
                 continue
 
             request = outputs[0]
             prompt_len = len(request.prompt_token_ids or [])
 
-            if not captures:
-                logger.warning(
-                    f"No hidden states captured for prompt {idx}. "
-                    "The hook may not have fired — check vLLM model architecture."
-                )
-                per_prompt_hidden.append(torch.empty(0))
-                continue
-
-            # Concatenate all captures from this prompt's forward calls.
-            # Prefill yields [prompt_len, hidden]; subsequent decode steps yield
-            # [1, hidden] each. We only keep the prompt-prefill positions to
-            # ensure base/quant captures align by token index.
+            # Concatenate all captures (prefill + any decode steps), then
+            # keep only the prompt-prefill positions so base/quant align.
             full = torch.cat(captures, dim=0)
             keep = full[:prompt_len] if full.shape[0] >= prompt_len else full
             per_prompt_hidden.append(keep)
 
-        # Remove hooks
-        for h in hook_handles:
-            h.remove()
-        hook_handles.clear()
+        # Clean up the hook from the worker.
+        llm.apply_model(_worker_remove_hook)
 
-        # Copy lm_head weight to CPU as a plain Linear so the GPU can be
-        # released before loading the next model.
-        lm_head_holder: list[nn.Linear] = []
+        # Copy lm_head weight to CPU before releasing the GPU.
+        results = llm.apply_model(_worker_copy_lm_head)
+        weight, bias = results[0]
 
-        def _copy_lm_head(model: nn.Module) -> None:
-            head = _find_lm_head(model)
-            if head is None:
-                raise RuntimeError(
-                    f"Could not locate lm_head in model {model_id}."
-                )
-            weight = getattr(head, "weight", None)
-            if weight is None:
-                raise RuntimeError(
-                    f"lm_head in {model_id} has no .weight attribute."
-                )
-            bias = getattr(head, "bias", None)
+        del llm  # release GPU memory before next model loads
 
-            cpu_head = nn.Linear(
-                weight.shape[1],
-                weight.shape[0],
-                bias=bias is not None,
-                dtype=torch.float32,
-            )
-            cpu_head.weight.data.copy_(weight.detach().float().cpu())
-            if bias is not None:
-                cpu_head.bias.data.copy_(bias.detach().float().cpu())
-            lm_head_holder.append(cpu_head)
+        cpu_head = nn.Linear(
+            weight.shape[1],
+            weight.shape[0],
+            bias=bias is not None,
+            dtype=torch.float32,
+        )
+        cpu_head.weight.data.copy_(weight)
+        if bias is not None:
+            cpu_head.bias.data.copy_(bias)
 
-        llm.apply_model(_copy_lm_head)
-
-        # Release GPU memory before next model loads.
-        del llm
-
-        if not lm_head_holder:
-            raise RuntimeError(f"Failed to copy lm_head from model {model_id}.")
-
-        return per_prompt_hidden, lm_head_holder[0]
+        return per_prompt_hidden, cpu_head
 
     @staticmethod
     def _compute_kld(
@@ -345,12 +382,11 @@ class KLDivergenceEvaluator:
         Apply *lm_head* to both hidden state lists and compute KL Divergence.
 
         KLD is computed as ``KL(P_base || P_quant)`` where P_base is the
-        baseline distribution. Averaged over all prompts, weighted equally.
+        baseline distribution, averaged over all prompts.
 
         :param base_hidden: Pre-lm_head hidden states from the baseline model.
         :param quant_hidden: Pre-lm_head hidden states from the quantized model.
-        :param lm_head: Plain ``nn.Linear`` built from the baseline model's
-            lm_head weight.
+        :param lm_head: Plain ``nn.Linear`` built from the baseline lm_head.
         :return: :class:`KLDivergenceResult`.
         """
         if len(base_hidden) != len(quant_hidden):
@@ -379,14 +415,13 @@ class KLDivergenceEvaluator:
                     skipped += 1
                     continue
 
-                # Both hidden state sets pass through baseline's lm_head.
                 logits_base = lm_head(h_base.float())
                 logits_quant = lm_head(h_quant.float())
 
-                # KL(P || Q) = sum(P * (log P - log Q))
-                # batchmean averages over the leading (token) dim.
                 log_p = F.log_softmax(logits_base, dim=-1)
                 log_q = F.log_softmax(logits_quant, dim=-1)
+
+                # KL(P || Q), batchmean averages over the token dimension.
                 kld = F.kl_div(log_q, log_p, reduction="batchmean", log_target=True)
 
                 per_prompt_kld.append(kld.item())
@@ -426,8 +461,7 @@ def evaluate_kl_divergence(
         model.
     :param prompts: Calibration prompts. Defaults to a small built-in set.
     :param dtype: Model dtype for vLLM (e.g. ``"auto"``, ``"bfloat16"``).
-    :param max_tokens: Max tokens to generate per prompt. Use ``1`` for
-        prefill-only evaluation.
+    :param max_tokens: Max tokens to generate per prompt.
     :param gpu_memory_utilization: Fraction of GPU memory vLLM may allocate.
     :param enforce_eager: Disable CUDA graph optimizations.
     :param tensor_parallel_size: Must be 1 (TP not supported).
@@ -464,10 +498,9 @@ def _find_logits_processor(model: nn.Module) -> Optional[nn.Module]:
     """
     Locate the ``LogitsProcessor`` module in a vLLM model.
 
-    vLLM decoder models (Llama, OPT, Mistral, Qwen, ...) attach a
-    ``logits_processor`` attribute on the top-level ``ForCausalLM`` class.
-    Fallback: scan ``model.modules()`` for any module whose class is named
-    ``LogitsProcessor``.
+    vLLM decoder models attach a ``logits_processor`` attribute on the
+    top-level ``ForCausalLM`` class. Fallback: scan ``model.modules()``
+    for any module whose class is named ``LogitsProcessor``.
 
     :param model: The vLLM-loaded model.
     :return: The ``LogitsProcessor`` module if found, else ``None``.
@@ -487,9 +520,9 @@ def _find_lm_head(model: nn.Module) -> Optional[nn.Module]:
     Locate the lm_head projection in *model*.
 
     Tries common attribute names (``lm_head``, ``output``, ``embed_out``).
-    Returns the module as-is regardless of whether it is ``nn.Linear`` or
-    a vLLM-specific class such as ``ParallelLMHead`` — the caller reads
-    ``.weight`` and ``.bias`` directly.
+    Returns the module as-is regardless of type — the caller reads
+    ``.weight`` directly, which handles both ``nn.Linear`` and vLLM's
+    ``ParallelLMHead``.
 
     :param model: Model to search.
     :return: The lm_head module if found, else ``None``.
