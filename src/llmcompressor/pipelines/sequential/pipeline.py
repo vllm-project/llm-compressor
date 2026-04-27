@@ -24,38 +24,6 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
-def _iter_batches(
-    activations: IntermediatesCache,
-    input_names: list[str],
-) -> Iterator[dict]:
-    """
-    Iterate over batches without prefetching.
-    """
-    batch_idx = 0
-    while True:
-        inputs = {}
-        for name in input_names:
-            key = (batch_idx, name)
-            if key in activations:
-                inputs[name] = activations.fetch(key)
-        if not inputs:
-            return
-        yield inputs
-        batch_idx += 1
-
-
-def _iter_batches_prefetch(
-    activations: IntermediatesCache,
-    input_names: list[str],
-) -> Iterator[dict]:
-    """
-    Iterate over batches with prefetching using iter_prefetch_grouped.
-    """
-    keys = [k for k in activations._store.keys() if k[1] in input_names]
-    for group_dict in activations.iter_prefetch_grouped(keys, group_by=lambda k: k[0]):
-        yield {k[1]: v for k, v in group_dict.items()}
-
-
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
@@ -64,18 +32,16 @@ def _get_batches(
     sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
-    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
-    background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass.
+    Yield (batch_idx, inputs) with the next batch optionally prefetched.
+    
+    Uses wildcard pattern (None,) to match all (batch_idx,) keys.
     """
-    batch_source = (
-        _iter_batches_prefetch(activations, input_names)
-        if sequential_prefetch
-        else _iter_batches(activations, input_names)
-    )
-    for batch_idx, inputs in tqdm(
-        enumerate(batch_source), total=num_batches, desc=desc
+    iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter
+    batch_iter = iter_fn([(None,)])
+    for batch_idx, batch_dict in tqdm(
+        enumerate(batch_iter), total=num_batches, desc=desc
     ):
+        inputs = {name: batch_dict[name] for name in input_names if name in batch_dict}
         yield batch_idx, inputs
 
 
@@ -99,7 +65,7 @@ class SequentialPipeline(CalibrationPipeline):
             to the cpu between each batch in order to save memory
 
         This pipeline requires that the model be traceable with respect to data from the
-        data loader. This may be an issue for vision models with vision datasets, due
+        data loader. This may be an issue for vision models with vision datasets, due to
         to specialized input processing in the model.
 
         In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A
@@ -145,8 +111,16 @@ class SequentialPipeline(CalibrationPipeline):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
+<<<<<<< HEAD
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
+=======
+            # Optionally disable quantization
+            if not dataset_args.quantization_aware_calibration or disable_qac:
+                stack.enter_context(DisableQuantization(model))
+
+            # prepare intermediates cache - stores (batch_idx,) -> batch_dict
+>>>>>>> 1349bbb3 (Address the review comments.)
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
             )
@@ -155,7 +129,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations.fetch((batch_idx, "loss_mask"))
+                    activations.fetch((batch_idx,))["loss_mask"]
                     for batch_idx in range(len(dataloader))
                 ]
             else:
