@@ -264,7 +264,6 @@ class AWQModifier(Modifier):
         """
         self._assert_all_activations_consumed()
 
-
         self.ended_ = True
 
         # remove activation hooks
