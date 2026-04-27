@@ -1,8 +1,8 @@
 """
-MixFP4 observer for choosing NVFP4 E2M1 or signed INT4 per group.
+Codebook-selection observers for quantization calibration.
 
-The selected format is stored in the unused sign bit of the FP8 per-group
-scale byte:
+MixFP4 chooses NVFP4 E2M1 or signed INT4 per group and stores the choice in
+unused bit 7 of the FP8 per-group scale byte:
   bit7 = 0 -> FP4 E2M1 group
   bit7 = 1 -> signed INT4 group
 """
