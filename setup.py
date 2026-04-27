@@ -127,9 +127,9 @@ setup(
             if BUILD_TYPE == "release"
             else "transformers>=4.56.1,<=4.57.6"
         ),
-        ("datasets>=4.0.0,<=4.6.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("datasets>=4.8.4,<=4.8.4" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "auto-round>=0.10.2,<=0.10.2"
+            "auto-round>=0.10.2,<=0.12.2"
             if BUILD_TYPE == "release"
             else "auto-round>=0.10.2"
         ),

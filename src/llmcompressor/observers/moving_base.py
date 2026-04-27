@@ -1,5 +1,4 @@
 from abc import abstractmethod
-from typing import List, Optional
 
 import torch
 from compressed_tensors.offload.dist_utils import as_broadcastable
@@ -26,7 +25,7 @@ class MovingAverageObserverBase(Observer):
         self,
         base_name: str,
         args: QuantizationArgs,
-        module: Optional[torch.nn.Module] = None,
+        module: torch.nn.Module | None = None,
         **observer_kwargs,
     ):
         super().__init__(base_name, args, module, **observer_kwargs)
@@ -99,7 +98,7 @@ class MovingAverageObserverBase(Observer):
 
         return min_vals, max_vals
 
-    def synchronize(self) -> List[dist.Work]:
+    def synchronize(self) -> list[dist.Work]:
         """Average accumulated moving-average min/max statistics across DDP ranks.
 
         Unlike :class:`StaticMinMaxObserver` which reduces via MIN/MAX,

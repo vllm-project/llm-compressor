@@ -113,6 +113,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Finish calibrating by removing observers and calibration hooks
         """
         self.ended_ = True
+
         QuantizationMixin.end_calibration(
             self, state.model
         )  # keep quantization enabled
