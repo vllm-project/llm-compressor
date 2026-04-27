@@ -1,5 +1,3 @@
-import contextlib
-
 import torch
 from compressed_tensors.utils import (
     align_module_device,
@@ -9,13 +7,14 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers.pruning.sparsegpt.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.pruning.sparsegpt.sgpt_sparsify import (
     accumulate_hessian,
     make_empty_hessian,
     sparsify_weight,
 )
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["SparseGPTModifier"]
@@ -79,7 +78,12 @@ class SparseGPTModifier(SparsityModifierBase):
 
     # private variables
     _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _hessians_cache: IntermediatesCache[torch.nn.Module] = PrivateAttr(default=None)
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        super().on_start(state, event, **kwargs)
+        offload_device = torch.device("cpu") if self.offload_hessians else None
+        self._hessians_cache = IntermediatesCache(offload_device=offload_device)
 
     def calibrate_module(
         self,
@@ -95,23 +99,20 @@ class SparseGPTModifier(SparsityModifierBase):
             canonical input
         :param _output: uncompressed module output, unused
         """
-        # Assume that the first argument is the input
         inp = args[0]
 
-        # Initialize hessian if not present
         if module not in self._num_samples:
             device = get_execution_device(module)
-            self._hessians[module] = make_empty_hessian(module, device=device)
+            self._hessians_cache.update(
+                module, make_empty_hessian(module, device=device)
+            )
             self._num_samples[module] = 0
 
-        # Accumulate hessian with input with optional offloading
-        with self._maybe_onload_hessian(module):
-            self._hessians[module], self._num_samples[module] = accumulate_hessian(
-                inp,
-                module,
-                self._hessians[module],
-                self._num_samples[module],
-            )
+        hessian = self._hessians_cache.fetch(module)
+        hessian, self._num_samples[module] = accumulate_hessian(
+            inp, module, hessian, self._num_samples[module]
+        )
+        self._hessians_cache.update(module, hessian)
 
     def compress_modules(self):
         """
@@ -128,9 +129,11 @@ class SparseGPTModifier(SparsityModifierBase):
                 align_module_device(module),
                 CompressionLogger(module) as comp_logger,
             ):
+                hessian = self._hessians_cache.fetch(module)
+                self._hessians_cache.delete(module)
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
-                    hessians_dict=self._hessians,
+                    hessian=hessian,
                     sparsity=sparsity,
                     prune_n=self._prune_n,
                     prune_m=self._prune_m,
@@ -142,30 +145,17 @@ class SparseGPTModifier(SparsityModifierBase):
 
             update_offload_parameter(module, "weight", sparsified_weight)
 
-            # self._hessians[module] already deleted by sparsify_weight
             del self._num_samples[module]
-
-    @contextlib.contextmanager
-    def _maybe_onload_hessian(self, module: torch.nn.Module):
-        if self.offload_hessians:
-            device = get_execution_device(module)
-            self._hessians[module] = self._hessians[module].to(device=device)
-
-        yield
-
-        if self.offload_hessians:
-            if module in self._hessians:  # may have been deleted in context
-                self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         # TODO: modify lifecycle to end on finalize
         if not self.ended_:
-            self.on_end(state, None)  # remove hooks
+            self.on_end(state, None)
 
         if len(self._num_samples) > 0:
             raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
-        self._hessians = dict()
+        self._hessians_cache.clear()
         self._num_samples = dict()
         self._module_names = dict()
         self._module_sparsities = dict()

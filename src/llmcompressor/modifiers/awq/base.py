@@ -163,9 +163,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     _parent_args_cache: IntermediatesCache[tuple[Module, int]] = PrivateAttr(default=None)
-    _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
-        default_factory=dict
-    )
+    _smooth_activation_stats: IntermediatesCache[str] = PrivateAttr(default=None)
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -466,18 +464,21 @@ class AWQModifier(Modifier, QuantizationMixin):
                 new_sum = masked_activations.float().sum(dim=0).cpu()
                 new_count = torch.tensor(masked_activations.size(0)).cpu()
                 if smooth_name not in self._smooth_activation_stats:
-                    self._smooth_activation_stats[smooth_name] = [
-                        torch.zeros_like(new_sum),
-                        torch.zeros_like(new_count),
-                    ]
-                self._smooth_activation_stats[smooth_name][0] += new_sum
-                self._smooth_activation_stats[smooth_name][1] += new_count
+                    self._smooth_activation_stats.update(
+                        smooth_name,
+                        [torch.zeros_like(new_sum), torch.zeros_like(new_count)],
+                    )
+                x_sum, count = self._smooth_activation_stats.fetch(smooth_name)
+                x_sum += new_sum
+                count += new_count
+                self._smooth_activation_stats.update(smooth_name, [x_sum, count])
 
             return cache_smooth_activations_hook
 
         for mapping in self._resolved_mappings:
             if self._parent_args_cache is None:
                 self._parent_args_cache = IntermediatesCache(self.offload_device)
+                self._smooth_activation_stats = IntermediatesCache(self.offload_device)
 
                 self.register_hook(
                     mapping.parent,
@@ -535,7 +536,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         "found to scale. This can occasionally occur in MoE models "
                         "when certain experts are not activated by calibration samples."
                     )
-                    del self._smooth_activation_stats[mapping.smooth_name]
+                    self._smooth_activation_stats.delete(mapping.smooth_name)
                     continue
                 if not all(
                     [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
@@ -549,7 +550,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         "ways. If you encounter this consistently, raise an issue at "
                         "https://github.com/vllm-project/llm-compressor/issues"
                     )
-                    del self._smooth_activation_stats[mapping.smooth_name]
+                    self._smooth_activation_stats.delete(mapping.smooth_name)
                     continue
 
                 orig_layer_weights = {
@@ -601,8 +602,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     _smooth(layer, orig_layer_weights)
                 _smooth(smooth_layer, orig_layer_weights)
 
-                # remove caches needed to smooth this mapping
-                del self._smooth_activation_stats[mapping.smooth_name]
+                self._smooth_activation_stats.delete(mapping.smooth_name)
                 del orig_layer_weights
 
         self._parent_args_cache.clear()
@@ -655,7 +655,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_sum, count = self._smooth_activation_stats[mapping.smooth_name]
+        x_sum, count = self._smooth_activation_stats.fetch(mapping.smooth_name)
         if is_distributed():
             x_sum, count = _allreduce_data_sum([x_sum, count])
         x_mean = x_sum.to(device) / count.to(device)
