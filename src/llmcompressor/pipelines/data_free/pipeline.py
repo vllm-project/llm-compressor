@@ -5,6 +5,7 @@ from compressed_tensors.offload import dispatch_model
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
+from llmcompressor.pipelines.basic.pipeline import _whole_model_subgraph
 from llmcompressor.pipelines.registry import CalibrationPipeline
 
 if TYPE_CHECKING:
@@ -33,4 +34,5 @@ class DataFreePipeline(CalibrationPipeline):
         dispatch_model(model)
 
         LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.sequential_epoch_end(subgraph=_whole_model_subgraph(model))
         LifecycleCallbacks.calibration_epoch_end()

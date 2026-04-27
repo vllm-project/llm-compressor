@@ -78,7 +78,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             tmp = match_named_modules(state.model, self.resolved_targets, self.ignore)
-            modules = [m for _, m in tmp][0]
+            modules = [m for _, m in tmp]
             self.sync_obs_act_stats(state.model)
             self.update_activation_qparams(state.model)
             observe(modules, base_name="weight")
