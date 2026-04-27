@@ -3,7 +3,7 @@ import weakref
 from typing import Optional
 
 import torch
-from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import patch_attr
@@ -252,7 +252,7 @@ class IMatrixMSEObserver(Observer):
 
 def _grid_search(
     observed: torch.Tensor,
-    args,
+    args: QuantizationArgs,
     maxshrink: float,
     patience: int,
     grid: int,
