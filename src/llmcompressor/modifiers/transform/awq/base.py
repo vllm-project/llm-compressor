@@ -259,19 +259,11 @@ class AWQModifier(Modifier):
 
     def on_end(self, state: State, event: Event, **kwargs):
         """
-        Finish calibrating by setting scales and zero-points,
-         removing observers and calibration hooks
+        Finish calibrating by removing observers and calibration hooks.
+        No qparams are updated since this is just a transform.
         """
         self._assert_all_activations_consumed()
 
-        # Recompute weight scales/zps for layers modified by smoothing
-        smoothed_layers = []
-        for mapping in self._resolved_mappings:
-            for layer in mapping.balance_layers + [mapping.smooth_layer]:
-                if hasattr(layer, "weight_observer"):
-                    smoothed_layers.append(layer)
-        observe(smoothed_layers, base_name="weight")
-        update_qparams(smoothed_layers, base_name="weight")
 
         self.ended_ = True
 
