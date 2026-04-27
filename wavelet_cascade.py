@@ -10,6 +10,8 @@ import torch
 import numpy as np
 import pywt
 from scipy.fftpack import dct
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import reverse_cuthill_mckee
 import tensorly as tl
 from tensorly.decomposition import tensor_train
 from datasets import load_dataset
@@ -21,7 +23,7 @@ from torch.nn.utils.rnn import pad_sequence
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 DATASET_ID = "mit-han-lab/pile-val-backup"
 NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = 4096
 
 LAYER_NAME = "model.layers.15.self_attn.q_proj"
 
@@ -85,7 +87,7 @@ def _effective_rank(singular_values):
     return np.exp(H)
 
 
-def _residual_sparsity_wavelet(residual, wavelet='db4', energy_threshold=0.99):
+def _residual_sparsity_wavelet(residual, wavelet="db4", energy_threshold=0.99):
     """Compute sparsity of residual in wavelet coefficient basis.
 
     Applies 2D wavelet decomposition to the residual matrix and measures:
@@ -153,7 +155,7 @@ def _cka(X1, X2, sample_size=5000):
 
     # CKA = <K1, K2>_F / (||K1||_F * ||K2||_F)
     numerator = (K1_centered * K2_centered).sum()
-    denominator = torch.sqrt((K1_centered ** 2).sum() * (K2_centered ** 2).sum())
+    denominator = torch.sqrt((K1_centered**2).sum() * (K2_centered**2).sum())
 
     if denominator < 1e-10:
         return 0.0
@@ -185,7 +187,9 @@ def _cosine_similarity_mean(X1, X2, sample_size=5000):
     return cos_sim_per_sample.mean().item()
 
 
-def _fisher_information_preservation(original_activations, approx_activations, sample_size=1000):
+def _fisher_information_preservation(
+    original_activations, approx_activations, sample_size=1000
+):
     """Compute Fisher Information preservation via gradient flow analysis.
 
     Creates a dummy downstream task (linear layer + MSE) and compares
@@ -211,9 +215,11 @@ def _fisher_information_preservation(original_activations, approx_activations, s
     # Dummy downstream task: linear layer predicting random targets
     out_dim = min(128, X_orig.shape[1])
     W_dummy = torch.randn(
-        out_dim, X_orig.shape[1],
-        device=X_orig.device, dtype=X_orig.dtype,
-        requires_grad=False
+        out_dim,
+        X_orig.shape[1],
+        device=X_orig.device,
+        dtype=X_orig.dtype,
+        requires_grad=False,
     )
     # Use actual outputs as targets (so gradients are meaningful)
     target_y = (W_dummy @ X_orig.T).T.detach()
@@ -233,17 +239,15 @@ def _fisher_information_preservation(original_activations, approx_activations, s
     grad_approx = X_approx.grad.detach()
 
     # Fisher Information: ratio of gradient magnitudes
-    fisher_orig_norm = torch.sqrt((grad_orig ** 2).sum())
-    fisher_approx_norm = torch.sqrt((grad_approx ** 2).sum())
+    fisher_orig_norm = torch.sqrt((grad_orig**2).sum())
+    fisher_approx_norm = torch.sqrt((grad_approx**2).sum())
     fisher_ratio = fisher_approx_norm / (fisher_orig_norm + 1e-10)
 
     # Gradient alignment: cosine similarity of flattened gradients
     grad_orig_flat = grad_orig.reshape(-1)
     grad_approx_flat = grad_approx.reshape(-1)
     grad_alignment = torch.nn.functional.cosine_similarity(
-        grad_orig_flat.unsqueeze(0),
-        grad_approx_flat.unsqueeze(0),
-        dim=1
+        grad_orig_flat.unsqueeze(0), grad_approx_flat.unsqueeze(0), dim=1
     )
 
     return fisher_ratio.item(), grad_alignment.item()
@@ -340,7 +344,7 @@ def _tt_reconstruct(cores):
     for core in cores[1:]:
         # result: (current_n, r_in)
         # core: (r_in, n_i, r_out)
-        result = torch.einsum('cr,cni->nri', result, core)
+        result = torch.einsum("cr,cni->nri", result, core)
         result = result.reshape(result.shape[0] * result.shape[1], result.shape[2])
 
     return result
@@ -388,7 +392,7 @@ def wavelet_er(flat_coeffs):
     mags = mags[mags > 0]
     if len(mags) == 0:
         return 0.0
-    mags_sq = mags ** 2
+    mags_sq = mags**2
     p = mags_sq / mags_sq.sum()
     H = -(p * np.log(p + 1e-10)).sum()
     return np.exp(H)
@@ -397,6 +401,7 @@ def wavelet_er(flat_coeffs):
 # ============================================================================
 # 2D FUNCTIONS
 # ============================================================================
+
 
 def wavelet_decompose_2d(matrix, wavelet):
     M = matrix.numpy() if isinstance(matrix, torch.Tensor) else matrix
@@ -423,7 +428,9 @@ def threshold_coefficients_2d(coeffs, threshold):
     thresholded = []
     for item in coeffs:
         if isinstance(item, tuple):
-            subs = tuple(np.sign(s) * np.maximum(np.abs(s) - threshold, 0) for s in item)
+            subs = tuple(
+                np.sign(s) * np.maximum(np.abs(s) - threshold, 0) for s in item
+            )
             thresholded.append(subs)
         else:
             thresholded.append(np.sign(item) * np.maximum(np.abs(item) - threshold, 0))
@@ -440,6 +447,7 @@ def reconstruct_from_wavelets_2d(coeffs, wavelet):
 # ============================================================================
 # 1D FUNCTIONS
 # ============================================================================
+
 
 def wavelet_decompose_1d(signal, wavelet):
     s = signal.numpy() if isinstance(signal, torch.Tensor) else signal
@@ -469,7 +477,7 @@ def reconstruct_from_wavelets_1d(coeffs, wavelet):
         return None
 
 
-def apply_2d_wavelet(X, W, original_output, wavelet, target_pct=25.0, device='cuda'):
+def apply_2d_wavelet(X, W, original_output, wavelet, target_pct=25.0, device="cuda"):
     """Apply 2D wavelet at target_pct param retention.
 
     Returns:
@@ -489,7 +497,9 @@ def apply_2d_wavelet(X, W, original_output, wavelet, target_pct=25.0, device='cu
 
     # Find threshold that gives target_pct retention
     target_percentile = 100.0 - target_pct
-    threshold = np.percentile(sorted_mags, target_percentile) if len(sorted_mags) > 0 else 0.0
+    threshold = (
+        np.percentile(sorted_mags, target_percentile) if len(sorted_mags) > 0 else 0.0
+    )
 
     thresholded = threshold_coefficients_2d(coeffs, float(threshold))
     X_recon = reconstruct_from_wavelets_2d(thresholded, wavelet)
@@ -519,7 +529,9 @@ def apply_2d_wavelet(X, W, original_output, wavelet, target_pct=25.0, device='cu
     return X_recon_t, activation_residual, (snr_2d, noise_2d, resid_er_2d)
 
 
-def apply_2d_wavelet_energy_threshold(matrix, wavelet, energy_threshold=0.99, device='cuda'):
+def apply_2d_wavelet_energy_threshold(
+    matrix, wavelet, energy_threshold=0.99, device="cuda"
+):
     """Apply 2D wavelet decomposition and threshold to retain energy_threshold of energy.
 
     Returns:
@@ -538,7 +550,7 @@ def apply_2d_wavelet_energy_threshold(matrix, wavelet, energy_threshold=0.99, de
     # Sort by magnitude descending
     sorted_indices = np.argsort(-mags)
     sorted_mags = mags[sorted_indices]
-    energy_cumsum = np.cumsum(sorted_mags ** 2)
+    energy_cumsum = np.cumsum(sorted_mags**2)
     total_energy = energy_cumsum[-1]
 
     # Find threshold to retain energy_threshold
@@ -557,7 +569,7 @@ def apply_2d_wavelet_energy_threshold(matrix, wavelet, energy_threshold=0.99, de
     return torch.from_numpy(matrix_recon).float().to(device), energy_retained
 
 
-def apply_wavelets_mpo_hybrid(X, W, original_output, wavelet, device='cuda'):
+def apply_wavelets_mpo_hybrid(X, W, original_output, wavelet, device="cuda"):
     """Hybrid compression: wavelets on X and W, then MPO on W.
 
     Pipeline:
@@ -574,12 +586,16 @@ def apply_wavelets_mpo_hybrid(X, W, original_output, wavelet, device='cuda'):
     original_output_device = original_output.to(device)
 
     # Stage 1: 2D wavelets on X with 99% energy threshold
-    X_recon, x_energy_retained = apply_2d_wavelet_energy_threshold(X, wavelet, energy_threshold=0.99, device=device)
+    X_recon, x_energy_retained = apply_2d_wavelet_energy_threshold(
+        X, wavelet, energy_threshold=0.99, device=device
+    )
     if X_recon is None:
         return None, None
 
     # Stage 2: 2D wavelets on W with 99% energy threshold
-    W_recon, w_energy_retained = apply_2d_wavelet_energy_threshold(W, wavelet, energy_threshold=0.99, device=device)
+    W_recon, w_energy_retained = apply_2d_wavelet_energy_threshold(
+        W, wavelet, energy_threshold=0.99, device=device
+    )
     if W_recon is None:
         return None, None
 
@@ -608,19 +624,34 @@ def apply_wavelets_mpo_hybrid(X, W, original_output, wavelet, device='cuda'):
     residual = original_output_device - final_output
     _, S_res, _ = torch.linalg.svd(residual.float(), full_matrices=False)
     er = _effective_rank(S_res)
-    energy = (S_res ** 2).sum().item()
+    energy = (S_res**2).sum().item()
 
     # Energy baseline for comparison
-    _, S_baseline, _ = torch.linalg.svd(original_output_device.float(), full_matrices=False)
-    energy_baseline = (S_baseline ** 2).sum().item()
+    _, S_baseline, _ = torch.linalg.svd(
+        original_output_device.float(), full_matrices=False
+    )
+    energy_baseline = (S_baseline**2).sum().item()
     energy_pct = 100.0 * energy / energy_baseline
 
     sparsity_wav = _residual_sparsity_wavelet(residual, wavelet)
 
-    return final_output, (snr, energy_pct, er, cka, cos_sim, kl, ssim, sparsity_wav, x_energy_retained, w_energy_retained)
+    return final_output, (
+        snr,
+        energy_pct,
+        er,
+        cka,
+        cos_sim,
+        kl,
+        ssim,
+        sparsity_wav,
+        x_energy_retained,
+        w_energy_retained,
+    )
 
 
-def apply_1d_wavelet_to_residual(residual_X, W, original_output, wavelet, target_pct=25.0, device='cuda'):
+def apply_1d_wavelet_to_residual(
+    residual_X, W, original_output, wavelet, target_pct=25.0, device="cuda"
+):
     """Apply 1D wavelet to residual activations (in activation space).
 
     residual_X: X - X_2d (activation-space residual)
@@ -651,7 +682,9 @@ def apply_1d_wavelet_to_residual(residual_X, W, original_output, wavelet, target
     sorted_mags = np.sort(np.abs(all_flat_coeffs_concat))
     sorted_mags = sorted_mags[sorted_mags > 0]
     target_percentile = 100.0 - target_pct
-    threshold = np.percentile(sorted_mags, target_percentile) if len(sorted_mags) > 0 else 0.0
+    threshold = (
+        np.percentile(sorted_mags, target_percentile) if len(sorted_mags) > 0 else 0.0
+    )
 
     X_recon_1d_list = []
     for feat_idx in range(in_features):
@@ -665,7 +698,9 @@ def apply_1d_wavelet_to_residual(residual_X, W, original_output, wavelet, target
             if len(signal_recon) > num_samples:
                 signal_recon = signal_recon[:num_samples]
             elif len(signal_recon) < num_samples:
-                signal_recon = np.pad(signal_recon, (0, num_samples - len(signal_recon)))
+                signal_recon = np.pad(
+                    signal_recon, (0, num_samples - len(signal_recon))
+                )
 
         X_recon_1d_list.append(signal_recon)
 
@@ -728,10 +763,29 @@ def main():
     with torch.no_grad():
         original_output = (W.float() @ X.float().T).T.float()
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}\n")
 
-    wavelets = ['haar', 'db2', 'db4']
+    # Compute RCM column permutation
+    print("Computing RCM column permutation...")
+    X_cpu = X.float().cpu()
+    cov = (X_cpu.T @ X_cpu) / X_cpu.shape[0]
+    adj = cov.abs().numpy()
+    threshold = np.percentile(adj, 95)
+    adj[adj < threshold] = 0
+    sparse_adj = csr_matrix(adj)
+    col_perm = reverse_cuthill_mckee(sparse_adj).copy()
+
+    X_rcm = X[:, col_perm]
+    W_rcm = W[:, col_perm]
+    with torch.no_grad():
+        original_output_rcm = (W_rcm.float() @ X_rcm.float().T).T.float()
+    print(
+        f"RCM permutation computed. Verifying output matches: "
+        f"{torch.allclose(original_output, original_output_rcm, atol=1e-4)}\n"
+    )
+
+    wavelets = ["haar", "db2", "db4"]
 
     print(f"{'='*100}")
     print(f"Cascaded Wavelet Compression: 2D (25%) + 1D (25%) on Residual")
@@ -741,21 +795,33 @@ def main():
 
     for wavelet in wavelets:
         print(f"{wavelet}:")
-        print(f"  {'Stage':20s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'CKA':>10s} {'Cos Sim':>10s} {'KL Div':>10s} {'SSIM':>10s}")
+        print(
+            f"  {'Stage':20s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'CKA':>10s} {'Cos Sim':>10s} {'KL Div':>10s} {'SSIM':>10s}"
+        )
         print(f"  {'-'*155}")
 
         # Baseline: no compression (original residual)
-        _, S_baseline, _ = torch.linalg.svd(original_output_device.float(), full_matrices=False)
+        _, S_baseline, _ = torch.linalg.svd(
+            original_output_device.float(), full_matrices=False
+        )
         er_baseline_real = _effective_rank(S_baseline)
-        sparsity_baseline_wav = _residual_sparsity_wavelet(original_output_device, wavelet)
-        energy_baseline = (S_baseline ** 2).sum().item()
+        sparsity_baseline_wav = _residual_sparsity_wavelet(
+            original_output_device, wavelet
+        )
+        energy_baseline = (S_baseline**2).sum().item()
         cka_baseline = _cka(original_output_device, original_output_device)
-        cos_baseline = _cosine_similarity_mean(original_output_device, original_output_device)
+        cos_baseline = _cosine_similarity_mean(
+            original_output_device, original_output_device
+        )
         ssim_baseline = _ssim(original_output_device, original_output_device)
-        print(f"  {'Baseline':20s} {'N/A':>10s} {er_baseline_real:10.0f} {sparsity_baseline_wav:11.1f}% {'100.0':>9s}% {cka_baseline:10.4f} {cos_baseline:10.4f} {'0.0000':>10s} {ssim_baseline:10.4f}")
+        print(
+            f"  {'Baseline':20s} {'N/A':>10s} {er_baseline_real:10.0f} {sparsity_baseline_wav:11.1f}% {'100.0':>9s}% {cka_baseline:10.4f} {cos_baseline:10.4f} {'0.0000':>10s} {ssim_baseline:10.4f}"
+        )
 
         # Stage 1: 2D wavelet at 25%
-        X_recon_2d, residual_X, info_2d = apply_2d_wavelet(X, W, original_output, wavelet, 25.0, device)
+        X_recon_2d, residual_X, info_2d = apply_2d_wavelet(
+            X, W, original_output, wavelet, 25.0, device
+        )
         if X_recon_2d is not None:
             snr_2d, noise_2d, resid_er_2d = info_2d
             with torch.no_grad():
@@ -766,20 +832,24 @@ def main():
             _, S_2d, _ = torch.linalg.svd(residual_2d.float(), full_matrices=False)
             er_after_2d_real = _effective_rank(S_2d)
             sparsity_2d_wav = _residual_sparsity_wavelet(residual_2d, wavelet)
-            energy_after_2d = (S_2d ** 2).sum().item()
+            energy_after_2d = (S_2d**2).sum().item()
             energy_pct_2d = 100.0 * energy_after_2d / energy_baseline
 
             cka_2d = _cka(original_output_device, output_2d)
             cos_2d = _cosine_similarity_mean(original_output_device, output_2d)
             kl_2d = _kl_divergence(original_output_device, output_2d)
             ssim_2d = _ssim(original_output_device, output_2d)
-            print(f"  {'2D wavelet (25%)':20s} {snr_2d:10.2f}dB {er_after_2d_real:10.0f} {sparsity_2d_wav:11.1f}% {energy_pct_2d:9.1f}% {cka_2d:10.4f} {cos_2d:10.4f} {kl_2d:10.4f} {ssim_2d:10.4f}")
+            print(
+                f"  {'2D wavelet (25%)':20s} {snr_2d:10.2f}dB {er_after_2d_real:10.0f} {sparsity_2d_wav:11.1f}% {energy_pct_2d:9.1f}% {cka_2d:10.4f} {cos_2d:10.4f} {kl_2d:10.4f} {ssim_2d:10.4f}"
+            )
         else:
             print(f"  {'2D wavelet (25%)':20s} Failed")
             continue
 
         # Stage 2: 1D wavelet on residual at 25%
-        output_1d_residual, info_1d = apply_1d_wavelet_to_residual(residual_X, W, original_output, wavelet, 25.0, device)
+        output_1d_residual, info_1d = apply_1d_wavelet_to_residual(
+            residual_X, W, original_output, wavelet, 25.0, device
+        )
         if output_1d_residual is not None:
             snr_1d, noise_1d, resid_er_1d = info_1d
             # Compute combined output in OUTPUT space (both are outputs now)
@@ -793,14 +863,16 @@ def main():
             _, S_tot, _ = torch.linalg.svd(resid_total.float(), full_matrices=False)
             resid_er_total_real = _effective_rank(S_tot)
             sparsity_total_wav = _residual_sparsity_wavelet(resid_total, wavelet)
-            energy_after_total = (S_tot ** 2).sum().item()
+            energy_after_total = (S_tot**2).sum().item()
             energy_pct_total = 100.0 * energy_after_total / energy_baseline
 
             cka_total = _cka(original_output_device, total_output)
             cos_total = _cosine_similarity_mean(original_output_device, total_output)
             kl_total = _kl_divergence(original_output_device, total_output)
             ssim_total = _ssim(original_output_device, total_output)
-            print(f"  {'1D on residual (25%)':20s} {snr_total:10.2f}dB {resid_er_total_real:10.0f} {sparsity_total_wav:11.1f}% {energy_pct_total:9.1f}% {cka_total:10.4f} {cos_total:10.4f} {kl_total:10.4f} {ssim_total:10.4f}")
+            print(
+                f"  {'1D on residual (25%)':20s} {snr_total:10.2f}dB {resid_er_total_real:10.0f} {sparsity_total_wav:11.1f}% {energy_pct_total:9.1f}% {cka_total:10.4f} {cos_total:10.4f} {kl_total:10.4f} {ssim_total:10.4f}"
+            )
         else:
             print(f"  {'1D on residual (25%)':20s} Failed")
 
@@ -810,16 +882,22 @@ def main():
     print(f"\n{'='*165}")
     print("Comparison to Single Approaches at 50%")
     print(f"{'='*165}\n")
-    print(f"{'Wavelet':10s} {'Method':20s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'CKA':>10s} {'Cos Sim':>10s} {'KL Div':>10s} {'SSIM':>10s}")
+    print(
+        f"{'Wavelet':10s} {'Method':20s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'CKA':>10s} {'Cos Sim':>10s} {'KL Div':>10s} {'SSIM':>10s}"
+    )
     print(f"{'-'*155}")
 
     # Compute baseline energy once
-    _, S_baseline_comp, _ = torch.linalg.svd(original_output_device.float(), full_matrices=False)
-    energy_baseline_comp = (S_baseline_comp ** 2).sum().item()
+    _, S_baseline_comp, _ = torch.linalg.svd(
+        original_output_device.float(), full_matrices=False
+    )
+    energy_baseline_comp = (S_baseline_comp**2).sum().item()
 
     for wavelet in wavelets:
         # 2D alone at 50%
-        X_recon_2d_50, _, info_2d_50 = apply_2d_wavelet(X, W, original_output, wavelet, 50.0, device)
+        X_recon_2d_50, _, info_2d_50 = apply_2d_wavelet(
+            X, W, original_output, wavelet, 50.0, device
+        )
         if info_2d_50:
             snr_2d_50, _, resid_er_2d_50 = info_2d_50
             with torch.no_grad():
@@ -828,34 +906,190 @@ def main():
             _, S_2d_50, _ = torch.linalg.svd(resid_2d_50.float(), full_matrices=False)
             er_2d_50_real = _effective_rank(S_2d_50)
             sparsity_2d_50_wav = _residual_sparsity_wavelet(resid_2d_50, wavelet)
-            energy_2d_50 = (S_2d_50 ** 2).sum().item()
+            energy_2d_50 = (S_2d_50**2).sum().item()
             energy_pct_2d_50 = 100.0 * energy_2d_50 / energy_baseline_comp
             cka_2d_50 = _cka(original_output_device, output_2d_50)
             cos_2d_50 = _cosine_similarity_mean(original_output_device, output_2d_50)
             kl_2d_50 = _kl_divergence(original_output_device, output_2d_50)
             ssim_2d_50 = _ssim(original_output_device, output_2d_50)
-            print(f"{wavelet:10s} {'2D alone (50%)':20s} {snr_2d_50:10.2f}dB {er_2d_50_real:10.0f} {sparsity_2d_50_wav:11.1f}% {energy_pct_2d_50:9.1f}% {cka_2d_50:10.4f} {cos_2d_50:10.4f} {kl_2d_50:10.4f} {ssim_2d_50:10.4f}")
+            print(
+                f"{wavelet:10s} {'2D alone (50%)':20s} {snr_2d_50:10.2f}dB {er_2d_50_real:10.0f} {sparsity_2d_50_wav:11.1f}% {energy_pct_2d_50:9.1f}% {cka_2d_50:10.4f} {cos_2d_50:10.4f} {kl_2d_50:10.4f} {ssim_2d_50:10.4f}"
+            )
 
         # Cascaded at 25%+25%
-        X_recon_2d, residual_X, info_2d = apply_2d_wavelet(X, W, original_output, wavelet, 25.0, device)
+        X_recon_2d, residual_X, info_2d = apply_2d_wavelet(
+            X, W, original_output, wavelet, 25.0, device
+        )
         if X_recon_2d is not None:
-            output_1d_residual, info_1d = apply_1d_wavelet_to_residual(residual_X, W, original_output, wavelet, 25.0, device)
+            output_1d_residual, info_1d = apply_1d_wavelet_to_residual(
+                residual_X, W, original_output, wavelet, 25.0, device
+            )
             if output_1d_residual is not None:
                 with torch.no_grad():
                     output_2d = (W.to(device) @ X_recon_2d.T).T.float()
                     total_output = output_2d + output_1d_residual
                 snr_cascade, _ = _compute_snr(original_output_device, total_output)
                 resid_cascade = original_output_device - total_output
-                _, S_casc, _ = torch.linalg.svd(resid_cascade.float(), full_matrices=False)
+                _, S_casc, _ = torch.linalg.svd(
+                    resid_cascade.float(), full_matrices=False
+                )
                 er_cascade_real = _effective_rank(S_casc)
-                sparsity_cascade_wav = _residual_sparsity_wavelet(resid_cascade, wavelet)
-                energy_cascade = (S_casc ** 2).sum().item()
+                sparsity_cascade_wav = _residual_sparsity_wavelet(
+                    resid_cascade, wavelet
+                )
+                energy_cascade = (S_casc**2).sum().item()
                 energy_pct_cascade = 100.0 * energy_cascade / energy_baseline_comp
                 cka_cascade = _cka(original_output_device, total_output)
-                cos_cascade = _cosine_similarity_mean(original_output_device, total_output)
+                cos_cascade = _cosine_similarity_mean(
+                    original_output_device, total_output
+                )
                 kl_cascade = _kl_divergence(original_output_device, total_output)
                 ssim_cascade = _ssim(original_output_device, total_output)
-                print(f"{wavelet:10s} {'Cascaded (25%+25%)':20s} {snr_cascade:10.2f}dB {er_cascade_real:10.0f} {sparsity_cascade_wav:11.1f}% {energy_pct_cascade:9.1f}% {cka_cascade:10.4f} {cos_cascade:10.4f} {kl_cascade:10.4f} {ssim_cascade:10.4f}")
+                print(
+                    f"{wavelet:10s} {'Cascaded (25%+25%)':20s} {snr_cascade:10.2f}dB {er_cascade_real:10.0f} {sparsity_cascade_wav:11.1f}% {energy_pct_cascade:9.1f}% {cka_cascade:10.4f} {cos_cascade:10.4f} {kl_cascade:10.4f} {ssim_cascade:10.4f}"
+                )
+
+        print()
+
+    # RCM-reordered cascade
+    print(f"\n{'='*100}")
+    print(f"With RCM Column Reordering: 2D (25%) + 1D (25%) on Residual")
+    print(f"{'='*100}\n")
+
+    for wavelet in wavelets:
+        print(f"{wavelet}:")
+        print(
+            f"  {'Stage':20s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'CKA':>10s} {'Cos Sim':>10s} {'KL Div':>10s} {'SSIM':>10s}"
+        )
+        print(f"  {'-'*155}")
+
+        _, S_baseline_rcm, _ = torch.linalg.svd(
+            original_output_device.float(), full_matrices=False
+        )
+        er_baseline_rcm = _effective_rank(S_baseline_rcm)
+        sparsity_baseline_rcm = _residual_sparsity_wavelet(
+            original_output_device, wavelet
+        )
+        energy_baseline_rcm = (S_baseline_rcm**2).sum().item()
+        print(
+            f"  {'Baseline':20s} {'N/A':>10s} {er_baseline_rcm:10.0f} {sparsity_baseline_rcm:11.1f}% {'100.0':>9s}% {'1.0000':>10s} {'1.0000':>10s} {'0.0000':>10s} {'1.0000':>10s}"
+        )
+
+        X_recon_2d_rcm, residual_X_rcm, info_2d_rcm = apply_2d_wavelet(
+            X_rcm, W_rcm, original_output, wavelet, 25.0, device
+        )
+        if X_recon_2d_rcm is not None:
+            snr_2d_rcm, _, _ = info_2d_rcm
+            with torch.no_grad():
+                output_2d_rcm = (W_rcm.to(device) @ X_recon_2d_rcm.T).T.float()
+
+            residual_2d_rcm = original_output_device - output_2d_rcm
+            _, S_2d_rcm, _ = torch.linalg.svd(
+                residual_2d_rcm.float(), full_matrices=False
+            )
+            er_2d_rcm = _effective_rank(S_2d_rcm)
+            sparsity_2d_rcm = _residual_sparsity_wavelet(residual_2d_rcm, wavelet)
+            energy_2d_rcm = (S_2d_rcm**2).sum().item()
+            energy_pct_2d_rcm = 100.0 * energy_2d_rcm / energy_baseline_rcm
+
+            cka_2d_rcm = _cka(original_output_device, output_2d_rcm)
+            cos_2d_rcm = _cosine_similarity_mean(original_output_device, output_2d_rcm)
+            kl_2d_rcm = _kl_divergence(original_output_device, output_2d_rcm)
+            ssim_2d_rcm = _ssim(original_output_device, output_2d_rcm)
+            print(
+                f"  {'2D wavelet (25%)':20s} {snr_2d_rcm:10.2f}dB {er_2d_rcm:10.0f} {sparsity_2d_rcm:11.1f}% {energy_pct_2d_rcm:9.1f}% {cka_2d_rcm:10.4f} {cos_2d_rcm:10.4f} {kl_2d_rcm:10.4f} {ssim_2d_rcm:10.4f}"
+            )
+        else:
+            print(f"  {'2D wavelet (25%)':20s} Failed")
+            continue
+
+        output_1d_rcm, info_1d_rcm = apply_1d_wavelet_to_residual(
+            residual_X_rcm, W_rcm, original_output, wavelet, 25.0, device
+        )
+        if output_1d_rcm is not None:
+            snr_1d_rcm, _, _ = info_1d_rcm
+            with torch.no_grad():
+                output_2d_rcm = (W_rcm.to(device) @ X_recon_2d_rcm.T).T.float()
+                total_output_rcm = output_2d_rcm + output_1d_rcm
+            snr_total_rcm, _ = _compute_snr(original_output_device, total_output_rcm)
+
+            resid_total_rcm = original_output_device - total_output_rcm
+            _, S_tot_rcm, _ = torch.linalg.svd(
+                resid_total_rcm.float(), full_matrices=False
+            )
+            er_total_rcm = _effective_rank(S_tot_rcm)
+            sparsity_total_rcm = _residual_sparsity_wavelet(resid_total_rcm, wavelet)
+            energy_total_rcm = (S_tot_rcm**2).sum().item()
+            energy_pct_total_rcm = 100.0 * energy_total_rcm / energy_baseline_rcm
+
+            cka_total_rcm = _cka(original_output_device, total_output_rcm)
+            cos_total_rcm = _cosine_similarity_mean(
+                original_output_device, total_output_rcm
+            )
+            kl_total_rcm = _kl_divergence(original_output_device, total_output_rcm)
+            ssim_total_rcm = _ssim(original_output_device, total_output_rcm)
+            print(
+                f"  {'1D on residual (25%)':20s} {snr_total_rcm:10.2f}dB {er_total_rcm:10.0f} {sparsity_total_rcm:11.1f}% {energy_pct_total_rcm:9.1f}% {cka_total_rcm:10.4f} {cos_total_rcm:10.4f} {kl_total_rcm:10.4f} {ssim_total_rcm:10.4f}"
+            )
+        else:
+            print(f"  {'1D on residual (25%)':20s} Failed")
+
+        print()
+
+    # RCM comparison at 50%
+    print(f"\n{'='*165}")
+    print("Comparison: Original vs RCM at 50%")
+    print(f"{'='*165}\n")
+    print(
+        f"{'Wavelet':10s} {'Method':20s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'CKA':>10s} {'Cos Sim':>10s} {'KL Div':>10s} {'SSIM':>10s}"
+    )
+    print(f"{'-'*155}")
+
+    _, S_bl, _ = torch.linalg.svd(original_output_device.float(), full_matrices=False)
+    energy_bl = (S_bl**2).sum().item()
+
+    for wavelet in wavelets:
+        # Original 2D at 50%
+        X_recon_orig, _, info_orig = apply_2d_wavelet(
+            X, W, original_output, wavelet, 50.0, device
+        )
+        if info_orig:
+            snr_orig, _, _ = info_orig
+            with torch.no_grad():
+                out_orig = (W.to(device) @ X_recon_orig.T).T.float()
+            res_orig = original_output_device - out_orig
+            _, S_orig, _ = torch.linalg.svd(res_orig.float(), full_matrices=False)
+            er_orig = _effective_rank(S_orig)
+            sp_orig = _residual_sparsity_wavelet(res_orig, wavelet)
+            en_orig = 100.0 * (S_orig**2).sum().item() / energy_bl
+            cka_orig = _cka(original_output_device, out_orig)
+            cos_orig = _cosine_similarity_mean(original_output_device, out_orig)
+            kl_orig = _kl_divergence(original_output_device, out_orig)
+            ssim_orig = _ssim(original_output_device, out_orig)
+            print(
+                f"{wavelet:10s} {'Original 2D (50%)':20s} {snr_orig:10.2f}dB {er_orig:10.0f} {sp_orig:11.1f}% {en_orig:9.1f}% {cka_orig:10.4f} {cos_orig:10.4f} {kl_orig:10.4f} {ssim_orig:10.4f}"
+            )
+
+        # RCM 2D at 50%
+        X_recon_rcm50, _, info_rcm50 = apply_2d_wavelet(
+            X_rcm, W_rcm, original_output, wavelet, 50.0, device
+        )
+        if info_rcm50:
+            snr_rcm50, _, _ = info_rcm50
+            with torch.no_grad():
+                out_rcm50 = (W_rcm.to(device) @ X_recon_rcm50.T).T.float()
+            res_rcm50 = original_output_device - out_rcm50
+            _, S_rcm50, _ = torch.linalg.svd(res_rcm50.float(), full_matrices=False)
+            er_rcm50 = _effective_rank(S_rcm50)
+            sp_rcm50 = _residual_sparsity_wavelet(res_rcm50, wavelet)
+            en_rcm50 = 100.0 * (S_rcm50**2).sum().item() / energy_bl
+            cka_rcm50 = _cka(original_output_device, out_rcm50)
+            cos_rcm50 = _cosine_similarity_mean(original_output_device, out_rcm50)
+            kl_rcm50 = _kl_divergence(original_output_device, out_rcm50)
+            ssim_rcm50 = _ssim(original_output_device, out_rcm50)
+            print(
+                f"{wavelet:10s} {'RCM 2D (50%)':20s} {snr_rcm50:10.2f}dB {er_rcm50:10.0f} {sp_rcm50:11.1f}% {en_rcm50:9.1f}% {cka_rcm50:10.4f} {cos_rcm50:10.4f} {kl_rcm50:10.4f} {ssim_rcm50:10.4f}"
+            )
 
         print()
 
@@ -863,14 +1097,31 @@ def main():
     print(f"\n{'='*180}")
     print("Wavelets (99% energy on X & W) + MPO on W Hybrid")
     print(f"{'='*180}\n")
-    print(f"{'Wavelet':10s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'X Energy':>10s} {'W Energy':>10s} {'CKA':>10s} {'KL Div':>10s}")
+    print(
+        f"{'Wavelet':10s} {'SNR':>10s} {'ER Real':>10s} {'Wav Sparsity':>12s} {'Energy %':>10s} {'X Energy':>10s} {'W Energy':>10s} {'CKA':>10s} {'KL Div':>10s}"
+    )
     print(f"{'-'*170}")
 
     for wavelet in wavelets:
-        final_output, metrics = apply_wavelets_mpo_hybrid(X, W, original_output, wavelet, device)
+        final_output, metrics = apply_wavelets_mpo_hybrid(
+            X, W, original_output, wavelet, device
+        )
         if metrics:
-            snr, energy_pct, er, cka, cos_sim, kl, ssim, sparsity_wav, x_energy, w_energy = metrics
-            print(f"{wavelet:10s} {snr:10.2f}dB {er:10.0f} {sparsity_wav:11.1f}% {energy_pct:9.1f}% {x_energy:10.1f}% {w_energy:10.1f}% {cka:10.4f} {kl:10.4f}")
+            (
+                snr,
+                energy_pct,
+                er,
+                cka,
+                cos_sim,
+                kl,
+                ssim,
+                sparsity_wav,
+                x_energy,
+                w_energy,
+            ) = metrics
+            print(
+                f"{wavelet:10s} {snr:10.2f}dB {er:10.0f} {sparsity_wav:11.1f}% {energy_pct:9.1f}% {x_energy:10.1f}% {w_energy:10.1f}% {cka:10.4f} {kl:10.4f}"
+            )
         else:
             print(f"{wavelet:10s} Failed")
 
