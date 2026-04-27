@@ -211,8 +211,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         if not added_hook:
             raise ValueError(
-                "GPTQModifier requires a weight quantization config be specified by "
-                "this modifier or a modifier preceding it"
+                "GPTQModifier was unable to find any modules to quantize. Please "
+                "check quantization `config_groups` and `targets` in recipe"
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
