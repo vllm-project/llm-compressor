@@ -1,4 +1,7 @@
 from dataclasses import dataclass, fields, is_dataclass
+import threading
+import time
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -7,7 +10,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
 
 
 @pytest.mark.unit
-def test_new_fetch_update_roundtrip():
+def test_fetch_update_roundtrip():
     """Test basic fetch/update roundtrip with flat key-value."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     tensor = torch.randn(2, 3)
@@ -19,7 +22,7 @@ def test_new_fetch_update_roundtrip():
 
 
 @pytest.mark.unit
-def test_new_fetch_key_not_found():
+def test_fetch_key_not_found():
     """Test KeyError raised when key not found."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     with pytest.raises(KeyError):
@@ -27,15 +30,23 @@ def test_new_fetch_key_not_found():
 
 
 @pytest.mark.unit
-def test_new_update_accepts_any_value():
+def test_update_accepts_any_value():
     """Test update accepts non-tensor values."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     cache.update("key", "not a tensor")  # Should not raise
     assert cache.fetch("key") == "not a tensor"
 
+@pytest.mark.unit
+def test_append():
+    """Test append adds to existing list."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    cache.append(("key", None), [1, 2])
+    cache.append(("key", None), [3, 4])
+    assert cache.fetch(("key", 0)) == [1, 2]
+    assert cache.fetch(("key", 1)) == [3, 4]
 
 @pytest.mark.unit
-def test_new_delete():
+def test_delete():
     """Test delete removes entry."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     cache.update("key", torch.randn(2, 3))
@@ -45,7 +56,7 @@ def test_new_delete():
 
 
 @pytest.mark.unit
-def test_new_contains():
+def test_contains():
     """Test __contains__ works correctly."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     tensor = torch.randn(2, 3)
@@ -56,7 +67,7 @@ def test_new_contains():
 
 
 @pytest.mark.unit
-def test_new_iter_prefetch():
+def test_iter_prefetch():
     """Test iter_prefetch with explicit key list."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     keys = ["a", "b", "c"]
@@ -72,57 +83,148 @@ def test_new_iter_prefetch():
 
 
 @pytest.mark.unit
-def test_iter_prefetch_grouped():
-    """Test iter_prefetch_grouped with (batch_idx, name) keys."""
+def test_iter_prefetch_with_wildcard():
+    """Test iter_prefetch with wildcard pattern."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
 
+    # Store batch dicts like sequential pipeline
     for batch_idx in range(3):
-        cache.update((batch_idx, "input_ids"), torch.tensor([batch_idx]))
-        cache.update((batch_idx, "attention_mask"), torch.tensor([1]))
+        batch_dict = {
+            "input_ids": torch.tensor([batch_idx]),
+            "attention_mask": torch.tensor([1]),
+        }
+        cache.update((batch_idx,), batch_dict)
 
-    keys = list(cache._store.keys())
-    groups = list(cache.iter_prefetch_grouped(keys, group_by=lambda k: k[0]))
-
-    assert len(groups) == 3
-    for i, group_dict in enumerate(groups):
-        assert (i, "input_ids") in group_dict
-        assert (i, "attention_mask") in group_dict
-        assert group_dict[(i, "input_ids")].item() == i
+    # Use wildcard pattern (None,) to match all batches
+    batches = list(cache.iter_prefetch([(None,)]))
+    assert len(batches) == 3
+    for i, batch in enumerate(batches):
+        assert "input_ids" in batch
+        assert batch["input_ids"].item() == i
 
 
 @pytest.mark.unit
-def test_iter_prefetch_grouped_awq_keys():
-    """Test iter_prefetch_grouped with AWQ (module, batch_idx, arg_name) keys."""
-    from torch.nn import Linear
-
+def test_iter_prefetch_runs_in_separate_thread():
+    """Test that iter_prefetch runs onload in a background thread."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
-    module1 = Linear(10, 10)
-    module2 = Linear(10, 10)
-
-    for batch_idx in range(2):
-        cache.update((module1, batch_idx, "hidden"), torch.tensor([batch_idx]))
-        cache.update((module2, batch_idx, "hidden"), torch.tensor([batch_idx + 10]))
-
-    keys = list(cache._store.keys())
-    groups = list(cache.iter_prefetch_grouped(keys, group_by=lambda k: (k[0], k[1])))
-
-    assert len(groups) == 4  # 2 modules x 2 batches
-    for group_dict in groups:
-        assert len(group_dict) == 1
-        key = next(iter(group_dict.keys()))
-        assert key[2] == "hidden"
+    
+    # Store several items
+    for i in range(5):
+        cache.update(i, torch.randn(10, 10))
+    
+    main_thread_id = threading.current_thread().ident
+    onload_thread_ids = []
+    
+    original_onload = IntermediatesCache._onload_value
+    
+    def tracking_onload(cls, value):
+        onload_thread_ids.append(threading.current_thread().ident)
+        return original_onload(value)
+    
+    with patch.object(IntermediatesCache, '_onload_value', tracking_onload):
+        keys = list(range(5))
+        results = list(cache.iter_prefetch(keys))
+        
+        # Verify all values fetched correctly
+        assert len(results) == 5
+        
+        # Verify that onload happened in different threads (ThreadPoolExecutor)
+        unique_threads = set(onload_thread_ids)
+        assert len(unique_threads) == 2, (
+            f"Expected onload to run in main and background threads, but all ran in thread {unique_threads}"
+        )
+        
+        # The first onload may be in main thread, but subsequent ones should be prefetched
+        # in background thread
+        assert main_thread_id in onload_thread_ids, "First item should load in main thread"
+        assert any(tid != main_thread_id for tid in onload_thread_ids), (
+            "Some items should be prefetched in background thread"
+        )
 
 
 @pytest.mark.unit
-def test_iter_prefetch_grouped_empty():
-    """Test iter_prefetch_grouped with empty keys."""
+def test_iter_prefetch_overlaps_onload_operations():
+    """Test that iter_prefetch overlaps onload with processing, reducing total time.
+    
+    Simulates realistic scenario:
+    - onload: time to transfer data (e.g., H2D transfer)
+    - processing: time to use data in main thread (e.g., forward pass)
+    
+    With prefetch: while main thread processes item N, background thread loads item N+1.
+    
+    Using large delays (50ms) to make threading overhead negligible, so we can
+    measure actual speedup from overlap.
+    """
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
-    groups = list(cache.iter_prefetch_grouped([], group_by=lambda k: k))
-    assert len(groups) == 0
+    
+    num_items = 10
+    onload_delay = 0.05  # 50ms - simulate data transfer
+    processing_delay = 0.05  # 50ms - simulate forward pass
+    
+    # Store items
+    for i in range(num_items):
+        cache.update(i, torch.randn(10, 10))
+    
+    onload_thread_ids = []
+    
+    original_onload = IntermediatesCache._onload_value
+    
+    def delayed_onload(cls, value):
+        onload_thread_ids.append(threading.current_thread().ident)
+        time.sleep(onload_delay)  # Simulate H2D transfer time
+        return original_onload(value)
+    
+    def simulate_processing(data):
+        time.sleep(processing_delay)  # Simulate forward pass time
+        return data
+    
+    # Test 1: Sequential (no prefetch)
+    with patch.object(IntermediatesCache, '_onload_value', delayed_onload):
+        onload_thread_ids.clear()
+        start_sequential = time.time()
+        for item in cache.iter(list(range(num_items))):
+            processed = simulate_processing(item)
+        sequential_time = time.time() - start_sequential
+    
+    # Test 2: Prefetch (overlap)
+    with patch.object(IntermediatesCache, '_onload_value', delayed_onload):
+        onload_thread_ids.clear()
+        start_prefetch = time.time()
+        for item in cache.iter_prefetch(list(range(num_items))):
+            processed = simulate_processing(item)
+        prefetch_time = time.time() - start_prefetch
+        prefetch_threads = set(onload_thread_ids)
+    
+    # Verify: onload calls happened in multiple threads (background prefetch works)
+    assert len(prefetch_threads) > 1, (
+        f"Expected multiple threads for prefetch, got threads: {prefetch_threads}"
+    )
+    
+    # Verify timing:
+    # Sequential: num_items * (onload + processing) = 10 * (0.05 + 0.05) = 1.0s
+    expected_sequential = num_items * (onload_delay + processing_delay)
+    assert sequential_time >= expected_sequential * 0.85, (
+        f"Sequential time {sequential_time:.3f}s should be ~{expected_sequential:.3f}s"
+    )
+    
+    # Prefetch with perfect overlap:
+    # - First onload (0.05s) + first processing starts
+    # - While processing N, onload N+1 happens in background
+    # - Total ≈ onload_delay + num_items * max(onload, processing) + small overhead
+    # When onload == processing: ≈ (num_items + 1) * delay = 0.55s (vs 1.0s sequential)
+    # Expected speedup: ~1.8x    
+    # Prefetch should be at least 70% faster than sequential (speedup >= 1.7x)
+    # With large delays, threading overhead becomes negligible
+    speedup = sequential_time / prefetch_time
+    assert speedup >= 1.7, (
+        f"Prefetch should provide significant speedup. "
+        f"Sequential: {sequential_time:.3f}s, Prefetch: {prefetch_time:.3f}s, "
+        f"Speedup: {speedup:.2f}x (expected >= 1.7x)"
+    )
 
 
 @pytest.mark.unit
-def test_new_iter():
+def test_iter():
     """Test __iter__ yields all tensors."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     keys = ["a", "b", "c"]
@@ -134,7 +236,7 @@ def test_new_iter():
 
 
 @pytest.mark.unit
-def test_new_clear():
+def test_clear():
     """Test clear empties cache."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     cache.update("key", torch.randn(2, 3))
@@ -189,32 +291,3 @@ def test_override_eq_mode():
     with OverrideEqMode():
         assert a == b
         assert not (a == c)
-
-
-@pytest.mark.integration
-def test_awq_cache_flow():
-    """Test IntermediatesCache works for AWQ parent args flow."""
-    from torch.nn import Module, Linear
-    import torch
-
-    cache = IntermediatesCache(offload_device=torch.device("cpu"))
-
-    # Simulate AWQ parent args cache behavior
-    module = Linear(10, 10)
-    batch_idx = 0
-
-    # Store args
-    hidden_states = torch.randn(2, 10)
-    attention_mask = torch.randn(2, 10)
-
-    cache.update((module, batch_idx, "hidden_states"), hidden_states)
-    cache.update((module, batch_idx, "attention_mask"), attention_mask)
-
-    # Fetch args for forward pass
-    fetched_kwargs = {
-        "hidden_states": cache.fetch((module, batch_idx, "hidden_states")),
-        "attention_mask": cache.fetch((module, batch_idx, "attention_mask")),
-    }
-
-    assert torch.equal(hidden_states, fetched_kwargs["hidden_states"])
-    assert torch.equal(attention_mask, fetched_kwargs["attention_mask"])
