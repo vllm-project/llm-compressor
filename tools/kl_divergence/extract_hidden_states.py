@@ -131,13 +131,16 @@ def prepare_token_chunks(
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     dataset = load_dataset(dataset_name, dataset_config, split=split)
 
-    # Concatenate all non-empty text and tokenize
-    all_tokens = []
-    for example in dataset:
-        text = example[text_column]
-        if text and text.strip():
-            tokens = tokenizer.encode(text, add_special_tokens=False)
-            all_tokens.extend(tokens)
+    # Filter empty texts and batch-tokenize
+    dataset = dataset.filter(lambda x: x[text_column] and x[text_column].strip())
+    tokenized = dataset.map(
+        lambda batch: {"input_ids": tokenizer(
+            batch[text_column], add_special_tokens=False
+        )["input_ids"]},
+        batched=True,
+        remove_columns=dataset.column_names,
+    )
+    all_tokens = [tid for row in tokenized for tid in row["input_ids"]]
 
     # Chunk into fixed-length sequences (drop the last incomplete chunk)
     total_length = (len(all_tokens) // max_seq_length) * max_seq_length

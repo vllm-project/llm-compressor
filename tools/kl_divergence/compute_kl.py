@@ -133,13 +133,14 @@ def _compute_kl_for_chunk(
     """
     # Compute logits: [chunk_size, vocab_size]
     # Hidden states are already post-norm, so apply lm_head directly
-    base_logits = base_hidden.float() @ base_weights["lm_head_weight"].float().T
+    # Weights are pre-cast to float32 in compute_kl_divergence
+    base_logits = base_hidden.float() @ base_weights["lm_head_weight"].T
     if base_weights["lm_head_bias"] is not None:
-        base_logits += base_weights["lm_head_bias"].float()
+        base_logits += base_weights["lm_head_bias"]
 
-    target_logits = target_hidden.float() @ target_weights["lm_head_weight"].float().T
+    target_logits = target_hidden.float() @ target_weights["lm_head_weight"].T
     if target_weights["lm_head_bias"] is not None:
-        target_logits += target_weights["lm_head_bias"].float()
+        target_logits += target_weights["lm_head_bias"]
 
     # Apply temperature
     if temperature != 1.0:
@@ -220,6 +221,10 @@ def compute_kl_divergence(
 
     print(f"Loading lm_head weights from: {base_model}")
     base_weights = load_lm_head_weights(base_model, device=device, **weight_kwargs)
+    # Pre-cast to float32 once to avoid repeated casting per chunk
+    base_weights["lm_head_weight"] = base_weights["lm_head_weight"].float()
+    if base_weights["lm_head_bias"] is not None:
+        base_weights["lm_head_bias"] = base_weights["lm_head_bias"].float()
 
     if target_model == base_model:
         target_weights = base_weights
@@ -229,6 +234,9 @@ def compute_kl_divergence(
         target_weights = load_lm_head_weights(
             target_model, device=device, **weight_kwargs
         )
+        target_weights["lm_head_weight"] = target_weights["lm_head_weight"].float()
+        if target_weights["lm_head_bias"] is not None:
+            target_weights["lm_head_bias"] = target_weights["lm_head_bias"].float()
 
     # Validate vocab size compatibility
     base_vocab = base_weights["lm_head_weight"].shape[0]
@@ -282,11 +290,11 @@ def compute_kl_divergence(
 
         seq_len = base_hidden.shape[0]
         if seq_len != target_hidden.shape[0]:
-            print(
-                f"Warning: Sequence length mismatch in {base_file} "
-                f"({seq_len} vs {target_hidden.shape[0]}), skipping"
+            raise ValueError(
+                f"Sequence length mismatch in {base_file}: "
+                f"base has {seq_len}, target has {target_hidden.shape[0]}. "
+                "Samples must have identical lengths for KL computation."
             )
-            continue
 
         # Validate hidden dim matches lm_head
         base_hdim = base_hidden.shape[-1]

@@ -110,8 +110,8 @@ out of the box:
 - **Phi family**: Phi, Phi-3
 - **Others**: Granite, InternLM2, Cohere, DeepSeek V3
 
-For unsupported architectures, use the `--norm-weight-name`, `--lm-head-weight-name`,
-etc. overrides. The defaults (`model.norm.weight`, `lm_head.weight`) work for most
+For unsupported architectures, use the `--lm-head-weight-name` and
+`--embed-weight-name` overrides. The default (`lm_head.weight`) works for most
 modern LLMs.
 
 ## Limitations
