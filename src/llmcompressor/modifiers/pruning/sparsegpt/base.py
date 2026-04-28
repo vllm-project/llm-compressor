@@ -150,7 +150,7 @@ class SparseGPTModifier(SparsityModifierBase):
     def on_finalize(self, state: State, **kwargs) -> bool:
         # TODO: modify lifecycle to end on finalize
         if not self.ended_:
-            self.on_end(state, None)
+            self.on_end(state, None) # remove hooks
 
         if len(self._num_samples) > 0:
             raise ValueError(f"Failed to compress {len(self._num_samples)} modules")

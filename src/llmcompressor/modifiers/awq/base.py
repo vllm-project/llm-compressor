@@ -162,8 +162,11 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
+    # Cache of forward input args for each parent module, one dict for each batch
     _parent_args_cache: IntermediatesCache[tuple[Module, int]] = PrivateAttr(default=None)
+    # Cache dict[smooth layer name, [activation sums, activation counts]]
     _smooth_activation_stats: IntermediatesCache[str] = PrivateAttr(default=None)
+    # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -476,6 +479,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             return cache_smooth_activations_hook
 
         for mapping in self._resolved_mappings:
+            # parent kwargs needed for future forward passes
+            # same parent may appear multiple times in resolved mappings
             if self._parent_args_cache is None:
                 self._parent_args_cache = IntermediatesCache(self.offload_device)
                 self._smooth_activation_stats = IntermediatesCache(self.offload_device)
@@ -602,6 +607,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     _smooth(layer, orig_layer_weights)
                 _smooth(smooth_layer, orig_layer_weights)
 
+                # remove caches needed to smooth this mapping
                 self._smooth_activation_stats.delete(mapping.smooth_name)
                 del orig_layer_weights
 

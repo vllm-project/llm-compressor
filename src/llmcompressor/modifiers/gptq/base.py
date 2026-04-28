@@ -282,7 +282,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         world_size = dist.get_world_size()
 
         # Get module list from cache
-        module_list = list(self._hessians_cache._store.keys())
+        module_list = list(self._hessians_cache.iter_keys())
 
         # Assign modules to ranks
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
