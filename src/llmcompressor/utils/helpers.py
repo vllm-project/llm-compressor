@@ -171,5 +171,3 @@ def disable_lm_head(model: torch.nn.Module):
                 stack.enter_context(patch_attr(model._hf_hook, "io_same_device", False))
 
             yield
-
-
