@@ -473,3 +473,12 @@ def handle_sequential_oom(func):
             ) from e
 
     return wrapper
+
+
+def whole_model_subgraph(model: Module) -> Subgraph:
+    """Build a Subgraph containing all top-level children of the model."""
+    graph = Graph(model)
+    for name, _ in model.named_children():
+        graph.call_module(name, args=())
+    graph.output(None)
+    return Subgraph(graph=graph, input_names=set(), consumed_names=set())

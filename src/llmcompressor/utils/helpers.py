@@ -11,10 +11,8 @@ import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from compressed_tensors.utils import patch_attr
 from loguru import logger
-from torch.fx import Graph
 from transformers import PreTrainedModel
 
-from llmcompressor.pipelines.sequential.helpers import Subgraph
 from llmcompressor.utils import get_embeddings
 
 __all__ = [
@@ -25,7 +23,6 @@ __all__ = [
     "disable_hf_kernels",
     "calibration_forward_context",
     "disable_lm_head",
-    "whole_model_subgraph",
 ]
 
 
@@ -176,9 +173,3 @@ def disable_lm_head(model: torch.nn.Module):
             yield
 
 
-def whole_model_subgraph(model: torch.nn.Module) -> Subgraph:
-    graph = Graph(model)
-    for name, _ in model.named_children():
-        graph.call_module(name, args=())
-    graph.output(None)
-    return Subgraph(graph=graph, input_names=set(), consumed_names=set())
