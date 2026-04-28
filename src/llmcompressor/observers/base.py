@@ -144,7 +144,7 @@ class Observer(InternalModule, RegistryMixin):
         """All-reduce accumulated activation statistics across DDP ranks.
 
             note: weight statistics don't need to be synced since weights
-        are synced across ranks, only data differs by rank.
+        are synced across ranks, only data (activations) differs by rank.
 
         :return: list of async communication handles
         """
