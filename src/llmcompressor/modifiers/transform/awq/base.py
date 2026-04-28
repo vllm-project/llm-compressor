@@ -41,6 +41,7 @@ from llmcompressor.modifiers.transform.awq.mappings import (
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.helpers import fuse_weight_observers
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils import get_high_precision
@@ -661,6 +662,7 @@ class AWQModifier(Modifier):
                 for balance_layer in balance_layers_to_patch
             ],
         ):
+            fuse_weight_observers(mapping.parent)
             pbar = tqdm(
                 self._get_grid_search_params(),
                 desc=f"Grid search for {mapping.smooth_name}",
@@ -679,19 +681,18 @@ class AWQModifier(Modifier):
                 scales[torch.isnan(scales)] = 1
                 _scalesview = scales.view(1, -1).to(device)
 
-                # Q(W * s)
+                # (W * s)
                 for balance_layer in balance_layers_to_patch:
-                    if not hasattr(balance_layer, "quantization_scheme") or not hasattr(
-                        balance_layer.quantization_scheme, "weights"
-                    ):
-                        continue
-
                     w_qscheme = balance_layer.quantization_scheme.weights
                     balance_layer.weight.data.copy_(
                         orig_layer_weights[balance_layer].to(_scalesview.device)
                         * _scalesview
                     )
                     observe(balance_layer, base_name="weight")
+                    # observe all scaled weights first to get correct global_scale
+
+                # Q(W * s)
+                for balance_layer in balance_layers_to_patch:
                     update_qparams(balance_layer, base_name="weight")
                     balance_layer.weight.data = (
                         forward_quantize(
