@@ -93,7 +93,6 @@ for both.
 | `--device` | `cuda:0` | Computation device |
 | `--chunk-size` | `64` | Tokens per chunk (lower = less memory) |
 | `--output` | stdout | Path for results JSON |
-| `--norm-weight-name` | auto | Override final norm tensor name |
 | `--lm-head-weight-name` | auto | Override lm_head tensor name |
 | `--lm-head-bias-name` | auto | Override lm_head bias tensor name |
 | `--embed-weight-name` | auto | Override embed tensor name |

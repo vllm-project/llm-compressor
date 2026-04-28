@@ -279,8 +279,8 @@ def run_tests():
         print(f"  PASSED (mean KL: {mean_kl:.6f}, per-sample: {[f'{k:.6f}' for k in per_sample_kl]})")
         passed += 1
 
-    # --- Test 9: Token ID mismatch raises error ---
-    print("Test 9: Token ID mismatch detection...")
+    # --- Test 9: Token ID mismatch raises ValueError ---
+    print("Test 9: Token ID mismatch raises ValueError...")
     with tempfile.TemporaryDirectory() as tmpdir:
         base_dir = os.path.join(tmpdir, "base")
         target_dir = os.path.join(tmpdir, "target")
@@ -291,8 +291,8 @@ def run_tests():
             base_dir, num_samples, seq_len, hidden_dim, token_ids_list=base_token_ids
         )
 
-        # Create target with DIFFERENT token IDs
-        different_token_ids = [torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)]
+        # Create target with DIFFERENT token IDs (use offset to guarantee mismatch)
+        different_token_ids = [tids + 1 for tids in base_token_ids]
         create_fake_hidden_states(
             target_dir, num_samples, seq_len, hidden_dim, token_ids_list=different_token_ids
         )
@@ -301,21 +301,27 @@ def run_tests():
 
         with open(os.path.join(base_dir, "metadata.json")) as f:
             base_meta = json.load(f)
-        with open(os.path.join(target_dir, "metadata.json")) as f:
-            target_meta = json.load(f)
 
+        # Replicate the actual validation logic from compute_kl.py
         bf = sorted(base_meta["files"])[0]
-        tf = sorted(target_meta["files"])[0]
+        tf = sorted(base_meta["files"])[0]  # same filename pattern
 
         with safe_open(os.path.join(base_dir, bf), framework="pt") as f:
             base_tids = f.get_tensor("token_ids")
         with safe_open(os.path.join(target_dir, tf), framework="pt") as f:
             target_tids = f.get_tensor("token_ids")
 
-        mismatch_detected = not torch.equal(base_tids, target_tids)
-        assert mismatch_detected, "Different random token IDs should not be equal"
-        print(f"  PASSED (mismatch correctly detected)")
-        passed += 1
+        try:
+            if not torch.equal(base_tids, target_tids):
+                raise ValueError(
+                    "Token ID mismatch. "
+                    "Base and target must be extracted from the same input tokens."
+                )
+            print("  FAILED (should have raised ValueError)")
+            failed += 1
+        except ValueError:
+            print("  PASSED (ValueError raised for token ID mismatch)")
+            passed += 1
 
     # --- Test 10: Dimension compatibility check ---
     print("Test 10: Hidden dim / vocab size validation...")

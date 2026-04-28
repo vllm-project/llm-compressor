@@ -1,10 +1,10 @@
 """
 Extract hidden states from a model using vLLM's hidden state extraction API.
 
-This script runs a model through vLLM, extracts the hidden states from the
-last transformer layer (before the final norm and lm_head), and saves them
-as safetensors files. These hidden states can then be used by compute_kl.py
-to efficiently calculate KL divergence without needing full-vocab logprobs.
+This script runs a model through vLLM and extracts post-norm hidden states
+(at layer index num_hidden_layers, i.e. after the final layer norm) and saves
+them as safetensors files. These hidden states can be passed directly to lm_head
+by compute_kl.py to efficiently calculate KL divergence without full-vocab logprobs.
 
 Requires vllm >= 0.18.0.
 
@@ -83,7 +83,7 @@ def parse_args():
         type=int,
         default=None,
         help="Layer index to extract hidden states from "
-        "(default: last layer, auto-detected from config)",
+        "(default: num_hidden_layers, i.e. post-norm output)",
     )
     parser.add_argument(
         "--gpu-memory-utilization",
@@ -133,6 +133,12 @@ def prepare_token_chunks(
 
     # Filter empty texts and batch-tokenize
     dataset = dataset.filter(lambda x: x[text_column] and x[text_column].strip())
+
+    # Early-stop: only tokenize enough data to fill num_samples chunks
+    required_tokens = (
+        None if num_samples is None else num_samples * max_seq_length
+    )
+
     tokenized = dataset.map(
         lambda batch: {"input_ids": tokenizer(
             batch[text_column], add_special_tokens=False
@@ -140,7 +146,13 @@ def prepare_token_chunks(
         batched=True,
         remove_columns=dataset.column_names,
     )
-    all_tokens = [tid for row in tokenized for tid in row["input_ids"]]
+
+    all_tokens = []
+    for row in tokenized:
+        all_tokens.extend(row["input_ids"])
+        if required_tokens is not None and len(all_tokens) >= required_tokens:
+            all_tokens = all_tokens[:required_tokens]
+            break
 
     # Chunk into fixed-length sequences (drop the last incomplete chunk)
     total_length = (len(all_tokens) // max_seq_length) * max_seq_length
@@ -148,9 +160,6 @@ def prepare_token_chunks(
         all_tokens[i : i + max_seq_length]
         for i in range(0, total_length, max_seq_length)
     ]
-
-    if num_samples is not None:
-        chunks = chunks[:num_samples]
 
     print(f"Total tokens: {len(all_tokens)}")
     print(f"Sequence chunks: {len(chunks)} x {max_seq_length} tokens")

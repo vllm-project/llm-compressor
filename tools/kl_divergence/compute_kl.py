@@ -334,6 +334,12 @@ def compute_kl_divergence(
 
     elapsed = time.time() - start_time
 
+    if not per_sample_kl:
+        raise ValueError(
+            "No comparable samples were processed. "
+            "Check sequence lengths and extracted artifacts."
+        )
+
     # Token-weighted mean KL (more accurate than averaging per-sample means)
     token_weighted_mean_kl = total_kl_sum / total_tokens if total_tokens > 0 else 0.0
 
@@ -362,6 +368,11 @@ def compute_kl_divergence(
 
 def main():
     args = parse_args()
+
+    if args.temperature <= 0:
+        raise ValueError("--temperature must be > 0")
+    if args.chunk_size <= 0:
+        raise ValueError("--chunk-size must be > 0")
 
     results = compute_kl_divergence(
         base_dir=args.base_dir,

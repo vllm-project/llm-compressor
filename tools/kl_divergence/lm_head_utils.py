@@ -121,6 +121,7 @@ def _get_weight_map(model_path: str) -> dict:
         )
     else:
         from huggingface_hub import hf_hub_download
+        from huggingface_hub.utils import EntryNotFoundError
 
         try:
             index_path = hf_hub_download(
@@ -132,7 +133,8 @@ def _get_weight_map(model_path: str) -> dict:
                 name: (model_path, shard)
                 for name, shard in index["weight_map"].items()
             }
-        except Exception:
+        except (EntryNotFoundError, FileNotFoundError):
+            # No sharded index — try single safetensors file
             single_path = hf_hub_download(model_path, "model.safetensors")
             with safe_open(single_path, framework="pt") as f:
                 return {name: single_path for name in f.keys()}
