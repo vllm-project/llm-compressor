@@ -28,8 +28,8 @@ import torch
 from datasets import load_dataset
 from safetensors import safe_open
 from safetensors.torch import save_file
-from transformers import AutoConfig, AutoTokenizer
 from tqdm import tqdm
+from transformers import AutoConfig, AutoTokenizer
 
 
 def parse_args():
@@ -131,9 +131,7 @@ def prepare_token_chunks(
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     dataset = load_dataset(dataset_name, dataset_config, split=split)
 
-    required_tokens = (
-        None if num_samples is None else num_samples * max_seq_length
-    )
+    required_tokens = None if num_samples is None else num_samples * max_seq_length
 
     all_tokens = []
 
@@ -158,9 +156,7 @@ def prepare_token_chunks(
             text = row[text_column]
             if not text or not text.strip():
                 continue
-            all_tokens.extend(
-                tokenizer(text, add_special_tokens=False)["input_ids"]
-            )
+            all_tokens.extend(tokenizer(text, add_special_tokens=False)["input_ids"])
             if len(all_tokens) >= required_tokens:
                 all_tokens = all_tokens[:required_tokens]
                 break
@@ -311,7 +307,7 @@ def extract_hidden_states(
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"\nExtraction complete:")
+    print("\nExtraction complete:")
     print(f"  Saved {len(hidden_state_files)} hidden state files to {output_dir}")
     print(f"  Metadata saved to {metadata_path}")
 

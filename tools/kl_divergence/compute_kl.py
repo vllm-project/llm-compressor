@@ -397,8 +397,10 @@ def main():
     print(f"  Temperature:   {results['temperature']}")
     print(f"  Samples:       {results['num_samples']}")
     print(f"  Total tokens:  {results['total_tokens']}")
-    print(f"  Time:          {results['elapsed_seconds']:.1f}s "
-          f"({results['tokens_per_second']:.0f} tok/s)")
+    print(
+        f"  Time:          {results['elapsed_seconds']:.1f}s "
+        f"({results['tokens_per_second']:.0f} tok/s)"
+    )
     print("-" * 60)
     print(f"  Mean KL (token-weighted): {results['mean_kl']:.6f}")
     print(f"  Mean KL (per-sample):     {results['mean_kl_per_sample']:.6f}")

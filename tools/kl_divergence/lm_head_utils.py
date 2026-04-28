@@ -11,7 +11,6 @@ import torch
 from safetensors import safe_open
 from transformers import AutoConfig
 
-
 # Architecture -> weight name mappings
 _DEFAULT_WEIGHT_NAMES = {
     "lm_head_weight": "lm_head.weight",
@@ -124,14 +123,11 @@ def _get_weight_map(model_path: str) -> dict:
         from huggingface_hub.utils import EntryNotFoundError
 
         try:
-            index_path = hf_hub_download(
-                model_path, "model.safetensors.index.json"
-            )
+            index_path = hf_hub_download(model_path, "model.safetensors.index.json")
             with open(index_path) as f:
                 index = json.load(f)
             return {
-                name: (model_path, shard)
-                for name, shard in index["weight_map"].items()
+                name: (model_path, shard) for name, shard in index["weight_map"].items()
             }
         except (EntryNotFoundError, FileNotFoundError):
             # No sharded index — try single safetensors file

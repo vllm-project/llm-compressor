@@ -6,13 +6,13 @@ Only requires torch + safetensors (no transformers, vllm, or GPU needed).
 
 import json
 import os
+import sys
 import tempfile
 
 import torch
 import torch.nn.functional as F
 from safetensors.torch import save_file
 
-import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -44,7 +44,9 @@ def compute_kl_for_chunk(base_hidden, target_hidden, weights, temperature=1.0):
     return kl_per_position
 
 
-def create_fake_hidden_states(output_dir, num_samples, seq_len, hidden_dim, token_ids_list=None):
+def create_fake_hidden_states(
+    output_dir, num_samples, seq_len, hidden_dim, token_ids_list=None
+):
     """Create fake hidden state safetensors files (simulating vLLM output)."""
     os.makedirs(output_dir, exist_ok=True)
     files = []
@@ -91,8 +93,8 @@ def create_fake_weights(hidden_dim, vocab_size):
 
 
 def run_tests():
-    hidden_dim = 64   # small for speed
-    vocab_size = 128   # small for speed
+    hidden_dim = 64  # small for speed
+    vocab_size = 128  # small for speed
     seq_len = 32
     num_samples = 4
 
@@ -108,7 +110,9 @@ def run_tests():
     # Softmax over logits should sum to 1
     probs = F.softmax(logits, dim=-1)
     sums = probs.sum(dim=-1)
-    assert torch.allclose(sums, torch.ones_like(sums), atol=1e-4), f"Softmax sums: {sums}"
+    assert torch.allclose(sums, torch.ones_like(sums), atol=1e-4), (
+        f"Softmax sums: {sums}"
+    )
     print(f"  PASSED (logit shape: {logits.shape}, softmax sums: {sums.tolist()})")
     passed += 1
 
@@ -122,7 +126,7 @@ def run_tests():
     assert torch.allclose(sums_bias, torch.ones_like(sums_bias), atol=1e-4)
     # Logits should differ from no-bias version
     assert not torch.allclose(logits, logits_with_bias)
-    print(f"  PASSED (bias shifts logits, softmax still valid)")
+    print("  PASSED (bias shifts logits, softmax still valid)")
     passed += 1
 
     # --- Test 3: Self-comparison KL = 0 ---
@@ -160,7 +164,12 @@ def run_tests():
     # Higher temperature -> smoother distributions -> lower KL
     assert kl_t05.mean() > kl_t1.mean(), "Lower temp should increase KL"
     assert kl_t2.mean() < kl_t1.mean(), "Higher temp should decrease KL"
-    print(f"  PASSED (t=0.5: {kl_t05.mean():.6f}, t=1.0: {kl_t1.mean():.6f}, t=2.0: {kl_t2.mean():.6f})")
+    print(
+        "  PASSED "
+        f"(t=0.5: {kl_t05.mean():.6f}, "
+        f"t=1.0: {kl_t1.mean():.6f}, "
+        f"t=2.0: {kl_t2.mean():.6f})"
+    )
     passed += 1
 
     # --- Test 7: End-to-end with safetensors files (matching token IDs) ---
@@ -170,7 +179,9 @@ def run_tests():
         target_dir = os.path.join(tmpdir, "target")
 
         # Generate shared token IDs for both base and target
-        shared_token_ids = [torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)]
+        shared_token_ids = [
+            torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)
+        ]
 
         # Create identical hidden states for both, with same token IDs
         base_hidden, _ = create_fake_hidden_states(
@@ -189,10 +200,14 @@ def run_tests():
             target_files.append(filename)
 
         target_meta = {
-            "model_id": "test-model", "layer_index": 31,
-            "max_seq_length": seq_len, "num_samples": num_samples,
-            "dataset_name": "test", "dataset_config": "test",
-            "split": "test", "files": target_files,
+            "model_id": "test-model",
+            "layer_index": 31,
+            "max_seq_length": seq_len,
+            "num_samples": num_samples,
+            "dataset_name": "test",
+            "dataset_config": "test",
+            "split": "test",
+            "files": target_files,
         }
         with open(os.path.join(target_dir, "metadata.json"), "w") as f:
             json.dump(target_meta, f)
@@ -221,7 +236,9 @@ def run_tests():
             per_sample_kl.append(kl.mean().item())
 
         mean_kl = sum(per_sample_kl) / len(per_sample_kl)
-        assert abs(mean_kl) < 1e-5, f"E2E self-comparison KL should be ~0, got {mean_kl}"
+        assert abs(mean_kl) < 1e-5, (
+            f"E2E self-comparison KL should be ~0, got {mean_kl}"
+        )
         print(f"  PASSED (mean KL across {num_samples} samples: {mean_kl})")
         passed += 1
 
@@ -231,7 +248,9 @@ def run_tests():
         base_dir = os.path.join(tmpdir, "base")
         target_dir = os.path.join(tmpdir, "target")
 
-        shared_token_ids = [torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)]
+        shared_token_ids = [
+            torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)
+        ]
 
         base_hidden, _ = create_fake_hidden_states(
             base_dir, num_samples, seq_len, hidden_dim, token_ids_list=shared_token_ids
@@ -250,10 +269,14 @@ def run_tests():
             target_files.append(filename)
 
         target_meta = {
-            "model_id": "test-model-quantized", "layer_index": 31,
-            "max_seq_length": seq_len, "num_samples": num_samples,
-            "dataset_name": "test", "dataset_config": "test",
-            "split": "test", "files": target_files,
+            "model_id": "test-model-quantized",
+            "layer_index": 31,
+            "max_seq_length": seq_len,
+            "num_samples": num_samples,
+            "dataset_name": "test",
+            "dataset_config": "test",
+            "split": "test",
+            "files": target_files,
         }
         with open(os.path.join(target_dir, "metadata.json"), "w") as f:
             json.dump(target_meta, f)
@@ -275,8 +298,11 @@ def run_tests():
 
         mean_kl = sum(per_sample_kl) / len(per_sample_kl)
         assert mean_kl > 0, f"Perturbed target should have KL > 0, got {mean_kl}"
-        assert all(k >= -1e-6 for k in per_sample_kl), "All per-sample KL should be non-negative"
-        print(f"  PASSED (mean KL: {mean_kl:.6f}, per-sample: {[f'{k:.6f}' for k in per_sample_kl]})")
+        assert all(k >= -1e-6 for k in per_sample_kl), (
+            "All per-sample KL should be non-negative"
+        )
+        formatted_sample_kl = [f"{k:.6f}" for k in per_sample_kl]
+        print(f"  PASSED (mean KL: {mean_kl:.6f}, per-sample: {formatted_sample_kl})")
         passed += 1
 
     # --- Test 9: Token ID mismatch raises ValueError ---
@@ -286,7 +312,9 @@ def run_tests():
         target_dir = os.path.join(tmpdir, "target")
 
         # Create base with one set of token IDs
-        base_token_ids = [torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)]
+        base_token_ids = [
+            torch.randint(0, 32000, (seq_len,)) for _ in range(num_samples)
+        ]
         create_fake_hidden_states(
             base_dir, num_samples, seq_len, hidden_dim, token_ids_list=base_token_ids
         )
@@ -294,7 +322,11 @@ def run_tests():
         # Create target with DIFFERENT token IDs (use offset to guarantee mismatch)
         different_token_ids = [tids + 1 for tids in base_token_ids]
         create_fake_hidden_states(
-            target_dir, num_samples, seq_len, hidden_dim, token_ids_list=different_token_ids
+            target_dir,
+            num_samples,
+            seq_len,
+            hidden_dim,
+            token_ids_list=different_token_ids,
         )
 
         from safetensors import safe_open
@@ -336,9 +368,9 @@ def run_tests():
         print("  PASSED (RuntimeError raised for dimension mismatch)")
         passed += 1
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Results: {passed} passed, {failed} failed out of {passed + failed} tests")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     return failed == 0
 
 
