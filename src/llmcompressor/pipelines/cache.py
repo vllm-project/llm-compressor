@@ -92,34 +92,39 @@ class IntermediatesCache(Generic[TKey]):
         """
         self._store[key] = self._offload_value(value, self.offload_device)
 
-    def append(self, key_prefix: TKey, value: Any) -> tuple[TKey, int]:
+    def append(self, key_prefix: TKey | None, value: Any) -> tuple[TKey, int]:
         """
         Append a value with an auto-generated index.
 
-        The key_prefix is used as a prefix, and an integer index is appended
-        to create the full key: (key_prefix, index) or (key_prefix[0], ..., key_prefix[n], index).
+        If key_prefix is None, uses integer keys directly (0, 1, 2, ...).
+        Otherwise, creates keys as (key_prefix, index).
 
-        :param key_prefix: key prefix for storing the value
+        :param key_prefix: key prefix for storing the value, or None for pure integer keys
         :param value: value to store
         :return: tuple of (full_key, index) where full_key is the complete key used
         """
-        if isinstance(key_prefix, tuple):
-            prefix = key_prefix
+        if key_prefix is None:
+            matching_keys = [k for k in self._store.keys() if isinstance(k, int)]
+            next_idx = max(matching_keys, default=-1) + 1
+            full_key = next_idx
         else:
-            prefix = (key_prefix,)
+            if isinstance(key_prefix, tuple):
+                prefix = key_prefix
+            else:
+                prefix = (key_prefix,)
 
-        matching_keys = [
-            k for k in self._store.keys()
-            if isinstance(k, tuple)
-            and len(k) == len(prefix) + 1
-            and k[:-1] == prefix
-            and isinstance(k[-1], int)
-        ]
+            matching_keys = [
+                k for k in self._store.keys()
+                if isinstance(k, tuple)
+                and len(k) == len(prefix) + 1
+                and k[:-1] == prefix
+                and isinstance(k[-1], int)
+            ]
 
-        next_idx = max((k[-1] for k in matching_keys), default=-1) + 1
-        full_key = prefix + (next_idx,)
+            next_idx = max((k[-1] for k in matching_keys), default=-1) + 1
+            full_key = prefix + (next_idx,)
+
         self._store[full_key] = self._offload_value(value, self.offload_device)
-
         return full_key, next_idx
 
     def delete(self, key: TKey) -> None:
