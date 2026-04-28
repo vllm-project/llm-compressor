@@ -108,7 +108,7 @@ class SparseGPTModifier(SparsityModifierBase):
             )
             self._num_samples[module] = 0
 
-        hessian = self._hessians_cache.fetch(module)
+        hessian = self._hessians_cache[module]
         hessian, self._num_samples[module] = accumulate_hessian(
             inp, module, hessian, self._num_samples[module]
         )
@@ -129,7 +129,7 @@ class SparseGPTModifier(SparsityModifierBase):
                 align_module_device(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                hessian = self._hessians_cache.fetch(module)
+                hessian = self._hessians_cache[module]
                 self._hessians_cache.delete(module)
                 loss, sparsified_weight = sparsify_weight(
                     module=module,

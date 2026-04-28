@@ -17,7 +17,7 @@ def test_fetch_update_roundtrip():
     key = "test_key"
 
     cache.update(key, tensor)
-    fetched = cache.fetch(key)
+    fetched = cache[key]
     assert torch.equal(fetched, tensor)
 
 
@@ -26,7 +26,7 @@ def test_fetch_key_not_found():
     """Test KeyError raised when key not found."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     with pytest.raises(KeyError):
-        cache.fetch("nonexistent")
+        _ = cache["nonexistent"]
 
 
 @pytest.mark.unit
@@ -34,16 +34,16 @@ def test_update_accepts_any_value():
     """Test update accepts non-tensor values."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     cache.update("key", "not a tensor")  # Should not raise
-    assert cache.fetch("key") == "not a tensor"
+    assert cache["key"] == "not a tensor"
 
 @pytest.mark.unit
 def test_append():
     """Test append adds to existing list."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
-    cache.append(("key", None), [1, 2])
-    cache.append(("key", None), [3, 4])
-    assert cache.fetch(("key", 0)) == [1, 2]
-    assert cache.fetch(("key", 1)) == [3, 4]
+    cache.append("key", [1, 2])
+    cache.append("key", [3, 4])
+    assert cache[("key", 0)] == [1, 2]
+    assert cache[("key", 1)] == [3, 4]
 
 @pytest.mark.unit
 def test_delete():
@@ -83,20 +83,20 @@ def test_iter_prefetch():
 
 
 @pytest.mark.unit
-def test_iter_prefetch_with_wildcard():
-    """Test iter_prefetch with wildcard pattern."""
+def test_iter_prefetch_with_prefix():
+    """Test iter_prefetch with prefix pattern."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
 
-    # Store batch dicts like sequential pipeline
+    # Store batch dicts like sequential pipeline with module prefix
     for batch_idx in range(3):
         batch_dict = {
             "input_ids": torch.tensor([batch_idx]),
             "attention_mask": torch.tensor([1]),
         }
-        cache.update((batch_idx,), batch_dict)
+        cache.update(("module", batch_idx), batch_dict)
 
-    # Use wildcard pattern (None,) to match all batches
-    batches = list(cache.iter_prefetch([(None,)]))
+    # Use prefix "module" to match all (module, 0), (module, 1), etc.
+    batches = list(cache.iter_prefetch(["module"]))
     assert len(batches) == 3
     for i, batch in enumerate(batches):
         assert "input_ids" in batch

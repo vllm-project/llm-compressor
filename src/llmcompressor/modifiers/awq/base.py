@@ -432,7 +432,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 if isinstance(v, QuantizedKVCache):
                     values.arguments[k] = None
 
-            self._parent_args_cache.append((module, None), values.arguments)
+            self._parent_args_cache.append(module, values.arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -461,14 +461,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                     masked_activations = activations.flatten(0, -2)
 
                 # accumulate activation sum&count
-                new_sum = masked_activations.float().sum(dim=0).cpu()
-                new_count = torch.tensor(masked_activations.size(0)).cpu()
+                new_sum = masked_activations.float().sum(dim=0)
+                new_count = torch.tensor(masked_activations.size(0))
                 if smooth_name not in self._smooth_activation_stats:
                     self._smooth_activation_stats.update(
                         smooth_name,
                         [torch.zeros_like(new_sum), torch.zeros_like(new_count)],
                     )
-                x_sum, count = self._smooth_activation_stats.fetch(smooth_name)
+                x_sum, count = self._smooth_activation_stats[smooth_name]
                 x_sum += new_sum
                 count += new_count
                 self._smooth_activation_stats.update(smooth_name, [x_sum, count])
@@ -614,9 +614,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         use_prefetch = active_session().state.sequential_prefetch
 
         if use_prefetch:
-            batch_iter = cache.iter_prefetch([(module, None)])
+            batch_iter = cache.iter_prefetch([(module)])
         else:
-            batch_iter = cache.iter([(module, None)])
+            batch_iter = cache.iter([(module)])
 
         outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
         return [
@@ -655,10 +655,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         device = get_execution_device(mapping.parent)
 
-        x_sum, count = self._smooth_activation_stats.fetch(mapping.smooth_name)
+        x_sum, count = self._smooth_activation_stats[mapping.smooth_name]
         if is_distributed():
             x_sum, count = _allreduce_data_sum([x_sum, count])
-        x_mean = x_sum.to(device) / count.to(device)
+        x_mean = x_sum / count
 
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
@@ -1041,13 +1041,6 @@ def get_lowest_common_ancestor_with_avoid(
 
 
 def _allreduce_data_sum(data: list[torch.Tensor]) -> list[torch.Tensor]:
-    # needs to be on device to broadcast
-    device = torch.device(
-        torch.accelerator.current_accelerator().type,
-        torch.accelerator.current_device_index(),
-    )
-    data = [datum.to(device) for datum in data]
-
     pending_comms = []
     for datum in data:
         pending_comms.append(

@@ -58,7 +58,7 @@ class IntermediatesCache(Generic[TKey]):
     ):
         """
         Initialize a cache with data from the provided dataloader.
-        Stores each batch as a dict under key (batch_idx,).
+        Stores each batch as a dict under key batch_idx.
 
         :param dataloader: dataloader which generates values to be cached
         :param model_device: device which values will be onloaded to when fetched
@@ -66,12 +66,12 @@ class IntermediatesCache(Generic[TKey]):
         """
         cache = cls(offload_device)
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Preparing cache")):
-            cache._store[(batch_idx,)] = cls._offload_value(
+            cache._store[batch_idx] = cls._offload_value(
                 batch, offload_device, model_device
             )
         return cache
 
-    def fetch(self, key: TKey) -> Any:
+    def __getitem__(self, key: TKey) -> Any:
         """
         Fetch a value by key, onloading it to the original device
 
@@ -92,41 +92,35 @@ class IntermediatesCache(Generic[TKey]):
         """
         self._store[key] = self._offload_value(value, self.offload_device)
 
-    def append(self, key: TKey, value: Any) -> int:
+    def append(self, key_prefix: TKey, value: Any) -> tuple[TKey, int]:
         """
         Append a value with an auto-generated index.
 
-        The key must contain None as a placeholder for the index position.
+        The key_prefix is used as a prefix, and an integer index is appended
+        to create the full key: (key_prefix, index) or (key_prefix[0], ..., key_prefix[n], index).
 
-        :param key: key with None as placeholder for index position
+        :param key_prefix: key prefix for storing the value
         :param value: value to store
-        :return: the index that was used
+        :return: tuple of (full_key, index) where full_key is the complete key used
         """
-        if not isinstance(key, tuple):
-            raise ValueError("Key must be a tuple with None as placeholder for index")
-
-        try:
-            none_idx = key.index(None)
-        except ValueError:
-            raise ValueError("Key must contain None as placeholder for index")
-
-        prefix = key[:none_idx]
-        suffix = key[none_idx + 1:]
+        if isinstance(key_prefix, tuple):
+            prefix = key_prefix
+        else:
+            prefix = (key_prefix,)
 
         matching_keys = [
             k for k in self._store.keys()
             if isinstance(k, tuple)
-            and len(k) > none_idx
-            and k[:none_idx] == prefix
-            and isinstance(k[none_idx], int)
-            and k[none_idx + 1:] == suffix
+            and len(k) == len(prefix) + 1
+            and k[:-1] == prefix
+            and isinstance(k[-1], int)
         ]
 
-        next_idx = max((k[none_idx] for k in matching_keys), default=-1) + 1
-        full_key = prefix + (next_idx,) + suffix
+        next_idx = max((k[-1] for k in matching_keys), default=-1) + 1
+        full_key = prefix + (next_idx,)
         self._store[full_key] = self._offload_value(value, self.offload_device)
 
-        return next_idx
+        return full_key, next_idx
 
     def delete(self, key: TKey) -> None:
         """
@@ -147,61 +141,49 @@ class IntermediatesCache(Generic[TKey]):
 
     def iter_keys(self, prefix: TKey | None = None) -> list[TKey]:
         """
-        Get keys matching a prefix pattern.
+        Get keys matching a prefix.
 
-        For keys like (module, None), returns all keys with that module.
+        For prefix like (module,), returns all keys (module, 0), (module, 1), etc.
+        Non-tuple prefixes are treated as single-element tuples.
 
-        :param prefix: prefix to match, with None matching any integer index
-        :return: list of matching keys sorted by index
+        :param prefix: prefix to match keys starting with this prefix
+        :return: list of matching keys sorted by final integer index
         """
         if prefix is None:
             return list(self._store.keys())
 
-        if not isinstance(prefix, tuple):
-            return [k for k in self._store.keys() if k == prefix]
+        if isinstance(prefix, tuple):
+            p = prefix
+        else:
+            p = (prefix,)
 
         keys = []
         for k in self._store.keys():
-            if not isinstance(k, tuple) or len(k) < len(prefix):
+            if not isinstance(k, tuple):
                 continue
-            match = True
-            for i, p in enumerate(prefix):
-                if p is None:
-                    if not isinstance(k[i], int):
-                        match = False
-                        break
-                elif k[i] != p:
-                    match = False
-                    break
-            if match:
+            if len(k) == len(p) + 1 and k[:-1] == p and isinstance(k[-1], int):
                 keys.append(k)
 
-        def get_index(k):
-            for i, p in enumerate(prefix):
-                if p is None:
-                    return k[i]
-            return 0
-
-        return sorted(keys, key=get_index)
+        return sorted(keys, key=lambda k: k[-1])
 
     def iter(self, keys: list[TKey] | None = None) -> Generator[Any, None, None]:
         """
         Iterate over keys with values onloaded in the current thread.
 
-        Keys can contain None placeholders which match any integer index.
-        For example, [(module, None)] matches all (module, 0), (module, 1), etc.
+        Keys that are not exact matches are treated as prefixes.
+        For example, [module] matches (module, 0), (module, 1), etc.
 
-        :param keys: list of keys or patterns to iterate over. If None, iterates over all keys.
+        :param keys: list of keys or prefixes to iterate over. If None, iterates over all keys.
         """
         if keys is None:
             keys = list(self._store.keys())
         else:
             resolved_keys = []
             for key in keys:
-                if isinstance(key, tuple) and None in key:
-                    resolved_keys.extend(self.iter_keys(key))
-                elif key in self._store:
+                if key in self._store:
                     resolved_keys.append(key)
+                else:
+                    resolved_keys.extend(self.iter_keys(key))
             keys = resolved_keys
 
         for key in keys:
@@ -214,20 +196,20 @@ class IntermediatesCache(Generic[TKey]):
         Iterate over keys with values prefetched in a background thread.
         Overlaps onload from offload_device with consumption of the current value.
 
-        Keys can contain None placeholders which match any integer index.
-        For example, [(module, None)] matches all (module, 0), (module, 1), etc.
+        Keys that are not exact matches are treated as prefixes.
+        For example, [module] matches (module, 0), (module, 1), etc.
 
-        :param keys: list of keys or patterns to iterate over. If None, iterates over all keys.
+        :param keys: list of keys or prefixes to iterate over. If None, iterates over all keys.
         """
         if keys is None:
             keys = list(self._store.keys())
         else:
             resolved_keys = []
             for key in keys:
-                if isinstance(key, tuple) and None in key:
-                    resolved_keys.extend(self.iter_keys(key))
-                elif key in self._store:
+                if key in self._store:
                     resolved_keys.append(key)
+                else:
+                    resolved_keys.extend(self.iter_keys(key))
             keys = resolved_keys
 
         num_keys = len(keys)

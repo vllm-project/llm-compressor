@@ -42,7 +42,7 @@ def _get_batches(
     Uses wildcard pattern (None,) to match all (batch_idx,) keys.
     """
     iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter
-    batch_iter = iter_fn([(None,)])
+    batch_iter = iter_fn()
     for batch_idx, batch_dict in tqdm(
         enumerate(batch_iter), total=num_batches, desc=desc
     ):
@@ -129,7 +129,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations.fetch((batch_idx,))["loss_mask"]
+                    activations[batch_idx]["loss_mask"]
                     for batch_idx in range(len(dataloader))
                 ]
             else:
@@ -175,15 +175,15 @@ class SequentialPipeline(CalibrationPipeline):
                                     output = output[0]
                                 if output is not None:
                                     # Merge output into existing batch dict
-                                    existing_batch = activations.fetch((batch_idx,))
+                                    existing_batch = activations[batch_idx]
                                     merged = {**existing_batch, **output}
-                                    activations.update((batch_idx,), merged)
+                                    activations.update(batch_idx, merged)
                                 if subgraph.consumed_names:
                                     # Remove consumed names from batch dict
-                                    existing_batch = activations.fetch((batch_idx,))
+                                    existing_batch = activations[batch_idx]
                                     for name in subgraph.consumed_names:
                                         existing_batch.pop(name, None)
-                                    activations.update((batch_idx,), existing_batch)
+                                    activations.update(batch_idx, existing_batch)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

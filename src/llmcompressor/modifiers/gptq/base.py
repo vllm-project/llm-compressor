@@ -262,7 +262,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
 
         # Fetch hessian (onloads to original device automatically), accumulate, then update
-        hessian = self._hessians_cache.fetch(module)
+        hessian = self._hessians_cache[module]
         hessian, self._num_samples[module] = accumulate_hessian(
             inp, module, hessian, self._num_samples[module]
         )
@@ -288,7 +288,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
             module_list,
             world_size,
-            item_weight_fn=lambda mod: self._hessians_cache.fetch(mod).shape[0],
+            item_weight_fn=lambda mod: self._hessians_cache[mod].shape[0],
         )
 
         # send hessians to assigned ranks
@@ -311,7 +311,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 align_module_device(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                hessian = self._hessians_cache.fetch(module) / num_samples
+                hessian = self._hessians_cache[module] / num_samples
                 self._hessians_cache.delete(module)
                 self._num_samples.pop(module)
 
@@ -332,7 +332,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         pending_comms = []
         for module in module_list:
             target_rank = module_to_rank[module]
-            hessian = self._hessians_cache.fetch(module)
+            hessian = self._hessians_cache[module]
 
             pending_comms.append(
                 dist.reduce(
