@@ -7,10 +7,9 @@ from typing import Any, Generator, Generic, TypeVar
 from weakref import WeakKeyDictionary
 
 import torch
-from torch.utils._pytree import tree_flatten, tree_unflatten
 from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_flatten, tree_unflatten
 from tqdm import tqdm
-
 
 TKey = TypeVar("TKey", bound=Any)
 
@@ -34,7 +33,7 @@ class IntermediatesCache(Generic[TKey]):
     the cache and onloaded to their original device when fetched from the cache. If
     `offload_device` is None, values will not be offloaded at all.
 
-    Uses pytree internally to handle nested containers (dicts, tuples, lists, dataclasses).
+    Uses pytree internally to handle nested containers (dicts, tuples, lists).
     IntermediateValue wrappers are placed at tensor leaf positions only.
 
     Construct using `from_dataloader` class method or directly with offload_device
@@ -101,7 +100,7 @@ class IntermediatesCache(Generic[TKey]):
         If key_prefix is None, uses integer keys directly (0, 1, 2, ...).
         Otherwise, creates keys as (key_prefix, index).
 
-        :param key_prefix: key prefix for storing the value, or None for pure integer keys
+        :param key_prefix: key prefix for storing the value, or None for integer keys
         :param value: value to store
         :return: tuple of (full_key, index) where full_key is the complete key used
         """
@@ -116,7 +115,8 @@ class IntermediatesCache(Generic[TKey]):
                 prefix = (key_prefix,)
 
             matching_keys = [
-                k for k in self._store.keys()
+                k
+                for k in self._store.keys()
                 if isinstance(k, tuple)
                 and len(k) == len(prefix) + 1
                 and k[:-1] == prefix
@@ -180,7 +180,8 @@ class IntermediatesCache(Generic[TKey]):
         Keys that are not exact matches are treated as prefixes.
         For example, [module] matches (module, 0), (module, 1), etc.
 
-        :param keys: list of keys or prefixes to iterate over. If None, iterates over all keys.
+        :param keys: list of keys or prefixes to iterate over. If None, iterates over
+            all keys.
         """
         if keys is None:
             keys = list(self._store.keys())
@@ -206,7 +207,8 @@ class IntermediatesCache(Generic[TKey]):
         Keys that are not exact matches are treated as prefixes.
         For example, [module] matches (module, 0), (module, 1), etc.
 
-        :param keys: list of keys or prefixes to iterate over. If None, iterates over all keys.
+        :param keys: list of keys or prefixes to iterate over. If None, iterates over
+            all keys.
         """
         if keys is None:
             keys = list(self._store.keys())
@@ -296,7 +298,9 @@ class IntermediatesCache(Generic[TKey]):
                         and torch.device(device).type
                         == torch.accelerator.current_accelerator().type
                     )
-                    onloaded_leaves.append(tensor.to(device=device, non_blocking=non_blocking))
+                    onloaded_leaves.append(
+                        tensor.to(device=device, non_blocking=non_blocking)
+                    )
                 else:
                     onloaded_leaves.append(tensor)
             else:
@@ -318,7 +322,8 @@ class IntermediatesCache(Generic[TKey]):
 
         :param value: value to offload
         :param offload_device: device to offload tensors to
-        :param onload_device: device to onload tensors to. If None, use tensor's current device
+        :param onload_device: device to onload tensors to. If None, use tensor's
+            current device
         :return: pytree with IntermediateValue at tensor leaf positions
         """
         leaves, spec = tree_flatten(value)
@@ -332,7 +337,7 @@ class IntermediatesCache(Generic[TKey]):
                     else:
                         # move to offload if no hit
                         offloaded_tensor = leaf.to(device=offload_device)
-                        if offloaded_tensor is not leaf: # avoid circular ref
+                        if offloaded_tensor is not leaf:  # avoid circular ref
                             # pin CPU tensors so onload can use non_blocking DMA
                             if (
                                 torch.device(offload_device).type == "cpu"
@@ -350,8 +355,8 @@ class IntermediatesCache(Generic[TKey]):
                 )
             elif isinstance(leaf, IntermediateValue):
                 warnings.warn(
-                    f"Unexpected IntermediateValue in input to _offload_value; "
-                    f"passing through unchanged"
+                    "Unexpected IntermediateValue in input to _offload_value; "
+                    "passing through unchanged"
                 )
                 offloaded_leaves.append(leaf)
             else:

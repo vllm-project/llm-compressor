@@ -283,7 +283,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 tuple(), device=get_execution_device(module)
             )
 
-        # Fetch hessian (onloads to original device automatically), accumulate, then update
+        # Fetch hessian (onloads to original device automatically)
         hessian = self._hessians_cache[module]
         hessian, self._num_samples[module] = accumulate_hessian(
             inp, module, hessian, self._num_samples[module]

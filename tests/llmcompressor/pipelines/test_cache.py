@@ -1,6 +1,6 @@
-from dataclasses import dataclass, fields, is_dataclass
 import threading
 import time
+from dataclasses import fields, is_dataclass
 from unittest.mock import patch
 
 import pytest
@@ -121,112 +121,115 @@ def test_iter_prefetch_with_prefix():
 def test_iter_prefetch_runs_in_separate_thread():
     """Test that iter_prefetch runs onload in a background thread."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
-    
+
     # Store several items
     for i in range(5):
         cache.update(i, torch.randn(10, 10))
-    
+
     main_thread_id = threading.current_thread().ident
     onload_thread_ids = []
-    
+
     original_onload = IntermediatesCache._onload_value
-    
+
     def tracking_onload(cls, value):
         onload_thread_ids.append(threading.current_thread().ident)
         return original_onload(value)
-    
-    with patch.object(IntermediatesCache, '_onload_value', tracking_onload):
+
+    with patch.object(IntermediatesCache, "_onload_value", tracking_onload):
         keys = list(range(5))
         results = list(cache.iter_prefetch(keys))
-        
+
         # Verify all values fetched correctly
         assert len(results) == 5
-        
+
         # Verify that onload happened in different threads (ThreadPoolExecutor)
         unique_threads = set(onload_thread_ids)
         assert len(unique_threads) == 2, (
-            f"Expected onload to run in main and background threads, but all ran in thread {unique_threads}"
+            f"Expected onload to run in main and background threads, "
+            f"but all ran in thread {unique_threads}"
         )
-        
-        # The first onload may be in main thread, but subsequent ones should be prefetched
-        # in background thread
-        assert main_thread_id in onload_thread_ids, "First item should load in main thread"
-        assert any(tid != main_thread_id for tid in onload_thread_ids), (
-            "Some items should be prefetched in background thread"
-        )
+
+        # The first onload may be in main thread, but subsequent ones should be
+        # prefetched in background thread
+        assert (
+            main_thread_id in onload_thread_ids
+        ), "First item should load in main thread"
+        assert any(
+            tid != main_thread_id for tid in onload_thread_ids
+        ), "Some items should be prefetched in background thread"
 
 
 @pytest.mark.unit
 def test_iter_prefetch_overlaps_onload_operations():
     """Test that iter_prefetch overlaps onload with processing, reducing total time.
-    
+
     Simulates realistic scenario:
     - onload: time to transfer data (e.g., H2D transfer)
     - processing: time to use data in main thread (e.g., forward pass)
-    
+
     With prefetch: while main thread processes item N, background thread loads item N+1.
-    
+
     Using large delays (50ms) to make threading overhead negligible, so we can
     measure actual speedup from overlap.
     """
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
-    
+
     num_items = 10
     onload_delay = 0.05  # 50ms - simulate data transfer
     processing_delay = 0.05  # 50ms - simulate forward pass
-    
+
     # Store items
     for i in range(num_items):
         cache.update(i, torch.randn(10, 10))
-    
+
     onload_thread_ids = []
-    
+
     original_onload = IntermediatesCache._onload_value
-    
+
     def delayed_onload(cls, value):
         onload_thread_ids.append(threading.current_thread().ident)
         time.sleep(onload_delay)  # Simulate H2D transfer time
         return original_onload(value)
-    
+
     def simulate_processing(data):
         time.sleep(processing_delay)  # Simulate forward pass time
         return data
-    
+
     # Test 1: Sequential (no prefetch)
-    with patch.object(IntermediatesCache, '_onload_value', delayed_onload):
+    with patch.object(IntermediatesCache, "_onload_value", delayed_onload):
         onload_thread_ids.clear()
         start_sequential = time.time()
         for item in cache.iter(list(range(num_items))):
-            processed = simulate_processing(item)
+            simulate_processing(item)
         sequential_time = time.time() - start_sequential
-    
+
     # Test 2: Prefetch (overlap)
-    with patch.object(IntermediatesCache, '_onload_value', delayed_onload):
+    with patch.object(IntermediatesCache, "_onload_value", delayed_onload):
         onload_thread_ids.clear()
         start_prefetch = time.time()
         for item in cache.iter_prefetch(list(range(num_items))):
-            processed = simulate_processing(item)
+            simulate_processing(item)
         prefetch_time = time.time() - start_prefetch
         prefetch_threads = set(onload_thread_ids)
-    
+
     # Verify: onload calls happened in multiple threads (background prefetch works)
-    assert len(prefetch_threads) > 1, (
-        f"Expected multiple threads for prefetch, got threads: {prefetch_threads}"
-    )
-    
+    assert (
+        len(prefetch_threads) > 1
+    ), f"Expected multiple threads for prefetch, got threads: {prefetch_threads}"
+
     # Verify timing:
     # Sequential: num_items * (onload + processing) = 10 * (0.05 + 0.05) = 1.0s
     expected_sequential = num_items * (onload_delay + processing_delay)
-    assert sequential_time >= expected_sequential * 0.85, (
-        f"Sequential time {sequential_time:.3f}s should be ~{expected_sequential:.3f}s"
-    )
-    
+    assert (
+        sequential_time >= expected_sequential * 0.85
+    ), f"Sequential time {sequential_time:.3f}s should be ~{expected_sequential:.3f}s"
+
     # Prefetch with perfect overlap:
     # - First onload (0.05s) + first processing starts
     # - While processing N, onload N+1 happens in background
     # - Total ≈ onload_delay + num_items * max(onload, processing) + small overhead
     # When onload == processing: ≈ (num_items + 1) * delay = 0.55s (vs 1.0s sequential)
-    # Expected speedup: ~1.8x    
+    # Expected speedup: ~1.8x
     # Prefetch should be at least 70% faster than sequential (speedup >= 1.7x)
     # With large delays, threading overhead becomes negligible
     speedup = sequential_time / prefetch_time
