@@ -37,7 +37,7 @@ def _get_batches(
     Uses wildcard pattern (None,) to match all (batch_idx,) keys.
     """
     iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter
-    batch_iter = iter_fn([(None,)])
+    batch_iter = iter_fn()
     for batch_idx, batch_dict in tqdm(
         enumerate(batch_iter), total=num_batches, desc=desc
     ):
@@ -111,16 +111,8 @@ class SequentialPipeline(CalibrationPipeline):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-<<<<<<< HEAD
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
-=======
-            # Optionally disable quantization
-            if not dataset_args.quantization_aware_calibration or disable_qac:
-                stack.enter_context(DisableQuantization(model))
-
-            # prepare intermediates cache - stores (batch_idx,) -> batch_dict
->>>>>>> 1349bbb3 (Address the review comments.)
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
             )
@@ -129,7 +121,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations.fetch((batch_idx,))["loss_mask"]
+                    activations[batch_idx]["loss_mask"]
                     for batch_idx in range(len(dataloader))
                 ]
             else:
