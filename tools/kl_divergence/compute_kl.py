@@ -2,11 +2,12 @@
 Compute KL divergence between two models using saved hidden states.
 
 This script loads hidden states extracted by extract_hidden_states.py,
-applies the final layer norm and lm_head to reconstruct logits, and
-computes KL divergence between the base and target model distributions.
+applies the lm_head to reconstruct logits, and computes KL divergence
+between the base and target model distributions.
 
-The lm_head and norm weights are loaded directly from the model checkpoints
-without loading the full model.
+Hidden states are post-norm (extracted at layer num_hidden_layers from vLLM),
+so no normalization is needed. Only the lm_head weight is loaded from the
+model checkpoint.
 
 Usage:
     python tools/kl_divergence/compute_kl.py \
@@ -55,7 +56,7 @@ def parse_args():
         "--base-model",
         type=str,
         required=True,
-        help="Base model ID (for loading lm_head and norm weights)",
+        help="Base model ID (for loading lm_head weights)",
     )
     parser.add_argument(
         "--target-model",
@@ -89,12 +90,6 @@ def parse_args():
         "(lower = less memory, default: 64)",
     )
     # Architecture overrides
-    parser.add_argument(
-        "--norm-weight-name",
-        type=str,
-        default=None,
-        help="Override for final norm weight tensor name",
-    )
     parser.add_argument(
         "--lm-head-weight-name",
         type=str,
@@ -172,7 +167,6 @@ def compute_kl_divergence(
     temperature: float = 1.0,
     device: str = "cuda:0",
     chunk_size: int = 64,
-    norm_weight_name: str = None,
     lm_head_weight_name: str = None,
     lm_head_bias_name: str = None,
     embed_weight_name: str = None,
@@ -182,12 +176,11 @@ def compute_kl_divergence(
 
     :param base_dir: directory with base model hidden states
     :param target_dir: directory with target model hidden states
-    :param base_model: base model ID (for lm_head + norm weights)
+    :param base_model: base model ID (for lm_head weights)
     :param target_model: target model ID (default: same as base_model)
     :param temperature: softmax temperature
     :param device: computation device
     :param chunk_size: tokens per chunk for logit computation
-    :param norm_weight_name: override for norm weight tensor name
     :param lm_head_weight_name: override for lm_head weight tensor name
     :param lm_head_bias_name: override for lm_head bias tensor name
     :param embed_weight_name: override for embed weight tensor name
@@ -218,22 +211,21 @@ def compute_kl_divergence(
             f"target: {target_meta['dataset_name']}"
         )
 
-    # Load lm_head + norm weights
+    # Load lm_head weights
     weight_kwargs = dict(
-        norm_weight_name=norm_weight_name,
         lm_head_weight_name=lm_head_weight_name,
         lm_head_bias_name=lm_head_bias_name,
         embed_weight_name=embed_weight_name,
     )
 
-    print(f"Loading lm_head and norm weights from: {base_model}")
+    print(f"Loading lm_head weights from: {base_model}")
     base_weights = load_lm_head_weights(base_model, device=device, **weight_kwargs)
 
     if target_model == base_model:
         target_weights = base_weights
         print("Using shared lm_head weights (same model)")
     else:
-        print(f"Loading lm_head and norm weights from: {target_model}")
+        print(f"Loading lm_head weights from: {target_model}")
         target_weights = load_lm_head_weights(
             target_model, device=device, **weight_kwargs
         )
@@ -371,7 +363,6 @@ def main():
         temperature=args.temperature,
         device=args.device,
         chunk_size=args.chunk_size,
-        norm_weight_name=args.norm_weight_name,
         lm_head_weight_name=args.lm_head_weight_name,
         lm_head_bias_name=args.lm_head_bias_name,
         embed_weight_name=args.embed_weight_name,
