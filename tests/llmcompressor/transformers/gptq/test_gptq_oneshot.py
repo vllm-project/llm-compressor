@@ -5,6 +5,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
+from compressed_tensors.quantization.quant_args import QuantizationType
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -31,6 +32,18 @@ recipe_modifier_full = GPTQModifier(
         "group_0": QuantizationScheme(
             targets=["re:.*model.layers.2.self_attn.q_proj$"],
             weights=QuantizationArgs(num_bits=4, strategy="channel"),
+        )
+    },
+)
+
+recipe_modifier_full_actorder_weight = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(
+                num_bits=4, strategy="channel", actorder=ActivationOrdering.WEIGHT
+            ),
         )
     },
 )
@@ -65,7 +78,7 @@ recipe_modifier_shorthand_b = GPTQModifier(
     },
 )
 
-# Test activation ordering variants
+# Test group quantization variants
 recipe_modifier_group_actorder_weight = GPTQModifier(
     ignore=["lm_head"],
     config_groups={
@@ -96,17 +109,52 @@ recipe_modifier_group_actorder_group = GPTQModifier(
     },
 )
 
+# Test block quantization variants
+recipe_modifier_full_block = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(
+                num_bits=8,
+                type=QuantizationType.FLOAT,
+                strategy="block",
+                block_structure=[2, 8],
+            ),
+        )
+    },
+)
+
+recipe_modifier_block_actorder_weight = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(
+                num_bits=8,
+                type=QuantizationType.FLOAT,
+                strategy="block",
+                block_structure=[2, 8],
+                actorder=ActivationOrdering.WEIGHT,
+            ),
+        )
+    },
+)
+
 
 @pytest.mark.parametrize(
     "recipe",
     [
         recipe_str,
         recipe_modifier_full,
+        recipe_modifier_full_actorder_weight,
         recipe_modifier_full_group,
         recipe_modifier_shorthand_a,
         recipe_modifier_shorthand_b,
         recipe_modifier_group_actorder_weight,
         recipe_modifier_group_actorder_group,
+        recipe_modifier_full_block,
+        recipe_modifier_block_actorder_weight,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):
@@ -154,7 +202,7 @@ def test_oneshot_application(recipe, tmp_path):
     assert quant_scheme.targets == ["re:.*model.layers.2.self_attn.q_proj$"]
     weight_args = quantization_config.config_groups["group_0"].weights
     assert isinstance(weight_args, QuantizationArgs)
-    assert weight_args.num_bits == 4
+    assert weight_args.num_bits == 4 or weight_args.num_bits == 8
 
     # Check a specific layer is quantized
     targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
