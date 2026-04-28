@@ -43,6 +43,8 @@ class IntermediatesCache(Generic[TKey]):
     _store: dict[TKey, Any]
     offload_device: torch.device | None
 
+    # map of onload value -> offload value
+    # used to avoid excess memory usage when shared tensors are offloaded
     offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
 
     def __init__(self, offload_device: torch.device | None = None):
@@ -324,11 +326,14 @@ class IntermediatesCache(Generic[TKey]):
         for leaf in leaves:
             if isinstance(leaf, torch.Tensor):
                 with OverrideEqMode():
+                    # check for cache hit between shared tensors
                     if leaf in cls.offload_values:
                         offloaded_tensor = cls.offload_values[leaf]
                     else:
+                        # move to offload if no hit
                         offloaded_tensor = leaf.to(device=offload_device)
-                        if offloaded_tensor is not leaf:
+                        if offloaded_tensor is not leaf: # avoid circular ref
+                            # pin CPU tensors so onload can use non_blocking DMA
                             if (
                                 torch.device(offload_device).type == "cpu"
                                 and torch.accelerator.is_available()
