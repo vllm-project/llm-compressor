@@ -29,7 +29,7 @@ class IMatrixMSEObserver(Observer):
     Falls back to uniform MSE when importance data is unavailable.
 
     Importance is accumulated as raw ``_imatrix_sum`` / ``_imatrix_count``
-    and synced across DDP ranks via ``_sync_dict`` before observation.
+    and synced across DDP ranks via ``_act_sync_dict`` before observation.
     """
 
     _act_sync_dict = {
