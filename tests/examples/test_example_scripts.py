@@ -146,6 +146,21 @@ class TestCase(NamedTuple):
             compressed_format=CompressionFormat.nvfp4_pack_quantized,
             prefix="NVFP4-GPTQ",
         ),
+        TestCase(
+            "quantization_w4a4_fp4/gemma4_example.py",
+            compressed_format=CompressionFormat.nvfp4_pack_quantized,
+            prefix="NVFP4",
+        ),
+        TestCase(
+            "model_free_ptq/gemma4_fp8_block.py",
+            compressed_format=CompressionFormat.float_quantized,
+            prefix="FP8_BLOCK",
+        ),
+        TestCase(
+            "quantization_w4a4_fp4/qwen3_5_example.py",
+            compressed_format=CompressionFormat.nvfp4_pack_quantized,
+            prefix="NVFP4",
+        ),
     ],
     ids=repr,
 )
