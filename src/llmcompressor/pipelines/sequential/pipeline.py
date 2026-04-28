@@ -38,7 +38,7 @@ def _get_batches(
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched.
-    
+
     Uses wildcard pattern (None,) to match all (batch_idx,) keys.
     """
     iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter

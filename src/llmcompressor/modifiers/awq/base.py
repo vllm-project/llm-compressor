@@ -163,7 +163,9 @@ class AWQModifier(Modifier, QuantizationMixin):
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: IntermediatesCache[tuple[Module, int]] = PrivateAttr(default=None)
+    _parent_args_cache: IntermediatesCache[tuple[Module, int]] = PrivateAttr(
+        default=None
+    )
     # Cache dict[smooth layer name, [activation sums, activation counts]]
     _smooth_activation_stats: IntermediatesCache[str] = PrivateAttr(default=None)
     # List to store error metrics for each layer
