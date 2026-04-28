@@ -28,7 +28,7 @@ def test_quant_model_compressed(tmp_path):
     model_path = "nm-testing/tinysmokellama-3.2"
     dataset = "open_platypus"
     num_calibration_samples = 16
-    splits = {"calibration": f"train[:{num_calibration_samples}]"}
+    splits = f"train[:{num_calibration_samples}]"
 
     # create a compressed
     model = oneshot(

@@ -83,7 +83,7 @@ def setup_model_and_config(request, tmpdir_factory):
         num_calibration_samples=num_calibration_samples,
         recipe=config["new_recipe"],
         pad_to_max_length=pad_to_max_length,
-        splits={"calibration": f"train_gen[:{num_calibration_samples}]"},
+        splits=f"train_gen[:{num_calibration_samples}]",
         save_compressed=False,
     )
 

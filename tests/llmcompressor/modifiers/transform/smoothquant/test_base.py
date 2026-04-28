@@ -260,7 +260,7 @@ def test_smoothquant_e2e():
     oneshot(
         model=model,
         dataset="open_platypus",
-        splits={"calibration": "train[:10%]"},
+        splits="train[:10%]",
         recipe=SmoothQuantModifier(smoothing_strength=0.5),
         num_calibration_samples=4,
         max_seq_length=128,

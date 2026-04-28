@@ -136,7 +136,7 @@ def test_oneshot_application(recipe, tmp_path):
         output_dir=output,
         recipe=recipe,
         num_calibration_samples=9,
-        splits={"calibration": "train[:9]"},
+        splits="train[:9]",
     )
     model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
 

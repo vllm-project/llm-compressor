@@ -68,7 +68,7 @@ class TestGathererObserverIntegration:
         oneshot(
             model=model,
             dataset=DATASET,
-            splits={"calibration": "train[:5%]"},
+            splits="train[:5%]",
             recipe=recipe,
             num_calibration_samples=NUM_CALIB_SAMPLES,
             max_seq_length=MAX_SEQ_LEN,
@@ -124,7 +124,7 @@ class TestGathererObserverIntegration:
         oneshot(
             model=model_no_gatherer,
             dataset=DATASET,
-            splits={"calibration": "train[:5%]"},
+            splits="train[:5%]",
             recipe=recipe_no_gatherer,
             num_calibration_samples=NUM_CALIB_SAMPLES,
             max_seq_length=MAX_SEQ_LEN,
@@ -154,7 +154,7 @@ class TestGathererObserverIntegration:
         oneshot(
             model=model,
             dataset=DATASET,
-            splits={"calibration": "train[:5%]"},
+            splits="train[:5%]",
             recipe=recipe,
             num_calibration_samples=NUM_CALIB_SAMPLES,
             max_seq_length=MAX_SEQ_LEN,
@@ -202,7 +202,7 @@ class TestGathererObserverIntegration:
         oneshot(
             model=model,
             dataset=DATASET,
-            splits={"calibration": "train[:5%]"},
+            splits="train[:5%]",
             recipe=recipe,
             num_calibration_samples=NUM_CALIB_SAMPLES,
             max_seq_length=MAX_SEQ_LEN,
@@ -246,7 +246,7 @@ class TestGathererObserverIntegration:
         oneshot(
             model=model,
             dataset=DATASET,
-            splits={"calibration": "train[:5%]"},
+            splits="train[:5%]",
             recipe=recipe,
             num_calibration_samples=NUM_CALIB_SAMPLES,
             max_seq_length=MAX_SEQ_LEN,
