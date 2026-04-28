@@ -10,7 +10,8 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
-from llmcompressor.utils.helpers import DisableQuantization, whole_model_subgraph
+from llmcompressor.pipelines.sequential.helpers import whole_model_subgraph
+from llmcompressor.utils.helpers import DisableQuantization
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments

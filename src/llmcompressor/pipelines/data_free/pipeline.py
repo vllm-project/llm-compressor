@@ -6,7 +6,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from llmcompressor.utils.helpers import whole_model_subgraph
+from llmcompressor.pipelines.sequential.helpers import whole_model_subgraph
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
