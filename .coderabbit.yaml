@@ -25,6 +25,8 @@ reviews:
       instructions: "Review for clarity, correctness, and educational value. Ensure examples follow best practices and are runnable. Verify that comments and documentation are helpful for users learning the library."
     - path: "src/llmcompressor/modifiers/**/*.py"
       instructions: "Pay special attention to quantization modifier implementations. Verify algorithm correctness, proper handling of different quantization schemes (FP8, INT4, etc.), and compatibility with various model architectures."
+    - path: "src/llmcompressor/modifiers/transform/awq/**/*.py"
+      instructions: "Review AWQ (Activation-aware Weight Quantization) mapping correctness. Verify that regex patterns in AWQMapping entries correctly identify the intended layers (smoothing sources and balance targets). For MoE models, confirm that router/gate layers are included in balance targets when they follow a smoothed norm, and check whether non-quantized balance targets (e.g. router layers) produce spurious 'Unable to find weight param' warnings that should be suppressed. Ensure model-specific mapping sets (e.g. _moe_default_mappings, _llama4_default_mappings, _deepseek_mappings) are registered in AWQ_MAPPING_REGISTRY for every relevant model class."
     - path: "docs/**/*.md"
       instructions: "Check for clarity, accuracy, and completeness of documentation. Ensure code examples in docs are correct and align with current API."
     - path: "**/README.md"
@@ -42,7 +44,11 @@ reviews:
     - label: "qwen"
       instructions: "Issues or PRs related to Qwen models (Qwen, Qwen2, Qwen3, etc.). Match case-insensitively — 'QWEN', 'Qwen', 'qwen' all qualify."
     - label: "llama"
-      instructions: "Issues or PRs related to Llama models (Llama2, Llama3, etc.). Match case-insensitively — 'LLAMA', 'Llama', 'llama' all qualify."
+      instructions: "Issues or PRs related to Llama models (Llama2, Llama3, Llama4, etc.). Match case-insensitively — 'LLAMA', 'Llama', 'llama' all qualify."
+    - label: "deepseek"
+      instructions: "Issues or PRs related to DeepSeek models (DeepSeekV2, DeepSeekV3, etc.). Match case-insensitively — 'deepseek', 'DeepSeek', 'DEEPSEEK' all qualify."
+    - label: "moe"
+      instructions: "Issues or PRs related to Mixture-of-Experts (MoE) model architectures or MoE-specific quantization concerns (router/gate layers, expert layers, load balancing). Match case-insensitively — 'moe', 'MoE', 'MOE', 'mixture-of-experts', 'mixture of experts' all qualify."
     # Quantization formats
     - label: "fp8"
       instructions: "Issues or PRs related to FP8 quantization format. Match case-insensitively — 'fp8', 'FP8', 'Fp8' all qualify."
@@ -66,6 +72,8 @@ reviews:
       instructions: "Issues or PRs related to model transforms functionality. Match case-insensitively — 'transforms', 'Transforms', 'TRANSFORMS' all qualify."
     - label: "tracing"
       instructions: "Issues or PRs related to model tracing functionality. Match case-insensitively — 'tracing', 'Tracing', 'TRACING' all qualify."
+    - label: "two-reviews"
+      instructions: "Apply when the PR makes significant or substantial changes to source code under src/ — such as large refactors, new core functionality, public API changes, or modifications spanning multiple components (more than 3 files changed OR 100+ lines changed in src/). Do NOT apply for small, targeted changes to a single file or a narrow, self-contained fix. Also apply when the PR changes dependency version bounds in pyproject.toml or setup.py."
   auto_review:
     enabled: true
     ignore_title_keywords:

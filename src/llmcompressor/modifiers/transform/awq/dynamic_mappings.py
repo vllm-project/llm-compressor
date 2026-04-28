@@ -12,7 +12,7 @@ from collections.abc import Callable
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.awq.mappings import (
+from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
     AWQMapping,
     default_mappings,
@@ -113,8 +113,10 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
             AWQMapping(
                 "re:.*post_attention_layernorm$",
                 [
+                    # TODO: should add "re:.*mlp.gate.weight$" but is a Parameter
                     "re:.*mlp.experts.*.gate_proj$",
                     "re:.*mlp.experts.*.up_proj$",
+                    "re:.*mlp.shared_expert_gate$",
                     "re:.*mlp.shared_expert.gate_proj$",
                     "re:.*mlp.shared_expert.up_proj$",
                 ],

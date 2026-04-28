@@ -1,5 +1,3 @@
-from typing import List, Optional, Union
-
 import torch
 from torch.nn.modules.linear import Identity
 from torch.quantization import QuantWrapper
@@ -9,9 +7,9 @@ __all__ = ["get_leaf_operations", "is_quantized", "get_precision_information"]
 
 def get_leaf_operations(
     model: torch.nn.Module,
-    operations_to_skip: Optional[List[torch.nn.Module]] = None,
-    operations_to_unwrap: Optional[List[torch.nn.Module]] = None,
-) -> List[torch.nn.Module]:
+    operations_to_skip: list[torch.nn.Module] | None = None,
+    operations_to_unwrap: list[torch.nn.Module] | None = None,
+) -> list[torch.nn.Module]:
     """
     Get the leaf operations in the model
     (those that do not have operations as children)
@@ -38,16 +36,13 @@ def get_leaf_operations(
     children = list(model.children())
 
     if children == []:
-        return model
+        return [model]
     else:
         for child in children:
             if isinstance(child, tuple(operations_to_unwrap)):
                 leaf_operations.append(child.module)
                 continue
-            try:
-                leaf_operations.extend(get_leaf_operations(child))
-            except TypeError:
-                leaf_operations.append(get_leaf_operations(child))
+            leaf_operations.extend(get_leaf_operations(child))
     leaf_operations = [
         op for op in leaf_operations if not isinstance(op, tuple(operations_to_skip))
     ]
@@ -64,7 +59,7 @@ def is_quantized(operation: torch.nn.Module) -> bool:
 
 def get_precision_information(
     operation: torch.nn.Module,
-) -> Union[None, int, "QuantizationScheme"]:  # noqa F821
+) -> None | int | "QuantizationScheme":  # noqa F821
     """
     Get the information about the precision of the operation.
 
