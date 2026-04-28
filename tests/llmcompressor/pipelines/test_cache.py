@@ -36,6 +36,7 @@ def test_update_accepts_any_value():
     cache.update("key", "not a tensor")  # Should not raise
     assert cache["key"] == "not a tensor"
 
+
 @pytest.mark.unit
 def test_append():
     """Test append adds to existing list."""
@@ -44,6 +45,19 @@ def test_append():
     cache.append("key", [3, 4])
     assert cache[("key", 0)] == [1, 2]
     assert cache[("key", 1)] == [3, 4]
+
+
+@pytest.mark.unit
+def test_append_no_prefix():
+    """Test append with no key_prefix uses pure integer keys."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    key0, idx0 = cache.append(None, "aaa")
+    key1, idx1 = cache.append(None, "bbb")
+    assert key0 == 0 and idx0 == 0
+    assert key1 == 1 and idx1 == 1
+    assert cache[0] == "aaa"
+    assert cache[1] == "bbb"
+
 
 @pytest.mark.unit
 def test_delete():
