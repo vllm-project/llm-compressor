@@ -12,7 +12,6 @@ from compressed_tensors.quantization import (
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
-from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
@@ -85,31 +84,17 @@ def quantize_weight(
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
-    global_scale = getattr(module, "weight_global_scale", None)
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
     H = hessian
 
-    # create observer for calculating quantization parameters
-    observer = Observer.load_from_registry(
-        quant_args.observer if quant_args.observer else "memoryless_minmax",
-        base_name="weight",
-        args=quant_args,
-        module=module,
-    )
+    observer = module.weight_observer
 
-    # standardize shape and dtype
-    match module:
-        case torch.nn.Conv2d():
-            W = W.flatten(1)
-        case transformers.Conv1D():
-            W.transpose_(0, 1)
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    scale, zero_point = observer(W)
     # handle g_idx and activation ordering
     if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         # mapping from column index to group index
@@ -121,13 +106,20 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             W, H, perm = _apply_activation_ordering(W, H)
             # actually need scale/zp for permuted weight for this format
-            scale, zero_point = observer(W)
+            observer(W)
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # permute weights and g_idx
             W, H, perm = _apply_activation_ordering(W, H)
             g_idx = g_idx[perm]
+
+    qparams = observer.get_qparams()
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
+    )
 
     # sparsity mask
     sparsity = tensor_sparsity(W)

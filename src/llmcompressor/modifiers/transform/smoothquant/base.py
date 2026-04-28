@@ -154,8 +154,6 @@ class SmoothQuantModifier(Modifier):
             self._apply_smoothing(state.model)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self._apply_smoothing(state.model)
-
             if not self.ended_:
                 self.on_end(state, None)
 

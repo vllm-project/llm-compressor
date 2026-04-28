@@ -55,13 +55,18 @@ def _run_gatherer(
     gatherer.on_end(state, event=None)
 
 
+def _get_importance(module: nn.Module) -> torch.Tensor:
+    """Compute E[x²] from raw accumulators left on module by the gatherer."""
+    return module._imatrix_sum / module._imatrix_count.float()
+
+
 # ------------------------------------------------------------------ #
 #  Tests
 # ------------------------------------------------------------------ #
 
 
 class TestBasicCollection:
-    """Verify that importance tensors are created with correct
+    """Verify that importance accumulators are created with correct
     shape, dtype, and positive values."""
 
     def test_importance_exists(self):
@@ -70,8 +75,8 @@ class TestBasicCollection:
         inputs = [torch.randn(2, 4, 16) for _ in range(10)]
         _run_gatherer(model, gatherer, inputs)
 
-        assert hasattr(model.layer1, "_imatrix_importance")
-        assert hasattr(model.layer2, "_imatrix_importance")
+        assert hasattr(model.layer1, "_imatrix_sum")
+        assert hasattr(model.layer2, "_imatrix_sum")
 
     def test_shape(self):
         hidden = 16
@@ -80,8 +85,8 @@ class TestBasicCollection:
         inputs = [torch.randn(2, 4, hidden) for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        assert model.layer1._imatrix_importance.shape == (hidden,)
-        assert model.layer2._imatrix_importance.shape == (hidden,)
+        assert model.layer1._imatrix_sum.shape == (hidden,)
+        assert model.layer2._imatrix_sum.shape == (hidden,)
 
     def test_dtype_float32(self):
         model = TinyModel()
@@ -89,7 +94,7 @@ class TestBasicCollection:
         inputs = [torch.randn(1, 4, 16) for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        assert model.layer1._imatrix_importance.dtype == torch.float32
+        assert model.layer1._imatrix_sum.dtype == torch.float32
 
     def test_values_positive(self):
         model = TinyModel()
@@ -97,8 +102,10 @@ class TestBasicCollection:
         inputs = [torch.randn(1, 4, 16) for _ in range(10)]
         _run_gatherer(model, gatherer, inputs)
 
-        assert (model.layer1._imatrix_importance > 0).all()
-        assert (model.layer2._imatrix_importance > 0).all()
+        imp1 = _get_importance(model.layer1)
+        imp2 = _get_importance(model.layer2)
+        assert (imp1 > 0).all()
+        assert (imp2 > 0).all()
 
 
 class TestIgnoreList:
@@ -110,9 +117,9 @@ class TestIgnoreList:
         inputs = [torch.randn(1, 4, 16) for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        assert not hasattr(model.lm_head, "_imatrix_importance")
-        assert hasattr(model.layer1, "_imatrix_importance")
-        assert hasattr(model.layer2, "_imatrix_importance")
+        assert not hasattr(model.lm_head, "_imatrix_sum")
+        assert hasattr(model.layer1, "_imatrix_sum")
+        assert hasattr(model.layer2, "_imatrix_sum")
 
     def test_custom_ignore(self):
         model = TinyModel()
@@ -120,9 +127,9 @@ class TestIgnoreList:
         inputs = [torch.randn(1, 4, 16) for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        assert not hasattr(model.layer1, "_imatrix_importance")
-        assert not hasattr(model.lm_head, "_imatrix_importance")
-        assert hasattr(model.layer2, "_imatrix_importance")
+        assert not hasattr(model.layer1, "_imatrix_sum")
+        assert not hasattr(model.lm_head, "_imatrix_sum")
+        assert hasattr(model.layer2, "_imatrix_sum")
 
 
 class TestAccumulationCorrectness:
@@ -135,7 +142,7 @@ class TestAccumulationCorrectness:
         inputs = [torch.ones(1, 4, 8) for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        imp = model.layer1._imatrix_importance
+        imp = _get_importance(model.layer1)
         torch.testing.assert_close(
             imp,
             torch.ones(8),
@@ -154,7 +161,7 @@ class TestAccumulationCorrectness:
         inputs = [x.clone() for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        imp = model.layer1._imatrix_importance
+        imp = _get_importance(model.layer1)
         ratio = imp[0] / imp[1]
         assert abs(ratio.item() - 100.0) < 1e-3
 
@@ -169,7 +176,6 @@ class TestHooksRemovedAfterEnd:
         _run_gatherer(model, gatherer, inputs)
 
         # After on_end, observers and hooks should be cleaned up
-        assert len(gatherer._observers) == 0
         assert not hasattr(model.layer1, "weight_observer")
         assert not hasattr(model.layer1, "_imatrix_hook")
 
@@ -179,14 +185,14 @@ class TestHooksRemovedAfterEnd:
         inputs = [torch.ones(1, 4, 8) for _ in range(5)]
         _run_gatherer(model, gatherer, inputs)
 
-        imp_before = model.layer1._imatrix_importance.clone()
+        sum_before = model.layer1._imatrix_sum.clone()
 
         # Extra forward pass after on_end
         with torch.no_grad():
             model(torch.randn(1, 4, 8) * 1000)
 
-        # Importance should not have changed
-        torch.testing.assert_close(model.layer1._imatrix_importance, imp_before)
+        # Sum should not have changed (hooks removed)
+        torch.testing.assert_close(model.layer1._imatrix_sum, sum_before)
 
 
 class TestNoQuantization:
@@ -242,8 +248,9 @@ class TestOnEvent:
         end_event = Event(type_=EventType.CALIBRATION_EPOCH_END)
         gatherer.on_event(state, end_event)
 
-        assert hasattr(model.layer1, "_imatrix_importance")
-        assert (model.layer1._imatrix_importance > 0).all()
+        assert hasattr(model.layer1, "_imatrix_sum")
+        imp = _get_importance(model.layer1)
+        assert (imp > 0).all()
 
     def test_event_does_not_double_start(self):
         """Sending CALIBRATION_EPOCH_START twice must not crash."""
@@ -270,7 +277,7 @@ class TestOnEvent:
         end_event = Event(type_=EventType.CALIBRATION_EPOCH_END)
         gatherer.on_event(state, end_event)
 
-        assert hasattr(model.layer1, "_imatrix_importance")
+        assert hasattr(model.layer1, "_imatrix_sum")
 
 
 class TestRecipeYAML:

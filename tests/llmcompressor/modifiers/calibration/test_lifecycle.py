@@ -142,17 +142,17 @@ def test_static_weight_quantization(
     assert getattr(linear, "quantization_scheme") is scheme
     initialize_observer(linear, "weight")
 
-    # calibrate_global_scale
-    if hasattr(linear, "weight_global_scale"):
-        global_scale = linear.weight_observer.get_global_scale(linear.weight)
-        linear.weight_global_scale.data = global_scale
+    # Get qparams
+    qparams = linear.weight_observer(linear.weight).get_qparams()
 
-    # calibrate quantization parameters
-    scale, zero_point, min_vals, max_vals = linear.weight_observer._forward_with_minmax(
-        linear.weight
-    )
-    linear.weight_scale.data = scale
-    linear.weight_zero_point.data = zero_point
+    linear.weight_scale.data = qparams["scale"]
+    linear.weight_zero_point.data = qparams["zero_point"]
+    if qparams.get("global_scale") is not None and hasattr(
+        linear, "weight_global_scale"
+    ):
+        linear.weight_global_scale.data = qparams["global_scale"]
+    min_vals = linear.weight_observer.min_vals
+    max_vals = linear.weight_observer.max_vals
     assert torch.equal(min_vals, exp_min_val)
     assert torch.equal(max_vals, exp_max_val)
 
@@ -243,16 +243,18 @@ def test_static_activation_quantization(
         nonlocal min_vals
         nonlocal max_vals
 
-        if hasattr(linear, "input_global_scale"):
-            global_scale = linear.input_observer.get_global_scale(args[0])
-            linear.input_global_scale.data = global_scale
+        qparams = linear.input_observer(args[0]).get_qparams()
 
         if linear.quantization_scheme.input_activations.dynamic is False:
-            scale, zero_point, min_vals, max_vals = (
-                linear.input_observer._forward_with_minmax(args[0])
-            )
-            linear.input_scale.data = scale
-            linear.input_zero_point.data = zero_point
+            linear.input_scale.data = qparams["scale"]
+            linear.input_zero_point.data = qparams["zero_point"]
+        if qparams.get("global_scale") is not None and hasattr(
+            linear, "input_global_scale"
+        ):
+            linear.input_global_scale.data = qparams["global_scale"]
+
+        min_vals = linear.input_observer.min_vals
+        max_vals = linear.input_observer.max_vals
 
     linear.register_forward_pre_hook(calibrate_input_hook)
 
@@ -331,11 +333,12 @@ def test_static_attention_quantization(
 
     # calibrate quantization parameters
     if scheme.input_activations.dynamic is False:
-        scale, zero_point, min_vals, max_vals = (
-            attention.k_observer._forward_with_minmax(input)
-        )
-        attention.k_scale.data = scale
-        attention.k_zero_point.data = zero_point
+        qparams = attention.k_observer(input).get_qparams()
+        attention.k_scale.data = qparams["scale"]
+        attention.k_zero_point.data = qparams["zero_point"]
+
+        min_vals = attention.k_observer.min_vals
+        max_vals = attention.k_observer.max_vals
 
     # calibration forward pass
     output = forward_quantize(attention, input, "k", scheme.input_activations)
