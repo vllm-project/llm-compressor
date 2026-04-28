@@ -119,12 +119,13 @@ class DatasetArguments(CustomDatasetArguments):
             "help": ("The configuration name of the dataset to use"),
         },
     )
-    max_seq_length: int = field(
-        default=384,
+    max_seq_length: int | None = field(
+        default=None,
         metadata={
             "help": "The maximum total input sequence length after tokenization. "
-            "Sequences longer  than this will be truncated, sequences shorter will "
-            "be padded."
+            "Sequences longer than this will be truncated, sequences shorter will "
+            "be padded. If None, no truncation is applied (tokenizer uses its "
+            "model_max_length)."
         },
     )
     concatenate_data: bool = field(

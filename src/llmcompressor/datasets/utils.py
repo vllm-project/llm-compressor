@@ -193,7 +193,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
                 "to use more uniform sequence lengths"
             )
 
-        return data_collator_with_truncation
+        return DataCollatorWithTruncation(args.max_seq_length)
 
     elif args.data_collator == "padding":
         if args.batch_size > BS_WARNING_THRESHOLD:
@@ -209,6 +209,12 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
         if tokenizer.pad_token is None or tokenizer.pad_token_id < 0:
             logger.debug("Could not find padding token. Setting PAD token to EOS token")
             tokenizer.pad_token = tokenizer.eos_token
+
+        if args.max_seq_length is not None:
+            logger.warning(
+                "Cannot use `data_collator='padding'` with `max_seq_length`. Ignoring "
+                "truncation specified by `max_seq_length`"
+            )
 
         return DataCollatorWithPadding(tokenizer)
 
@@ -289,18 +295,24 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
         )
 
 
-def data_collator_with_truncation(
-    features: list[dict[str, Any]], return_tensors: str = "pt"
-) -> dict[str, Any]:
-    for key in ("input_ids", "labels", "attention_mask", "loss_mask"):
-        if any(key not in feature for feature in features):
-            continue
+class DataCollatorWithTruncation:
+    def __init__(self, max_seq_length: int | None = None):
+        self.max_seq_length = max_seq_length
 
-        min_len = min(len(feature[key]) for feature in features)
-        for feature in features:
-            feature[key] = feature[key][:min_len]
+    def __call__(
+        self, features: list[dict[str, Any]], return_tensors: str = "pt"
+    ) -> dict[str, Any]:
+        for key in ("input_ids", "labels", "attention_mask", "loss_mask"):
+            if any(key not in feature for feature in features):
+                continue
 
-    return default_data_collator(features, return_tensors)
+            min_len = min(len(feature[key]) for feature in features)
+            if self.max_seq_length is not None:
+                min_len = min(min_len, self.max_seq_length)
+            for feature in features:
+                feature[key] = feature[key][:min_len]
+
+        return default_data_collator(features, return_tensors)
 
 
 class LengthAwareSampler(Sampler[int]):
