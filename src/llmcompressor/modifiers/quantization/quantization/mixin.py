@@ -440,7 +440,7 @@ class QuantizationMixin(HooksMixin):
                     initialize_observer(module, base_name="k")
                     initialize_observer(module, base_name="v")
 
-        # weight observers (used by child modifier or `observer` amd `update_qparams`)
+        # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
             initialize_observer(module, base_name="weight")
 
