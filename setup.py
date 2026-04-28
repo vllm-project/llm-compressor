@@ -125,7 +125,7 @@ setup(
         (
             "transformers>=4.56.1,<=4.57.6"
             if BUILD_TYPE == "release"
-            else "transformers>=4.56.1,<=4.57.6"
+            else "transformers>=4.56.1"
         ),
         ("datasets>=4.8.4,<=4.8.4" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
