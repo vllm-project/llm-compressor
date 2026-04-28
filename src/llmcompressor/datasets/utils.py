@@ -427,6 +427,6 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     ), "Split string should not already contain partitioning brackets"
 
     start, end = _get_partition_start_end(
-        num_samples, dist.get_rank(), dist.get_world_size()
+        num_samples, 0, 1,#dist.get_rank(), dist.get_world_size()
     )
     return f"{split}[{start}:{end}]"

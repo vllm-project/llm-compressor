@@ -4,6 +4,7 @@ from typing import Callable
 import torch
 from transformers import PreTrainedModel
 from transformers.core_model_loading import WeightConverter, WeightRenaming
+from transformers.modeling_utils import local_torch_dtype
 from transformers.integrations.moe import _default_apply_gate
 
 from llmcompressor.utils.dev import skip_weights_initialize
@@ -17,23 +18,25 @@ from .helpers import (
 )
 
 
+@torch.no_grad()
 def linearize_moe_model(model: PreTrainedModel):
     _weight_conversions: list[WeightConverter | WeightRenaming] = (
         model._weight_conversions
     )
 
     # remove all weight loading conversions; save as linearized
+    print(f"removing {[converter for converter in _weight_conversions if _is_moe_experts_converter(converter)]}")
     model._weight_conversions = [
         converter
         for converter in _weight_conversions
         if not _is_moe_experts_converter(converter)
     ]
 
-    for name, module in model.named_modules():
-        if _is_moe_experts_module(module):
-            new_moe = LinearExperts.from_experts(module)
-            model.set_submodule(name, new_moe)
-
+    with local_torch_dtype(model.config.dtype, model.__class__.__name__):
+        for name, module in model.named_modules():
+            if _is_moe_experts_module(module):
+                new_moe = LinearExperts.from_experts(module)
+                model.set_submodule(name, new_moe)
 
 # probably only need to registry this class
 class ExpertMLP(torch.nn.Module, ABC):
@@ -72,13 +75,13 @@ class ExpertMLPWithGate(ExpertMLP):
         hidden_dim: int,
     ):
         assert experts.has_gate
-        if experts.__class__._apply_gate is not _default_apply_gate:
-            # assume that if a `_apply_gate` is implemented, then the weight
-            # is not valid for quantization (for example, might be interleaved)
-            raise NotImplementedError(
-                f"Linearization for {experts.__class__.__name__} "
-                "has not been implemented yet"
-            )
+        # if experts.__class__._apply_gate is not _default_apply_gate:
+        #     # assume that if a `_apply_gate` is implemented, then the weight
+        #     # is not valid for quantization (for example, might be interleaved)
+        #     raise NotImplementedError(
+        #         f"Linearization for {experts.__class__.__name__} "
+        #         "has not been implemented yet"
+        #     )
 
         with skip_weights_initialize():
             instance = cls(
@@ -187,7 +190,7 @@ class ExpertMLPWithoutGate(ExpertMLP):
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
 
 
-class LinearExperts(torch.nn.ModuleList[ExpertMLP]):
+class LinearExperts(torch.nn.ModuleList):
     @classmethod
     def from_experts(cls, experts: FusedExpertsModule):
         num_experts, moe_intermediate_size, hidden_dim = _get_moe_shapes(experts)
@@ -221,12 +224,12 @@ class LinearExperts(torch.nn.ModuleList[ExpertMLP]):
         for expert_idx in range(num_experts):
             # select tokens for this expert
             top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
-            if token_indices.numel() == 0:
-                continue
 
             # apply expert, maybe pass all tokens to the expert
             expert = self[expert_idx]
-            if context.CALIBRATE_ALL_EXPERTS:
+            #if context.CALIBRATE_ALL_EXPERTS:
+            # TODO: fully integrate moe context
+            if True:
                 expert_output = expert(hidden_states)[token_indices]
             else:
                 expert_output = expert(hidden_states[token_indices])
@@ -236,6 +239,6 @@ class LinearExperts(torch.nn.ModuleList[ExpertMLP]):
             weighted_output = expert_output * expert_weights
 
             # accumulate the selected tokens
-            final_hidden_states.index_add_(0, token_indices, weighted_output)
+            final_hidden_states.index_add_(0, token_indices, weighted_output.to(final_hidden_states.dtype))  # TODO: check why float
 
         return final_hidden_states

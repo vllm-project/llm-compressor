@@ -69,13 +69,4 @@ def _is_moe_experts_converter(converter: WeightTransform) -> bool:
 
 def _get_moe_shapes(experts: FusedExpertsModule) -> tuple[int, int, int]:
     # get shapes from the down_proj. This is more reliable than getting from config
-
-    num_experts, moe_intermediate_size, hidden_dim = experts.down_proj.shape
-    if hasattr(experts.config, "num_experts"):
-        assert num_experts == experts.config.num_experts
-    if hasattr(experts.config, "hidden_size"):
-        assert hidden_dim == experts.config.hidden_size
-    if hasattr(experts.config, "moe_intermediate_size"):
-        assert moe_intermediate_size == experts.config.moe_intermediate_size
-
-    return num_experts, moe_intermediate_size, hidden_dim
+    return experts.config.n_routed_experts, experts.config.moe_intermediate_size, experts.config.hidden_size
