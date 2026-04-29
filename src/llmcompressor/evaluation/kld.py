@@ -74,6 +74,10 @@ _DEFAULT_DATASET = [
 # this are truncated to the first _MAX_CAPTURE_TOKENS prefill positions.
 _MAX_CAPTURE_TOKENS = 8192
 
+# Guard to ensure the vLLM distributed environment is only torn down once per
+# process, even when two LLM instances are destroyed sequentially.
+_DISTRIBUTED_TORN_DOWN = False
+
 
 # ------------------------------------------------------------------
 # Module-level worker functions
@@ -133,9 +137,13 @@ def _worker_setup_buffer_capture(model: nn.Module) -> None:
     def _capturing_forward(lm_head_w, hidden_states, *args, **kwargs):
         n = hidden_states.shape[0]
         cap = min(n, _MAX_CAPTURE_TOKENS)
+        # Only capture the first call per prompt (prefill phase).
+        # n_tok is reset to 0 by _worker_collect_buffer after each prompt,
+        # so subsequent decode-step calls (n << prompt_len) are ignored.
         # CUDA copy — captured in CUDA graph and replayed on each call.
-        buf[:cap].copy_(hidden_states[:cap].to(buf_dtype))
-        n_tok.fill_(cap)
+        if n_tok[0] == 0:
+            buf[:cap].copy_(hidden_states[:cap].to(buf_dtype))
+            n_tok.fill_(cap)
         return original_fwd(lm_head_w, hidden_states, *args, **kwargs)
 
     # Instance-level replacement: only this LogitsProcessor is patched,
@@ -156,8 +164,11 @@ def _worker_collect_buffer(model: nn.Module) -> dict:
     """
     buf: torch.Tensor = model.__kld_buf__
     n: int = int(model.__kld_n__[0].item())
+    data = buf[:n].detach().float().cpu()
+    # Reset counter so the next prompt's prefill is captured fresh.
+    model.__kld_n__.fill_(0)
     return {
-        "hidden_states": buf[:n].detach().float().cpu(),
+        "hidden_states": data,
         "n_tokens": n,
     }
 
@@ -367,7 +378,10 @@ class KLDivergenceEvaluator:
                 h_quant = quant_data["hidden_states"]
 
                 if h_base.numel() == 0 or h_quant.numel() == 0:
-                    logger.warning(f"Empty capture for prompt {idx}; skipping.")
+                    logger.warning(
+                        f"Empty capture for prompt {idx}; "
+                        "will be marked as NaN in results."
+                    )
 
                 base_hidden.append(h_base)
                 quant_hidden.append(h_quant)
@@ -426,17 +440,22 @@ class KLDivergenceEvaluator:
 
         ``del llm`` alone is insufficient — vLLM retains engine allocations,
         KV cache, and distributed state that persist until explicitly torn down.
+        The distributed environment is only destroyed once per process even when
+        called for multiple LLM instances.
 
         :param llm: The ``LLM`` instance to destroy.
         """
-        with contextlib.suppress(Exception):
-            from vllm.distributed.parallel_state import (
-                destroy_distributed_environment,
-                destroy_model_parallel,
-            )
+        global _DISTRIBUTED_TORN_DOWN
+        if not _DISTRIBUTED_TORN_DOWN:
+            with contextlib.suppress(Exception):
+                from vllm.distributed.parallel_state import (
+                    destroy_distributed_environment,
+                    destroy_model_parallel,
+                )
 
-            destroy_model_parallel()
-            destroy_distributed_environment()
+                destroy_model_parallel()
+                destroy_distributed_environment()
+            _DISTRIBUTED_TORN_DOWN = True
         del llm
         gc.collect()
         if torch.cuda.is_available():
