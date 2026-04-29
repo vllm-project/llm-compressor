@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -154,7 +152,7 @@ def _grid_search_mse(
     patience: float,
     grid: float,
     norm: float,
-    global_scale: Optional[torch.Tensor] = None,
+    global_scale: torch.Tensor | None = None,
     optimize_global_scale: bool = False,
 ) -> MinMaxTuple:
     """

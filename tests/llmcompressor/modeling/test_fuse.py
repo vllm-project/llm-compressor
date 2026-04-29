@@ -5,6 +5,7 @@ from llmcompressor.modeling.fuse import center_embeddings, fuse_norm_linears
 
 
 @pytest.mark.unit
+@torch.no_grad()
 def test_center_embeddings():
     embedding = torch.nn.Embedding(10, 10)
     center_embeddings(embedding)
@@ -15,6 +16,7 @@ def test_center_embeddings():
 
 
 @pytest.mark.unit
+@torch.no_grad()
 def test_fuse_norm_linears():
     norm = torch.nn.LayerNorm((5,))
     norm.weight.data = torch.rand(norm.weight.shape)

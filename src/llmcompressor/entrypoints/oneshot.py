@@ -23,12 +23,16 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
+
+
+TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
 
 
 class Oneshot:
@@ -121,6 +125,19 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # Disable tokenizer parallelism to prevent warning when using
+        # multiprocessing for dataset preprocessing. The warning occurs because
+        # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
+        # See: https://github.com/vllm-project/llm-compressor/issues/2007
+        if TOKENIZERS_PARALLELISM_ENV not in os.environ:
+            os.environ[TOKENIZERS_PARALLELISM_ENV] = "false"
+            logger.warning(
+                "Disabling tokenizer parallelism due to threading conflict between "
+                "FastTokenizer and Datasets. Set "
+                f"{TOKENIZERS_PARALLELISM_ENV}=false to "
+                "suppress this warning."
+            )
+
         # Set up file logging (no default files):
         # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
         # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
@@ -201,8 +218,8 @@ class Oneshot:
         session.reset()
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
-        # Apply MoE calibration context for the entire calibration process
-        with moe_calibration_context(
+        # Apply calibration contexts for the entire calibration process
+        with norm_calibration_context(self.model), moe_calibration_context(
             self.model,
             calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
         ):
@@ -213,7 +230,9 @@ class Oneshot:
                 recipe_stage=recipe_stage,
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
+                sequential_targets=self.dataset_args.sequential_targets,
             )
+
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
@@ -246,7 +265,7 @@ def oneshot(
     clear_sparse_session: bool = False,
     stage: str | None = None,
     # Dataset arguments
-    dataset: str | Dataset | DatasetDict | None = None,
+    dataset: str | Dataset | DatasetDict | DataLoader | None = None,
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
@@ -254,7 +273,7 @@ def oneshot(
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
-    max_seq_length: int = 384,
+    max_seq_length: int | None = None,
     pad_to_max_length: bool = True,
     text_column: str = "text",
     concatenate_data: bool = False,
@@ -282,6 +301,7 @@ def oneshot(
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
+    sequential_prefetch: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -322,8 +342,10 @@ def oneshot(
     :param stage: The stage of the recipe to use for oneshot.
 
     # Dataset arguments
-    :param dataset: The name of the dataset to use (via the datasets
-        library).
+    :param dataset: The dataset to use for calibration. Can be a dataset name
+        (str, via the datasets library), a HuggingFace Dataset or DatasetDict,
+        or a pre-built PyTorch DataLoader. When a DataLoader is passed, the
+        internal dataset-to-dataloader conversion is skipped.
     :param dataset_config_name: The configuration name of the dataset
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
@@ -347,9 +369,10 @@ def oneshot(
     :param streaming: True to stream data from a cloud dataset.
     :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
     :param preprocessing_num_workers: Number of processes for dataset preprocessing.
-    :param dataloader_num_workers: Number of worker processes for data loading. Set to 0
-        to disable multiprocessing. Note: Custom data collators may not work with
-        multiprocessing. Default is 0.
+    :param dataloader_num_workers: Number of worker processes for data loading. Default
+        is 0 (safe for low CPU/GPU memory). Set to 2 or more for faster calibration if
+        you have sufficient RAM. Custom data collators may not work with
+        multiprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
     :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
@@ -371,7 +394,9 @@ def oneshot(
         calibration in the sequential pipeline. When True, quantization is applied
         during forward pass in calibration. When False, quantization is disabled
         during forward pass in calibration. Default is set to True.
-
+    :param sequential_prefetch: When using the sequential pipeline, prefetch the
+        next batch in a background thread to overlap onload with forward. Default
+        False; set True for faster calibration when GPU memory allows.
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.

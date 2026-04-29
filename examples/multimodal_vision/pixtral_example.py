@@ -1,5 +1,6 @@
 import requests
 import torch
+from compressed_tensors.offload import dispatch_model
 from PIL import Image
 from transformers import (
     AutoProcessor,
@@ -8,8 +9,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "mgoin/pixtral-12b"
@@ -57,7 +57,7 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 messages = [
     {
         "role": "user",

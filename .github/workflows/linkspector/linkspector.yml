@@ -1,10 +1,16 @@
 aliveStatusCodes:
   - 0
   - 200
+
 ignorePatterns:
   - pattern: '.*localhost.*'
   - pattern: '.*127\\.0\\.0\\.1.*'
   - pattern: '.*0\\.0\\.0\\.0.*'
+
+# Includes links that only resolve during MkDocs build
+excludedFiles:
+  - 'docs/developer/index.md'
+
 dirs:
   - .
 useGitIgnore: true

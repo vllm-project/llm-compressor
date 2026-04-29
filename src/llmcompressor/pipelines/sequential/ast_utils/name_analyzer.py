@@ -1,6 +1,5 @@
 import ast
 import builtins
-from typing import Set, Tuple
 
 from compressed_tensors.utils import patch_attr
 
@@ -30,15 +29,15 @@ class NameAnalyzer(ast.NodeVisitor):
     ```
     """
 
-    _unbound: Set[str]
-    _assigned: Set[str]
-    _conditionally_assigned: Set[str]
-    _omit: Set[str]
+    _unbound: set[str]
+    _assigned: set[str]
+    _conditionally_assigned: set[str]
+    _omit: set[str]
 
-    def __init__(self, omit: Set[str]):
+    def __init__(self, omit: set[str]):
         self._omit = builtins.__dict__.keys() | omit
 
-    def analyze(self, node: ast.AST) -> Tuple[Set[str], Set[str], Set[str]]:
+    def analyze(self, node: ast.AST) -> tuple[set[str], set[str], set[str]]:
         """
         Analyzes the use of names in the given piece of code
 

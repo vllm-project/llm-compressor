@@ -1,5 +1,4 @@
 import ast
-from typing import List, Type
 
 
 class ControlFlowAnalyzer(ast.NodeVisitor):
@@ -26,7 +25,7 @@ class ControlFlowAnalyzer(ast.NodeVisitor):
     ```
     """
 
-    _contexts: List[Type]
+    _contexts: list[type]
     _is_valid: bool
     _context_types = (ast.For, ast.While, ast.FunctionDef, ast.AsyncFunctionDef)
 
