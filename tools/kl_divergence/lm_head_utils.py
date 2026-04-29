@@ -1,10 +1,14 @@
 """
-Utilities for loading lm_head weights from model checkpoints
+Utilities for loading lm_head and final norm weights from model checkpoints
 without loading the full model into memory.
 
 Uses accelerate's init_empty_weights to create a zero-memory meta model,
-then discovers the correct lm_head parameter name via get_output_embeddings().
-Only the lm_head tensor is loaded from the safetensors checkpoint.
+then discovers the correct parameter names via get_output_embeddings().
+Only the lm_head and norm tensors are loaded from the safetensors checkpoint.
+
+Note: vLLM's hidden state extraction at layer index num_hidden_layers captures
+the output BEFORE the final norm (pre-norm). The norm must be applied before
+passing hidden states to lm_head.
 """
 
 import json
@@ -14,19 +18,20 @@ from safetensors import safe_open
 from transformers import AutoConfig, AutoModelForCausalLM
 
 
-def _discover_lm_head_names(model_id: str) -> dict:
+def _discover_weight_names(model_id: str) -> dict:
     """
-    Use a meta (zero-memory) model to discover the lm_head parameter names
-    for any architecture. This replaces the manual architecture-to-weight-name
-    mapping with a dynamic approach that works for all HuggingFace causal LMs.
+    Use a meta (zero-memory) model to discover the lm_head and final norm
+    parameter names for any architecture. This replaces manual architecture-
+    to-weight-name mappings with a dynamic approach.
 
     :param model_id: HuggingFace model ID or local path
-    :return: dict with lm_head_weight name, lm_head_bias name (or None),
-             and tie_word_embeddings flag
+    :return: dict with lm_head_weight, lm_head_bias, norm_weight,
+             embed_weight names and tie_word_embeddings flag
     """
     from accelerate import init_empty_weights
 
     config = AutoConfig.from_pretrained(model_id)
+    text_config = getattr(config, "text_config", config)
     with init_empty_weights():
         model = AutoModelForCausalLM.from_config(config)
 
@@ -54,11 +59,39 @@ def _discover_lm_head_names(model_id: str) -> dict:
             "found in named_parameters()."
         )
 
+    # Find the final norm — it's the norm module on the inner model
+    # (e.g., model.model.norm for LlamaForCausalLM)
+    norm_weight_name = None
+    inner_model = getattr(model, "model", None) or getattr(model, "transformer", None)
+    if inner_model is not None:
+        norm_module = getattr(inner_model, "norm", None) or getattr(
+            inner_model, "final_layernorm", None
+        ) or getattr(inner_model, "ln_f", None)
+        if norm_module is not None and hasattr(norm_module, "weight"):
+            for name, param in model.named_parameters():
+                if param is norm_module.weight:
+                    norm_weight_name = name
+                    break
+
+    if norm_weight_name is None:
+        raise ValueError(
+            f"Could not find final norm weight in model {model_id}. "
+            "The norm is required to transform pre-norm hidden states "
+            "before applying lm_head."
+        )
+
+    # Determine norm epsilon from config
+    norm_eps = getattr(text_config, "rms_norm_eps", None) or getattr(
+        text_config, "layer_norm_epsilon", None
+    ) or getattr(text_config, "layer_norm_eps", None) or 1e-6
+
+    # Determine norm type from config
+    # RMSNorm if rms_norm_eps is present, otherwise LayerNorm
+    norm_type = "rms_norm" if hasattr(text_config, "rms_norm_eps") else "layer_norm"
+
     # Check for tied embeddings — if tied, the weight may be stored under
     # the input embedding name in the checkpoint
-    tie_word_embeddings = getattr(
-        getattr(config, "text_config", config), "tie_word_embeddings", False
-    )
+    tie_word_embeddings = getattr(text_config, "tie_word_embeddings", False)
     input_embed_name = None
     if tie_word_embeddings:
         input_embed = model.get_input_embeddings()
@@ -72,6 +105,9 @@ def _discover_lm_head_names(model_id: str) -> dict:
     return {
         "lm_head_weight": lm_head_weight_name,
         "lm_head_bias": lm_head_bias_name,
+        "norm_weight": norm_weight_name,
+        "norm_eps": norm_eps,
+        "norm_type": norm_type,
         "embed_weight": input_embed_name,
         "tie_word_embeddings": tie_word_embeddings,
     }
@@ -79,9 +115,10 @@ def _discover_lm_head_names(model_id: str) -> dict:
 
 def detect_last_layer_index(model_id: str) -> int:
     """
-    Return the layer index for extracting post-norm hidden states from vLLM.
-    This is num_hidden_layers (NOT num_hidden_layers - 1), which gives the
-    output after the final layer norm — ready to pass directly to lm_head.
+    Return the layer index for extracting hidden states from vLLM.
+    This is num_hidden_layers, which gives the output after the last
+    transformer block but BEFORE the final layer norm (pre-norm).
+    The norm must be applied separately before passing to lm_head.
 
     :param model_id: HuggingFace model ID or local path
     :return: layer index for vLLM extraction
@@ -150,17 +187,18 @@ def load_lm_head_weights(
     device: str = "cpu",
 ) -> dict:
     """
-    Load only the lm_head weight (and optional bias) from a model checkpoint
-    without loading the full model.
+    Load the lm_head weight, final norm weight, and optional bias from a
+    model checkpoint without loading the full model.
 
     Uses get_output_embeddings() on a meta model to dynamically discover
     the correct parameter names for any architecture.
 
     :param model_id: HuggingFace model ID or local path
     :param device: device to load tensors to
-    :return: dict with keys: lm_head_weight, lm_head_bias (or None)
+    :return: dict with keys: lm_head_weight, lm_head_bias (or None),
+             norm_weight, norm_eps, norm_type
     """
-    names = _discover_lm_head_names(model_id)
+    names = _discover_weight_names(model_id)
     weight_map = _get_weight_map(model_id)
 
     # Load lm_head weight (handle tied embeddings)
@@ -184,7 +222,18 @@ def load_lm_head_weights(
             weight_map[names["lm_head_bias"]], names["lm_head_bias"]
         ).to(device)
 
+    # Load final norm weight
+    norm_key = names["norm_weight"]
+    if norm_key not in weight_map:
+        raise KeyError(
+            f"Cannot find norm weight '{norm_key}' in checkpoint for {model_id}"
+        )
+    norm_weight = _load_tensor(weight_map[norm_key], norm_key).to(device)
+
     return {
         "lm_head_weight": lm_head_weight,
         "lm_head_bias": lm_head_bias,
+        "norm_weight": norm_weight,
+        "norm_eps": names["norm_eps"],
+        "norm_type": names["norm_type"],
     }

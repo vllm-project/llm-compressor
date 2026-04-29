@@ -2,12 +2,12 @@
 Compute KL divergence between two models using saved hidden states.
 
 This script loads hidden states extracted by extract_hidden_states.py,
-applies the lm_head to reconstruct logits, and computes KL divergence
-between the base and target model distributions.
+applies the final norm and lm_head to reconstruct logits, and computes
+KL divergence between the base and target model distributions.
 
-Hidden states are post-norm (extracted at layer num_hidden_layers from vLLM),
-so no normalization is needed. Only the lm_head weight is loaded from the
-model checkpoint.
+Hidden states are pre-norm (extracted at layer num_hidden_layers from vLLM,
+which is after the last transformer block but before the final layer norm).
+The final norm weight and lm_head weight are loaded from the model checkpoint.
 
 Usage:
     python tools/kl_divergence/compute_kl.py \
@@ -92,6 +92,23 @@ def parse_args():
     return parser.parse_args()
 
 
+def _apply_norm(hidden_states: torch.Tensor, weights: dict) -> torch.Tensor:
+    """
+    Apply the final layer norm to pre-norm hidden states.
+
+    :param hidden_states: [chunk_size, hidden_dim] pre-norm hidden states
+    :param weights: dict with norm_weight, norm_eps, norm_type
+    :return: [chunk_size, hidden_dim] post-norm hidden states
+    """
+    h = hidden_states.float()
+    if weights["norm_type"] == "rms_norm":
+        variance = h.pow(2).mean(-1, keepdim=True)
+        h = h * torch.rsqrt(variance + weights["norm_eps"])
+    else:
+        h = F.layer_norm(h, (h.shape[-1],), eps=weights["norm_eps"])
+    return h * weights["norm_weight"]
+
+
 def _compute_kl_for_chunk(
     base_hidden: torch.Tensor,
     target_hidden: torch.Tensor,
@@ -102,24 +119,25 @@ def _compute_kl_for_chunk(
     """
     Compute per-position KL divergence for a chunk of hidden states.
 
-    Hidden states are expected to be post-norm (extracted at layer index
-    num_hidden_layers from vLLM), so no additional normalization is applied.
+    Hidden states are pre-norm (extracted at layer index num_hidden_layers
+    from vLLM, before the final layer norm). The norm is applied here
+    before computing logits via lm_head.
 
-    :param base_hidden: [chunk_size, hidden_dim] base hidden states (post-norm)
-    :param target_hidden: [chunk_size, hidden_dim] target hidden states (post-norm)
-    :param base_weights: dict with lm_head_weight, lm_head_bias
-    :param target_weights: dict with lm_head_weight, lm_head_bias
+    :param base_hidden: [chunk_size, hidden_dim] pre-norm hidden states
+    :param target_hidden: [chunk_size, hidden_dim] pre-norm hidden states
+    :param base_weights: dict with lm_head_weight, lm_head_bias, norm_weight, etc.
+    :param target_weights: dict with lm_head_weight, lm_head_bias, norm_weight, etc.
     :param temperature: temperature for softmax scaling
     :return: [chunk_size] per-position KL divergence values
     """
-    # Compute logits: [chunk_size, vocab_size]
-    # Hidden states are already post-norm, so apply lm_head directly
-    # Weights are pre-cast to float32 in compute_kl_divergence
-    base_logits = base_hidden.float() @ base_weights["lm_head_weight"].T
+    # Apply final norm then lm_head to get logits: [chunk_size, vocab_size]
+    base_normed = _apply_norm(base_hidden, base_weights)
+    base_logits = base_normed @ base_weights["lm_head_weight"].T
     if base_weights["lm_head_bias"] is not None:
         base_logits += base_weights["lm_head_bias"]
 
-    target_logits = target_hidden.float() @ target_weights["lm_head_weight"].T
+    target_normed = _apply_norm(target_hidden, target_weights)
+    target_logits = target_normed @ target_weights["lm_head_weight"].T
     if target_weights["lm_head_bias"] is not None:
         target_logits += target_weights["lm_head_bias"]
 
@@ -187,21 +205,23 @@ def compute_kl_divergence(
             f"target: {target_meta['dataset_name']}"
         )
 
-    # Load lm_head weights
-    print(f"Loading lm_head weights from: {base_model}")
+    # Load lm_head and norm weights
+    print(f"Loading weights from: {base_model}")
     base_weights = load_lm_head_weights(base_model, device=device)
     # Pre-cast to float32 once to avoid repeated casting per chunk
     base_weights["lm_head_weight"] = base_weights["lm_head_weight"].float()
+    base_weights["norm_weight"] = base_weights["norm_weight"].float()
     if base_weights["lm_head_bias"] is not None:
         base_weights["lm_head_bias"] = base_weights["lm_head_bias"].float()
 
     if target_model == base_model:
         target_weights = base_weights
-        print("Using shared lm_head weights (same model)")
+        print("Using shared weights (same model)")
     else:
-        print(f"Loading lm_head weights from: {target_model}")
+        print(f"Loading weights from: {target_model}")
         target_weights = load_lm_head_weights(target_model, device=device)
         target_weights["lm_head_weight"] = target_weights["lm_head_weight"].float()
+        target_weights["norm_weight"] = target_weights["norm_weight"].float()
         if target_weights["lm_head_bias"] is not None:
             target_weights["lm_head_bias"] = target_weights["lm_head_bias"].float()
 

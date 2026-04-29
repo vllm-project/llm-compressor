@@ -102,9 +102,9 @@ configuration is needed.
 
 - **vLLM version**: Phase 1 requires `vllm >= 0.18.0` with the hidden state extraction
   API. This API is relatively new and may change across vLLM versions.
-- **Post-norm extraction**: Hidden states are extracted after the final layer norm
-  (at layer index `num_hidden_layers`), so norm is not re-applied during computation.
-  This means the tool works regardless of norm type (RMSNorm, LayerNorm, etc.).
+- **Pre-norm extraction**: Hidden states are extracted at layer index `num_hidden_layers`
+  (after the last transformer block, before the final norm). The final norm (RMSNorm
+  or LayerNorm) is applied during KL computation before passing to lm_head.
 - **Same tokenization required**: Base and target models must be extracted using the
   same tokenizer and dataset configuration. Token IDs are validated during computation.
 - **Prompt-only**: vLLM hidden state extraction captures prompt token hidden states
@@ -116,9 +116,9 @@ configuration is needed.
    decoding infrastructure) captures the output of a specified transformer layer
    and saves it as safetensors files. Only the last layer is needed for KL divergence.
 
-2. **Compute**: The saved hidden states (post-norm) are loaded and the lm_head
-   projection is applied to reconstruct full-vocab logits. KL divergence is then
-   computed per-position and aggregated.
+2. **Compute**: The saved hidden states (pre-norm) are loaded, the final layer norm
+   is applied, then the lm_head projection reconstructs full-vocab logits. KL
+   divergence is computed per-position and aggregated.
 
 The key advantage is that hidden states (dim ~4096) are ~30x smaller than logprobs
 (vocab ~128k), making extraction and storage dramatically faster and cheaper.

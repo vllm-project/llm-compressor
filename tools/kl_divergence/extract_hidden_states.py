@@ -1,10 +1,10 @@
 """
 Extract hidden states from a model using vLLM's hidden state extraction API.
 
-This script runs a model through vLLM and extracts post-norm hidden states
-(at layer index num_hidden_layers, i.e. after the final layer norm) and saves
-them as safetensors files. These hidden states can be passed directly to lm_head
-by compute_kl.py to efficiently calculate KL divergence without full-vocab logprobs.
+This script runs a model through vLLM and extracts hidden states at layer index
+num_hidden_layers (after the last transformer block, before the final layer norm)
+and saves them as safetensors files. compute_kl.py applies the final norm and
+lm_head to reconstruct logits for KL divergence computation.
 
 Requires vllm >= 0.18.0.
 
@@ -221,7 +221,7 @@ def extract_hidden_states(
         config = AutoConfig.from_pretrained(model_id)
         config = getattr(config, "text_config", config)
         layer_index = config.num_hidden_layers
-        print(f"Auto-detected layer index (post-norm): {layer_index}")
+        print(f"Auto-detected layer index (pre-norm): {layer_index}")
 
     # Prepare token chunks
     chunks = prepare_token_chunks(

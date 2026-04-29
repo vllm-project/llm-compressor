@@ -16,13 +16,26 @@ from safetensors.torch import save_file
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def apply_rms_norm(hidden_states, weight, eps=1e-6):
+    """Apply RMSNorm to hidden states."""
+    h = hidden_states.float()
+    variance = h.pow(2).mean(-1, keepdim=True)
+    h = h * torch.rsqrt(variance + eps)
+    return h * weight.float()
+
+
 def compute_kl_for_chunk(base_hidden, target_hidden, weights, temperature=1.0):
     """
     Simplified version of _compute_kl_for_chunk from compute_kl.py.
 
-    Hidden states are expected to be post-norm (extracted at layer index
-    num_hidden_layers from vLLM), so no additional normalization is applied.
+    Hidden states are pre-norm (extracted at layer index num_hidden_layers
+    from vLLM, before the final layer norm). Norm is applied before lm_head.
     """
+    # Apply norm if norm_weight is provided (matches production code path)
+    if weights.get("norm_weight") is not None:
+        base_hidden = apply_rms_norm(base_hidden, weights["norm_weight"])
+        target_hidden = apply_rms_norm(target_hidden, weights["norm_weight"])
+
     base_logits = base_hidden.float() @ weights["lm_head_weight"].float().T
     target_logits = target_hidden.float() @ weights["lm_head_weight"].float().T
 
@@ -85,10 +98,11 @@ def create_fake_hidden_states(
 
 
 def create_fake_weights(hidden_dim, vocab_size):
-    """Create fake lm_head weights (no norm needed — hidden states are post-norm)."""
+    """Create fake lm_head and norm weights for testing."""
     return {
         "lm_head_weight": torch.randn(vocab_size, hidden_dim, dtype=torch.float16),
         "lm_head_bias": None,
+        "norm_weight": torch.ones(hidden_dim, dtype=torch.float16),
     }
 
 
