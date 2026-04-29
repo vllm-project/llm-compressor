@@ -1,5 +1,5 @@
 from compressed_tensors.offload import get_device_map, load_offloaded_model
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
