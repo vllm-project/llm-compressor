@@ -1,83 +1,78 @@
 """
 Utilities for loading lm_head weights from model checkpoints
 without loading the full model into memory.
+
+Uses accelerate's init_empty_weights to create a zero-memory meta model,
+then discovers the correct lm_head parameter name via get_output_embeddings().
+Only the lm_head tensor is loaded from the safetensors checkpoint.
 """
 
 import json
 import os
-from typing import Optional
-
 import torch
 from safetensors import safe_open
-from transformers import AutoConfig
-
-# Architecture -> weight name mappings
-_DEFAULT_WEIGHT_NAMES = {
-    "lm_head_weight": "lm_head.weight",
-    "lm_head_bias": None,
-    "embed_weight": "model.embed_tokens.weight",
-}
-
-_GPTNEOX_WEIGHT_NAMES = {
-    "lm_head_weight": "embed_out.weight",
-    "lm_head_bias": None,
-    "embed_weight": "gpt_neox.embed_in.weight",
-}
-
-_GPT2_WEIGHT_NAMES = {
-    "lm_head_weight": "lm_head.weight",
-    "lm_head_bias": None,
-    "embed_weight": "transformer.wte.weight",
-}
-
-ARCHITECTURE_WEIGHT_NAMES = {
-    "LlamaForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "MistralForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "Qwen2ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "Qwen3ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "GemmaForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "Gemma2ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "Gemma3ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "PhiForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "Phi3ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "GraniteForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "InternLM2ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "CohereForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "DeepseekV3ForCausalLM": _DEFAULT_WEIGHT_NAMES,
-    "GPTNeoXForCausalLM": _GPTNEOX_WEIGHT_NAMES,
-    "GPT2LMHeadModel": _GPT2_WEIGHT_NAMES,
-}
+from transformers import AutoConfig, AutoModelForCausalLM
 
 
-def infer_weight_names(
-    model_id: str,
-    lm_head_weight_name: Optional[str] = None,
-    lm_head_bias_name: Optional[str] = None,
-    embed_weight_name: Optional[str] = None,
-) -> dict:
+def _discover_lm_head_names(model_id: str) -> dict:
     """
-    Infer the weight tensor names for lm_head based on model architecture.
-    Manual overrides take precedence.
+    Use a meta (zero-memory) model to discover the lm_head parameter names
+    for any architecture. This replaces the manual architecture-to-weight-name
+    mapping with a dynamic approach that works for all HuggingFace causal LMs.
 
     :param model_id: HuggingFace model ID or local path
-    :param lm_head_weight_name: override for lm_head weight name
-    :param lm_head_bias_name: override for lm_head bias name
-    :param embed_weight_name: override for embed weight name (for tied embeddings)
-    :return: dict with keys: lm_head_weight, lm_head_bias, embed_weight,
-             tie_word_embeddings
+    :return: dict with lm_head_weight name, lm_head_bias name (or None),
+             and tie_word_embeddings flag
     """
+    from accelerate import init_empty_weights
+
     config = AutoConfig.from_pretrained(model_id)
-    config = getattr(config, "text_config", config)
+    with init_empty_weights():
+        model = AutoModelForCausalLM.from_config(config)
 
-    architectures = getattr(config, "architectures", [])
-    arch = architectures[0] if architectures else None
-    defaults = ARCHITECTURE_WEIGHT_NAMES.get(arch, _DEFAULT_WEIGHT_NAMES)
-    tie_word_embeddings = getattr(config, "tie_word_embeddings", False)
+    lm_head = model.get_output_embeddings()
+    if lm_head is None:
+        raise ValueError(
+            f"Model {model_id} does not have output embeddings. "
+            "Cannot determine lm_head weight name."
+        )
 
+    # Find the parameter names by identity matching
+    lm_head_weight_name = None
+    lm_head_bias_name = None
+    for name, param in model.named_parameters():
+        if param is lm_head.weight:
+            lm_head_weight_name = name
+        if hasattr(lm_head, "bias") and lm_head.bias is not None:
+            if param is lm_head.bias:
+                lm_head_bias_name = name
+
+    if lm_head_weight_name is None:
+        raise ValueError(
+            f"Could not find lm_head weight parameter in model {model_id}. "
+            "get_output_embeddings() returned a module but its weight was not "
+            "found in named_parameters()."
+        )
+
+    # Check for tied embeddings — if tied, the weight may be stored under
+    # the input embedding name in the checkpoint
+    tie_word_embeddings = getattr(
+        getattr(config, "text_config", config), "tie_word_embeddings", False
+    )
+    input_embed_name = None
+    if tie_word_embeddings:
+        input_embed = model.get_input_embeddings()
+        if input_embed is not None:
+            for name, param in model.named_parameters():
+                if param is input_embed.weight:
+                    input_embed_name = name
+                    break
+
+    del model
     return {
-        "lm_head_weight": lm_head_weight_name or defaults["lm_head_weight"],
-        "lm_head_bias": lm_head_bias_name or defaults["lm_head_bias"],
-        "embed_weight": embed_weight_name or defaults["embed_weight"],
+        "lm_head_weight": lm_head_weight_name,
+        "lm_head_bias": lm_head_bias_name,
+        "embed_weight": input_embed_name,
         "tie_word_embeddings": tie_word_embeddings,
     }
 
@@ -152,29 +147,20 @@ def _load_tensor(file_ref, tensor_name: str) -> torch.Tensor:
 
 def load_lm_head_weights(
     model_id: str,
-    lm_head_weight_name: Optional[str] = None,
-    lm_head_bias_name: Optional[str] = None,
-    embed_weight_name: Optional[str] = None,
     device: str = "cpu",
 ) -> dict:
     """
     Load only the lm_head weight (and optional bias) from a model checkpoint
     without loading the full model.
 
+    Uses get_output_embeddings() on a meta model to dynamically discover
+    the correct parameter names for any architecture.
+
     :param model_id: HuggingFace model ID or local path
-    :param lm_head_weight_name: override for lm_head weight tensor name
-    :param lm_head_bias_name: override for lm_head bias tensor name
-    :param embed_weight_name: override for embedding weight name (tied case)
     :param device: device to load tensors to
     :return: dict with keys: lm_head_weight, lm_head_bias (or None)
     """
-    names = infer_weight_names(
-        model_id,
-        lm_head_weight_name=lm_head_weight_name,
-        lm_head_bias_name=lm_head_bias_name,
-        embed_weight_name=embed_weight_name,
-    )
-
+    names = _discover_lm_head_names(model_id)
     weight_map = _get_weight_map(model_id)
 
     # Load lm_head weight (handle tied embeddings)

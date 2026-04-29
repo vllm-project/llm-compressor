@@ -89,25 +89,6 @@ def parse_args():
         help="Number of tokens to process at once for logit computation "
         "(lower = less memory, default: 64)",
     )
-    # Architecture overrides
-    parser.add_argument(
-        "--lm-head-weight-name",
-        type=str,
-        default=None,
-        help="Override for lm_head weight tensor name",
-    )
-    parser.add_argument(
-        "--lm-head-bias-name",
-        type=str,
-        default=None,
-        help="Override for lm_head bias tensor name",
-    )
-    parser.add_argument(
-        "--embed-weight-name",
-        type=str,
-        default=None,
-        help="Override for embedding weight tensor name (for tied embeddings)",
-    )
     return parser.parse_args()
 
 
@@ -168,9 +149,6 @@ def compute_kl_divergence(
     temperature: float = 1.0,
     device: str = "cuda:0",
     chunk_size: int = 64,
-    lm_head_weight_name: str = None,
-    lm_head_bias_name: str = None,
-    embed_weight_name: str = None,
 ) -> dict:
     """
     Compute KL divergence between two models using their saved hidden states.
@@ -182,9 +160,6 @@ def compute_kl_divergence(
     :param temperature: softmax temperature
     :param device: computation device
     :param chunk_size: tokens per chunk for logit computation
-    :param lm_head_weight_name: override for lm_head weight tensor name
-    :param lm_head_bias_name: override for lm_head bias tensor name
-    :param embed_weight_name: override for embed weight tensor name
     :return: dict with mean_kl, std_kl, median_kl, per_sample_kl, metadata
     """
     if target_model is None:
@@ -213,14 +188,8 @@ def compute_kl_divergence(
         )
 
     # Load lm_head weights
-    weight_kwargs = dict(
-        lm_head_weight_name=lm_head_weight_name,
-        lm_head_bias_name=lm_head_bias_name,
-        embed_weight_name=embed_weight_name,
-    )
-
     print(f"Loading lm_head weights from: {base_model}")
-    base_weights = load_lm_head_weights(base_model, device=device, **weight_kwargs)
+    base_weights = load_lm_head_weights(base_model, device=device)
     # Pre-cast to float32 once to avoid repeated casting per chunk
     base_weights["lm_head_weight"] = base_weights["lm_head_weight"].float()
     if base_weights["lm_head_bias"] is not None:
@@ -231,9 +200,7 @@ def compute_kl_divergence(
         print("Using shared lm_head weights (same model)")
     else:
         print(f"Loading lm_head weights from: {target_model}")
-        target_weights = load_lm_head_weights(
-            target_model, device=device, **weight_kwargs
-        )
+        target_weights = load_lm_head_weights(target_model, device=device)
         target_weights["lm_head_weight"] = target_weights["lm_head_weight"].float()
         if target_weights["lm_head_bias"] is not None:
             target_weights["lm_head_bias"] = target_weights["lm_head_bias"].float()
@@ -382,9 +349,6 @@ def main():
         temperature=args.temperature,
         device=args.device,
         chunk_size=args.chunk_size,
-        lm_head_weight_name=args.lm_head_weight_name,
-        lm_head_bias_name=args.lm_head_bias_name,
-        embed_weight_name=args.embed_weight_name,
     )
 
     # Print summary

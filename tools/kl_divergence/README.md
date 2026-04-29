@@ -93,25 +93,10 @@ for both.
 | `--device` | `cuda:0` | Computation device |
 | `--chunk-size` | `64` | Tokens per chunk (lower = less memory) |
 | `--output` | stdout | Path for results JSON |
-| `--lm-head-weight-name` | auto | Override lm_head tensor name |
-| `--lm-head-bias-name` | auto | Override lm_head bias tensor name |
-| `--embed-weight-name` | auto | Override embed tensor name |
 
-## Supported Architectures
-
-Architecture-specific tensor names are auto-detected. The following are supported
-out of the box:
-
-- **Llama family**: Llama, Llama-2, Llama-3, CodeLlama
-- **Qwen family**: Qwen2, Qwen3
-- **Mistral**
-- **Gemma family**: Gemma, Gemma-2, Gemma-3
-- **Phi family**: Phi, Phi-3
-- **Others**: Granite, InternLM2, Cohere, DeepSeek V3
-
-For unsupported architectures, use the `--lm-head-weight-name` and
-`--embed-weight-name` overrides. The default (`lm_head.weight`) works for most
-modern LLMs.
+The lm_head weight name is auto-detected for any HuggingFace causal LM architecture
+using `get_output_embeddings()`. No manual overrides or architecture-specific
+configuration is needed.
 
 ## Limitations
 
