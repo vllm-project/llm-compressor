@@ -1,5 +1,6 @@
-from llmcompressor import model_free_ptq
 from compressed_tensors.entrypoints.convert import CompressedTensorsDequantizer
+
+from llmcompressor import model_free_ptq
 
 # moonshotai/Kimi-K2.6 checkpoint is published in compressed-tensors format.
 # This script will upconvert to bfloat16 so that the model can be compressed
