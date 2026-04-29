@@ -2,31 +2,42 @@
 KL Divergence evaluation for measuring quantization quality.
 
 Computes the KL Divergence between a baseline model and a quantized model by
-extracting pre-lm_head hidden states via vLLM's apply_model hook, then
-reconstructing log-probabilities offline.  This avoids the bottleneck of
-transferring full vocabulary logprob tensors (~120k tokens) through vLLM by
-working with the hidden dimension (~4096) instead — roughly a 30x reduction
-in data volume.
+extracting pre-lm_head hidden states via buffer-based capture inside vLLM's
+worker process, then reconstructing log-probabilities offline.  This avoids
+the bottleneck of transferring full vocabulary logprob tensors (~120k tokens)
+through vLLM by working with the hidden dimension (~4096) instead — roughly a
+30x reduction in data volume.
 
 Pipeline
 --------
-1. Load baseline and quantized models via vLLM (sequentially, one model in
-   GPU memory at a time).
-2. Register a forward hook on the model's ``LogitsProcessor`` via
-   ``LLM.apply_model`` with ``enforce_eager=True`` to guarantee hooks fire
-   on every forward call (CUDA-graph replay skips Python callbacks).
-   Hook state is stored on the model object itself so it survives the
-   serialization boundary imposed by vLLM v1's spawn-based worker isolation.
-3. Run inference one prompt at a time; retrieve captures from the worker
-   via a second ``LLM.apply_model`` call after each generate.
+1. Load baseline and quantized models via vLLM **simultaneously** (both live
+   in GPU memory throughout evaluation — no teardown between prompts).
+2. Before the first ``generate()`` call, patch each model's ``LogitsProcessor``
+   via ``LLM.apply_model`` to write pre-lm_head hidden states into a
+   pre-allocated CUDA buffer.  Buffer writes are CUDA memory operations and
+   are recorded in CUDA graphs, unlike Python forward-hook callbacks which
+   are silently skipped during graph replay.
+3. Run inference one prompt at a time on each model; retrieve captures from
+   the worker via a second ``LLM.apply_model`` call after each generate.
 4. Build a plain ``nn.Linear`` from the baseline ``lm_head.weight`` and apply
    it to both hidden state sets to obtain log-probabilities.
-5. Compute token-weighted ``KL(P_base || P_quant)`` averaged over the dataset.
+5. Compute token-weighted ``KL(P_base || P_quant)`` online per prompt,
+   accumulating the weighted sum across the dataset.
+
+Key improvements over the hook-based approach
+----------------------------------------------
+- No ``enforce_eager=True``: buffer writes (``Tensor.copy_``) are CUDA ops
+  that are captured and replayed by CUDA graphs correctly.
+- Both models remain resident in GPU memory for the full evaluation run,
+  eliminating GPU teardown and reload overhead between models.
+- KLD is computed online after each prompt; no intermediate results are
+  written to disk.
 
 References
 ----------
 - https://vllm.ai/blog/extract-hidden-states
 - https://github.com/vllm-project/llm-compressor/issues/2646
+- https://github.com/vllm-project/llm-compressor/issues/2667
 """
 
 from __future__ import annotations
@@ -59,9 +70,9 @@ _DEFAULT_DATASET = [
     "Efficient inference is critical for deploying large language models.",
 ]
 
-# Attribute names used to stash state on the model inside the worker.
-_CAPTURES_ATTR = "__kld_captures__"
-_HOOK_ATTR = "__kld_hook_handle__"
+# Maximum number of tokens the capture buffer can hold.  Prompts longer than
+# this are truncated to the first _MAX_CAPTURE_TOKENS prefill positions.
+_MAX_CAPTURE_TOKENS = 8192
 
 
 # ------------------------------------------------------------------
@@ -73,65 +84,82 @@ _HOOK_ATTR = "__kld_hook_handle__"
 # ------------------------------------------------------------------
 
 
-def _worker_register_hook(model: nn.Module) -> None:
+def _worker_setup_buffer_capture(model: nn.Module) -> None:
     """
-    Register a forward hook on the model's ``LogitsProcessor``.
+    Patch ``LogitsProcessor.forward`` to capture pre-lm_head hidden states
+    into a pre-allocated CUDA buffer.
 
-    Stores the hook handle and an empty capture buffer as attributes on
-    *model* so they survive the worker-process boundary.
+    Buffer writes (``Tensor.copy_``) are CUDA memory operations — they are
+    recorded in CUDA graphs and replayed correctly on each forward pass,
+    unlike Python forward-hook callbacks which are skipped during graph replay.
+
+    Must be called via ``apply_model`` **before** the first ``generate()`` so
+    that the patched forward is included in any CUDA-graph capture.
 
     :param model: The vLLM-loaded model running inside the worker.
-    :raises RuntimeError: If ``LogitsProcessor`` cannot be found.
+    :raises RuntimeError: If ``LogitsProcessor`` or ``lm_head`` cannot be
+        found, or if ``lm_head`` has no ``.weight`` attribute.
     """
-    processor = _find_logits_processor(model)
-    if processor is None:
+    lp = _find_logits_processor(model)
+    if lp is None:
         raise RuntimeError(
             "Could not locate LogitsProcessor in the vLLM model. "
             "KLDivergenceEvaluator requires a decoder model that exposes a "
             "'logits_processor' attribute (Llama, OPT, Mistral, Qwen, ...)."
         )
-    setattr(model, _CAPTURES_ATTR, [])
 
-    def _hook(
-        module: nn.Module,
-        inputs: tuple,
-        output: torch.Tensor,
-    ) -> None:
-        # LogitsProcessor.forward(lm_head, hidden_states, embedding_bias=None)
-        # inputs[1] is the pre-projection hidden state tensor.
-        if len(inputs) < 2 or not isinstance(inputs[1], torch.Tensor):
-            return
-        getattr(model, _CAPTURES_ATTR).append(
-            inputs[1].detach().to(torch.float32).cpu()
-        )
+    head = _find_lm_head(model)
+    if head is None:
+        raise RuntimeError("Could not locate lm_head in the vLLM model.")
 
-    handle = processor.register_forward_hook(_hook)
-    setattr(model, _HOOK_ATTR, handle)
+    weight = getattr(head, "weight", None)
+    if weight is None:
+        raise RuntimeError("lm_head has no .weight attribute.")
+
+    hidden_dim = weight.shape[1]
+    device = weight.device
+    buf_dtype = weight.dtype
+
+    # Pre-allocate a fixed-size CUDA buffer.  Writes to this buffer are CUDA
+    # operations, so they are captured and replayed by CUDA graphs correctly.
+    buf = torch.zeros(_MAX_CAPTURE_TOKENS, hidden_dim, device=device, dtype=buf_dtype)
+    n_tok = torch.zeros(1, dtype=torch.int64, device=device)
+
+    model.__kld_buf__ = buf
+    model.__kld_n__ = n_tok
+
+    original_fwd = lp.forward
+
+    def _capturing_forward(lm_head_w, hidden_states, *args, **kwargs):
+        n = hidden_states.shape[0]
+        cap = min(n, _MAX_CAPTURE_TOKENS)
+        # CUDA copy — captured in CUDA graph and replayed on each call.
+        buf[:cap].copy_(hidden_states[:cap].to(buf_dtype))
+        n_tok.fill_(cap)
+        return original_fwd(lm_head_w, hidden_states, *args, **kwargs)
+
+    # Instance-level replacement: only this LogitsProcessor is patched,
+    # not the whole class.  Created inside the worker, so no pickle needed.
+    lp.forward = _capturing_forward
 
 
-def _worker_collect_captures(model: nn.Module) -> list[torch.Tensor]:
+def _worker_collect_buffer(model: nn.Module) -> dict:
     """
-    Return and clear the hidden-state captures stored on *model*.
+    Read the captured hidden states from the CUDA buffer and return to caller.
+
+    Called via ``apply_model`` after each ``generate()`` to retrieve the
+    pre-lm_head hidden states written by ``_worker_setup_buffer_capture``.
 
     :param model: The vLLM-loaded model running inside the worker.
-    :return: List of captured hidden-state tensors (CPU, float32).
+    :return: ``{"hidden_states": Tensor[n, hidden_dim], "n_tokens": int}``
+        where hidden states are CPU float32.
     """
-    captures: list[torch.Tensor] = list(getattr(model, _CAPTURES_ATTR, []))
-    setattr(model, _CAPTURES_ATTR, [])
-    return captures
-
-
-def _worker_remove_hook(model: nn.Module) -> None:
-    """
-    Remove the registered hook and clear capture storage from *model*.
-
-    :param model: The vLLM-loaded model running inside the worker.
-    """
-    handle = getattr(model, _HOOK_ATTR, None)
-    if handle is not None:
-        handle.remove()
-    setattr(model, _CAPTURES_ATTR, [])
-    setattr(model, _HOOK_ATTR, None)
+    buf: torch.Tensor = model.__kld_buf__
+    n: int = int(model.__kld_n__[0].item())
+    return {
+        "hidden_states": buf[:n].detach().float().cpu(),
+        "n_tokens": n,
+    }
 
 
 def _worker_copy_lm_head(model: nn.Module) -> dict:
@@ -188,7 +216,6 @@ class KLDivergenceResult:
     skipped: int = 0
 
     def __str__(self) -> str:
-        """Return a compact human-readable summary."""
         return (
             f"KLDivergenceResult("
             f"mean_kld={self.mean_kld:.6f}, "
@@ -203,16 +230,15 @@ class KLDivergenceEvaluator:
     Evaluates KL Divergence between a baseline and quantized model using
     vLLM hidden state extraction.
 
-    Extracts pre-lm_head hidden states by hooking the model's
-    ``LogitsProcessor`` inside the vLLM worker process via ``LLM.apply_model``.
-    Captures are stored on the model object itself (to survive vLLM v1's
-    spawn-based worker isolation) and retrieved after each generate call.
-    KL Divergence is then computed offline using the baseline model's lm_head
-    weight matrix — ~30x more storage-efficient than full logprob extraction.
+    Both models are loaded into GPU memory simultaneously and remain resident
+    for the full evaluation run.  Pre-lm_head hidden states are captured via
+    a pre-allocated CUDA buffer patched onto each model's ``LogitsProcessor``
+    before the first ``generate()`` call — this avoids the ``enforce_eager``
+    requirement of Python forward-hook approaches, since buffer writes are
+    CUDA memory operations recorded and replayed by CUDA graphs.
 
-    ``enforce_eager`` is always forced to ``True`` regardless of the caller's
-    value: CUDA-graph replay skips Python callbacks, so forward hooks would
-    silently produce no captures under graph-captured execution.
+    KLD is computed online after each prompt pair; no intermediate data is
+    written to disk.
 
     Tensor parallelism is not supported (``tensor_parallel_size`` must be 1)
     because the lm_head weight is sharded across ranks under TP, which would
@@ -227,7 +253,9 @@ class KLDivergenceEvaluator:
     :param max_tokens: Maximum number of tokens to generate per prompt.
         Must be >= 1. Set to 1 to evaluate only on the prompt prefill
         positions (recommended for pure quantization quality assessment).
-    :param gpu_memory_utilization: Fraction of GPU memory vLLM may use.
+    :param gpu_memory_utilization: Fraction of GPU memory each model may use.
+        Defaults to 0.45 so that two concurrent models use ~0.90 total.
+        Reduce if two models do not fit in GPU memory simultaneously.
     :param tensor_parallel_size: Must be 1 (TP not yet supported).
 
     Example::
@@ -246,7 +274,7 @@ class KLDivergenceEvaluator:
         quantized_model_id: Optional[str] = None,
         dtype: str = "auto",
         max_tokens: int = 1,
-        gpu_memory_utilization: float = 0.85,
+        gpu_memory_utilization: float = 0.45,
         tensor_parallel_size: int = 1,
     ):
         if tensor_parallel_size != 1:
@@ -272,15 +300,21 @@ class KLDivergenceEvaluator:
         """
         Run KL Divergence evaluation over the given prompts.
 
-        Loads baseline and quantized models sequentially to avoid holding
-        both in GPU memory at once.  GPU memory is explicitly released after
-        each model via ``_teardown_llm``.
+        Both models are loaded at the start and remain in GPU memory for the
+        full run.  KLD is computed online after each prompt pair; no data is
+        written to disk.
 
         :param prompts: List of text prompts to evaluate on. Defaults to a
             small built-in calibration set if not provided.
         :return: :class:`KLDivergenceResult` with mean KLD and diagnostics.
         :raises ValueError: If *prompts* is an empty list.
         """
+        import os
+
+        from vllm import LLM, SamplingParams
+
+        os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
+
         if prompts is None:
             prompts = list(_DEFAULT_DATASET)
             logger.info(
@@ -291,21 +325,59 @@ class KLDivergenceEvaluator:
         if not prompts:
             raise ValueError("prompts must be a non-empty list.")
 
-        logger.info(f"Extracting hidden states from base model: {self.base_model_id}")
-        base_hidden, base_lm_head = self._extract_hidden_states(
-            self.base_model_id, prompts
+        logger.info(
+            f"Loading base model: {self.base_model_id} "
+            f"(gpu_memory_utilization={self.gpu_memory_utilization})"
         )
+        base_llm = self._build_llm(self.base_model_id)
 
         logger.info(
-            f"Extracting hidden states from quantized model: "
-            f"{self.quantized_model_id}"
+            f"Loading quantized model: {self.quantized_model_id} "
+            f"(gpu_memory_utilization={self.gpu_memory_utilization})"
         )
-        quant_hidden, _ = self._extract_hidden_states(
-            self.quantized_model_id, prompts
-        )
+        quant_llm = self._build_llm(self.quantized_model_id)
 
-        logger.info("Computing KL Divergence from hidden states...")
-        return self._compute_kld(base_hidden, quant_hidden, base_lm_head)
+        try:
+            # Patch both models before any generate() triggers CUDA-graph capture.
+            logger.info("Setting up buffer capture on both models.")
+            base_llm.apply_model(_worker_setup_buffer_capture)
+            quant_llm.apply_model(_worker_setup_buffer_capture)
+
+            lm_head_data = base_llm.apply_model(_worker_copy_lm_head)[0]
+            lm_head = self._build_cpu_lm_head(lm_head_data)
+
+            sampling_params = SamplingParams(
+                temperature=0.0,
+                max_tokens=self.max_tokens,
+                prompt_logprobs=1,
+            )
+
+            base_hidden: list[torch.Tensor] = []
+            quant_hidden: list[torch.Tensor] = []
+
+            logger.info(f"Evaluating {len(prompts)} prompts...")
+            for idx, prompt in enumerate(prompts):
+                base_llm.generate([prompt], sampling_params=sampling_params, use_tqdm=False)
+                base_data = base_llm.apply_model(_worker_collect_buffer)[0]
+
+                quant_llm.generate([prompt], sampling_params=sampling_params, use_tqdm=False)
+                quant_data = quant_llm.apply_model(_worker_collect_buffer)[0]
+
+                h_base = base_data["hidden_states"]
+                h_quant = quant_data["hidden_states"]
+
+                if h_base.numel() == 0 or h_quant.numel() == 0:
+                    logger.warning(f"Empty capture for prompt {idx}; skipping.")
+
+                base_hidden.append(h_base)
+                quant_hidden.append(h_quant)
+
+            logger.info("Computing KL Divergence from hidden states...")
+            return self._compute_kld(base_hidden, quant_hidden, lm_head)
+
+        finally:
+            self._teardown_llm(base_llm)
+            self._teardown_llm(quant_llm)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -313,106 +385,29 @@ class KLDivergenceEvaluator:
 
     def _build_llm(self, model_id: str) -> "LLM":
         """
-        Instantiate a vLLM ``LLM`` for *model_id* with eager execution forced.
+        Instantiate a vLLM ``LLM`` for *model_id*.
 
-        ``enforce_eager=True`` is mandatory: CUDA-graph replay skips Python
-        forward-hook callbacks, which would silently produce empty captures.
-
-        Also sets ``VLLM_ALLOW_INSECURE_SERIALIZATION=1`` so that
-        ``apply_model`` can transmit module-level callables to the worker
-        process via pickle (vLLM v1's default serializer rejects functions).
+        ``VLLM_ALLOW_INSECURE_SERIALIZATION=1`` must be set before calling
+        ``LLM()`` so that ``apply_model`` can transmit module-level callables
+        to the worker process via pickle.
 
         :param model_id: HuggingFace model ID or local path.
         :return: Configured ``LLM`` instance.
         """
-        import os
-
         from vllm import LLM
-
-        os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
 
         return LLM(
             model=model_id,
             dtype=self.dtype,
             gpu_memory_utilization=self.gpu_memory_utilization,
-            enforce_eager=True,  # hooks require eager execution
             tensor_parallel_size=self.tensor_parallel_size,
         )
 
-    def _extract_hidden_states(
-        self,
-        model_id: str,
-        prompts: list[str],
-    ) -> tuple[list[torch.Tensor], nn.Linear]:
-        """
-        Load *model_id* via vLLM, register a hook on LogitsProcessor, run
-        inference one prompt at a time, then return per-prompt hidden states
-        and a CPU copy of the lm_head projection.
-
-        :param model_id: Model to load.
-        :param prompts: Prompts to run inference on.
-        :return: ``(hidden_states_per_prompt, lm_head_cpu)``.  Each tensor
-            in the list has shape ``[prompt_len, hidden_dim]`` on CPU.
-        """
-        from vllm import SamplingParams
-
-        llm = self._build_llm(model_id)
-
-        llm.apply_model(_worker_register_hook)
-
-        # prompt_logprobs=1 forces vLLM to compute logits for every prompt
-        # token position, not just the final prefill token.
-        sampling_params = SamplingParams(
-            temperature=0.0,
-            max_tokens=self.max_tokens,
-            prompt_logprobs=1,
-        )
-
-        per_prompt_hidden: list[torch.Tensor] = []
-
-        for idx, prompt in enumerate(prompts):
-            outputs = llm.generate(
-                [prompt],
-                sampling_params=sampling_params,
-                use_tqdm=False,
-            )
-
-            captures: list[torch.Tensor] = llm.apply_model(
-                _worker_collect_captures
-            )[0]
-
-            if not outputs:
-                logger.warning(
-                    f"vLLM returned no output for prompt {idx}; skipping."
-                )
-                per_prompt_hidden.append(torch.empty(0))
-                continue
-
-            if not captures:
-                logger.warning(
-                    f"No hidden states captured for prompt {idx}. "
-                    "The LogitsProcessor hook may not have fired — check "
-                    "the model architecture."
-                )
-                per_prompt_hidden.append(torch.empty(0))
-                continue
-
-            request = outputs[0]
-            prompt_len = len(request.prompt_token_ids or [])
-
-            # Concatenate prefill + decode captures, keep only prefill tokens.
-            full = torch.cat(captures, dim=0)
-            keep = full[:prompt_len] if full.shape[0] >= prompt_len else full
-            per_prompt_hidden.append(keep)
-
-        llm.apply_model(_worker_remove_hook)
-
-        lm_head_data = llm.apply_model(_worker_copy_lm_head)[0]
+    @staticmethod
+    def _build_cpu_lm_head(lm_head_data: dict) -> nn.Linear:
+        """Build a CPU ``nn.Linear`` from copied lm_head weight/bias tensors."""
         weight: torch.Tensor = lm_head_data["weight"]
         bias: Optional[torch.Tensor] = lm_head_data["bias"]
-
-        self._teardown_llm(llm)
-
         cpu_head = nn.Linear(
             weight.shape[1],
             weight.shape[0],
@@ -422,8 +417,7 @@ class KLDivergenceEvaluator:
         cpu_head.weight.data.copy_(weight)
         if bias is not None:
             cpu_head.bias.data.copy_(bias)
-
-        return per_prompt_hidden, cpu_head
+        return cpu_head
 
     @staticmethod
     def _teardown_llm(llm: "LLM") -> None:
@@ -432,8 +426,6 @@ class KLDivergenceEvaluator:
 
         ``del llm`` alone is insufficient — vLLM retains engine allocations,
         KV cache, and distributed state that persist until explicitly torn down.
-        This method calls vLLM's distributed teardown helpers, then forces a
-        Python GC pass and clears the CUDA allocator cache.
 
         :param llm: The ``LLM`` instance to destroy.
         """
@@ -511,8 +503,6 @@ class KLDivergenceEvaluator:
                 log_p = F.log_softmax(logits_base, dim=-1)
                 log_q = F.log_softmax(logits_quant, dim=-1)
 
-                # Sum KLD over all tokens; divide by token count for per-prompt
-                # average, but accumulate raw sum for token-weighted global mean.
                 kld_sum = F.kl_div(
                     log_q, log_p, reduction="sum", log_target=True
                 ).item()
@@ -545,7 +535,7 @@ def evaluate_kl_divergence(
     prompts: Optional[list[str]] = None,
     dtype: str = "auto",
     max_tokens: int = 1,
-    gpu_memory_utilization: float = 0.85,
+    gpu_memory_utilization: float = 0.45,
     tensor_parallel_size: int = 1,
 ) -> KLDivergenceResult:
     """
@@ -557,7 +547,8 @@ def evaluate_kl_divergence(
     :param prompts: Calibration prompts. Defaults to a small built-in set.
     :param dtype: Model dtype for vLLM (e.g. ``"auto"``, ``"bfloat16"``).
     :param max_tokens: Max tokens to generate per prompt (must be >= 1).
-    :param gpu_memory_utilization: Fraction of GPU memory vLLM may allocate.
+    :param gpu_memory_utilization: Fraction of GPU memory each model may use.
+        Defaults to 0.45 for two concurrent models (~0.90 total).
     :param tensor_parallel_size: Must be 1 (TP not supported).
     :return: :class:`KLDivergenceResult` with mean KLD and diagnostics.
 
