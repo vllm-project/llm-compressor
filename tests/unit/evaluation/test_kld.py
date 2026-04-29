@@ -314,18 +314,29 @@ def test_buffer_capture_writes_hidden_states_on_forward():
     assert not data["hidden_states"].is_cuda
 
 
-def test_buffer_capture_multiple_calls_overwrite():
-    """Second forward call overwrites the first (buffer is reused)."""
+def test_buffer_capture_only_first_call_captured():
+    """Only the first forward call (prefill) is captured; decode calls are ignored."""
     model = _ModelForCapture(hidden=8, vocab=16)
     _worker_setup_buffer_capture(model)
 
-    first = torch.randn(3, 8)
-    second = torch.randn(7, 8)
-    model.logits_processor.forward(model.lm_head, first)
-    model.logits_processor.forward(model.lm_head, second)
+    prefill = torch.randn(10, 8)
+    decode = torch.randn(1, 8)
+    model.logits_processor.forward(model.lm_head, prefill)
+    model.logits_processor.forward(model.lm_head, decode)  # should be ignored
 
     data = _worker_collect_buffer(model)
-    assert data["n_tokens"] == 7
+    assert data["n_tokens"] == 10  # prefill length, not decode
+
+
+def test_collect_buffer_resets_counter_for_next_prompt():
+    """n_tok must be 0 after collect so the next prompt's prefill is captured."""
+    model = _ModelForCapture(hidden=8, vocab=16)
+    _worker_setup_buffer_capture(model)
+
+    model.logits_processor.forward(model.lm_head, torch.randn(5, 8))
+    _worker_collect_buffer(model)
+
+    assert int(model.__kld_n__[0].item()) == 0
 
 
 # ---------------------------------------------------------------------
