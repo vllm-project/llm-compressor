@@ -1,11 +1,15 @@
 from abc import ABC
 from typing import Callable
+import tqdm
 
 import torch
+import torch.distributed as dist
 from transformers import PreTrainedModel
 from transformers.core_model_loading import WeightConverter, WeightRenaming
 from transformers.modeling_utils import local_torch_dtype
 from transformers.integrations.moe import _default_apply_gate
+from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import offload_module, get_cache_init_kwargs
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -32,11 +36,19 @@ def linearize_moe_model(model: PreTrainedModel):
         if not _is_moe_experts_converter(converter)
     ]
 
+    named_experts_modules = [
+        (name, module)
+        for name, module in model.named_modules()
+        if _is_moe_experts_module(module)
+    ]
+
     with local_torch_dtype(model.config.dtype, model.__class__.__name__):
-        for name, module in model.named_modules():
-            if _is_moe_experts_module(module):
-                new_moe = LinearExperts.from_experts(module)
-                model.set_submodule(name, new_moe)
+        for name, module in tqdm.tqdm(named_experts_modules):
+            new_moe = LinearExperts.from_experts(module)
+            model.set_submodule(name, new_moe)
+
+            if is_distributed():
+                dist.barrier()
 
 # probably only need to registry this class
 class ExpertMLP(torch.nn.Module, ABC):
@@ -87,6 +99,9 @@ class ExpertMLPWithGate(ExpertMLP):
             instance = cls(
                 hidden_dim, moe_intermediate_size, experts.has_bias, experts._apply_gate
             )
+
+        for module in instance.modules():
+            offload_module(module, **get_cache_init_kwargs(experts))
 
         # load weights
         gate_weight = experts.gate_up_proj[expert_index, :moe_intermediate_size]
@@ -153,12 +168,7 @@ class ExpertMLPWithoutGate(ExpertMLP):
     ):
         assert not experts.has_gate
         if experts.__class__._apply_gate is not _default_apply_gate:
-            # assume that if a `_apply_gate` is implemented, then the weight
-            # is not valid for quantization (for example, might be interleaved)
-            raise NotImplementedError(
-                f"Linearization for {experts.__class__.__name__} "
-                "has not been implemented yet"
-            )
+            raise ValueError("TODO")
 
         with skip_weights_initialize():
             instance = cls(

@@ -24,18 +24,16 @@ def accumulate_hessian(
     num_samples: int,
 ) -> Tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
-    if len(inp.shape) == 2:
-        inp = inp.unsqueeze(0)
-
-    num_added = inp.shape[0]  # note this is the number of dataset samples, not
-    # multiplied by the sequence length
 
     if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
-        if len(inp.shape) == 3:
-            inp = inp.reshape((-1, inp.shape[-1]))
+        num_added = inp[..., 0].numel()
+        inp = inp.reshape(-1, inp.shape[-1])
         inp = inp.t()
 
     if isinstance(module, torch.nn.Conv2d):
+        if len(inp.shape) == 2:
+            inp = inp.unsqueeze(0)
+        num_added = inp.shape[0]
         unfold = torch.nn.Unfold(
             module.kernel_size,
             dilation=module.dilation,

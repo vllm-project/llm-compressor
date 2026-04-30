@@ -14,17 +14,18 @@ from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModif
 
 # Select model and load it.
 #MODEL_ID = "/mnt/nfs-preprod-1/engine/kylesayrs/DeepSeek-V4-Flash-bf16-dequantized"
-MODEL_ID = "/mnt/nfs-preprod-1/engine/kylesayrs/DeepSeek-V4-Flash-bf16-dequantized-5layers"
+#MODEL_ID = "/mnt/nfs-preprod-1/engine/kylesayrs/DeepSeek-V4-Flash-bf16-dequantized-5layers"
+MODEL_ID = "DeepSeek-V4-Flash-bf16"
 
-#init_dist()
+init_dist()
 with load_offloaded_model():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         torch_dtype="auto",
-        #device_map="auto_offload",
-        device_map="cpu",
-        #max_memory={"cpu": 3e10},
-        #offload_folder="offload_folder",
+        device_map="auto_offload",
+        #device_map="cpu",
+        max_memory={"cpu": 3e10},
+        offload_folder="offload_folder",
     )
 linearize_moe_model(model)
 
@@ -42,8 +43,8 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 12#512
-MAX_SEQUENCE_LENGTH = 10#2048
+NUM_CALIBRATION_SAMPLES = 1024
+MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
 ds = load_dataset(
@@ -91,6 +92,13 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize attention projection weights to FP8_BLOCK
 recipe = GPTQModifier(
     config_groups={
+        "attention": QuantizationScheme(
+            targets=[
+                r"re:model.*attn.*(wkv|wo_a|wo_b|wq_a|wq_b)$",
+                r"re:model.*attn\.compressor.*(wgate|wkv)$",
+            ],
+            **FP8_BLOCK,
+        ),
         "experts": QuantizationScheme(
             targets=[
                 r"re:model.*mlp.*(gate|up|down)_proj$",
@@ -100,8 +108,8 @@ recipe = GPTQModifier(
     },
     ignore=[
         "lm_head",
-        r"re:model.*self_attn.*"
-        r"re:model.*ffn_hc$"
+        #r"re:model.*self_attn.*"
+        #r"re:model.*ffn_hc$"
     ],
 )
 # model.layers.4.self_attn.compressor.indexer.weights_proj
@@ -117,9 +125,10 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     sequential_targets=["DeepseekV4DecoderLayer"],
+    batch_size=32,
 )
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK-GPTQ"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
