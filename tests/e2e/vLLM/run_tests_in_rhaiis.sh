@@ -55,10 +55,11 @@ do
     FILE_NAME=$(basename $MODEL_CONFIG)
     CONFIG_FILE=$SAVE_DIR/configs/$FILE_NAME
 
-    save_dir=$(cat $MODEL_CONFIG | grep 'save_dir:' | cut -d' ' -f2)
-    model=$(cat $MODEL_CONFIG | grep 'model:' | cut -d'/' -f2)
-    scheme=$(cat $MODEL_CONFIG | grep 'scheme:' | cut -d' ' -f2)
-    test_group=$(cat $MODEL_CONFIG | grep 'test_group:' | cut -d'"' -f2)
+    # Anchor keys to column 0 so nested keys (e.g. lmeval.model) are not matched.
+    save_dir=$(grep '^save_dir:' "$MODEL_CONFIG" | cut -d' ' -f2)
+    model=$(grep '^model:' "$MODEL_CONFIG" | cut -d'/' -f2)
+    scheme=$(grep '^scheme:' "$MODEL_CONFIG" | cut -d' ' -f2)
+    test_group=$(grep '^test_group:' "$MODEL_CONFIG" | cut -d'"' -f2)
 
     # run test if test group is not specified or the config matching the specified test group
     if [ -z "$GROUP" ] || [[ "${test_group}" == "$GROUP" ]]; then
