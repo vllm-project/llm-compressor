@@ -99,7 +99,9 @@ jobs:
           for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
             echo "--- Running: $test_file ---"
             pytest -vra $COV_APPEND "$test_file" || EXIT_CODE=$?
-            COV_APPEND="--cov-append"
+            if [[ "${{ inputs.code_coverage }}" == "true" ]]; then
+              COV_APPEND="--cov-append"
+            fi
           done
           exit $EXIT_CODE
       - name: "Upload coverage report"
