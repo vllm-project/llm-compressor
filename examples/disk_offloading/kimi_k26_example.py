@@ -3,22 +3,59 @@ from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from compressed_tensors.entrypoints.convert import (
+    convert_checkpoint,
+    CompressedTensorsDequantizer,
+)
 
-MODEL_ID = "/mnt/data/engine/brian-dellabetta/Kimi-K2.6-bf16"
+# moonshotai/Kimi-K2.6 checkpoint is published in W4A16 compressed-tensors format.
+# This script will first upconvert to bfloat16 so that the model can be compressed
+# in another configuration. Note that the dequantized model is 1.9TB, whereas the
+# original and the nvfp4 checkpoint are <600GB.
+
+MODEL_ID = "moonshotai/Kimi-K2.6"
+DEQUANTIZED_SAVE_DIR = "Kimi-K2.6-bf16"
 SAVE_DIR = "Kimi-K2.6-NVFP4"
 
-# Select model and load it in the `load_offloaded_model` context
+ignore = [
+    "re:.*mlp.gate$",
+    "re:.*lm_head",
+    "re:.*self_attn.*",
+    "re:.*embed_tokens$",
+    "re:.*norm$",
+    # ignore anything not in language_model
+    "re:.*mm_projector.*",
+    "re:.*vision.*",
+]
+
+# Convert DeepSeek-V3.2 back to dense bfloat16 format
+convert_checkpoint(
+    model_stub=MODEL_ID,
+    save_directory=DEQUANTIZED_SAVE_DIR,
+    converter=CompressedTensorsDequantizer(
+        MODEL_ID,
+        quant_config_key="text_config.quantization_config",
+        ignore=ignore,
+    ),
+    max_workers=1,
+)
+
+# Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB
 with load_offloaded_model():
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
+        DEQUANTIZED_SAVE_DIR,
         dtype="auto",
-        device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        max_memory={"cpu": 500e9},  # remove this line to use as much cpu as possible
+        device_map="auto_offload",
+        max_memory={"cpu": 500e9},
         trust_remote_code=True,
         offload_folder="./offload_folder",
     )
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
-    processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        DEQUANTIZED_SAVE_DIR, trust_remote_code=True
+    )
+    processor = AutoProcessor.from_pretrained(
+        DEQUANTIZED_SAVE_DIR, trust_remote_code=True
+    )
 
 # Confirm that model is dispatched correctly
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
@@ -38,19 +75,7 @@ MAX_SEQUENCE_LENGTH = 2048
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="NVFP4",
-    ignore=[
-        "re:.*mlp.gate$",
-        "re:.*lm_head",
-        "re:.*self_attn.*",
-        "re:.*kv_a_proj_with_mqa$",
-        "re:.*q_a_proj$",
-        "re:.*vision_tower.*",
-        "re:.*embed_tokens$",
-        "re:.*norm$",
-        # ignore anything not in language_model
-        "re:.*mm_projector.*",
-        "re:.*vision.*",
-    ],
+    ignore=ignore,
 )
 
 # Apply algorithms.
