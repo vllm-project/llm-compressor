@@ -152,11 +152,28 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if (
-                getattr_chain(scheme, "weights.strategy", None)
-                == QuantizationStrategy.GROUP
+            strategy = getattr_chain(scheme, "weights.strategy", None)
+            if strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.CHANNEL,
             ):
+                # NOTE: setattr bypasses QuantizationArgs' model_validator, which
+                # only runs at construction time and rejects actorder for
+                # non-group strategies. This is intentional — yaml-level config
+                # is still rejected by that validator; we only enable actorder
+                # for per-channel via the modifier-level path.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+
+                if (
+                    strategy == QuantizationStrategy.CHANNEL
+                    and scheme.weights.actorder == ActivationOrdering.GROUP
+                ):
+                    logger.warning(
+                        "ActivationOrdering.GROUP is not compatible with "
+                        "strategy=CHANNEL (no group_size). Falling back to "
+                        "actorder=None for this scheme."
+                    )
+                    scheme.weights.actorder = None
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
