@@ -65,9 +65,11 @@ Some of the exciting new features include:
 * SmoothQuant
 * AutoRound
 
-### When to Use Which Optimization
+### Quantizing your model, step-by-step
 
-Please refer to [compression_schemes.md](./docs/guides/compression_schemes.md) for detailed information about available optimization schemes and their use cases.
+Please refer to our [step-by-step compression guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/steps/choosing-model/) for detailed information about selecting a quantization schemes, algorithm, and their use cases.
+
+Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/)
 
 
 ## Installation
@@ -81,31 +83,46 @@ pip install llmcompressor
 ### End-to-End Examples
 
 Applying quantization with `llmcompressor`:
+
+### Weight and Activation Quantization
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
-* [Activation quantization to MXFP8 (experimental)](experimental/mxfp8/qwen3_example_w8a8_mxfp8.py)
-* [Weight-only quantization to MXFP8A16 (experimental)](experimental/mxfp8/qwen3_example_w8a16_mxfp8.py)
-* [Activation quantization to `fp4`](examples/quantization_w4a4_fp4/llama3_example.py)
+* [Activation quantization to MXFP8](examples/quantization_w8a8_mxfp8)
+* [Activation quantization to `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
+* [Activation quantization to `fp4` (MXFP4)](experimental/mxfp4)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)
 * [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8/)
-* [Weight only quantization to `fp4` (NVFP4 format)](examples/quantization_w4a16_fp4/nvfp4/llama3_example.py)
+
+### Weight Only Quantization
+* [Weight only quantization to `fp4` (NVFP4 format)](examples/quantization_w4a16_fp4/nvfp4)
 * [Weight only quantization to `fp4` (MXFP4 format)](examples/quantization_w4a16_fp4/mxfp4)
 * [Weight only quantization to `int4` using GPTQ](examples/quantization_w4a16/README.md)
 * [Weight only quantization to `int4` using AWQ](examples/awq/README.md)
 * [Weight only quantization to `int4` using AutoRound](examples/autoround/quantization_w4a16/README.md)
+
+### Attention and KV Cache Quantization
 * [KV Cache quantization to `fp8`](examples/quantization_kv_cache/README.md)
 * [KV Cache quantization to `fp8` using per-head](examples/quantization_kv_cache/llama3_fp8_head_kv_example.py)
 * [Attention quantization to `fp8`](examples/quantization_attention/README.md)
 * [Attention quantization to `nvfp4` with SpinQuant (experimental)](experimental/attention/README.md)
+
+### Architectural Specific Quantization
 * [Quantizing MoE LLMs](examples/quantizing_moe/README.md)
 * [Quantizing Vision-Language Models](examples/multimodal_vision/README.md)
 * [Quantizing Audio-Language Models](examples/multimodal_audio/README.md)
+
+### Non-Uniform Quantization
 * [Quantizing Models Non-uniformly](examples/quantization_non_uniform/README.md)
 
-
-### User Guides
-Deep dives into advanced usage of `llmcompressor`:
+### Big Model Quantization Support
 * [Quantizing large models with sequential onloading](examples/big_models_with_sequential_onloading/README.md)
+* [Quantizing large models with disk offloading](examples/disk_offloading/README.md)
+
+### Model-Free Definition Quantization
+* [Quantizing models without a Hugging Face model definition](examples/model_free_ptq/README.md)
+
+### DDP Quantization
+* [Distributed data parallel quantization with GPTQ](examples/quantization_w4a16/llama3_ddp_example.py)
 
 
 ## Quick Tour
