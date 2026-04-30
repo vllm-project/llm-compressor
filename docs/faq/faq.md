@@ -12,7 +12,7 @@ There is minimal support for compressed-tensors models in sglang, but it is not 
 
 **3. How do I choose the right quantization scheme?**
 
-This involves understanding your hardware availability and inference requirements. Refer to [Compression Schemes Guide](../guides/compression_schemes.md) and for a step-by-step guide, see our [Compression Guide](../steps/why-llmcompressor.md).
+This involves understanding your hardware availability and inference requirements. Refer to the [Compression Schemes Guide](../guides/compression_schemes.md). For a step-by-step guide, see our [Compression Guide](../steps/why-llmcompressor.md).
 
 **4. What are the memory requirements for compression?**
 
@@ -44,4 +44,4 @@ There are multiple videos on YouTube:
 - [Optimizing vLLM Performance through Quantization|Ray Summit 2024](https://www.youtube.com/watch?v=G1WNlLxPLSE)
 - [vLLM Office Hours](https://www.youtube.com/playlist?list=PLbMP1JcGBmSHxp4-lubU5WYmJ9YgAQcf3)
 
-Or join the vLLM slack and ask any questions in #llm-compressor or #sig-quantization.
+Alternatively, join the vLLM Slack and ask any questions in #llm-compressor or #sig-quantization.
