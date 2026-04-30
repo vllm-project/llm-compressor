@@ -125,8 +125,18 @@ def quantize_weight(
             // quant_args.group_size
         )
 
+    # GPTQModifier.resolve_quantization_config already filters CHANNEL+GROUP, but
+    # quantize_weight may be called directly; guard against it here to avoid
+    # indexing g_idx (which is None for non-grouped strategies).
+    if actorder == ActivationOrdering.GROUP and not is_grouped:
+        logger.warning(
+            "ActivationOrdering.GROUP requires a grouped quantization strategy; "
+            "falling back to actorder=None for this module."
+        )
+        actorder = None
+
     # column permutation is common to WEIGHT and GROUP actorder across all
-    # strategies; CHANNEL + GROUP is filtered out by GPTQModifier.resolve_quantization_config
+    # strategies
     if actorder in (ActivationOrdering.WEIGHT, ActivationOrdering.GROUP):
         W, H, perm = _apply_activation_ordering(W, H)
 

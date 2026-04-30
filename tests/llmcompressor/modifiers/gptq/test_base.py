@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from unittest.mock import patch
 
 import pytest
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
@@ -164,7 +165,10 @@ def test_channel_actorder_group_falls_back_to_none():
         ),
     }
     modifier = GPTQModifier(config_groups=config_groups, actorder="group")
-    resolved = modifier.resolve_quantization_config()
+    with patch("llmcompressor.modifiers.gptq.base.logger.warning") as warn:
+        resolved = modifier.resolve_quantization_config()
+    warn.assert_called_once()
+    assert "CHANNEL" in warn.call_args.args[0]
     assert resolved.config_groups["0"].weights.actorder is None
 
 
