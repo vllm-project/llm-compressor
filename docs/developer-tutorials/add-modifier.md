@@ -10,7 +10,7 @@ A modifier is a subclass of the `Modifier` base class that hooks into the compre
 2. Call `on_initialize` on each modifier
 3. For each pipeline:
     * Dispatch the model, then call `on_start` for each modifier in the pipeline
-    * Calibrate the model with calibration data, triggering the `calibration_epoch_start`, `sequential_epoch_end`, and `calibration_epoch_end` events for each modifier in the pipeline
+    * Calibrate the model with calibration data (quantization is disabled during calibration forward passes), triggering the `calibration_epoch_start`, `sequential_epoch_end`, and `calibration_epoch_end` events for each modifier in the pipeline
 4. Call `on_end` on each modifier in the pipeline
 5. Call `on_finalize` on each modifier once all pipelines have finished
 
@@ -82,6 +82,10 @@ class MyModifier(Modifier):
 | `on_finalize` | Once, after calibration | No |
 
 > **Note on `on_start` / `on_end` vs `on_event`:** The base class dispatches `on_start` on the first `BATCH_START` event and `on_end` on `BATCH_END`. However, all built-in modifiers (GPTQ, AWQ, SmoothQuant, SparseGPT, etc.) bypass this by overriding `on_event` and calling `self.on_start()` / `self.on_end()` themselves on `CALIBRATION_EPOCH_START` / `CALIBRATION_EPOCH_END`. If you are writing a new modifier, follow this pattern.
+
+> **Note on `SEQUENTIAL_EPOCH_END`:** This event is fired by **all** pipelines (sequential, basic, and data-free), not just the sequential pipeline. For the sequential pipeline, it fires after each layer group with a subgraph scoped to that group. For basic and data-free pipelines, it fires once with a subgraph covering the entire model. Built-in quantization modifiers (QuantizationModifier, GPTQModifier) use this event to compute weight and activation quantization parameters — weight observation, DDP synchronization, and qparam computation all happen here.
+
+> **Quantization is disabled during calibration.** All pipelines disable quantization during calibration forward passes via `DisableQuantization`. This means calibration hooks see unquantized activations. Quantization parameters are computed at `SEQUENTIAL_EPOCH_END` and quantization is enabled at `CALIBRATION_EPOCH_END`.
 
 ### The `State` Object
 
@@ -239,4 +243,4 @@ weight_clamp_stage:
 - **Use `match_named_modules`** (from `compressed_tensors.utils`) to filter modules by type name or path pattern, consistent with how other modifiers handle `targets` and `ignore`.
 - **Keep `on_initialize` lightweight.** Expensive operations (e.g., full-model passes) should be deferred to `on_start` or `on_finalize`.
 - **`on_update` is rarely needed.** Only override it if you need a per-batch callback while the modifier is active — e.g., `MagnitudeModifier` uses it to update sparsity each batch. Compression modifiers (GPTQ, AWQ, SmoothQuant, etc.) do not use it.
-- **Modifiers never fire events — the pipeline does.** All lifecycle events (`CALIBRATION_EPOCH_START`, `SEQUENTIAL_EPOCH_END`, etc.) are fired by the calibration pipeline. Your modifier only reacts to them. The sequential pipeline additionally fires `SEQUENTIAL_EPOCH_END` between layer groups, which modifiers like GPTQ and SparseGPT use to trigger compression layer-by-layer.
+- **Modifiers never fire events — the pipeline does.** All lifecycle events (`CALIBRATION_EPOCH_START`, `SEQUENTIAL_EPOCH_END`, etc.) are fired by the calibration pipeline. Your modifier only reacts to them. All pipelines fire `SEQUENTIAL_EPOCH_END` — the sequential pipeline fires it between layer groups (scoped to each group), while the basic and data-free pipelines fire it once for the entire model. Modifiers like GPTQ, SparseGPT, and QuantizationModifier use this event to trigger compression and qparam computation.

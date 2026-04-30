@@ -1,23 +1,51 @@
 # Observers Overview
 
-An `Observer` in `llm-compressor` is a utility class responsible for analyzing weight and activation tensors during calibration and computing **min and max values** that characterize the tensor's range. These min/max values are then passed to `compressed-tensors` — specifically `calculate_qparams` for standard quantization and `generate_gparam` for FP4 global scales — to produce the final `scale` and `zero_point` used for quantization.
+An `Observer` in `llm-compressor` is a utility class responsible for analyzing weight and activation tensors during calibration. Observers work in two phases:
 
-Observers do not compute scales or zero points directly. Their responsibility is to accurately characterize the range of a tensor so that `compressed-tensors` can derive the appropriate quantization parameters.
+1. **Observe**: accumulate statistics (`min_vals`, `max_vals`) from tensors via `forward()` / `update_statistics()`
+2. **Compute**: derive quantization parameters (`scale`, `zero_point`, and optionally `global_scale`) from accumulated statistics via `get_qparams()`
+
+The statistics are passed to `compressed-tensors` — specifically `calculate_qparams` for standard quantization and `generate_gparam` for FP4 global scales — to produce the final quantization parameters.
+
+This two-phase design enables correct handling of fused layers (e.g., Q/K/V projections) that must share a `global_scale`: all observers accumulate statistics first, then `global_scale` is computed from the combined statistics of all fused observers.
 
 Observers are designed to be flexible and support a variety of quantization strategies, including per-tensor, per-group, per-channel, and per-token quantization.
 
 ## Base Class
 
 ### [Observer](../../src/llmcompressor/observers/base.py)
-Base class for all observers. Subclasses must implement `get_min_max` and `get_global_min_max` to define how tensor range statistics are computed.
+Base class for all observers. Subclasses must implement `update_statistics` to define how tensor range statistics are accumulated.
 
 The base class handles:
-- Reshaping and slicing tensors according to the quantization strategy (group, channel, token, etc.)
-- Passing the resulting min/max values to `calculate_qparams` in `compressed-tensors` to produce `scale` and `zero_point`
-- Computing global min/max and passing to `generate_gparam` in `compressed-tensors` for FP4 global scale generation (e.g., NVFP4)
-- Optional support for `g_idx` (group index mappings)
+- Reshaping and slicing tensors according to the quantization strategy (group, channel, token, etc.) via `flatten_for_calibration`
+- Computing `scale` and `zero_point` from accumulated `min_vals`/`max_vals` via `calculate_qparams` in `compressed-tensors`
+- Computing `global_scale` for FP4 schemes (e.g., NVFP4, MXFP4) from the combined statistics of all fused observers via `generate_gparam` in `compressed-tensors`
+- Fusing observers across layer groups (Q/K/V, gate/up) via `Observer.fuse()` for shared `global_scale`
+- DDP synchronization of accumulated statistics via `sync_activation_stats()` using the declarative `_act_sync_dict`
 
 This class is not used directly but provides the scaffolding for all custom observers.
+
+### Key Methods
+
+| Method | Description |
+|--------|-------------|
+| `forward(observed)` | Accumulates statistics from the observed tensor. Returns `self` (for chaining). Does **not** compute qparams. |
+| `update_statistics(observed)` | Abstract. Subclasses implement this to update `min_vals`/`max_vals` from a pre-shaped tensor. |
+| `get_qparams()` | Computes and returns a `QParamsDict` with keys `scale`, `zero_point`, and `global_scale`. |
+| `Observer.fuse(observers)` | Static method. Links observers so they share `global_scale` computed from combined statistics. |
+| `sync_activation_stats()` | All-reduces accumulated statistics across DDP ranks using `_act_sync_dict`. |
+| `has_statistics` | Property. Returns `True` if the observer has been called at least once. |
+
+### QParamsDict
+
+Observers return a `QParamsDict` (a `TypedDict`) from `get_qparams()`:
+
+```python
+class QParamsDict(TypedDict, total=False):
+    scale: torch.Tensor
+    zero_point: torch.Tensor
+    global_scale: Optional[torch.Tensor]  # only set for TENSOR_GROUP
+```
 
 ## Implemented Observers
 
@@ -94,7 +122,7 @@ Best used when:
 
 [`IMatrixGatherer`](../../src/llmcompressor/modifiers/transform/imatrix/base.py) is a modifier (not an observer) that must precede `QuantizationModifier` or `GPTQModifier` in your recipe when using `imatrix_mse`. It orchestrates a dedicated calibration pass during which the observer collects E[x²] per input channel via forward pre-hooks. It does **not** quantize weights.
 
-At the end of the calibration epoch, it calls `observer.detach()` on each instrumented module, which computes `_imatrix_importance` and leaves it on the module for the subsequent quantization pass.
+At the end of the calibration epoch, it calls `observer.detach()` on each instrumented module, which leaves raw `_imatrix_sum` and `_imatrix_count` accumulators on the module for the subsequent quantization pass to pick up.
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -102,15 +130,39 @@ At the end of the calibration epoch, it calls `observer.detach()` on each instru
 | `ignore` | `["lm_head"]` | Layer name patterns to skip. |
 | `weight_observer` | `"imatrix_mse"` | Observer to attach during the calibration pass. |
 
+## Observer Fusion (global_scale)
+
+For TENSOR_GROUP quantization schemes (e.g., NVFP4), layers that are fused at inference time (Q/K/V projections, gate/up MLP projections) must share the same `global_scale`. This is handled automatically by observer fusion:
+
+1. `fuse_weight_observers(model)` scans the model for known fused layer groups and calls `Observer.fuse()` to link their weight observers
+2. When any fused observer computes `get_qparams()`, it takes the absmax across its own statistics **and** all fused observers' statistics to produce a shared `global_scale`
+
+The fused layer groups are defined in `FUSED_LAYER_NAMES`:
+- `gate_proj` / `up_proj` (MLP)
+- `q_proj` / `k_proj` / `v_proj` (attention)
+- `q_a_proj` / `kv_a_proj_with_mqa` (DeepSeek multi-latent attention)
+- `w1` / `w3` (MoE expert layers)
+
+## DDP Synchronization
+
+Each observer subclass declares an `_act_sync_dict` mapping attribute names to DDP reduce operations. The base class `sync_activation_stats()` iterates this dict to all-reduce accumulated statistics across ranks:
+
+| Observer | Synced Attributes | Reduce Op |
+|----------|-------------------|-----------|
+| `static_minmax` | `min_vals`, `max_vals` | MIN, MAX |
+| `minmax` / `mse` | `min_vals`, `max_vals` | AVG |
+| `memoryless_minmax` / `memoryless_mse` | *(none)* | — |
+| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM |
+
 ## Quantization Strategies
 
 Observers support multiple quantization strategies via the `QuantizationArgs.strategy` field:
 
 - `TENSOR`: Global min/max across the entire tensor.
-- `GROUP`, `TENSOR_GROUP`: Slice tensor into equal-sized groups along columns.
+- `GROUP`, `TENSOR_GROUP`: Slice tensor into equal-sized groups along columns. `TENSOR_GROUP` additionally computes a `global_scale`.
 - `CHANNEL`: Per-channel min/max (e.g., across output dimensions).
 - `TOKEN`: Per-token min/max along token or sequence dimensions.
-- `BLOCK`: *(Not yet implemented)* Placeholder for block-wise quantization.
+- `BLOCK`: Block-wise quantization with configurable block structure.
 
 ## Observer Configuration Parameters
 
@@ -156,8 +208,14 @@ observer = Observer.load_from_registry(
     args=args,
 )
 
+# Phase 1: accumulate statistics
 x = torch.randn(64, 512)
-scale, zero_point = observer(x)
+observer(x)
+
+# Phase 2: compute quantization parameters
+qparams = observer.get_qparams()
+scale = qparams["scale"]
+zero_point = qparams["zero_point"]
 ```
 
 ## Example YAML Usage
