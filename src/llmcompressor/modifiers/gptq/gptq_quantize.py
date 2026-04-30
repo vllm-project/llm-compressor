@@ -111,6 +111,20 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
 
+    # GPTQModifier.resolve_quantization_config already filters CHANNEL+GROUP, but
+    # quantize_weight may be called directly; guard against it here to avoid
+    # indexing g_idx (which is only created for grouped/block strategies).
+    if actorder == ActivationOrdering.GROUP and strategy not in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+        QuantizationStrategy.BLOCK,
+    ):
+        logger.warning(
+            "ActivationOrdering.GROUP requires a grouped quantization strategy; "
+            "falling back to actorder=None for this module."
+        )
+        actorder = None
+
     # handle activation ordering
     if actorder:
         W, H, perm = _apply_activation_ordering(W, H)
