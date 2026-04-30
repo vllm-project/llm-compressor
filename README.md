@@ -11,10 +11,9 @@
 
 `llmcompressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
 
-* Comprehensive set of quantization algorithms for weight-only and activation quantization
+* Comprehensive set of quantization algorithms for weight, activation, KV Cache, and attention quantization
 * Seamless integration with Hugging Face models and repositories
 * `safetensors`-based file format compatible with `vllm`
-* Large model support via `accelerate`
 
 **✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
 
