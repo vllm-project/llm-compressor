@@ -96,6 +96,20 @@ recipe_modifier_group_actorder_group = GPTQModifier(
     },
 )
 
+# CHANNEL + actorder=WEIGHT must be set at the modifier level — compressed-tensors'
+# QuantizationArgs validator rejects actorder on non-group strategies at construction
+# time. GPTQModifier.resolve_quantization_config bypasses this via setattr.
+recipe_modifier_channel_actorder_weight = GPTQModifier(
+    ignore=["lm_head"],
+    actorder=ActivationOrdering.WEIGHT,
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(num_bits=4, strategy="channel"),
+        )
+    },
+)
+
 
 @pytest.mark.parametrize(
     "recipe",
@@ -107,6 +121,7 @@ recipe_modifier_group_actorder_group = GPTQModifier(
         recipe_modifier_shorthand_b,
         recipe_modifier_group_actorder_weight,
         recipe_modifier_group_actorder_group,
+        recipe_modifier_channel_actorder_weight,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):
