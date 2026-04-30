@@ -23,6 +23,9 @@ __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
 def make_empty_hessian(
     module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
+    if not isinstance(module, torch.nn.Linear):
+        raise ValueError(f"Cannot quantize layer type `{module.__class__.__name__}`")
+    
     weight = module.weight
     num_columns = weight.shape[1]
     device = device if device is not None else weight.device
@@ -36,28 +39,17 @@ def accumulate_hessian(
     num_samples: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     inp = inp.to(device=H.device)
-    if len(inp.shape) == 2:
+
+    # ensure batch and sequence dims are populated
+    while inp.ndim < 3:
         inp = inp.unsqueeze(0)
 
-    num_added = inp.shape[0]
-
-    match module:
-        case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
-        case torch.nn.Conv2d():
-            unfold = torch.nn.Unfold(
-                module.kernel_size,
-                dilation=module.dilation,
-                padding=module.padding,
-                stride=module.stride,
-            )
-            inp = unfold(inp)
-            inp = inp.permute([1, 0, 2])
-            inp = inp.flatten(1)
-
+    # count samples from batch length (not sequence length)
+    num_added = sum(inp.shape[:-2])
     num_samples += num_added
+
+    inp = inp.flatten(0, -2)
+    inp = inp.t()
 
     inp = inp.to(dtype=GPTQ_PRECISION)
     inp = math.sqrt(2) * inp
