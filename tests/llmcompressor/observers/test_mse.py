@@ -104,19 +104,18 @@ def test_mse_observer_torch_compile():
         "memoryless_mse", base_name="weight", args=args
     )
     x = torch.randn(1, 1, 128)
+    try:
+        # eager baseline
+        set_torch_compile(False)
+        eager_scale, eager_zp = observer(x)
+        # compiled inner loop
+        set_torch_compile(True)
+        compiled_scale, compiled_zp = observer(x)
+        torch.testing.assert_close(eager_scale, compiled_scale)
+        torch.testing.assert_close(eager_zp, compiled_zp)
+    finally:
+        # always restore global state, even if assertions fail
+        set_torch_compile(False)
 
-    # eager baseline
-    set_torch_compile(False)
-    eager_scale, eager_zp = observer(x)
 
-    # compiled inner loop
-    set_torch_compile(True)
-    compiled_scale, compiled_zp = observer(x)
 
-    torch.testing.assert_close(eager_scale, compiled_scale)
-    torch.testing.assert_close(eager_zp, compiled_zp)
-
-    # cleanup
-    set_torch_compile(False)
-    torch.testing.assert_close(eager_scale, compiled_scale)
-    torch.testing.assert_close(eager_zp, compiled_zp)
