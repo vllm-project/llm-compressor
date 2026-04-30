@@ -147,7 +147,9 @@ def _grid_search_compiled(
     """Chunked grid search using torch.compiled inner loop.
 
     Batches ``chunk_size`` candidates per compiled call to amortise
-    compile/dispatch overhead.  Early stopping is checked between chunks.
+    compile/dispatch overhead. Early stopping is checked at chunk
+    boundaries; compiled mode may run up to ``chunk_size - 1`` extra
+    steps past the eager break point.
     """
     chunk_size = get_compile_chunk_size()
     no_improve_count = 0
