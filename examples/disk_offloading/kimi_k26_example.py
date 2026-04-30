@@ -41,6 +41,7 @@ recipe = QuantizationModifier(
     ignore=[
         "re:.*mlp.gate$",
         "re:.*lm_head",
+        "re:.*self_attn.*",
         "re:.*kv_a_proj_with_mqa$",
         "re:.*q_a_proj$",
         "re:.*vision_tower.*",
