@@ -1,12 +1,12 @@
+from compressed_tensors.entrypoints.convert import (
+    CompressedTensorsDequantizer,
+    convert_checkpoint,
+)
 from compressed_tensors.offload import get_device_map, load_offloaded_model
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from compressed_tensors.entrypoints.convert import (
-    convert_checkpoint,
-    CompressedTensorsDequantizer,
-)
 
 # moonshotai/Kimi-K2.6 checkpoint is published in W4A16 compressed-tensors format.
 # This script will first upconvert to bfloat16 so that the model can be compressed
