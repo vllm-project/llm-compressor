@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from unittest.mock import patch
 
 import pytest
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
@@ -115,6 +116,9 @@ def test_actorder_resolution(
         (["group"], None),
         (["group"], "static"),
         (["group"], "group"),
+        (["channel"], None),
+        (["channel"], "static"),
+        (["channel"], "weight"),
         (["channel", "group"], None),
         (["channel", "group"], "static"),
         (["channel", "group"], "group"),
@@ -137,10 +141,35 @@ def test_config_resolution(strategies, actorder):
     modifier = GPTQModifier(config_groups=config_groups, actorder=actorder)
     modifier.resolve_quantization_config()
 
-    # validate that actorder was applied
+    # validate that actorder was applied to both group and channel strategies
     for config_group in modifier.config_groups.values():
-        if config_group.weights.strategy == "group":
+        strategy = config_group.weights.strategy
+        if strategy == "group":
             assert config_group.weights.actorder == actorder
+        elif strategy == "channel":
+            # CHANNEL + actorder=group is fallback'd to None (handled separately)
+            if actorder == "group":
+                assert config_group.weights.actorder is None
+            else:
+                assert config_group.weights.actorder == actorder
+
+
+def test_channel_actorder_group_falls_back_to_none():
+    # CHANNEL + actorder=GROUP has no meaningful interpretation (no group_size),
+    # so resolve_quantization_config should warn and reset to None instead of
+    # raising. See §4.3 in the implementation plan.
+    config_groups = {
+        "0": QuantizationScheme(
+            targets=[],
+            weights=QuantizationArgs(strategy="channel"),
+        ),
+    }
+    modifier = GPTQModifier(config_groups=config_groups, actorder="group")
+    with patch("llmcompressor.modifiers.gptq.base.logger.warning") as warn:
+        resolved = modifier.resolve_quantization_config()
+    warn.assert_called_once()
+    assert "CHANNEL" in warn.call_args.args[0]
+    assert resolved.config_groups["0"].weights.actorder is None
 
 
 @pytest.mark.parametrize(

@@ -111,23 +111,44 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
     # handle g_idx and activation ordering
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+    g_idx = None
+    perm = None
+    is_grouped = strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+    )
+
+    if is_grouped:
         # mapping from column index to group index
         g_idx = (
             torch.arange(num_columns, device=W.device, dtype=torch.int)
             // quant_args.group_size
         )
 
+    # GPTQModifier.resolve_quantization_config already filters CHANNEL+GROUP, but
+    # quantize_weight may be called directly; guard against it here to avoid
+    # indexing g_idx (which is None for non-grouped strategies).
+    if actorder == ActivationOrdering.GROUP and not is_grouped:
+        logger.warning(
+            "ActivationOrdering.GROUP requires a grouped quantization strategy; "
+            "falling back to actorder=None for this module."
+        )
+        actorder = None
+
+    # column permutation is common to WEIGHT and GROUP actorder across all
+    # strategies
+    if actorder in (ActivationOrdering.WEIGHT, ActivationOrdering.GROUP):
+        W, H, perm = _apply_activation_ordering(W, H)
+
         if actorder == ActivationOrdering.GROUP:
-            W, H, perm = _apply_activation_ordering(W, H)
             # actually need scale/zp for permuted weight for this format
             scale, zero_point = observer(W)
             # use identity g_idx (invert permutation later)
-
-        elif actorder == ActivationOrdering.WEIGHT:
-            # permute weights and g_idx
-            W, H, perm = _apply_activation_ordering(W, H)
+        elif is_grouped:
+            # actorder == WEIGHT: permute g_idx so groups follow permuted columns
             g_idx = g_idx[perm]
+        # else: CHANNEL + WEIGHT — no g_idx, no scale recompute (per-channel
+        # scale is row-wise and invariant under column permutation)
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
@@ -254,20 +275,18 @@ def quantize_weight(
             W[:, i2:] -= w_err
 
     has_gidx = False
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        if actorder == ActivationOrdering.WEIGHT:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
-
-        elif actorder == ActivationOrdering.GROUP:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
-            g_idx = g_idx[invperm]
-
-            # only save g_idx if mapping is not identity
-            has_gidx = True
+    if actorder == ActivationOrdering.WEIGHT:
+        # restore original column order; identical for grouped and channel
+        invperm = torch.argsort(perm)
+        W = W[:, invperm]
+    elif actorder == ActivationOrdering.GROUP:
+        # only reachable for grouped strategies (CHANNEL+GROUP is fallback'd
+        # to None in GPTQModifier.resolve_quantization_config)
+        invperm = torch.argsort(perm)
+        W = W[:, invperm]
+        g_idx = g_idx[invperm]
+        # only save g_idx if mapping is not identity
+        has_gidx = True
 
     if not has_gidx:
         g_idx = None
