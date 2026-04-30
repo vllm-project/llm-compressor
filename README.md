@@ -66,7 +66,7 @@ Some of the exciting new features include:
 
 ### Quantizing your model, step-by-step
 
-Please refer to our [step-by-step compression guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/steps/choosing-model/) for detailed information about selecting a quantization schemes, algorithm, and their use cases.
+Please refer to our [step-by-step compression guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/steps/choosing-model/) for detailed information about selecting quantization schemes, algorithms, and their use cases.
 
 Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/)
 
@@ -90,7 +90,7 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
 * [Activation quantization to `fp4` (MXFP4)](experimental/mxfp4)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)
-* [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8/)
+* [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8)
 
 ### Weight Only Quantization
 * [Weight only quantization to `fp4` (NVFP4 format)](examples/quantization_w4a16_fp4/nvfp4)
@@ -103,9 +103,9 @@ Applying quantization with `llmcompressor`:
 * [KV Cache quantization to `fp8`](examples/quantization_kv_cache/README.md)
 * [KV Cache quantization to `fp8` using per-head](examples/quantization_kv_cache/llama3_fp8_head_kv_example.py)
 * [Attention quantization to `fp8`](examples/quantization_attention/README.md)
-* [Attention quantization to `nvfp4` with SpinQuant (experimental)](experimental/attention/README.md)
+* [Attention quantization to `NVFP4` with SpinQuant (experimental)](experimental/attention/README.md)
 
-### Architectural Specific Quantization
+### Architecture-Specific Quantization
 * [Quantizing MoE LLMs](examples/quantizing_moe/README.md)
 * [Quantizing Vision-Language Models](examples/multimodal_vision/README.md)
 * [Quantizing Audio-Language Models](examples/multimodal_audio/README.md)
