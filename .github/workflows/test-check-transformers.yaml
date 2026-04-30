@@ -91,30 +91,10 @@ jobs:
         uses: ./.github/actions/prepare-code-coverage
       - name: List packages
         run: pip list
-      - name: "🔬 Running compression tests"
+      - name: "🔬 Running transformers tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -vra tests/llmcompressor/transformers/compression
-      - name: Run Data Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/data
-      - name: Running GPTQ Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/gptq
-      - name: Running AutoRound Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/autoround
-      - name: Running Tracing Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/tracing
-      - name: Running KV Cache Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/kv_cache
+          pytest -vra tests/llmcompressor/transformers
       - name: "Upload coverage report"
         if: (success() || failure()) && inputs.code_coverage
         uses: actions/upload-artifact@v4
