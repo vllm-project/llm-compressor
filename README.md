@@ -58,9 +58,10 @@ Some of the exciting new features include:
 * **Extended KV Cache and Attention Quantization Support**: LLM Compressor now supports attention quantization, as well as fine-grained KV Cache quantization. Previously only per-tensor KV cache quantization was supported. Now, you can quantize KV cache with `per-head` scales and run with vLLM. Examples of more generalized attention and kv cache quantization can be found in the [experimental folder](experimental/attention).
 
 
-### Supported Formats
-* Activation Quantization: W8A8 (int8 and fp8), MXFP8 (experimental)
-* Mixed Precision: W4A16, W8A16, MXFP8A16 (experimental), NVFP4 (W4A4 and W4A16 support)
+### Supported Precisions and Types
+* Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
+* Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
+* Attention and KV Cache Quantization: FP8, NVFP4
 
 ### Supported Algorithms
 * Simple PTQ
@@ -68,6 +69,7 @@ Some of the exciting new features include:
 * AWQ
 * SmoothQuant
 * AutoRound
+* Rotation-based (SpinQuant, QuIP)
 
 ### Quantizing your model, step-by-step
 
