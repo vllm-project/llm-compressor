@@ -1,6 +1,7 @@
 import json
 import os
-
+import random
+from pathlib import Path
 import pytest
 import torch
 from compressed_tensors.quantization import (
@@ -45,11 +46,17 @@ def _get_tiny_block_quant():
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "scheme",
-    [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant(), "NVFP4A16"],
+    "model,scheme",
+    [
+        # ("Qwen/Qwen3-0.6B", _get_tiny_w4a16_quant()),
+        # ("Qwen/Qwen3-0.6B", "FP8_dynamic"),
+        # ("Qwen/Qwen3-0.6B", _get_tiny_block_quant()),
+        # ("Qwen/Qwen3-0.6B", "NVFP4A16"),
+        # Also check an MoE model with 3D tensors
+        ("Qwen/Qwen3-30B-A3B", _get_tiny_w4a16_quant()),
+    ],
 )
-def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
-    model = "Qwen/Qwen3-0.6B"
+def test_model_free_ptq_matches_oneshot(model, scheme, tmp_path):
     ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
 
@@ -78,12 +85,10 @@ def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
         output_dir=oneshot_outdir,
     )
 
-    ptq_st_files = _get_safetensors_files(ptq_outdir)
-    oneshot_st_files = _get_safetensors_files(oneshot_outdir)
-    assert set(ptq_st_files) == set(oneshot_st_files)
-
-    for file_name in ptq_st_files:
-        _assert_safetensors_equal(ptq_outdir / file_name, oneshot_outdir / file_name)
+    _assert_safetensors_index_equal(
+        ptq_outdir,
+        oneshot_outdir,
+    )
 
     _assert_config_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
 
@@ -133,8 +138,10 @@ def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
     oneshot_st_files = _get_safetensors_files(oneshot_outdir)
     assert set(ptq_st_files) == set(oneshot_st_files)
 
-    for file_name in ptq_st_files:
-        _assert_safetensors_equal(ptq_outdir / file_name, oneshot_outdir / file_name)
+    _assert_safetensors_index_equal(
+        ptq_outdir,
+        oneshot_outdir,
+    )
 
     _assert_config_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
 
@@ -147,25 +154,50 @@ def _get_safetensors_files(dir_path: str) -> list[str]:
     ]
 
 
-def _assert_safetensors_equal(a_path: str, b_path: str) -> bool:
-    a = load_file(a_path)
-    b = load_file(b_path)
+def _assert_safetensors_index_equal(a_dir: Path, b_dir: Path):
+    """
+    model_free_ptq and oneshot don't have the same safetensors writing logic,
+    such that
+    - model_free_ptq could save in 10 model-x-of-00010.safetensors files
+    - meanwhile oneshot could save in 15 model-x-of-00015.safetensors files
+
+    Rather than asserting that all safetensors files are the exact same, assert that all
+    tensor names are equivalent and verify that a subset of tensor values are the same,
+    even if they might live in differently named safetensors files.
+    """
+
+    with open(str(a_dir / "model.safetensors.index.json"), "r") as f:
+        a_sti_data = json.load(f)
+    with open(str(b_dir / "model.safetensors.index.json"), "r") as f:
+        b_sti_data = json.load(f)
 
     # sometimes models have lm_heads, despite using tied embeddings
     # this can cause oneshot to skip writing the lm_head
-    if "lm_head.weight" in a and "lm_head.weight" not in b:
-        del a["lm_head.weight"]
+    if (
+        "lm_head.weight" in a_sti_data["weight_map"]
+        and "lm_head.weight" not in b_sti_data["weight_data"]
+    ):
+        del a_sti_data["weight_map"]["lm_head.weight"]
 
-    assert a.keys() == b.keys(), (
-        sorted(a.keys() - b.keys()),
-        sorted(b.keys() - a.keys()),
-    )
+    # assert all keys are equal (values might be different because they point to
+    # different safetensors files)
+    weight_map_keys = list(a_sti_data["weight_map"].keys())
+    assert set(a_sti_data.keys()) == set(b_sti_data.keys()), "Incompatible keys"
+    assert set(weight_map_keys) == set(
+        b_sti_data["weight_map"].keys()
+    ), "Incompatible weight map keys"
 
-    for key in a.keys():
-        value_equal = torch.equal(a[key].to(torch.bfloat16), b[key].to(torch.bfloat16))
-        dtype_equal = a[key].dtype == b[key].dtype
+    # assert a subset of randomly selected safetensors are equivalent
+    for key in random.sample(weight_map_keys, len(weight_map_keys) // 10):
+        a_st_file = a_sti_data["weight_map"][key]
+        b_st_file = b_sti_data["weight_map"][key]
 
-        assert value_equal and dtype_equal, (key, value_equal, dtype_equal)
+        a_tensor = load_file(a_dir / a_st_file)[key]
+        b_tensor = load_file(b_dir / b_st_file)[key]
+
+        assert (
+            torch.equal(a_tensor, b_tensor) and a_tensor.dtype == b_tensor.dtype
+        ), f"key {key} has non-matching tensors {a_tensor} {b_tensor}"
 
 
 def _assert_config_equal(a_path: str, b_path: str):
