@@ -10,8 +10,8 @@ from compressed_tensors.entrypoints.convert import (
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationConfig,
-    QuantizationType,
     QuantizationMetadata,
+    QuantizationType,
 )
 from compressed_tensors.quantization.quant_scheme import NVFP4
 
