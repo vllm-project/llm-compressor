@@ -13,7 +13,9 @@ try:
     from transformers.models.glm4_moe_lite.modeling_glm4_moe_lite import Glm4MoeLiteMoE
 except ImportError:
     if _TRANSFORMERS_MAJOR < 5:
-        pytest.skip("glm4_moe_lite requires transformers >= 5.x", allow_module_level=True)
+        pytest.skip(
+            "glm4_moe_lite requires transformers >= 5.x", allow_module_level=True
+        )
     raise
 
 from llmcompressor.modeling.glm4_moe_lite import CalibrationGlm4MoeLiteMoE  # noqa: E402

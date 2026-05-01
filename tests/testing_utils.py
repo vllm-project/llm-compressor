@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import pandas as pd
 import pytest
 import torch
+import transformers as _transformers
 import yaml
 from datasets import Dataset
 from loguru import logger
@@ -121,8 +122,6 @@ requires_hf_token: callable = pytest.mark.skipif(
     reason="Skipping tests requiring gated model access",
 )
 
-
-import transformers as _transformers
 
 _TRANSFORMERS_MAJOR = int(_transformers.__version__.split(".")[0])
 
