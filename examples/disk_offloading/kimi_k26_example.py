@@ -28,7 +28,7 @@ ignore = [
     "re:.*vision.*",
 ]
 
-# Convert DeepSeek-V3.2 back to dense bfloat16 format
+# Convert to dense bfloat16 format
 convert_checkpoint(
     model_stub=MODEL_ID,
     save_directory=DEQUANTIZED_SAVE_DIR,
