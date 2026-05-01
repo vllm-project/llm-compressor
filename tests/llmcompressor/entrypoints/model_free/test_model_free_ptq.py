@@ -2,6 +2,7 @@ import json
 import os
 import random
 from pathlib import Path
+
 import pytest
 import torch
 from compressed_tensors.quantization import (
@@ -60,7 +61,7 @@ def test_model_free_ptq_matches_oneshot(model, scheme, tmp_path):
     ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
 
-    ptq_outdir = tmp_path / "weights_out"
+    ptq_outdir = tmp_path / "ptq_out"
     oneshot_outdir = tmp_path / "oneshot_out"
 
     model_free_ptq(
@@ -108,7 +109,7 @@ def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
     ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
 
-    ptq_outdirs = [tmp_path / f"weights_out_{idx}" for idx in range(len(schemes))]
+    ptq_outdirs = [tmp_path / f"ptq_out_{idx}" for idx in range(len(schemes))]
     oneshot_outdir = tmp_path / "oneshot_out"
 
     for idx, scheme in enumerate(schemes):
@@ -164,20 +165,22 @@ def _assert_safetensors_index_equal(a_dir: Path, b_dir: Path):
     Rather than asserting that all safetensors files are the exact same, assert that all
     tensor names are equivalent and verify that a subset of tensor values are the same,
     even if they might live in differently named safetensors files.
+
+    If a single model.safetensors file is found for both, just that will be used
     """
+
+    if os.path.exists(a_dir / "model.safetensors") and os.path.exists(
+        b_dir / "model.safetensors"
+    ):
+        _assert_safetensors_equal(
+            a_dir / "model.safetensors", b_dir / "model.safetensors"
+        )
+        return
 
     with open(str(a_dir / "model.safetensors.index.json"), "r") as f:
         a_sti_data = json.load(f)
     with open(str(b_dir / "model.safetensors.index.json"), "r") as f:
         b_sti_data = json.load(f)
-
-    # sometimes models have lm_heads, despite using tied embeddings
-    # this can cause oneshot to skip writing the lm_head
-    if (
-        "lm_head.weight" in a_sti_data["weight_map"]
-        and "lm_head.weight" not in b_sti_data["weight_data"]
-    ):
-        del a_sti_data["weight_map"]["lm_head.weight"]
 
     # assert all keys are equal (values might be different because they point to
     # different safetensors files)
@@ -198,6 +201,27 @@ def _assert_safetensors_index_equal(a_dir: Path, b_dir: Path):
         assert (
             torch.equal(a_tensor, b_tensor) and a_tensor.dtype == b_tensor.dtype
         ), f"key {key} has non-matching tensors {a_tensor} {b_tensor}"
+
+
+def _assert_safetensors_equal(a_path: str, b_path: str) -> bool:
+    a = load_file(a_path)
+    b = load_file(b_path)
+
+    # sometimes models have lm_heads, despite using tied embeddings
+    # this can cause oneshot to skip writing the lm_head
+    if "lm_head.weight" in a and "lm_head.weight" not in b:
+        del a["lm_head.weight"]
+
+    assert a.keys() == b.keys(), (
+        sorted(a.keys() - b.keys()),
+        sorted(b.keys() - a.keys()),
+    )
+
+    for key in a.keys():
+        value_equal = torch.equal(a[key].to(torch.bfloat16), b[key].to(torch.bfloat16))
+        dtype_equal = a[key].dtype == b[key].dtype
+
+        assert value_equal and dtype_equal, (key, value_equal, dtype_equal)
 
 
 def _assert_config_equal(a_path: str, b_path: str):
