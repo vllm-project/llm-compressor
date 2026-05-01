@@ -2,6 +2,7 @@ import json
 
 import pytest
 from compressed_tensors.entrypoints.convert import (
+    CompressedTensorsDequantizer,
     FP8BlockDequantizer,
     ModelOptNvfp4Converter,
     convert_checkpoint,
@@ -10,6 +11,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationConfig,
     QuantizationType,
+    QuantizationMetadata,
 )
 from compressed_tensors.quantization.quant_scheme import NVFP4
 
@@ -108,7 +110,7 @@ def test_convert_nvfp4_checkpoint(tmp_path):
 
 
 @requires_cadence("nightly")
-def test_convert_fp8block_checkpoint(tmp_path):
+def test_dequantize_fp8block_checkpoint(tmp_path):
     """
     Test that compressed-tensors convert_checkpoint entrypoint
     can convert FP8 block-quantized checkpoints back to bfloat16
@@ -157,11 +159,59 @@ def test_convert_fp8block_checkpoint(tmp_path):
     with open(convert_outdir / "model.safetensors.index.json", "r") as f:
         allowed_suffixes = [
             "weight",  # All weights should be converted to bfloat16
-            "weight_scale",
         ]
         disallowed_suffixes = [
+            "weight_scale",
             "weight_scale_inv",  # These should be removed during conversion
         ]
+        data = json.load(f)
+        keys = data["weight_map"].keys()
+        for key in keys:
+            assert any(
+                key.endswith(suffix) for suffix in allowed_suffixes
+            ), f"Unexpected key found: {key}"
+            assert not any(
+                key.endswith(suffix) for suffix in disallowed_suffixes
+            ), f"Found disallowed key (should have been removed): {key}"
+
+
+@requires_cadence("nightly")
+@pytest.mark.parametrize(
+    "model_id",
+    (
+        "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16",
+        "nm-testing/TinyLlama-1.1B-Chat-v1.0-nvfp4-fp8-mixed-e2e",
+    ),
+)
+def test_dequantize_ct_checkpoint(model_id, tmp_path):
+    """
+    Test that compressed-tensors convert_checkpoint entrypoint
+    can convert CT checkpoint back to bfloat16
+    """
+    convert_outdir = tmp_path / "convert_out"
+
+    # Convert Qwen3-4B-FP8 back to dense bfloat16 format
+    convert_checkpoint(
+        model_stub=model_id,
+        save_directory=convert_outdir,
+        converter=CompressedTensorsDequantizer(
+            model_stub=model_id, ignore=["lm_head", "re:.*embed_tokens$"]
+        ),
+    )
+
+    # Validate output config.json
+    with open(convert_outdir / "config.json", "r") as f:
+        config = json.load(f)
+
+        # Dequantizer removes quantization, so no quantization_config
+        assert "quantization_config" not in config
+
+    # Validate output safetensors index
+    with open(convert_outdir / "model.safetensors.index.json", "r") as f:
+        allowed_suffixes = [
+            "weight",  # All weights should be converted to bfloat16
+        ]
+        disallowed_suffixes = QuantizationMetadata.all_qparam_names()
         data = json.load(f)
         keys = data["weight_map"].keys()
         for key in keys:
