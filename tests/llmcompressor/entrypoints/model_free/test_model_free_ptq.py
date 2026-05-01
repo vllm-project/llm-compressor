@@ -48,10 +48,10 @@ def _get_tiny_block_quant():
 @pytest.mark.parametrize(
     "model,scheme",
     [
-        # ("Qwen/Qwen3-0.6B", _get_tiny_w4a16_quant()),
-        # ("Qwen/Qwen3-0.6B", "FP8_dynamic"),
-        # ("Qwen/Qwen3-0.6B", _get_tiny_block_quant()),
-        # ("Qwen/Qwen3-0.6B", "NVFP4A16"),
+        ("Qwen/Qwen3-0.6B", _get_tiny_w4a16_quant()),
+        ("Qwen/Qwen3-0.6B", "FP8_dynamic"),
+        ("Qwen/Qwen3-0.6B", _get_tiny_block_quant()),
+        ("Qwen/Qwen3-0.6B", "NVFP4A16"),
         # Also check an MoE model with 3D tensors
         ("Qwen/Qwen3-30B-A3B", _get_tiny_w4a16_quant()),
     ],
