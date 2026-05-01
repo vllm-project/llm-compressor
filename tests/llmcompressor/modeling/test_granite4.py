@@ -3,6 +3,9 @@ from unittest.mock import MagicMock
 import torch
 
 from llmcompressor.modeling.granite4 import GraniteMoeHybridParallelExpertsLinear
+from tests.testing_utils import requires_transformers_v4
+
+pytestmark = requires_transformers_v4
 
 
 def _make_layer(

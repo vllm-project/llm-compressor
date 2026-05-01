@@ -6,7 +6,9 @@ from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
 
 from llmcompressor.modeling.qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock
 from llmcompressor.utils.helpers import calibration_forward_context
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import requires_gpu, requires_transformers_v4
+
+pytestmark = requires_transformers_v4
 
 
 @requires_gpu
