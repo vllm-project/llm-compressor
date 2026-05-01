@@ -18,7 +18,9 @@ except ImportError:
 
 from llmcompressor.modeling.glm_moe_dsa import CalibrationGlmMoeDsaMoE  # noqa: E402
 from llmcompressor.utils.helpers import calibration_forward_context  # noqa: E402
-from tests.testing_utils import requires_gpu  # noqa: E402
+from tests.testing_utils import requires_gpu, requires_transformers_v5  # noqa: E402
+
+pytestmark = requires_transformers_v5
 
 
 def _tiny_config():

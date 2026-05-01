@@ -122,6 +122,21 @@ requires_hf_token: callable = pytest.mark.skipif(
 )
 
 
+import transformers as _transformers
+
+_TRANSFORMERS_MAJOR = int(_transformers.__version__.split(".")[0])
+
+requires_transformers_v5: pytest.MarkDecorator = pytest.mark.skipif(
+    _TRANSFORMERS_MAJOR < 5,
+    reason="Requires transformers v5+",
+)
+
+requires_transformers_v4: pytest.MarkDecorator = pytest.mark.skipif(
+    _TRANSFORMERS_MAJOR >= 5,
+    reason="Requires transformers v4 (not compatible with v5+)",
+)
+
+
 def _load_yaml(config_path: str):
     if config_path.endswith(".yaml") or config_path.endswith(".yml"):
         with open(config_path, "r") as f:

@@ -23,7 +23,10 @@ from llmcompressor.utils.helpers import calibration_forward_context  # noqa: E40
 from tests.testing_utils import (  # noqa: E402
     requires_cadence,
     requires_gpu,
+    requires_transformers_v5,
 )
+
+pytestmark = requires_transformers_v5
 
 
 def _tiny_config():

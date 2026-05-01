@@ -25,7 +25,13 @@ from llmcompressor.modeling.qwen3_5_moe import (  # noqa: E402
 )
 from llmcompressor.utils.dev import skip_weights_download  # noqa: E402
 from llmcompressor.utils.helpers import calibration_forward_context  # noqa: E402
-from tests.testing_utils import requires_cadence, requires_gpu  # noqa: E402
+from tests.testing_utils import (  # noqa: E402
+    requires_cadence,
+    requires_gpu,
+    requires_transformers_v5,
+)
+
+pytestmark = requires_transformers_v5
 
 
 def _tiny_config():
