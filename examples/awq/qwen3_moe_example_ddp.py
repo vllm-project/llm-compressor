@@ -14,7 +14,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
@@ -68,7 +69,8 @@ def tokenize(sample):
 # Configure the quantization algorithm to run.
 # NOTE: vllm currently does not support asym MoE, using symmetric here
 recipe = [
-    AWQModifier(
+    AWQModifier(),
+    QuantizationModifier(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],

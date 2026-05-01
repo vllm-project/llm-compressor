@@ -14,6 +14,7 @@ if TYPE_CHECKING:
         GlmMoeDsaMoE,
         GlmMoeDsaNaiveMoe,
     )
+
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
@@ -27,9 +28,30 @@ class CalibrationGlmMoeDsaMoE(MoECalibrationModule):
     1. Unpacks the packed expert weights (3D -> 2D) for calibration
     2. Optionally sends all tokens to all experts during calibration
     3. Stays in unpacked form (permanent) for vLLM compatibility
+
+    Subclasses (e.g. :class:`CalibrationGlm4MoeLiteMoE`) override
+    :meth:`_get_num_experts` and :meth:`_make_experts` to handle
+    model-specific config fields and MLP classes, while inheriting the
+    shared routing and forward logic.
     """
 
     is_permanent = True
+
+    def _get_num_experts(self, config) -> int:
+        """Return the number of routed experts from the model config.
+
+        Override in subclasses whose config stores the expert count under a
+        different attribute name (e.g. ``n_routed_experts``).
+        """
+        return config.num_local_experts
+
+    def _make_experts(self, config, original_experts) -> torch.nn.ModuleList:
+        """Create the sequential (unpacked) expert module list.
+
+        Override in subclasses that need a different MLP class for unpacking
+        (e.g. ``Glm4MoeLiteMLP`` instead of ``GlmMoeDsaMLP``).
+        """
+        return SequentialGlmMoeDsaExperts(config, original_experts)
 
     def __init__(
         self,
@@ -39,14 +61,14 @@ class CalibrationGlmMoeDsaMoE(MoECalibrationModule):
     ):
         super().__init__()
         self.top_k = config.num_experts_per_tok
-        self.num_experts = config.num_local_experts
+        self.num_experts = self._get_num_experts(config)
         self.n_routed_experts = config.n_routed_experts
         self.n_group = config.n_group
         self.topk_group = config.topk_group
         self.norm_topk_prob = config.norm_topk_prob
         self.routed_scaling_factor = config.routed_scaling_factor
 
-        self.experts = SequentialGlmMoeDsaExperts(config, original.experts)
+        self.experts = self._make_experts(config, original.experts)
         self.gate = original.gate
         self.shared_experts = original.shared_experts
         self.calibrate_all_experts = calibrate_all_experts
@@ -133,12 +155,13 @@ class SequentialGlmMoeDsaExperts(torch.nn.ModuleList):
                 ]
             )
 
-        for i in range(self.num_experts):
-            gate_up = original.gate_up_proj[i]
-            down = original.down_proj[i]
+        with torch.no_grad():
+            for i in range(self.num_experts):
+                gate_up = original.gate_up_proj[i]
+                down = original.down_proj[i]
 
-            gate_proj, up_proj = gate_up.chunk(2, dim=0)
+                gate_proj, up_proj = gate_up.chunk(2, dim=0)
 
-            self[i].gate_proj.weight.data = gate_proj.contiguous()
-            self[i].up_proj.weight.data = up_proj.contiguous()
-            self[i].down_proj.weight.data = down.contiguous()
+                self[i].gate_proj.weight.copy_(gate_proj.contiguous())
+                self[i].up_proj.weight.copy_(up_proj.contiguous())
+                self[i].down_proj.weight.copy_(down.contiguous())

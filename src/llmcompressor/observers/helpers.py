@@ -7,8 +7,6 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
-from typing import Optional
-
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import (
@@ -23,7 +21,7 @@ def flatten_for_calibration(
     value: torch.Tensor,
     base_name: str,
     args: QuantizationArgs,
-    g_idx: Optional[torch.Tensor] = None,
+    g_idx: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Reshapes the value according to the quantization strategy for the purposes of
@@ -57,7 +55,7 @@ def flatten_for_calibration(
 
 
 def _flatten_weight(
-    value: torch.Tensor, args: QuantizationArgs, g_idx: Optional[torch.Tensor] = None
+    value: torch.Tensor, args: QuantizationArgs, g_idx: torch.Tensor | None = None
 ):
     # value.shape = (num_rows, num_cols)
 

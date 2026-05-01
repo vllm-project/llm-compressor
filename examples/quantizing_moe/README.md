@@ -84,7 +84,8 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 Define which layers to quantize and which to ignore. GLM-4.7 has dense layers at the beginning that should be excluded:
 
 ```python
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 moe_ignores = [
     # Layers 0-2: Dense layers - ignore entire layers
@@ -96,7 +97,10 @@ moe_ignores = [
 ]
 
 # Configure AWQ with W4A16 (4-bit weights, 16-bit activations)
-recipe = AWQModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores)
+recipe = [
+    AWQModifier(),
+    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores)
+]
 ```
 
 **Why ignore these layers?**

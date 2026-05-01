@@ -14,6 +14,7 @@ from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
     get_weight_map,
     is_weights_file,
+    update_safetensors_index,
 )
 from loguru import logger
 
@@ -106,6 +107,7 @@ def model_free_ptq(
     # weight_map may contain tensors re-located to new shards (partner tensors
     # re-saved alongside the shard that needed them for fused scale computation)
     update_config(save_directory, scheme_name, scheme, ignore, converter)
+    update_safetensors_index(save_directory, total_size, weight_map)
 
 
 def _build_jobs(

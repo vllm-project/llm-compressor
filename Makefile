@@ -8,16 +8,16 @@ BUILD_ARGS :=  # set nightly to build nightly release
 BUILD_TYPE?=dev
 export BUILD_TYPE
 
-TARGETS := ""  # targets for running pytests: deepsparse,keras,onnx,pytorch,pytorch_models,export,pytorch_datasets,tensorflow_v1,tensorflow_v1_models,tensorflow_v1_datasets
+TARGETS := ""
 PYTEST_ARGS ?= ""
 ifneq ($(findstring transformers,$(TARGETS)),transformers)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/llmcompressor/transformers
 endif
-ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/llmcompressor/pytorch
-endif
 ifneq ($(findstring examples,$(TARGETS)),examples)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/examples
+endif
+ifneq ($(findstring sparsity,$(TARGETS)),sparsity)
+    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparsity
 endif
 
 # run checks on all files for the repo
@@ -40,6 +40,8 @@ style:
 test:
 	@echo "Running python tests";
 	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval
+	# run tests under emulated XPU (requires CUDA hardware)
+	pytest -ra -c pytest-xpu.ini --emulate-xpu;
 
 # creates wheel file
 .PHONY: build

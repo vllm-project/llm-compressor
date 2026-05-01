@@ -32,12 +32,12 @@ class RecipeArguments:
         default=False,
         metadata={
             "help": (
-                "Whether to clear CompressionSession/CompressionLifecycle ",
-                "data between runs.",
+                "Whether to clear CompressionSession/CompressionLifecycle "
+                "data between runs."
             )
         },
     )
     stage: str | None = field(
         default=None,
-        metadata={"help": ("The stage of the recipe to use for oneshot / train.",)},
+        metadata={"help": ("The stage of the recipe to use for oneshot / train.")},
     )
