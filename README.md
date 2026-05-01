@@ -61,7 +61,7 @@ Some of the exciting new features include:
 ### Supported Precisions and Types
 * Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
 * Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
-* Attention and KV Cache Quantization
+* Attention and KV Cache Quantization: FP8, NVFP4
 
 ### Supported Algorithms
 * Simple PTQ
