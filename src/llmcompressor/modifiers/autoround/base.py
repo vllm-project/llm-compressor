@@ -240,10 +240,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         decoding_layers = [m for m in modules if self._is_decoding_layer(m)]
         if len(decoding_layers) == 0:
             return
-        assert len(decoding_layers) == 1, (
-            "Only one decoding layer is expected in the modules list, "
-            f"found {len(decoding_layers)}."
-        )
+        if len(decoding_layers) != 1:
+            raise ValueError(
+                "Only one decoding layer is expected in the modules list, "
+                f"found {len(decoding_layers)}."
+            )
         decoding_layer = decoding_layers[0]
 
         logger.info("Applying AutoRound on layer {}", decoding_layer._tmp_name)
