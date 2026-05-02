@@ -4,7 +4,7 @@ from datasets import Dataset, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # NOTE: Use this example when deploying Qwen3-Next in thinking mode.
 # For non-thinking deployment, use qwen3_next_example.py instead.
@@ -54,12 +54,15 @@ def get_calib_dataset(tokenizer):
         seq_len = len(tokens["input_ids"])
 
         # Build loss_mask: 1 for assistant tokens, 0 for prompt tokens.
+        # Render the user-only turn the same way the full conversation renders it
+        # (no add_generation_prompt) — Qwen3 thinking templates inject a `<think>\n`
+        # primer when add_generation_prompt=True that is NOT present in the full
+        # conversation, which would otherwise over-count prompt_len.
         prompt_ids = tokenizer(
             tokenizer.apply_chat_template(
                 [{"role": "user", "content": example["instruction"]}],
                 tokenize=False,
                 enable_thinking=True,
-                add_generation_prompt=True,
             ),
             add_special_tokens=False,
         )["input_ids"]
