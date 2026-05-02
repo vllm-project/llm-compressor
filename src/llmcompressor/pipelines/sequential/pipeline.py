@@ -159,7 +159,8 @@ class SequentialPipeline(CalibrationPipeline):
                         session.state.current_batch_idx = batch_idx
                         subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph)
+                    modules = list(subgraph.submodules(model))
+                    LifecycleCallbacks.sequential_epoch_end(modules)
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
