@@ -56,6 +56,7 @@ def preprocess_function(example):
         add_special_tokens=False,
         return_dict=True,
         add_generation_prompt=False,
+        enable_thinking=False,
     )
 
 
