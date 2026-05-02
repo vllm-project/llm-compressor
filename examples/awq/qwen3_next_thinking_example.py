@@ -65,6 +65,11 @@ def get_calib_dataset(tokenizer):
         )["input_ids"]
         prompt_len = min(len(prompt_ids), seq_len)
 
+        # Skip samples where the prompt fills the entire sequence window —
+        # all-zero loss_mask contributes nothing to AWQ optimization.
+        if prompt_len == seq_len:
+            continue
+
         rows.append({
             "input_ids":      tokens["input_ids"],
             "attention_mask": tokens["attention_mask"],
@@ -102,7 +107,7 @@ if __name__ == "__main__":
         enable_thinking=True,
         return_tensors="pt",
     ).to(model.device)
-    output = model.generate(input_ids, max_new_tokens=512)
+    output = model.generate(input_ids, max_new_tokens=4096)
     print(tokenizer.decode(output[0][input_ids.shape[-1]:], skip_special_tokens=False))
     print("==========================================================\n")
 
