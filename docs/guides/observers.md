@@ -165,6 +165,8 @@ Observers support multiple quantization strategies via the `QuantizationArgs.str
 - `TOKEN`: Per-token statistics along token or sequence dimensions.
 - `BLOCK`: Block-wise quantization with configurable block structure.
 
+Note: observers do not handle `g_idx` (group index reordering for actorder). Column reordering for actorder is handled by GPTQ at compression time, not during observer statistics accumulation.
+
 ## Observer Configuration Parameters
 
 Observers can be configured with optional keyword arguments via `QuantizationArgs.observer_kwargs`.
@@ -175,7 +177,7 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 |----------------------|---------|-------------|
 | `averaging_constant` | `0.01`  | EMA weight for moving average observers. Only applies to `minmax`. Higher values weight recent observations more heavily. |
 
-### MSE observers (`mse`, `memoryless_mse`)
+#### MSE observers (`mse`, `memoryless_mse`)
 
 | Argument             | Default | Description |
 |----------------------|---------|-------------|
@@ -184,6 +186,8 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 | `grid`               | `100.0` | Resolution of the shrink search. Higher values give finer granularity. |
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
+
+MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `compute_qparams_from_statistics()` from the final min/max values.
 
 ### IMatrix observer (`imatrix_mse`)
 
