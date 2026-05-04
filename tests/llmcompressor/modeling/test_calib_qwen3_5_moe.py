@@ -144,14 +144,14 @@ def test_calib_qwen3_5_moe_output_matches():
     )
     with calibration_forward_context(module):
         out = module(sample)
-        assert torch.nn.functional.mse_loss(true_out, out) < 0.1
+        assert torch.nn.functional.mse_loss(true_out, out) < 1e-10
 
     module = CalibrationQwen3_5MoeSparseMoeBlock(
         original, config, calibrate_all_experts=False
     )
     with calibration_forward_context(module):
         out = module(sample)
-        assert torch.nn.functional.mse_loss(true_out, out) < 0.1
+        assert torch.nn.functional.mse_loss(true_out, out) < 1e-10
 
 
 @requires_gpu
