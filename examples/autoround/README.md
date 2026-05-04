@@ -16,7 +16,7 @@ pip install -e .
 
 ## When to Use AutoRound
  
-In summary, AutoRound demonstrates leading or on-par performance at 4-bit precision, with clear advantages for sub-4-bit, as reported in **SignRoundV1** ([paper](https://arxiv.org/pdf/2309.05516)), **SignRoundV2** ([paper](http://arxiv.org/abs/2512.04746)) and the **Intel Low-Bit Open LLM Leaderboard** ([link](https://huggingface.co/spaces/Intel/low_bit_open_llm_leaderboard)),
+In summary, AutoRound demonstrates leading or on-par performance at 4-bit precision, with clear advantages for sub-4-bit, as reported in **SignRoundV1** ([paper](https://arxiv.org/pdf/2309.05516)), **SignRoundV2** ([paper](http://arxiv.org/abs/2512.04746)) and the **Intel Low-Bit Open LLM Leaderboard**.
  
 **INT4 for Large Models (≈30B and above)**
 AutoRound achieves performance comparable to other PTQ methods, as the accuracy drop for these large models is generally minimal.

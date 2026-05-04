@@ -11,7 +11,9 @@ from llmcompressor.transformers.data import (
 
 @pytest.mark.usefixtures("tiny_llama_tokenizer")
 def test_c4_initializes(tiny_llama_tokenizer):
-    dataset_args = DatasetArguments(dataset="c4", concatenate_data=True)
+    dataset_args = DatasetArguments(
+        dataset="c4", concatenate_data=True, max_seq_length=128
+    )
     c4_manager = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
@@ -28,7 +30,7 @@ def test_c4_initializes(tiny_llama_tokenizer):
 @pytest.mark.usefixtures("tiny_llama_tokenizer")
 def test_wikitext_initializes(tiny_llama_tokenizer):
     dataset_args = DatasetArguments(
-        dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
+        dataset="wikitext", dataset_config_name="wikitext-2-raw-v1", max_seq_length=128
     )
     wiki_manager = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
@@ -45,7 +47,9 @@ def test_wikitext_initializes(tiny_llama_tokenizer):
 
 @pytest.mark.usefixtures("tiny_llama_tokenizer")
 def test_open_platypus_initializes(tiny_llama_tokenizer):
-    dataset_args = DatasetArguments(dataset="open_platypus", pad_to_max_length=False)
+    dataset_args = DatasetArguments(
+        dataset="open_platypus", pad_to_max_length=False, max_seq_length=128
+    )
     op_manager = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,

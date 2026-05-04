@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch.nn import Linear
 
-from llmcompressor.modifiers.awq.dynamic_mappings import (
+from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     AWQ_DYNAMIC_MAPPING_REGISTRY,
     _detect_linear_attn_projections,
     _get_hybrid_attention_config,
