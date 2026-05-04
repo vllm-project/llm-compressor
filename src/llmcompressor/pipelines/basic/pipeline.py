@@ -61,7 +61,7 @@ class BasicPipeline(CalibrationPipeline):
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             # Optionally disable quantization
-            if not dataset_args.quantization_aware_calibration or disable_qac:
+            if not (dataset_args.quantization_aware_calibration if dataset_args else True) or disable_qac:
                 stack.enter_context(DisableQuantization(model))
 
             for batch_idx, batch in enumerate(
