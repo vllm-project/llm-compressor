@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
+from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
@@ -42,7 +43,6 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
-    wait_for_comms,
 )
 
 __all__ = ["QuantizationMixin"]

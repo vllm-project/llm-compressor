@@ -1,8 +1,8 @@
 import re
-from collections import defaultdict
 
+from compressed_tensors.entrypoints.convert import Converter, build_inverse_weight_maps
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
-from loguru import logger
+from compressed_tensors.utils.safetensors_load import InverseWeightMap
 
 from llmcompressor.entrypoints.model_free.helpers import (
     MatchedNamesSet,
@@ -10,7 +10,7 @@ from llmcompressor.entrypoints.model_free.helpers import (
 )
 
 __all__ = [
-    "build_microscale_inverse_weights_map",
+    "build_microscale_inverse_weight_maps",
     "is_microscale_scheme",
     "get_fused_names",
     "DEFAULT_FUSED_MAPPINGS",
@@ -79,68 +79,47 @@ def get_fused_names(
     return matched, unmatched
 
 
-def build_microscale_inverse_weights_map(
-    shard_name: str,
+def build_microscale_inverse_weight_maps(
     weight_map: dict[str, str],
     model_files: dict[str, str],
-) -> dict[str, list[str]]:
+    converters: list[Converter],
+) -> dict[str, InverseWeightMap]:
     """
+    This function replicates the logic of
+    `compressed_tensors.entrypoints.convert.build_inverse_weight_maps` including the
+    case of microscale partner shards, as defined in DEFAULT_FUSED_MAPPINGS
+
     For a given output shard, precompute exactly which tensors to load from
-    which source files — including fused partner tensors from other shards.
+    which source files — including required partner tensors from other shards.
 
-    Uses DEFAULT_FUSED_MAPPINGS with primary->partners structure to ensure
-    only the shard owning the primary tensor fetches its partners, preventing
-    double reads when fused weights span multiple shards.
-
-    Example — given:
-        shard0: [q_proj.weight, ...]   <- primary owner
-        shard1: [k_proj.weight, v_proj.weight, ...]   <- partners
-
-    Only shard0's inverse_weights_map will include shard1's tensors.
-    Shard1's job loads only its own native tensors.
+    This is necessary because some converters require that a set of tensors are
+    accessible in order for them to be processed correctly.
 
     :param shard_name: the shard filename this job will process and save
     :param weight_map: tensor name -> shard filename (from safetensors.index.json)
     :param model_files: shard filename -> resolved absolute path
     :return: {resolved_file_path: [tensor_names_to_load]}
     """
-    own_resolved = model_files[shard_name]
-    native_tensors = [t for t, s in weight_map.items() if s == shard_name]
 
-    inverse_weights_map: dict[str, list[str]] = defaultdict(list)
-    inverse_weights_map[own_resolved] = list(native_tensors)
-
-    # For each native tensor that matches a primary pattern, fetch its partners
-    for name in native_tensors:
-        for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
-            match = re.match(primary_pattern, name)
-            if match is None:
-                continue
-
-            # Build partner names using named groups from the match
-            for partner_template in partner_templates:
-                partner_name = partner_template.format(**match.groupdict())
-
-                partner_shard = weight_map.get(partner_name)
-                if partner_shard is None:
-                    logger.warning(
-                        f"Expected partner tensor {partner_name!r} not found "
-                        f"in weight_map — skipping. This may indicate an "
-                        f"unexpected model architecture."
-                    )
+    # TODO move to top level, fulfill rest of Protocol contract
+    #  - ideally remove the need for separate process_file and process_microscale_file
+    #    functions
+    #  - remove build_microscale_inverse_weight_maps entirely, replace with
+    #    `compressed_tensors.entrypoints.convert.build_inverse_weight_maps`
+    class MicroscaleConverter:
+        def get_dependencies(self, weight_name: str) -> set[str]:
+            deps = set()
+            for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
+                match = re.match(primary_pattern, weight_name)
+                if match is None:
                     continue
-                if partner_shard == shard_name:
-                    continue  # partner is in the same shard
 
-                partner_resolved = model_files.get(partner_shard)
-                if partner_resolved is None:
-                    raise ValueError(
-                        f"Partner shard {partner_shard!r} for tensor "
-                        f"{partner_name!r} not found in model_files. "
-                        "This indicates a corrupt or incomplete checkpoint."
-                    )
+                # Build partner names using named groups from the match
+                for partner_template in partner_templates:
+                    partner_name = partner_template.format(**match.groupdict())
 
-                if partner_name not in inverse_weights_map[partner_resolved]:
-                    inverse_weights_map[partner_resolved].append(partner_name)
+                    deps.add(partner_name)
+            return deps
 
-    return dict(inverse_weights_map)
+    converters.append(MicroscaleConverter())
+    return build_inverse_weight_maps(weight_map, model_files, converters)

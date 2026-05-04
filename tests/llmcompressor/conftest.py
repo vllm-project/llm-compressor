@@ -7,12 +7,6 @@ import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
 
-try:
-    import wandb
-except Exception:
-    wandb = None
-
-
 os.environ["NM_TEST_MODE"] = "True"
 os.environ["NM_TEST_LOG_DIR"] = "nm_temp_test_logs"
 
@@ -63,8 +57,6 @@ def check_for_created_files():
         directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
     )
     yield
-    if wandb:
-        wandb.finish()
     log_dir = os.environ.get("NM_TEST_LOG_DIR")
     if os.path.isdir(log_dir):
         shutil.rmtree(log_dir)

@@ -232,6 +232,7 @@ class Oneshot:
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
             )
+
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
@@ -272,7 +273,7 @@ def oneshot(
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
-    max_seq_length: int = 384,
+    max_seq_length: int | None = None,
     pad_to_max_length: bool = True,
     text_column: str = "text",
     concatenate_data: bool = False,

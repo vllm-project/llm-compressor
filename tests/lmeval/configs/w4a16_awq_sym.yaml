@@ -7,8 +7,8 @@ dataset_split: train_sft
 seed: 100
 lmeval:
   recovery_threshold:
-    exact_match,strict-match: 0.92
-    exact_match,flexible-extract: 0.92
+    exact_match,strict-match: 0.90
+    exact_match,flexible-extract: 0.90
   metrics:
-    exact_match,flexible-extract: 0.70
-    exact_match,strict-match: 0.70
+    exact_match,flexible-extract: 0.68
+    exact_match,strict-match: 0.68

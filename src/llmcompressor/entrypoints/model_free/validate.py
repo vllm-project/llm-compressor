@@ -5,9 +5,12 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.utils import getattr_chain
+from compressed_tensors.utils.safetensors_load import (
+    find_safetensors_index_file,
+)
 from loguru import logger
 
-from .helpers import find_safetensors_index_file, invert_mapping
+from .helpers import invert_mapping
 from .microscale import get_fused_names, is_microscale_scheme
 
 __all__ = ["validate_scheme", "validate_safetensors_index"]
@@ -67,11 +70,11 @@ def validate_safetensors_index(model_files: dict[str, str], scheme: Quantization
             _fused_sets, unmatched_sets = get_fused_names(tensor_names)
             if len(unmatched_sets) > 0:
                 # Cross-shard fused weights detected. model_free_ptq handles
-                # this automatically via precomputed inverse_weights_map —
+                # this automatically via precomputed inverse_weight_map —
                 # fused partner tensors are fetched via partial reads and
                 # re-saved into the requesting shard's output.
                 logger.debug(
                     f"{file} has fused weights split across shards: "
                     f"{json.dumps(unmatched_sets, indent=4)}\n"
-                    "These will be resolved via precomputed inverse_weights_map."
+                    "These will be resolved via precomputed inverse_weight_map."
                 )
