@@ -157,24 +157,32 @@ class SequentialPipeline(CalibrationPipeline):
                         sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
-                        subgraph.forward(model, **inputs)
+                        outputs = subgraph.forward(model, **inputs)
+
+                        if not dataset_args.propagate_error:
+                            if subgraph_index < num_subgraphs - 1:
+                                activations.update(batch_idx, outputs)
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph)
 
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx, inputs in _get_batches(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            prop_desc,
-                            sequential_prefetch,
-                        ):
-                            output = subgraph.forward(model, **inputs)
-                            if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                    if dataset_args.propagate_error:
+                        # this pass does not trigger modifier hooks
+                        # and is only used for capturing outputs of compressed modules
+                        with HooksMixin.disable_hooks():
+                            for batch_idx, inputs in _get_batches(
+                                activations,
+                                num_batches,
+                                subgraph.input_names,
+                                prop_desc,
+                                sequential_prefetch,
+                            ):
+                                output = subgraph.forward(model, **inputs)
+                                if subgraph_index < num_subgraphs - 1:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
