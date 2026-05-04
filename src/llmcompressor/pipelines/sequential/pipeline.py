@@ -181,7 +181,9 @@ class SequentialPipeline(CalibrationPipeline):
                                 output = subgraph.forward(model, **inputs)
                                 if subgraph_index < num_subgraphs - 1:
                                     activations.update(batch_idx, output)
-                                    activations.delete(batch_idx, subgraph.consumed_names)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
