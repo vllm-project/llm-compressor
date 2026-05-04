@@ -2,7 +2,6 @@ import pytest
 from compressed_tensors.utils.match import match_named_modules
 from transformers import (
     AutoModelForCausalLM,
-    Cohere2VisionForConditionalGeneration,
     Gemma3ForConditionalGeneration,
     Gemma3nForConditionalGeneration,
     Idefics3ForConditionalGeneration,
@@ -86,13 +85,14 @@ from tests.testing_utils import requires_hf_token
             "vision",
             ["torchvision"],
         ),
-        (
-            "CohereLabs/command-a-vision-07-2025",
-            Cohere2VisionForConditionalGeneration,
-            ["Cohere2DecoderLayer"],
-            "vision",
-            [],
-        ),
+        # TODO: add gated model command-a to CI runner tokens
+        # (
+        #     "CohereLabs/command-a-vision-07-2025",
+        #     Cohere2VisionForConditionalGeneration,
+        #     ["Cohere2DecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
         (
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
