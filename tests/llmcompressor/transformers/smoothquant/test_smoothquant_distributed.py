@@ -17,8 +17,6 @@ Run integration test (requires 2 GPUs):
 
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +26,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -208,7 +207,8 @@ def _run_single_gpu_smoothquant(
 @pytest.mark.integration
 @pytest.mark.multi_gpu
 @requires_gpu(2)
-def test_smoothquant_distributed_weights_match_single_gpu(tmp_path):
+@torchrun(world_size=2)
+def test_smoothquant_distributed_weights_match_single_gpu():
     """
     Verify that distributed SmoothQuant produces the same smoothed weights
     as single-GPU SmoothQuant on the same calibration data.
@@ -218,53 +218,87 @@ def test_smoothquant_distributed_weights_match_single_gpu(tmp_path):
     After all_reduce, both ranks should agree on the same smoothing scales,
     producing weights identical to the single-GPU reference (atol=1e-4).
     """
+    from compressed_tensors.offload import init_dist, load_offloaded_model
+
     MODEL = "nm-testing/tinysmokellama-3.2"
     NUM_SAMPLES = 32
 
-    # ------------------------------------------------------------------
-    # Single-GPU reference
-    # ------------------------------------------------------------------
-    single_out = tmp_path / "single_weights.pt"
-    ref = _run_single_gpu_smoothquant(MODEL, NUM_SAMPLES)
-    torch.save(ref, single_out)
+    rank = torch.distributed.get_rank()
 
     # ------------------------------------------------------------------
-    # Distributed run (2 ranks, each gets half via get_rank_partition)
+    # Single-GPU reference (only rank 0)
     # ------------------------------------------------------------------
-    ddp_out = tmp_path / "ddp_weights.pt"
-    ddp_runner = Path(__file__).parent / "_smoothquant_ddp_runner.py"
+    if rank == 0:
+        ref = _run_single_gpu_smoothquant(MODEL, NUM_SAMPLES)
+    else:
+        ref = None
 
-    r = subprocess.run(
-        [
-            "torchrun",
-            "--standalone",
-            "--nproc_per_node=2",
-            str(ddp_runner),
-            MODEL,
-            str(NUM_SAMPLES),
-            str(ddp_out),
-        ],
-        capture_output=True,
-        text=True,
+    torch.distributed.barrier()
+
+    # ------------------------------------------------------------------
+    # Distributed run (all ranks participate)
+    # ------------------------------------------------------------------
+    # Initialize distributed for offloading
+    init_dist()
+
+    # Load model with offloading
+    with load_offloaded_model():
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL, torch_dtype=torch.float32, device_map="auto_offload"
+        )
+
+    # Prepare dataset with rank partitioning
+    tok = AutoTokenizer.from_pretrained(MODEL)
+    if tok.chat_template is None:
+        tok.chat_template = (
+            "{% for message in messages %}{{ message['content'] }}{% endfor %}"
+        )
+
+    ds = load_dataset(
+        "HuggingFaceH4/ultrachat_200k",
+        split=get_rank_partition("train_sft", NUM_SAMPLES),
     )
-    assert (
-        r.returncode == 0
-    ), f"DDP run failed:\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
-
-    ddp = torch.load(ddp_out, weights_only=True)
-
-    # ------------------------------------------------------------------
-    # Compare
-    # ------------------------------------------------------------------
-    assert set(ref.keys()) == set(ddp.keys())
-    mismatches = []
-    for name in ref:
-        try:
-            torch.testing.assert_close(ref[name], ddp[name], atol=1e-4, rtol=1e-4)
-        except AssertionError as e:
-            mismatches.append(f"  {name}: {e}")
-
-    assert not mismatches, (
-        "Distributed SmoothQuant weights differ from single-GPU:\n"
-        + "\n".join(mismatches)
+    ds = ds.map(
+        lambda ex: {"text": tok.apply_chat_template(ex["messages"], tokenize=False)}
     )
+    ds = ds.map(
+        lambda s: tok(s["text"], padding=False, max_length=512, truncation=True),
+        remove_columns=ds.column_names,
+    )
+
+    # Run SmoothQuant
+    oneshot(
+        model=model,
+        dataset=ds,
+        recipe=SmoothQuantModifier(smoothing_strength=0.8),
+        num_calibration_samples=NUM_SAMPLES,
+        max_seq_length=512,
+    )
+
+    # Extract weights
+    ddp_weights = {
+        name: param.clone().cpu()
+        for name, param in model.named_parameters()
+        if "input_layernorm" in name or "q_proj" in name
+    }
+
+    torch.distributed.barrier()
+
+    # ------------------------------------------------------------------
+    # Compare (only rank 0)
+    # ------------------------------------------------------------------
+    if rank == 0:
+        assert set(ref.keys()) == set(ddp_weights.keys())
+        mismatches = []
+        for name in ref:
+            try:
+                torch.testing.assert_close(
+                    ref[name], ddp_weights[name], atol=1e-4, rtol=1e-4
+                )
+            except AssertionError as e:
+                mismatches.append(f"  {name}: {e}")
+
+        assert not mismatches, (
+            "Distributed SmoothQuant weights differ from single-GPU:\n"
+            + "\n".join(mismatches)
+        )
