@@ -15,6 +15,8 @@ Finally, one of the most impactful ways to support us is by raising awareness ab
 Talk about it in your blog posts, highlighting how it's driving your incredible projects.
 Express your support on Twitter if vLLM aids you, or simply offer your appreciation by starring our repository.
 
+Check out our [Developer Guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/) for contributing a new quantization modifier, observer, and more!
+
 ## Setup for development
 
 ### Install from source

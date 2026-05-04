@@ -12,10 +12,8 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights and activations to mxfp8 via ptq
-recipe = QuantizationModifier(
-    targets="Linear", scheme="MXFP8", ignore=["lm_head"]
-)
+#   * quantize the weights to mxfp8 via ptq
+recipe = QuantizationModifier(targets="Linear", scheme="MXFP8A16", ignore=["lm_head"])
 
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
@@ -31,7 +29,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP8A16"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
-
