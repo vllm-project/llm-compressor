@@ -14,6 +14,9 @@ from llmcompressor.modifiers.transform.awq import AWQModifier
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Thinking"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-W4A16-awq-thinking"
 
+# Magpie-Reasoning-V2 uses Llama-generated traces. A Qwen-native reasoning
+# dataset (e.g. QwQ-style) would better match the model's activation
+# distribution but is not currently available with a compatible schema on HF.
 DATASET_ID = "Magpie-Align/Magpie-Reasoning-V2-250K-CoT-Deepseek-R1-Llama-70B"
 DATASET_SPLIT = "train"
 
