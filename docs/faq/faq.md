@@ -12,7 +12,7 @@ There is minimal support for compressed-tensors models in sglang, but it is not 
 
 **3. How do I choose the right quantization scheme?**
 
-This involves understanding your hardware availability and inference requirements. Refer to [Compression Schemes Guide](../guides/compression_schemes.md).
+This involves understanding your hardware availability and inference requirements. Refer to the [Compression Schemes Guide](../guides/compression_schemes.md). For a step-by-step guide, see our [Compression Guide](../steps/why-llmcompressor.md).
 
 **4. What are the memory requirements for compression?**
 
@@ -34,16 +34,14 @@ For more information, see [Quantizing Multimodal Audio Models](https://github.co
 
 **7. Does LLM Compressor have multi-GPU support?**
 
-LLM Compressor enables the compression of large models through sequential onloading, whereby layers of the model are jointly onloaded to a single GPU, optimized, then offloaded back to the CPU. Consequently, in most cases, only one GPU is used at a time.
+Yes. LLM Compressor supports multi-GPU compression via Distributed Data Parallel (DDP), available since v0.10.0.
 
-In cases where no calibration data is needed, the model is dispatched to all GPUs, although only one GPU is used at a time for compression.
-
-Multi-GPU parallel optimization is currently in development and being tracked in this [issue](https://github.com/vllm-project/llm-compressor/issues/1809).
+By default, LLM Compressor compresses large models through sequential onloading, whereby layers of the model are onloaded to a single GPU, optimized, then offloaded back to the CPU. DDP parallelizes this process across multiple GPUs, significantly reducing compression time — see the [Big Models and Distributed Guide](../guides/big_models_and_distributed/distributed_oneshot.md) for usage details and benchmark results.
 
 **8. Where can I learn more about LLM Compressor?**
 
 There are multiple videos on YouTube:
-[LLM Compressor deep dive + walkthrough](https://www.youtube.com/watch?v=caLYSZMVQ1c)
-[vLLM Office Hours #23 - Deep Dive Into the LLM Compressor](https://www.youtube.com/watch?v=GrhuqQDmBk8)
-[vLLM Office Hours #31 - vLLM and LLM Compresor Update](https://www.youtube.com/watch?v=WVenRmF4dPY)
-[Optimizing vLLM Performance through Quantization|Ray Summit 2024](https://www.youtube.com/watch?v=G1WNlLxPLSE)
+- [Optimizing vLLM Performance through Quantization|Ray Summit 2024](https://www.youtube.com/watch?v=G1WNlLxPLSE)
+- [vLLM Office Hours](https://www.youtube.com/playlist?list=PLbMP1JcGBmSHxp4-lubU5WYmJ9YgAQcf3)
+
+Alternatively, join the vLLM Slack and ask any questions in #llm-compressor or #sig-quantization.
