@@ -144,6 +144,74 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     return pytest.mark.skipif(not has_capability, reason=reason)
 
 
+def torchrun(world_size: int = 1):
+    """
+    Pytest decorator to run a test within parallel torchrun subprocesses.
+
+    This decorator automatically spawns torchrun when the test is run with regular pytest.
+    When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it initializes
+    the distributed process group and runs the test.
+
+    Usage:
+        @pytest.mark.unit
+        @requires_gpu(2)
+        @torchrun(world_size=2)
+        def test_distributed_feature():
+            # Test code that uses torch.distributed
+            ...
+
+    :param world_size: number of ranks to spawn
+    """
+    import subprocess
+    import sys
+
+    import torch.distributed as dist
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # We're running in a torchrun subprocess:
+            # init distributed and run test func
+            if "TORCHELASTIC_RUN_ID" in os.environ:
+                rank = int(os.environ["RANK"])
+                local_rank = int(os.environ["LOCAL_RANK"])
+
+                torch.accelerator.set_device_index(local_rank)
+                accel_type = torch.accelerator.current_accelerator().type
+                dist.init_process_group(
+                    backend=dist.get_default_backend_for_device(
+                        torch.device(accel_type, local_rank)
+                    ),
+                    init_method="env://",
+                    rank=rank,
+                    world_size=world_size,
+                    device_id=local_rank,
+                )
+                dist.barrier()
+
+                return func(*args, **kwargs)
+
+            # First time calling in the main process:
+            # trigger torchrun with this function as the pytest target
+            else:
+                file_path = sys.modules.get(func.__module__).__file__
+                func_name = func.__name__
+
+                cmd = (
+                    f"{sys.executable} "
+                    f"-m torch.distributed.run --nproc_per_node {world_size} "
+                    "--log-dir /tmp/torchrun-logs --tee 3 --role torchrun "
+                    f"-m pytest {file_path}::{func_name} -sx"
+                )
+
+                proc = subprocess.run(cmd.split(" "))
+                assert proc.returncode == 0
+
+        return wrapper
+
+    return decorator
+
+
 requires_hf_token: callable = pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tests requiring gated model access",

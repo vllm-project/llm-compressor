@@ -29,7 +29,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import requires_gpu, torchrun
 
 # ---------------------------------------------------------------------------
 # Unit tests — mock-based, no GPU required
