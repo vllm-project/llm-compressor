@@ -154,9 +154,7 @@ class LifecycleCallbacks:
         return cls.event(EventType.CALIBRATION_EPOCH_START, **kwargs)
 
     @classmethod
-    def sequential_epoch_end(
-        cls, modules: list["Module"], **kwargs
-    ) -> ModifiedState:
+    def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
         """
         Invoke a sequential epoch end event for the active session. This event should be
         called after one sequential layer has been calibrated/trained for one epoch
