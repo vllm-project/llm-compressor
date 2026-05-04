@@ -30,6 +30,8 @@ from llmcompressor.observers import Observer
 @Observer.register("my_observer")
 class MyObserver(Observer):
 
+    _act_sync_dict = {}
+
     def update_statistics(self, observed: torch.Tensor) -> None:
         """
         Update internal statistics from the observed tensor.
@@ -163,6 +165,8 @@ class PercentileObserver(Observer):
     Configure via observer_kwargs:
         percentile (float): the upper percentile to retain, e.g. 99.9
     """
+
+    _act_sync_dict = {}
 
     def update_statistics(self, observed: torch.Tensor) -> None:
         percentile = self.args.observer_kwargs.get("percentile", 99.9)
