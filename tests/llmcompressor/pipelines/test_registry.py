@@ -1,10 +1,14 @@
 import pytest
 
-from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modifiers.pruning import SparseGPTModifier, WandaPruningModifier
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
+from llmcompressor.modifiers.transform import (
+    AWQModifier,
+    QuIPModifier,
+    SmoothQuantModifier,
+    SpinQuantModifier,
+)
+from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.pipelines import (
     CalibrationPipeline,
     DataFreePipeline,
@@ -20,9 +24,10 @@ from llmcompressor.pipelines import (
         ([GPTQModifier(scheme="FP8")], SequentialPipeline),
         ([GPTQModifier(scheme="W4A16")], SequentialPipeline),
         ([SmoothQuantModifier(), GPTQModifier(scheme="W4A16")], SequentialPipeline),
-        ([AWQModifier(scheme="W4A16")], SequentialPipeline),
-        ([AWQModifier(scheme="FP8")], SequentialPipeline),
+        ([AWQModifier(), QuantizationModifier(scheme="W4A16")], SequentialPipeline),
+        ([AWQModifier(), QuantizationModifier(scheme="FP8")], SequentialPipeline),
         ([SparseGPTModifier(sparsity=1.0)], SequentialPipeline),
+        ([IMatrixGatherer()], SequentialPipeline),
         ([WandaPruningModifier(sparsity=1.0)], SequentialPipeline),
         ([QuIPModifier()], DataFreePipeline),
         ([SpinQuantModifier()], DataFreePipeline),
