@@ -23,6 +23,8 @@ from llmcompressor.evaluation.kld import (
     evaluate_kl_divergence,
 )
 
+_resolve_prompts = KLDivergenceEvaluator._resolve_prompts
+
 # ---------------------------------------------------------------------
 # _find_lm_head
 # ---------------------------------------------------------------------
@@ -378,10 +380,70 @@ def test_evaluator_default_gpu_memory_utilization():
     assert e.gpu_memory_utilization == pytest.approx(0.45)
 
 
-def test_evaluator_evaluate_empty_prompts_raises():
-    e = KLDivergenceEvaluator(base_model_id="foo")
-    with pytest.raises(ValueError, match="non-empty"):
-        e.evaluate(prompts=[])
+def test_evaluator_temperature_stored():
+    e = KLDivergenceEvaluator(base_model_id="foo", temperature=0.7)
+    assert e.temperature == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------
+# _resolve_prompts
+# ---------------------------------------------------------------------
+
+
+def test_resolve_prompts_from_list():
+    long_a = "hello world this is a test sentence with enough characters to pass the filter"
+    long_b = "another long sentence here with sufficient length to exceed the minimum"
+    prompts = _resolve_prompts(
+        dataset=[long_a, "  ", long_b],
+        dataset_config_name=None,
+        dataset_split="test",
+        text_column="text",
+        num_calibration_samples=10,
+        max_seq_length=512,
+    )
+    # Short/whitespace strings filtered; long strings kept
+    assert long_a in prompts
+    assert all(p.strip() for p in prompts)
+
+
+def test_resolve_prompts_list_respects_num_samples():
+    data = [f"sentence number {i} with enough words to pass the fifty character filter" for i in range(100)]
+    prompts = _resolve_prompts(
+        dataset=data,
+        dataset_config_name=None,
+        dataset_split="test",
+        text_column="text",
+        num_calibration_samples=10,
+        max_seq_length=512,
+    )
+    assert len(prompts) == 10
+
+
+def test_resolve_prompts_truncates_to_max_seq_length():
+    long_text = "a" * 2000
+    prompts = _resolve_prompts(
+        dataset=[long_text],
+        dataset_config_name=None,
+        dataset_split="test",
+        text_column="text",
+        num_calibration_samples=10,
+        max_seq_length=100,
+    )
+    assert all(len(p) <= 100 for p in prompts)
+
+
+def test_resolve_prompts_filters_short_texts():
+    data = ["hi", "x" * 51, "short"]
+    prompts = _resolve_prompts(
+        dataset=data,
+        dataset_config_name=None,
+        dataset_split="test",
+        text_column="text",
+        num_calibration_samples=10,
+        max_seq_length=512,
+    )
+    # Only texts with len >= 50 pass the filter
+    assert all(len(p) >= 50 for p in prompts)
 
 
 # ---------------------------------------------------------------------

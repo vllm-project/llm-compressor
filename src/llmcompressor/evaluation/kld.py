@@ -24,14 +24,14 @@ Pipeline
 5. Compute token-weighted ``KL(P_base || P_quant)`` online per prompt,
    accumulating the weighted sum across the dataset.
 
-Key improvements over the hook-based approach
-----------------------------------------------
-- No ``enforce_eager=True``: buffer writes (``Tensor.copy_``) are CUDA ops
-  that are captured and replayed by CUDA graphs correctly.
-- Both models remain resident in GPU memory for the full evaluation run,
-  eliminating GPU teardown and reload overhead between models.
-- KLD is computed online after each prompt; no intermediate results are
-  written to disk.
+CLI Usage
+---------
+python -m llmcompressor.evaluation.kld \\
+    --base_model_id meta-llama/Meta-Llama-3-8B \\
+    --quantized_model_id ./Meta-Llama-3-8B-W4A16 \\
+    --dataset wikitext \\
+    --dataset_config_name wikitext-2-raw-v1 \\
+    --num_calibration_samples 512
 
 References
 ----------
@@ -42,11 +42,12 @@ References
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import gc
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 import torch
 import torch.nn.functional as F
@@ -54,20 +55,13 @@ from loguru import logger
 from torch import nn
 
 if TYPE_CHECKING:
+    from datasets import Dataset
     from vllm import LLM
 
 __all__ = [
     "KLDivergenceEvaluator",
     "KLDivergenceResult",
     "evaluate_kl_divergence",
-]
-
-_DEFAULT_DATASET = [
-    "The quick brown fox jumps over the lazy dog.",
-    "Machine learning models require large amounts of training data.",
-    "Quantization reduces model size by lowering the precision of weights.",
-    "Natural language processing has advanced significantly in recent years.",
-    "Efficient inference is critical for deploying large language models.",
 ]
 
 # Maximum number of tokens the capture buffer can hold.  Prompts longer than
@@ -96,6 +90,10 @@ def _worker_setup_buffer_capture(model: nn.Module) -> None:
     Buffer writes (``Tensor.copy_``) are CUDA memory operations — they are
     recorded in CUDA graphs and replayed correctly on each forward pass,
     unlike Python forward-hook callbacks which are skipped during graph replay.
+
+    Only the first forward call per prompt (the prefill phase) is captured.
+    The counter is reset to zero by ``_worker_collect_buffer`` after each
+    prompt so that subsequent decode-step calls are ignored.
 
     Must be called via ``apply_model`` **before** the first ``generate()`` so
     that the patched forward is included in any CUDA-graph capture.
@@ -139,8 +137,7 @@ def _worker_setup_buffer_capture(model: nn.Module) -> None:
         cap = min(n, _MAX_CAPTURE_TOKENS)
         # Only capture the first call per prompt (prefill phase).
         # n_tok is reset to 0 by _worker_collect_buffer after each prompt,
-        # so subsequent decode-step calls (n << prompt_len) are ignored.
-        # CUDA copy — captured in CUDA graph and replayed on each call.
+        # so subsequent decode-step calls are ignored.
         if n_tok[0] == 0:
             buf[:cap].copy_(hidden_states[:cap].to(buf_dtype))
             n_tok.fill_(cap)
@@ -155,8 +152,8 @@ def _worker_collect_buffer(model: nn.Module) -> dict:
     """
     Read the captured hidden states from the CUDA buffer and return to caller.
 
-    Called via ``apply_model`` after each ``generate()`` to retrieve the
-    pre-lm_head hidden states written by ``_worker_setup_buffer_capture``.
+    Resets the token counter to zero so the next prompt's prefill is captured
+    fresh.  Called via ``apply_model`` after each ``generate()``.
 
     :param model: The vLLM-loaded model running inside the worker.
     :return: ``{"hidden_states": Tensor[n, hidden_dim], "n_tokens": int}``
@@ -165,7 +162,7 @@ def _worker_collect_buffer(model: nn.Module) -> dict:
     buf: torch.Tensor = model.__kld_buf__
     n: int = int(model.__kld_n__[0].item())
     data = buf[:n].detach().float().cpu()
-    # Reset counter so the next prompt's prefill is captured fresh.
+    # Reset so the next prompt's prefill is captured (not a decode step).
     model.__kld_n__.fill_(0)
     return {
         "hidden_states": data,
@@ -251,6 +248,9 @@ class KLDivergenceEvaluator:
     KLD is computed online after each prompt pair; no intermediate data is
     written to disk.
 
+    Accepts a HuggingFace dataset ID string, a ``datasets.Dataset`` object,
+    or a plain list of text strings as the evaluation corpus.
+
     Tensor parallelism is not supported (``tensor_parallel_size`` must be 1)
     because the lm_head weight is sharded across ranks under TP, which would
     require gather logic the offline KLD step does not implement.
@@ -262,8 +262,9 @@ class KLDivergenceEvaluator:
         for sanity checks — result should be ~0).
     :param dtype: Model dtype passed to vLLM. Defaults to ``"auto"``.
     :param max_tokens: Maximum number of tokens to generate per prompt.
-        Must be >= 1. Set to 1 to evaluate only on the prompt prefill
-        positions (recommended for pure quantization quality assessment).
+        Must be >= 1. Set to 1 to evaluate only on prompt prefill positions
+        (recommended for quantization quality assessment).
+    :param temperature: Sampling temperature. Defaults to 0.0 (greedy).
     :param gpu_memory_utilization: Fraction of GPU memory each model may use.
         Defaults to 0.45 so that two concurrent models use ~0.90 total.
         Reduce if two models do not fit in GPU memory simultaneously.
@@ -275,7 +276,11 @@ class KLDivergenceEvaluator:
             base_model_id="meta-llama/Meta-Llama-3-8B",
             quantized_model_id="meta-llama/Meta-Llama-3-8B-W4A16",
         )
-        result = evaluator.evaluate(prompts=["Hello world", ...])
+        result = evaluator.evaluate(
+            dataset="wikitext",
+            dataset_config_name="wikitext-2-raw-v1",
+            num_calibration_samples=512,
+        )
         print(result.mean_kld)
     """
 
@@ -285,6 +290,7 @@ class KLDivergenceEvaluator:
         quantized_model_id: Optional[str] = None,
         dtype: str = "auto",
         max_tokens: int = 1,
+        temperature: float = 0.0,
         gpu_memory_utilization: float = 0.45,
         tensor_parallel_size: int = 1,
     ):
@@ -301,24 +307,42 @@ class KLDivergenceEvaluator:
         self.quantized_model_id = quantized_model_id or base_model_id
         self.dtype = dtype
         self.max_tokens = max_tokens
+        self.temperature = temperature
         self.gpu_memory_utilization = gpu_memory_utilization
         self.tensor_parallel_size = tensor_parallel_size
 
     def evaluate(
         self,
-        prompts: Optional[list[str]] = None,
+        dataset: Union[str, "Dataset", list[str], None] = "wikitext",
+        dataset_config_name: Optional[str] = "wikitext-2-raw-v1",
+        dataset_split: str = "test",
+        text_column: str = "text",
+        num_calibration_samples: int = 512,
+        max_seq_length: int = 512,
     ) -> KLDivergenceResult:
         """
-        Run KL Divergence evaluation over the given prompts.
+        Run KL Divergence evaluation over the given dataset.
 
         Both models are loaded at the start and remain in GPU memory for the
         full run.  KLD is computed online after each prompt pair; no data is
         written to disk.
 
-        :param prompts: List of text prompts to evaluate on. Defaults to a
-            small built-in calibration set if not provided.
+        :param dataset: HuggingFace dataset ID string (e.g. ``"wikitext"``),
+            a pre-loaded ``datasets.Dataset``, or a plain ``list[str]`` of
+            text prompts.  Defaults to WikiText-2.
+        :param dataset_config_name: HuggingFace dataset config name, used
+            when *dataset* is a string (e.g. ``"wikitext-2-raw-v1"``).
+        :param dataset_split: Dataset split to use when loading from HF Hub.
+            Defaults to ``"test"``.
+        :param text_column: Column name containing the text to evaluate.
+            Defaults to ``"text"``.
+        :param num_calibration_samples: Maximum number of prompts to evaluate.
+            Defaults to 512.
+        :param max_seq_length: Maximum number of characters per prompt before
+            truncation.  Approximates a token limit; set lower for large models
+            on memory-constrained GPUs.  Defaults to 512.
         :return: :class:`KLDivergenceResult` with mean KLD and diagnostics.
-        :raises ValueError: If *prompts* is an empty list.
+        :raises ValueError: If the resolved prompt list is empty.
         """
         import os
 
@@ -326,15 +350,20 @@ class KLDivergenceEvaluator:
 
         os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
 
-        if prompts is None:
-            prompts = list(_DEFAULT_DATASET)
-            logger.info(
-                "No prompts provided; using built-in calibration set "
-                f"({len(prompts)} prompts)."
-            )
+        prompts = self._resolve_prompts(
+            dataset=dataset,
+            dataset_config_name=dataset_config_name,
+            dataset_split=dataset_split,
+            text_column=text_column,
+            num_calibration_samples=num_calibration_samples,
+            max_seq_length=max_seq_length,
+        )
 
         if not prompts:
-            raise ValueError("prompts must be a non-empty list.")
+            raise ValueError(
+                "No prompts found after loading dataset. "
+                "Check dataset ID, split, and text_column."
+            )
 
         logger.info(
             f"Loading base model: {self.base_model_id} "
@@ -349,7 +378,6 @@ class KLDivergenceEvaluator:
         quant_llm = self._build_llm(self.quantized_model_id)
 
         try:
-            # Patch both models before any generate() triggers CUDA-graph capture.
             logger.info("Setting up buffer capture on both models.")
             base_llm.apply_model(_worker_setup_buffer_capture)
             quant_llm.apply_model(_worker_setup_buffer_capture)
@@ -358,7 +386,7 @@ class KLDivergenceEvaluator:
             lm_head = self._build_cpu_lm_head(lm_head_data)
 
             sampling_params = SamplingParams(
-                temperature=0.0,
+                temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 prompt_logprobs=1,
             )
@@ -368,10 +396,14 @@ class KLDivergenceEvaluator:
 
             logger.info(f"Evaluating {len(prompts)} prompts...")
             for idx, prompt in enumerate(prompts):
-                base_llm.generate([prompt], sampling_params=sampling_params, use_tqdm=False)
+                base_llm.generate(
+                    [prompt], sampling_params=sampling_params, use_tqdm=False
+                )
                 base_data = base_llm.apply_model(_worker_collect_buffer)[0]
 
-                quant_llm.generate([prompt], sampling_params=sampling_params, use_tqdm=False)
+                quant_llm.generate(
+                    [prompt], sampling_params=sampling_params, use_tqdm=False
+                )
                 quant_data = quant_llm.apply_model(_worker_collect_buffer)[0]
 
                 h_base = base_data["hidden_states"]
@@ -401,10 +433,6 @@ class KLDivergenceEvaluator:
         """
         Instantiate a vLLM ``LLM`` for *model_id*.
 
-        ``VLLM_ALLOW_INSECURE_SERIALIZATION=1`` must be set before calling
-        ``LLM()`` so that ``apply_model`` can transmit module-level callables
-        to the worker process via pickle.
-
         :param model_id: HuggingFace model ID or local path.
         :return: Configured ``LLM`` instance.
         """
@@ -416,6 +444,62 @@ class KLDivergenceEvaluator:
             gpu_memory_utilization=self.gpu_memory_utilization,
             tensor_parallel_size=self.tensor_parallel_size,
         )
+
+    @staticmethod
+    def _resolve_prompts(
+        dataset: Union[str, "Dataset", list[str], None],
+        dataset_config_name: Optional[str],
+        dataset_split: str,
+        text_column: str,
+        num_calibration_samples: int,
+        max_seq_length: int,
+    ) -> list[str]:
+        """
+        Resolve *dataset* into a list of non-empty text strings.
+
+        Accepts a HuggingFace dataset ID string, a ``datasets.Dataset``
+        object, or a plain list of strings.
+
+        :param dataset: Dataset source.
+        :param dataset_config_name: HF config name (used when loading by ID).
+        :param dataset_split: Split to load (used when loading by ID).
+        :param text_column: Column containing text (used for Dataset objects).
+        :param num_calibration_samples: Cap on number of prompts returned.
+        :param max_seq_length: Maximum characters per prompt before truncation.
+        :return: List of text strings ready for vLLM inference.
+        """
+        if isinstance(dataset, list):
+            prompts = []
+            for p in dataset:
+                text = p.strip()
+                if len(text) < 50:
+                    continue
+                prompts.append(text[:max_seq_length])
+                if len(prompts) >= num_calibration_samples:
+                    break
+            return prompts
+
+        if isinstance(dataset, str):
+            from datasets import load_dataset as hf_load
+
+            logger.info(
+                f"Loading dataset '{dataset}' "
+                f"(config={dataset_config_name}, split={dataset_split})"
+            )
+            ds = hf_load(dataset, dataset_config_name, split=dataset_split)
+        else:
+            ds = dataset
+
+        prompts = []
+        for row in ds:
+            text = str(row.get(text_column, "") or "").strip()
+            if len(text) < 50:
+                continue
+            prompts.append(text[:max_seq_length])
+            if len(prompts) >= num_calibration_samples:
+                break
+
+        return prompts
 
     @staticmethod
     def _build_cpu_lm_head(lm_head_data: dict) -> nn.Linear:
@@ -551,9 +635,15 @@ class KLDivergenceEvaluator:
 def evaluate_kl_divergence(
     base_model_id: str,
     quantized_model_id: str,
-    prompts: Optional[list[str]] = None,
+    dataset: Union[str, "Dataset", list[str], None] = "wikitext",
+    dataset_config_name: Optional[str] = "wikitext-2-raw-v1",
+    dataset_split: str = "test",
+    text_column: str = "text",
+    num_calibration_samples: int = 512,
+    max_seq_length: int = 512,
     dtype: str = "auto",
     max_tokens: int = 1,
+    temperature: float = 0.0,
     gpu_memory_utilization: float = 0.45,
     tensor_parallel_size: int = 1,
 ) -> KLDivergenceResult:
@@ -563,9 +653,18 @@ def evaluate_kl_divergence(
     :param base_model_id: HuggingFace model ID or path for the baseline model.
     :param quantized_model_id: HuggingFace model ID or path for the quantized
         model.
-    :param prompts: Calibration prompts. Defaults to a small built-in set.
+    :param dataset: HuggingFace dataset ID string, a ``datasets.Dataset``
+        object, or a plain ``list[str]`` of text prompts.  Defaults to
+        WikiText-2 (``"wikitext"`` with config ``"wikitext-2-raw-v1"``).
+    :param dataset_config_name: HF dataset config name.
+    :param dataset_split: Dataset split to load (default ``"test"``).
+    :param text_column: Column containing the evaluation text (default
+        ``"text"``).
+    :param num_calibration_samples: Maximum number of prompts to evaluate.
+    :param max_seq_length: Maximum characters per prompt before truncation.
     :param dtype: Model dtype for vLLM (e.g. ``"auto"``, ``"bfloat16"``).
     :param max_tokens: Max tokens to generate per prompt (must be >= 1).
+    :param temperature: Sampling temperature (default 0.0 for greedy).
     :param gpu_memory_utilization: Fraction of GPU memory each model may use.
         Defaults to 0.45 for two concurrent models (~0.90 total).
     :param tensor_parallel_size: Must be 1 (TP not supported).
@@ -586,10 +685,18 @@ def evaluate_kl_divergence(
         quantized_model_id=quantized_model_id,
         dtype=dtype,
         max_tokens=max_tokens,
+        temperature=temperature,
         gpu_memory_utilization=gpu_memory_utilization,
         tensor_parallel_size=tensor_parallel_size,
     )
-    return evaluator.evaluate(prompts=prompts)
+    return evaluator.evaluate(
+        dataset=dataset,
+        dataset_config_name=dataset_config_name,
+        dataset_split=dataset_split,
+        text_column=text_column,
+        num_calibration_samples=num_calibration_samples,
+        max_seq_length=max_seq_length,
+    )
 
 
 # ------------------------------------------------------------------
@@ -635,3 +742,131 @@ def _find_lm_head(model: nn.Module) -> Optional[nn.Module]:
         if isinstance(candidate, nn.Module) and hasattr(candidate, "weight"):
             return candidate
     return None
+
+
+# ------------------------------------------------------------------
+# CLI entry point
+# ------------------------------------------------------------------
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Evaluate KL Divergence between a baseline and quantized model "
+            "using vLLM hidden state extraction."
+        )
+    )
+    parser.add_argument(
+        "--base_model_id",
+        type=str,
+        required=True,
+        help="HuggingFace model ID or local path for the baseline model.",
+    )
+    parser.add_argument(
+        "--quantized_model_id",
+        type=str,
+        required=True,
+        help="HuggingFace model ID or local path for the quantized model.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="wikitext",
+        help="HuggingFace dataset ID (default: wikitext).",
+    )
+    parser.add_argument(
+        "--dataset_config_name",
+        type=str,
+        default="wikitext-2-raw-v1",
+        help="HuggingFace dataset config name (default: wikitext-2-raw-v1).",
+    )
+    parser.add_argument(
+        "--dataset_split",
+        type=str,
+        default="test",
+        help="Dataset split to evaluate on (default: test).",
+    )
+    parser.add_argument(
+        "--text_column",
+        type=str,
+        default="text",
+        help="Column containing evaluation text (default: text).",
+    )
+    parser.add_argument(
+        "--num_calibration_samples",
+        type=int,
+        default=512,
+        help="Number of prompts to evaluate (default: 512).",
+    )
+    parser.add_argument(
+        "--max_seq_length",
+        type=int,
+        default=512,
+        help="Maximum characters per prompt before truncation (default: 512).",
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="auto",
+        help="Model dtype for vLLM, e.g. auto, bfloat16 (default: auto).",
+    )
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=1,
+        help="Max tokens to generate per prompt (default: 1).",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature (default: 0.0 greedy).",
+    )
+    parser.add_argument(
+        "--gpu_memory_utilization",
+        type=float,
+        default=0.45,
+        help="GPU memory fraction per model (default: 0.45, two models ~0.90 total).",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    """CLI entry point for KL Divergence evaluation.
+
+    Example::
+
+        python -m llmcompressor.evaluation.kld \\
+            --base_model_id meta-llama/Meta-Llama-3-8B \\
+            --quantized_model_id ./Meta-Llama-3-8B-W4A16 \\
+            --dataset wikitext \\
+            --dataset_config_name wikitext-2-raw-v1 \\
+            --num_calibration_samples 512
+    """
+    args = _parse_args()
+
+    result = evaluate_kl_divergence(
+        base_model_id=args.base_model_id,
+        quantized_model_id=args.quantized_model_id,
+        dataset=args.dataset,
+        dataset_config_name=args.dataset_config_name,
+        dataset_split=args.dataset_split,
+        text_column=args.text_column,
+        num_calibration_samples=args.num_calibration_samples,
+        max_seq_length=args.max_seq_length,
+        dtype=args.dtype,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+    )
+
+    print(result)
+    print(f"\nMean KLD: {result.mean_kld:.6f}")
+    print(f"Prompts evaluated: {result.num_prompts}")
+    print(f"Tokens evaluated:  {result.num_tokens}")
+    if result.skipped:
+        print(f"Skipped:           {result.skipped}")
+
+
+if __name__ == "__main__":
+    main()
