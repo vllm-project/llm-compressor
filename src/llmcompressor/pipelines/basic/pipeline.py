@@ -51,17 +51,15 @@ class BasicPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        # TODO: remove this to enable quantization aware calibration
-        # for GPTQ, AWQ and AutoRound.
         disable_qac = any(
             type(mod).__name__ in DISABLE_QAC_MODIFIERS
             for mod in session.lifecycle.recipe.modifiers
-        )
+        ) or getattr(dataset_args, "quantization_aware_calibration", True)
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             # Optionally disable quantization
-            if not (dataset_args.quantization_aware_calibration if dataset_args else True) or disable_qac:
+            if disable_qac:
                 stack.enter_context(DisableQuantization(model))
 
             for batch_idx, batch in enumerate(
