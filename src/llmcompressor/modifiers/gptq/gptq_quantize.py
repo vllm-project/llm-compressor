@@ -78,7 +78,7 @@ def quantize_weight(
 
     :param module: module with weight being quantized
     :param quant_args: quantization arguments used to find quantization parameters
-    :param hessian_dict: dictionary containing preaccumulated hessian for quantization
+    :param hessian: preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
     :return: loss, quantized_weight, scale, zero_point, g_idx
@@ -110,23 +110,31 @@ def quantize_weight(
     num_columns = W.shape[1]
 
     scale, zero_point = observer(W)
-    # handle g_idx and activation ordering
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        # mapping from column index to group index
-        g_idx = (
-            torch.arange(num_columns, device=W.device, dtype=torch.int)
-            // quant_args.group_size
-        )
+
+    # handle activation ordering
+    if actorder:
+        W, H, perm = _apply_activation_ordering(W, H)
 
         if actorder == ActivationOrdering.GROUP:
-            W, H, perm = _apply_activation_ordering(W, H)
             # actually need scale/zp for permuted weight for this format
             scale, zero_point = observer(W)
             # use identity g_idx (invert permutation later)
 
-        elif actorder == ActivationOrdering.WEIGHT:
-            # permute weights and g_idx
-            W, H, perm = _apply_activation_ordering(W, H)
+    # handle g_idx
+    if strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+        QuantizationStrategy.BLOCK,
+    ):
+        # mapping from column index to group index
+        divisor = (
+            quant_args.group_size
+            if strategy != QuantizationStrategy.BLOCK
+            else quant_args.block_structure[1]
+        )
+        g_idx = torch.arange(num_columns, device=W.device, dtype=torch.int) // divisor
+
+        if actorder == ActivationOrdering.WEIGHT:
             g_idx = g_idx[perm]
 
     # sparsity mask
@@ -217,8 +225,8 @@ def quantize_weight(
                     global_scale=global_scale,
                 )
             elif strategy == QuantizationStrategy.BLOCK:
-                block_width = quant_args.block_structure[1]
-                block_column_idx = (i1 + i) // block_width
+                column_idx = i1 + i
+                block_column_idx = g_idx[column_idx]
                 q = fake_quantize(
                     q.unsqueeze(1),
                     scale[:, block_column_idx : block_column_idx + 1],
@@ -253,24 +261,10 @@ def quantize_weight(
         else:
             W[:, i2:] -= w_err
 
-    has_gidx = False
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        if actorder == ActivationOrdering.WEIGHT:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
-
-        elif actorder == ActivationOrdering.GROUP:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
-            g_idx = g_idx[invperm]
-
-            # only save g_idx if mapping is not identity
-            has_gidx = True
-
-    if not has_gidx:
-        g_idx = None
+    if actorder:
+        # restore original permutation
+        invperm = torch.argsort(perm)
+        W = W[:, invperm]
 
     if isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
@@ -282,8 +276,8 @@ def quantize_weight(
         "weight_scale": scale.to(dtype=final_dtype),
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
     }
-    if g_idx is not None:
-        q_param_dict["weight_g_idx"] = g_idx
+    if actorder == ActivationOrdering.GROUP:
+        q_param_dict["weight_g_idx"] = g_idx[invperm]
     return (loss, q_param_dict)
 
 
