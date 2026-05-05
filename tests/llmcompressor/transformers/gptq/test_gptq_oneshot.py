@@ -141,9 +141,11 @@ recipe_modifier_block_actorder_weight = GPTQModifier(
     },
 )
 
-# CHANNEL + actorder=WEIGHT must be set at the modifier level — compressed-tensors'
-# QuantizationArgs validator rejects actorder on non-group strategies at construction
-# time. GPTQModifier.resolve_quantization_config bypasses this via setattr.
+# Exercises the modifier-level CHANNEL + actorder=WEIGHT path, complementary
+# to recipe_modifier_full_actorder_weight (yaml-level). Post-CT #682 the
+# QuantizationArgs validator allows actorder on non-group strategies except
+# for actorder=GROUP, so the yaml form also validates; both paths are kept
+# to cover the modifier-level resolve in GPTQModifier.resolve_quantization_config.
 recipe_modifier_channel_actorder_weight = GPTQModifier(
     ignore=["lm_head"],
     actorder=ActivationOrdering.WEIGHT,

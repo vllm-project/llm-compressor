@@ -111,13 +111,15 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
 
-    # GPTQModifier.resolve_quantization_config already filters CHANNEL+GROUP, but
-    # quantize_weight may be called directly; guard against it here to avoid
-    # indexing g_idx (which is only created for grouped/block strategies).
+    # Mirror GPTQModifier.resolve_quantization_config: actorder=GROUP requires
+    # a column->group mapping derived from group_size, which only GROUP and
+    # TENSOR_GROUP carry. Even though BLOCK has g_idx via block_structure,
+    # compressed-tensors rejects actorder=GROUP on non-grouped strategies on
+    # reload, so producing such an artifact would be unloadable. Guard direct
+    # callers that bypass the modifier so the policy is uniform.
     if actorder == ActivationOrdering.GROUP and strategy not in (
         QuantizationStrategy.GROUP,
         QuantizationStrategy.TENSOR_GROUP,
-        QuantizationStrategy.BLOCK,
     ):
         logger.warning(
             "ActivationOrdering.GROUP requires a grouped quantization strategy; "
