@@ -150,8 +150,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "remove `actorder` from config groups."
             )
 
-        # actorder=GROUP requires a column->group mapping derived from
-        # group_size; only GROUP and TENSOR_GROUP carry one.
+        # compressed-tensors only accepts actorder=GROUP on these strategies
+        # on reload; other strategies fall back to None below.
         grouped_strategies = (
             QuantizationStrategy.GROUP,
             QuantizationStrategy.TENSOR_GROUP,
@@ -167,11 +167,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 QuantizationStrategy.TENSOR,
                 QuantizationStrategy.BLOCK,
             ):
-                # NOTE: setattr bypasses QuantizationArgs' model_validator,
-                # which only runs at construction time. After CT #682 the
-                # validator allows actorder on non-group strategies except
-                # for actorder=GROUP; we still go through setattr so that
-                # the modifier-level path is uniform across strategies.
+                # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
                 if (
@@ -180,8 +176,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 ):
                     logger.warning(
                         f"ActivationOrdering.GROUP is not compatible with "
-                        f"strategy={strategy} (no group_size). Falling "
-                        f"back to actorder=None for this scheme."
+                        f"strategy={strategy}; falling back to actorder=None "
+                        f"for this scheme."
                     )
                     scheme.weights.actorder = None
         return config
