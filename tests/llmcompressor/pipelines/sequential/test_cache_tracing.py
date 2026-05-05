@@ -35,7 +35,7 @@ class DummyModelWithCache(torch.nn.Module):
         key_states = self.linear(x)
         value_states = self.linear(x)
 
-        if torch.fx._symbolic_trace._is_fx_tracing_flag:
+        if torch.fx._symbolic_trace.is_fx_symbolic_tracing():
             # `DynamicCache` has been monkeypatched to ProxyableDynamicCache
             # but still betrays itself via the `__name__` attribute
             assert DynamicCache.__name__ == "ProxyableDynamicCache"
