@@ -805,9 +805,17 @@ def create_wrapper(
     return wrapper
 
 
-class HFProxyableClassMeta(type):
+class HFProxyableCacheMeta(type):
     """
     Metaclass that creates a class with its main methods wrapped to be proxyable.
+
+    In the same way that objects can be replaced with `Proxy`s during trace-time,
+    classes can also be replaced with `ProxyableClass`es during trace-time.
+    This meta class acts as factory for creating `ProxyableClass`es of `Cache` classes.
+
+    At trace-time, all references to `Cache` classes are monkeypatched with references
+    to `ProxyableCache` classes. Whenever this class is used to construct a new instance
+    of a `Cache`, an instance of `HFCacheProxy` is generated instead.
     """
 
     def __new__(
@@ -817,25 +825,27 @@ class HFProxyableClassMeta(type):
         attrs: dict[str, Any],
         proxy_factory_fn: Callable[[Node], Proxy] | None = None,
     ):
+        if len(bases) != 1:
+            raise ValueError(
+                "`HFProxyableCacheMeta` only supports creating proxies"
+                " with single class inheritance. Compose your classes directly "
+                "before creating the class with this meta"
+            )
+
         instance = super().__new__(cls, name, bases, attrs)  # "instance" of Type[Cache]
         for attr_name in dir(instance):
             attr = getattr(instance, attr_name, None)
             if attr is None:
                 continue
             if attr_name == "__new__":
-                if len(bases) != 1:
-                    raise ValueError(
-                        "`HFProxyableClassMeta` only supports creating proxies"
-                        " with single class inheritance. Compose your classes directly "
-                        "before creating the class with this meta"
-                    )
                 setattr(
                     instance,
                     attr_name,
-                    cls.create__new__wrapper(bases[0], proxy_factory_fn)
+                    cls.create__new__wrapper(bases[0], proxy_factory_fn),
                 )
                 continue
-            elif attr_name == "__init__":
+
+            if attr_name == "__init__":
                 op_type = "call_function"
             elif attr_name.startswith("__"):
                 op_type = None
@@ -858,12 +868,17 @@ class HFProxyableClassMeta(type):
         proxy_factory_fn: Callable[[Node], Proxy],
     ):
         """
-        Mirrors `create_wrapper`, but only used to override the `__new__` method
-        when creating a new instance of `transformers.cache_utils.Cache`. Rather
-        than creating an instance of `HFProxyableClassMeta`, instead create an
-        instance of `HFCacheProxy`, which allows the cache to be traced.
+        Mirrors `create_wrapper`, but only used to override the `__new__` method.
+        Whenever this class is used to construct a new instance of a `Cache`, an
+        instance of `HFCacheProxy` is generated instead.
 
-        :param orig_cache_cls:
+        The `HFCacheProxy` class allows caches to be traced through the fx graph.
+
+        :param orig_cache_cls: `Cache` class being proxied
+        :param proxy_factory_fn: function which converts an instance of `Cache` to
+            an instance of `HFCacheProxy`
+        :return: wrapper function used to replace the `__new__` method of
+            `HFProxyableClass`
         """
 
         def wrapper(*args, **kwargs):
@@ -931,19 +946,19 @@ def create_cache_proxy_factory_fn(
 
 
 # Proxyable equivalent of the cache classes defined in `transformers.cache_utils`.
-ProxyableCache = HFProxyableClassMeta(
+ProxyableCache = HFProxyableCacheMeta(
     "ProxyableCache",
     (Cache,),
     {},
     proxy_factory_fn=create_cache_proxy_factory_fn(Cache),
 )
-ProxyableDynamicCache = HFProxyableClassMeta(
+ProxyableDynamicCache = HFProxyableCacheMeta(
     "ProxyableDynamicCache",
     (DynamicCache,),
     {},
     proxy_factory_fn=create_cache_proxy_factory_fn(DynamicCache),
 )
-ProxyableStaticCache = HFProxyableClassMeta(
+ProxyableStaticCache = HFProxyableCacheMeta(
     "ProxyableStaticCache",
     (StaticCache,),
     {},

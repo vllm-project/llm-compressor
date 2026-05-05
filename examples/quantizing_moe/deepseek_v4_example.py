@@ -88,7 +88,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize mlp/expert weights to NVFP4
 #   * quantize attention projection weights to FP8_BLOCK
 # model.model.layers.0.self_attn.q_a_proj
-# 
+#
 # wq_a  | q_a_proj
 # wq_b  | q_b_proj
 # wkv   | kv_proj
@@ -127,7 +127,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     sequential_targets=["DeepseekV4DecoderLayer"],
-    batch_size=32,
+    batch_size=1,
 )
 
 # Save to disk compressed.
