@@ -9,6 +9,7 @@ import pytest
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import wait_for_comms
+from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization import QuantizationArgs
 
 from llmcompressor.observers.min_max import StaticMinMaxObserver
@@ -19,6 +20,7 @@ from tests.testing_utils import requires_gpu, torchrun
 @requires_gpu(2)
 @torchrun(world_size=2)
 def test_observer_synchronize_reduces_min_max():
+    init_dist()
     rank = dist.get_rank()
 
     args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
@@ -48,6 +50,7 @@ def test_observer_synchronize_reduces_min_max():
 @requires_gpu(2)
 @torchrun(world_size=2)
 def test_synced_qparams_are_identical_across_ranks():
+    init_dist()
     rank = dist.get_rank()
 
     args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")

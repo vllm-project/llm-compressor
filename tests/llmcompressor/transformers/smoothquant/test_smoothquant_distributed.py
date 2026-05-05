@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 import torch.distributed
+from compressed_tensors.offload import init_dist, load_offloaded_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -218,7 +219,6 @@ def test_smoothquant_distributed_weights_match_single_gpu():
     After all_reduce, both ranks should agree on the same smoothing scales,
     producing weights identical to the single-GPU reference (atol=1e-4).
     """
-    from compressed_tensors.offload import init_dist, load_offloaded_model
 
     MODEL = "nm-testing/tinysmokellama-3.2"
     NUM_SAMPLES = 32
