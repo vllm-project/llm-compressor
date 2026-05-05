@@ -14,19 +14,15 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 # Select model and load it.
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 
-# init_dist()
-from llmcompressor.utils.dev import skip_weights_download
-
-with skip_weights_download():
-    with load_offloaded_model():
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_ID,
-            torch_dtype="auto",
-            # device_map="auto_offload",
-            device_map="cpu",
-            # max_memory={"cpu": 3e10},
-            # offload_folder="offload_folder",
-        )
+with load_offloaded_model():
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        torch_dtype="auto",
+        # device_map="auto_offload",
+        device_map="cpu",
+        # max_memory={"cpu": 3e10},
+        # offload_folder="offload_folder",
+    )
 linearize_moe_model(model)
 
 # kluge for the way I saved the decompressed checkpoint
@@ -91,18 +87,27 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm to run.
 #   * quantize mlp/expert weights to NVFP4
 #   * quantize attention projection weights to FP8_BLOCK
+# model.model.layers.0.self_attn.q_a_proj
+# 
+# wq_a  | q_a_proj
+# wq_b  | q_b_proj
+# wkv   | kv_proj
+# wo_a  | o_a_proj
+# wo_b  | o_b_proj
+
 recipe = QuantizationModifier(
     config_groups={
         "attention": QuantizationScheme(
             targets=[
-                r"re:model.*attn\.(wkv|wo_a|wo_b|wq_a|wq_b)$",
-                r"re:model.*attn\.indexer\.wq_b$",
+                r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
+                r"re:.*attn\.compressor\.indexer\.q_b_proj$",
             ],
             **FP8_BLOCK,
         ),
         "experts": QuantizationScheme(
             targets=[
-                r"re:model.*mlp.*(gate|up|down)_proj$",
+                r"re:.*mlp\.experts.*(gate|up|down)_proj$",
+                r"re:.*mlp\.shared_experts.*(gate|up|down)_proj$",
             ],
             **NVFP4,
         ),

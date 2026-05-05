@@ -829,7 +829,11 @@ class HFProxyableClassMeta(type):
                         " with single class inheritance. Compose your classes directly "
                         "before creating the class with this meta"
                     )
-                setattr(instance, attr_name, cls.create__new__wrapper(bases[0]))
+                setattr(
+                    instance,
+                    attr_name,
+                    cls.create__new__wrapper(bases[0], proxy_factory_fn)
+                )
                 continue
             elif attr_name == "__init__":
                 op_type = "call_function"
@@ -849,7 +853,10 @@ class HFProxyableClassMeta(type):
                 )
         return instance
 
-    def create__new__wrapper(orig_cache_cls: type[Cache]):
+    def create__new__wrapper(
+        orig_cache_cls: type[Cache],
+        proxy_factory_fn: Callable[[Node], Proxy],
+    ):
         """
         Mirrors `create_wrapper`, but only used to override the `__new__` method
         when creating a new instance of `transformers.cache_utils.Cache`. Rather
@@ -883,7 +890,7 @@ class HFProxyableClassMeta(type):
                 target=orig_cache_cls,
                 args=args[1:],
                 kwargs=kwargs,  # typically {"config": PreTrainedConfig(...)}
-                proxy_factory_fn=create_cache_proxy_factory_fn(orig_cache_cls),
+                proxy_factory_fn=proxy_factory_fn,
             )
 
         return wrapper

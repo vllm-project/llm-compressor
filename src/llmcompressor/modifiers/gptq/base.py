@@ -318,7 +318,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 comp_logger.set_results(name="GPTQ", loss=loss)
 
             for attr, val in q_param_dict.items():
-                update_offload_parameter(module, attr, val)
+                update_offload_parameter(module, attr, val, source_rank=dist.get_rank())
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
         rank = dist.get_rank()
