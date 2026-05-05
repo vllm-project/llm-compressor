@@ -92,12 +92,12 @@ def test_quantize_weight_channel_actorder_weight():
     # CHANNEL + actorder=WEIGHT should run end-to-end without producing a g_idx
     # (per-channel quantization has no group structure).
     module = torch.nn.Linear(8, 4, bias=False)
-    quant_args = QuantizationArgs(num_bits=4, symmetric=True, strategy="channel")
-    # bypass QuantizationArgs' model_validator (only runs at construction time
-    # and rejects actorder for non-group strategies). This mirrors how
-    # GPTQModifier.resolve_quantization_config sets actorder on per-channel
-    # schemes via direct attribute assignment.
-    quant_args.actorder = ActivationOrdering.WEIGHT
+    quant_args = QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        strategy="channel",
+        actorder=ActivationOrdering.WEIGHT,
+    )
     module.quantization_scheme = QuantizationScheme(
         targets=["Linear"], weights=quant_args
     )

@@ -169,9 +169,9 @@ def test_config_resolution(strategies, actorder):
 
 @pytest.mark.parametrize("strategy", ["channel", "tensor", "block"])
 def test_actorder_group_falls_back_to_none(strategy):
-    # actorder=GROUP has no meaningful interpretation without a group_size:
-    # resolve_quantization_config should warn and reset to None instead of
-    # raising for any non-grouped strategy that's been whitelisted.
+    # compressed-tensors rejects actorder=GROUP on non-grouped strategies on
+    # reload (per CT #682), so resolve_quantization_config warns and resets
+    # to None instead of producing an unloadable artifact.
     config_groups = {
         "0": QuantizationScheme(targets=[], weights=_make_weights(strategy)),
     }
