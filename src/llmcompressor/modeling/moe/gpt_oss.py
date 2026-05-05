@@ -1,6 +1,12 @@
 class GptOssExpertMLP(ExpertMLPWithGate):
     @classmethod
-    def from_experts(cls, experts: FusedExpertsModule, expert_index: int, moe_intermediate_size: int, hidden_dim: int):
+    def from_experts(
+        cls,
+        experts: FusedExpertsModule,
+        expert_index: int,
+        moe_intermediate_size: int,
+        hidden_dim: int,
+    ):
         assert experts.has_gate
         if experts.__class__._apply_gate is not _default_apply_gate:
             # assume that if a `_apply_gate` is implemented, then the weight is not valid for quantization (for example, might be interleaved)
@@ -9,7 +15,9 @@ class GptOssExpertMLP(ExpertMLPWithGate):
             )
 
         with skip_weights_initialize():
-            instance = cls(hidden_dim, moe_intermediate_size, experts.has_bias, experts._apply_gate)
+            instance = cls(
+                hidden_dim, moe_intermediate_size, experts.has_bias, experts._apply_gate
+            )
 
         # load weights
         gate_weight = experts.gate_up_proj[expert_index, :moe_intermediate_size]
@@ -34,5 +42,5 @@ class GptOssExpertMLP(ExpertMLPWithGate):
             instance.gate_proj.bias.copy_(gate_bias)
             instance.up_proj.bias.copy_(up_bias)
             instance.down_proj.bias.copy_(down_bias)
-            
+
         return instance

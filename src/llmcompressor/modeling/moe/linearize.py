@@ -1,19 +1,20 @@
 from abc import ABC
 from typing import Callable
-import tqdm
 
 import torch
 import torch.distributed as dist
-from transformers import PreTrainedModel
-from transformers.core_model_loading import WeightConverter, WeightRenaming
-from transformers.modeling_utils import local_torch_dtype
-from transformers.integrations.moe import _default_apply_gate
+import tqdm
 from compressed_tensors.distributed import is_distributed
-from compressed_tensors.offload import offload_module, get_cache_init_kwargs
+from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from transformers import PreTrainedModel
+from transformers.conversion_mapping import (
+    extract_weight_conversions_for_model,
+)
+from transformers.integrations.moe import _default_apply_gate
+from transformers.modeling_utils import local_torch_dtype
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
-from . import context
 from .helpers import (
     FusedExpertsModule,
     _get_moe_shapes,
@@ -24,15 +25,13 @@ from .helpers import (
 
 @torch.no_grad()
 def linearize_moe_model(model: PreTrainedModel):
-    _weight_conversions: list[WeightConverter | WeightRenaming] = (
-        model._weight_conversions
-    )
+    weight_conversions = extract_weight_conversions_for_model(model, "")
+    weight_conversions = [] if weight_conversions is None else weight_conversions
 
     # remove all weight loading conversions; save as linearized
-    print(f"removing {[converter for converter in _weight_conversions if _is_moe_experts_converter(converter)]}")
     model._weight_conversions = [
         converter
-        for converter in _weight_conversions
+        for converter in weight_conversions
         if not _is_moe_experts_converter(converter)
     ]
 
@@ -47,8 +46,10 @@ def linearize_moe_model(model: PreTrainedModel):
             new_moe = LinearExperts.from_experts(module)
             model.set_submodule(name, new_moe)
 
+            # avoid desync timeouts due to long processing times
             if is_distributed():
                 dist.barrier()
+
 
 # probably only need to registry this class
 class ExpertMLP(torch.nn.Module, ABC):
@@ -237,7 +238,7 @@ class LinearExperts(torch.nn.ModuleList):
 
             # apply expert, maybe pass all tokens to the expert
             expert = self[expert_idx]
-            #if context.CALIBRATE_ALL_EXPERTS:
+            # if context.CALIBRATE_ALL_EXPERTS:
             # TODO: fully integrate moe context
             if True:
                 expert_output = expert(hidden_states)[token_indices]
@@ -249,6 +250,8 @@ class LinearExperts(torch.nn.ModuleList):
             weighted_output = expert_output * expert_weights
 
             # accumulate the selected tokens
-            final_hidden_states.index_add_(0, token_indices, weighted_output.to(final_hidden_states.dtype))  # TODO: check why float
+            final_hidden_states.index_add_(
+                0, token_indices, weighted_output.to(final_hidden_states.dtype)
+            )  # TODO: check why float
 
         return final_hidden_states

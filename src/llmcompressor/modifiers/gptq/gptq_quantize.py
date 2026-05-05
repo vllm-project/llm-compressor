@@ -25,7 +25,7 @@ def make_empty_hessian(
 ) -> torch.Tensor:
     if not isinstance(module, torch.nn.Linear):
         raise ValueError(f"Cannot quantize layer type `{module.__class__.__name__}`")
-    
+
     weight = module.weight
     num_columns = weight.shape[1]
     device = device if device is not None else weight.device
