@@ -150,28 +150,38 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "remove `actorder` from config groups."
             )
 
+        # actorder=GROUP requires a column->group mapping derived from
+        # group_size; only GROUP and TENSOR_GROUP carry one.
+        grouped_strategies = (
+            QuantizationStrategy.GROUP,
+            QuantizationStrategy.TENSOR_GROUP,
+        )
+
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
             strategy = getattr_chain(scheme, "weights.strategy", None)
             if strategy in (
                 QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
                 QuantizationStrategy.CHANNEL,
+                QuantizationStrategy.TENSOR,
+                QuantizationStrategy.BLOCK,
             ):
-                # NOTE: setattr bypasses QuantizationArgs' model_validator, which
-                # only runs at construction time and rejects actorder for
-                # non-group strategies. This is intentional — yaml-level config
-                # is still rejected by that validator; we only enable actorder
-                # for per-channel via the modifier-level path.
+                # NOTE: setattr bypasses QuantizationArgs' model_validator,
+                # which only runs at construction time. After CT #682 the
+                # validator allows actorder on non-group strategies except
+                # for actorder=GROUP; we still go through setattr so that
+                # the modifier-level path is uniform across strategies.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
                 if (
-                    strategy == QuantizationStrategy.CHANNEL
-                    and scheme.weights.actorder == ActivationOrdering.GROUP
+                    scheme.weights.actorder == ActivationOrdering.GROUP
+                    and strategy not in grouped_strategies
                 ):
                     logger.warning(
-                        "ActivationOrdering.GROUP is not compatible with "
-                        "strategy=CHANNEL (no group_size). Falling back to "
-                        "actorder=None for this scheme."
+                        f"ActivationOrdering.GROUP is not compatible with "
+                        f"strategy={strategy} (no group_size). Falling "
+                        f"back to actorder=None for this scheme."
                     )
                     scheme.weights.actorder = None
         return config

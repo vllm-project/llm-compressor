@@ -110,15 +110,36 @@ def test_actorder_resolution(
         assert resolved.config_groups["group_1"].weights.actorder == expected_1
 
 
+_GROUPED_STRATEGIES = ("group", "tensor_group")
+
+
+def _make_weights(strategy):
+    if strategy == "block":
+        return QuantizationArgs(strategy=strategy, block_structure=[2, 4])
+    if strategy in _GROUPED_STRATEGIES:
+        return QuantizationArgs(strategy=strategy, group_size=128)
+    return QuantizationArgs(strategy=strategy)
+
+
 @pytest.mark.parametrize(
     "strategies,actorder",
     [
         (["group"], None),
         (["group"], "static"),
         (["group"], "group"),
+        (["tensor_group"], None),
+        (["tensor_group"], "static"),
+        (["tensor_group"], "weight"),
+        (["tensor_group"], "group"),
         (["channel"], None),
         (["channel"], "static"),
         (["channel"], "weight"),
+        (["tensor"], None),
+        (["tensor"], "static"),
+        (["tensor"], "weight"),
+        (["block"], None),
+        (["block"], "static"),
+        (["block"], "weight"),
         (["channel", "group"], None),
         (["channel", "group"], "static"),
         (["channel", "group"], "group"),
@@ -129,46 +150,36 @@ def test_actorder_resolution(
 )
 def test_config_resolution(strategies, actorder):
     config_groups = {
-        str(index): QuantizationScheme(
-            targets=[],
-            weights=QuantizationArgs(
-                strategy=strategy, group_size=(128 if strategy == "group" else None)
-            ),
-        )
+        str(index): QuantizationScheme(targets=[], weights=_make_weights(strategy))
         for index, strategy in enumerate(strategies)
     }
 
     modifier = GPTQModifier(config_groups=config_groups, actorder=actorder)
     modifier.resolve_quantization_config()
 
-    # validate that actorder was applied to both group and channel strategies
     for config_group in modifier.config_groups.values():
         strategy = config_group.weights.strategy
-        if strategy == "group":
+        # actorder=group is only meaningful for group/tensor_group; other
+        # whitelisted strategies fall back to None.
+        if actorder == "group" and strategy not in _GROUPED_STRATEGIES:
+            assert config_group.weights.actorder is None
+        else:
             assert config_group.weights.actorder == actorder
-        elif strategy == "channel":
-            # CHANNEL + actorder=group is fallback'd to None (handled separately)
-            if actorder == "group":
-                assert config_group.weights.actorder is None
-            else:
-                assert config_group.weights.actorder == actorder
 
 
-def test_channel_actorder_group_falls_back_to_none():
-    # CHANNEL + actorder=GROUP has no meaningful interpretation (no group_size),
-    # so resolve_quantization_config should warn and reset to None instead of
-    # raising. See §4.3 in the implementation plan.
+@pytest.mark.parametrize("strategy", ["channel", "tensor", "block"])
+def test_actorder_group_falls_back_to_none(strategy):
+    # actorder=GROUP has no meaningful interpretation without a group_size:
+    # resolve_quantization_config should warn and reset to None instead of
+    # raising for any non-grouped strategy that's been whitelisted.
     config_groups = {
-        "0": QuantizationScheme(
-            targets=[],
-            weights=QuantizationArgs(strategy="channel"),
-        ),
+        "0": QuantizationScheme(targets=[], weights=_make_weights(strategy)),
     }
     modifier = GPTQModifier(config_groups=config_groups, actorder="group")
     with patch("llmcompressor.modifiers.gptq.base.logger.warning") as warn:
         resolved = modifier.resolve_quantization_config()
     warn.assert_called_once()
-    assert "CHANNEL" in warn.call_args.args[0]
+    assert strategy in warn.call_args.args[0]
     assert resolved.config_groups["0"].weights.actorder is None
 
 
