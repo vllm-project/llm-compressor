@@ -863,6 +863,7 @@ class HFProxyableCacheMeta(type):
                 )
         return instance
 
+    @staticmethod
     def create__new__wrapper(
         orig_cache_cls: type[Cache],
         proxy_factory_fn: Callable[[Node], Proxy],
