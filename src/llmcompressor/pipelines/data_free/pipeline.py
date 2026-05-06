@@ -33,6 +33,5 @@ class DataFreePipeline(CalibrationPipeline):
         dispatch_model(model)
 
         LifecycleCallbacks.calibration_epoch_start()
-        modules = list(model.modules())
-        LifecycleCallbacks.sequential_epoch_end(modules)
+        LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
         LifecycleCallbacks.calibration_epoch_end()
