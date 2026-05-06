@@ -105,7 +105,6 @@ def quantize_weight(
         )
         actorder = None
 
-
     # handle activation ordering
     if actorder:
         W, H, perm = _apply_activation_ordering(W, H)
