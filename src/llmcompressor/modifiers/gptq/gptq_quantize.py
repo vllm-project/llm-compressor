@@ -111,12 +111,6 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
 
-    # Mirror GPTQModifier.resolve_quantization_config: actorder=GROUP requires
-    # a column->group mapping derived from group_size, which only GROUP and
-    # TENSOR_GROUP carry. Even though BLOCK has g_idx via block_structure,
-    # compressed-tensors rejects actorder=GROUP on non-grouped strategies on
-    # reload, so producing such an artifact would be unloadable. Guard direct
-    # callers that bypass the modifier so the policy is uniform.
     if actorder == ActivationOrdering.GROUP and strategy not in (
         QuantizationStrategy.GROUP,
         QuantizationStrategy.TENSOR_GROUP,
