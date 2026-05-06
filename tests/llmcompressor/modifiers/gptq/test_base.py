@@ -125,7 +125,7 @@ def _make_weights(strategy):
     "strategies,actorder",
     [
         (["group"], None),
-        (["group"], "static"),
+        (["group"], "weight"),
         (["group"], "group"),
         (["tensor_group"], None),
         (["tensor_group"], "weight"),
@@ -137,10 +137,10 @@ def _make_weights(strategy):
         (["block"], None),
         (["block"], "weight"),
         (["channel", "group"], None),
-        (["channel", "group"], "static"),
+        (["channel", "group"], "weight"),
         (["channel", "group"], "group"),
         (["group", "channel"], None),
-        (["group", "channel"], "static"),
+        (["group", "channel"], "weight"),
         (["group", "channel"], "group"),
     ],
 )
