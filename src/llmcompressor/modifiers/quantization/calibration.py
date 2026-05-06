@@ -8,7 +8,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import (
-    align_module_device,
     getattr_chain,
     update_offload_parameter,
 )
@@ -101,8 +100,8 @@ def observe(
     observer = getattr(module, f"{base_name}_observer", None)
     if observer is None:
         return
-    with align_module_device(module):
-        observer(getattr(module, base_name))
+
+    observer(getattr(module, base_name))
 
 
 def update_qparams(
@@ -129,29 +128,28 @@ def update_qparams(
             update_qparams(m, base_name, only_update_onload)
         return
 
-    with align_module_device(module):
-        observer = getattr(module, f"{base_name}_observer", None)
-        if observer is None:
-            return
-        if not observer.has_statistics:
-            return
+    observer = getattr(module, f"{base_name}_observer", None)
+    if observer is None:
+        return
+    if not observer.has_statistics:
+        return
 
-        # Dynamic (activation) quantization: only store global_scale, not scale/zp
-        args = observer.args
-        is_dynamic = getattr(args, "dynamic", False) in (True, DynamicType.LOCAL)
+    # Dynamic (activation) quantization: only store global_scale, not scale/zp
+    args = observer.args
+    is_dynamic = getattr(args, "dynamic", False) in (True, DynamicType.LOCAL)
 
-        qparams = observer.get_qparams()
-        for param_name, param_val in qparams.items():
-            if param_val is None:
-                continue
-            if is_dynamic and param_name in ("scale", "zero_point"):
-                continue
-            full_param_name = f"{base_name}_{param_name}"
-            if hasattr(module, full_param_name):
-                if not only_update_onload:  # update offload + onload
-                    update_offload_parameter(module, full_param_name, param_val)
-                else:  # only update onload
-                    getattr(module, full_param_name).data = param_val
+    qparams = observer.get_qparams()
+    for param_name, param_val in qparams.items():
+        if param_val is None:
+            continue
+        if is_dynamic and param_name in ("scale", "zero_point"):
+            continue
+        full_param_name = f"{base_name}_{param_name}"
+        if hasattr(module, full_param_name):
+            if not only_update_onload:  # update offload + onload
+                update_offload_parameter(module, full_param_name, param_val)
+            else:  # only update onload
+                getattr(module, full_param_name).data = param_val
 
 
 def calibrate_input_hook(module: Module, args: Any):
