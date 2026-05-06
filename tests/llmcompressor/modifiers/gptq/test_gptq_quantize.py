@@ -6,6 +6,7 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
 )
 
+from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
@@ -14,6 +15,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     initialize_observer,
     observe,
 )
+from tests.testing_utils import requires_compute_capability
 
 
 @pytest.mark.parametrize(
@@ -33,6 +35,8 @@ def test_quantize_weight_group_strategy_actorder(actorder):
     module.quantization_scheme = QuantizationScheme(
         targets=["Linear"], weights=quant_args
     )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
 
     hessian = make_empty_hessian(module)
     hessian += torch.diag(
@@ -107,6 +111,8 @@ def test_quantize_weight_channel_actorder_weight():
     module.quantization_scheme = QuantizationScheme(
         targets=["Linear"], weights=quant_args
     )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
 
     hessian = make_empty_hessian(module)
     # non-uniform diagonal so activation ordering produces a non-identity perm
@@ -124,3 +130,87 @@ def test_quantize_weight_channel_actorder_weight():
     assert q_param_dict["weight_scale"].shape[0] == module.weight.shape[0]
     assert q_param_dict["weight_zero_point"].shape[0] == module.weight.shape[0]
     assert "weight_g_idx" not in q_param_dict
+
+
+@requires_compute_capability(9, 0)  # Requires H100 or higher
+@torch.no_grad()
+def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
+    """
+    Test that GPTQ with NVFP4 (TENSOR_GROUP) properly saves and fuses global_scale.
+
+    This is a regression test for a bug where global_scale was computed but not
+    added to q_param_dict, resulting in corrupted saved models.
+
+    Requires H100+ GPU for NVFP4 support.
+    """
+    from transformers import AutoModelForCausalLM
+
+    from llmcompressor import oneshot
+
+    model_id = "nm-testing/tinysmokellama-3.2"
+    output = tmp_path / "nvfp4_gptq_output"
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    # NVFP4 GPTQ recipe targeting one layer
+    recipe = GPTQModifier(
+        scheme="NVFP4",
+        targets=["Linear"],
+        ignore=["lm_head", "re:model\\.layers\\.(?!0\\.).*"],  # Only layer 0
+    )
+
+    # Quantize
+    oneshot(
+        model=model_id,
+        dataset="open_platypus",
+        output_dir=output,
+        recipe=recipe,
+        num_calibration_samples=8,
+        splits={"calibration": "train[:8]"},
+    )
+
+    # Load quantized model
+    model = AutoModelForCausalLM.from_pretrained(output, device_map=device)
+
+    # Check layer 0 has global_scale attributes
+    layer_0 = model.model.layers[0]
+
+    # Check QKV
+    for proj_name in ["q_proj", "k_proj", "v_proj"]:
+        proj = getattr(layer_0.self_attn, proj_name)
+        assert hasattr(
+            proj, "weight_global_scale"
+        ), f"{proj_name} missing weight_global_scale"
+
+        gs = proj.weight_global_scale.item()
+        assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
+        assert gs > 1e-10, f"{proj_name} global_scale too small: {gs}"
+        assert gs < 1e10, f"{proj_name} global_scale too large: {gs}"
+
+    # Verify QKV global_scales are fused (identical)
+    q_gs = layer_0.self_attn.q_proj.weight_global_scale.item()
+    k_gs = layer_0.self_attn.k_proj.weight_global_scale.item()
+    v_gs = layer_0.self_attn.v_proj.weight_global_scale.item()
+
+    assert abs(q_gs - k_gs) < 1e-6, f"QKV not fused: Q={q_gs}, K={k_gs}"
+    assert abs(k_gs - v_gs) < 1e-6, f"QKV not fused: K={k_gs}, V={v_gs}"
+
+    # Check gate/up
+    for proj_name in ["gate_proj", "up_proj"]:
+        proj = getattr(layer_0.mlp, proj_name)
+        assert hasattr(
+            proj, "weight_global_scale"
+        ), f"{proj_name} missing weight_global_scale"
+
+        gs = proj.weight_global_scale.item()
+        assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
+        assert gs > 1e-10, f"{proj_name} global_scale too small: {gs}"
+        assert gs < 1e10, f"{proj_name} global_scale too large: {gs}"
+
+    # Verify gate/up global_scales are fused (identical)
+    gate_gs = layer_0.mlp.gate_proj.weight_global_scale.item()
+    up_gs = layer_0.mlp.up_proj.weight_global_scale.item()
+
+    assert abs(gate_gs - up_gs) < 1e-6, f"gate/up not fused: gate={gate_gs}, up={up_gs}"
+
+    # Verify QKV and gate/up are NOT fused together
+    assert abs(q_gs - gate_gs) > 1e-6, f"QKV and gate/up incorrectly fused: {q_gs}"

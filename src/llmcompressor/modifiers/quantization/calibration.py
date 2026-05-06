@@ -108,6 +108,7 @@ def observe(
 def update_qparams(
     module: Module | Iterable[Module],
     base_name: str,
+    only_update_onloads: bool = False,
 ):
     """
     Compute quantization parameters from observer statistics and store on module.
@@ -118,10 +119,14 @@ def update_qparams(
 
     :param module: torch.nn.Module with attached observer (or iterable of modules)
     :param base_name: substring used to fetch the observer, scales, and zp
+    :only_update_onload: option to only update the onloaded value, useful
+        when we want to do a temporary update or in DDP situations where
+        we want only want one rank to update the offload+onload to avoid
+        multiple writes to the offload (rest just update onload)
     """
     if isinstance(module, Iterable):
         for m in module:
-            update_qparams(m, base_name)
+            update_qparams(m, base_name, only_update_onloads)
         return
 
     with align_module_device(module):
@@ -141,8 +146,12 @@ def update_qparams(
                 continue
             if is_dynamic and param_name in ("scale", "zero_point"):
                 continue
-            if hasattr(module, f"{base_name}_{param_name}"):
-                update_offload_parameter(module, f"{base_name}_{param_name}", param_val)
+            full_param_name = f"{base_name}_{param_name}"
+            if hasattr(module, full_param_name):
+                if not only_update_onloads:  # update offload + onload
+                    update_offload_parameter(module, full_param_name, param_val)
+                else:  # only update onload
+                    getattr(module, full_param_name).data = param_val
 
 
 def calibrate_input_hook(module: Module, args: Any):

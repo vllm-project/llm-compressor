@@ -6,7 +6,12 @@ from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
 )
-from compressed_tensors.offload.dist_utils import is_distributed
+from compressed_tensors.offload.dist_utils import (
+    is_distributed,
+)
+from compressed_tensors.offload.dist_utils import (
+    is_source_process as is_src,
+)
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -276,7 +281,7 @@ class QuantizationMixin(HooksMixin):
         """
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             for base_name in ("input", "output", "q", "k", "v"):
-                update_qparams(module, base_name)
+                update_qparams(module, base_name, only_update_onloads=not is_src())
 
     def sync_obs_act_stats(self, model: torch.nn.Module):
         """

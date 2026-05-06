@@ -688,12 +688,12 @@ class AWQModifier(Modifier):
                         orig_layer_weights[balance_layer].to(_scalesview.device)
                         * _scalesview
                     )
-                    observe(balance_layer, base_name="weight")
+                    observe(balance_layer, "weight")
                     # observe all scaled weights first to get correct global_scale
 
                 # Q(W * s)
                 for balance_layer in balance_layers_to_patch:
-                    update_qparams(balance_layer, base_name="weight")
+                    update_qparams(balance_layer, "weight", only_update_onload=True)
                     balance_layer.weight.data = (
                         forward_quantize(
                             balance_layer,

@@ -117,6 +117,33 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
 
 
+def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecorator:
+    """
+    Pytest decorator to skip based on GPU compute capability.
+
+    Usage:
+    @requires_compute_capability(9, 0)  # Requires H100 or higher
+    def test_something():
+        pass
+
+    :param major: required major compute capability version
+    :param minor: required minor compute capability version (default 0)
+    """
+    if not torch.cuda.is_available():
+        return pytest.mark.skip(reason="CUDA not available")
+
+    device_capability = torch.cuda.get_device_capability(0)
+    has_capability = device_capability[0] > major or (
+        device_capability[0] == major and device_capability[1] >= minor
+    )
+
+    reason = (
+        f"Compute capability {major}.{minor} required, "
+        f"found {device_capability[0]}.{device_capability[1]}"
+    )
+    return pytest.mark.skipif(not has_capability, reason=reason)
+
+
 requires_hf_token: callable = pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tests requiring gated model access",

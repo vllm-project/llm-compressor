@@ -1,3 +1,4 @@
+from compressed_tensors.offload.dist_utils import is_source_process as is_src
 from compressed_tensors.utils import match_named_modules
 
 from llmcompressor.core import Event, EventType, State
@@ -81,8 +82,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             modules = [m for _, m in tmp]
             self.sync_obs_act_stats(state.model)
             self.update_activation_qparams(state.model)
-            observe(modules, base_name="weight")
-            update_qparams(modules, base_name="weight")
+            observe(modules, "weight")
+            update_qparams(modules, "weight", only_update_onloads=not is_src())
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:

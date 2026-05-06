@@ -269,8 +269,6 @@ def quantize_weight(
         invperm = torch.argsort(perm)
         W = W[:, invperm]
 
-    if isinstance(module, transformers.Conv1D):
-        W.transpose_(0, 1)
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
@@ -278,6 +276,7 @@ def quantize_weight(
         "weight": W,
         "weight_scale": scale.to(dtype=final_dtype),
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
+        "weight_global_scale": global_scale.to(dtype=final_dtype),
     }
     if actorder == ActivationOrdering.GROUP:
         q_param_dict["weight_g_idx"] = g_idx[invperm]
