@@ -1,7 +1,10 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
-from compressed_tensors.quantization.quant_args import ActivationOrdering
+from compressed_tensors.quantization import (
+    ActivationOrdering,
+    QuantizationArgs,
+    QuantizationScheme,
+)
 
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
@@ -81,4 +84,37 @@ def test_quantize_weight_supports_block_strategy(actorder):
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape == (3, 2)
     assert q_param_dict["weight_zero_point"].shape == (3, 2)
+    assert "weight_g_idx" not in q_param_dict
+
+
+@torch.no_grad()
+def test_quantize_weight_channel_actorder_weight():
+    # CHANNEL + actorder=WEIGHT should run end-to-end without producing a g_idx
+    # (per-channel quantization has no group structure).
+    module = torch.nn.Linear(8, 4, bias=False)
+    quant_args = QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        strategy="channel",
+        actorder=ActivationOrdering.WEIGHT,
+    )
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+
+    hessian = make_empty_hessian(module)
+    # non-uniform diagonal so activation ordering produces a non-identity perm
+    diag = torch.arange(
+        1, hessian.shape[0] + 1, dtype=hessian.dtype, device=hessian.device
+    )
+    hessian += torch.diag(diag)
+
+    loss, q_param_dict = quantize_weight(
+        module=module, quant_args=quant_args, hessian=hessian, blocksize=4
+    )
+
+    assert loss >= 0
+    assert q_param_dict["weight"].shape == module.weight.shape
+    assert q_param_dict["weight_scale"].shape[0] == module.weight.shape[0]
+    assert q_param_dict["weight_zero_point"].shape[0] == module.weight.shape[0]
     assert "weight_g_idx" not in q_param_dict

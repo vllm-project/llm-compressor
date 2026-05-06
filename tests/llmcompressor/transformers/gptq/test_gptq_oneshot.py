@@ -141,6 +141,22 @@ recipe_modifier_block_actorder_weight = GPTQModifier(
     },
 )
 
+# Exercises the modifier-level CHANNEL + actorder=WEIGHT path, complementary
+# to recipe_modifier_full_actorder_weight (yaml-level). Post-CT #682 the
+# QuantizationArgs validator allows actorder on non-group strategies except
+# for actorder=GROUP, so the yaml form also validates; both paths are kept
+# to cover the modifier-level resolve in GPTQModifier.resolve_quantization_config.
+recipe_modifier_channel_actorder_weight = GPTQModifier(
+    ignore=["lm_head"],
+    actorder=ActivationOrdering.WEIGHT,
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(num_bits=4, strategy="channel"),
+        )
+    },
+)
+
 
 @pytest.mark.parametrize(
     "recipe",
@@ -155,6 +171,7 @@ recipe_modifier_block_actorder_weight = GPTQModifier(
         recipe_modifier_group_actorder_group,
         recipe_modifier_full_block,
         recipe_modifier_block_actorder_weight,
+        recipe_modifier_channel_actorder_weight,
     ],
 )
 def test_oneshot_application(recipe, tmp_path):

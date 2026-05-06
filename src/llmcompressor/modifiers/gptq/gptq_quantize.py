@@ -111,6 +111,16 @@ def quantize_weight(
 
     scale, zero_point = observer(W)
 
+    if actorder == ActivationOrdering.GROUP and strategy not in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+    ):
+        logger.warning(
+            "ActivationOrdering.GROUP requires a grouped quantization strategy; "
+            "falling back to actorder=None for this module."
+        )
+        actorder = None
+
     # handle activation ordering
     if actorder:
         W, H, perm = _apply_activation_ordering(W, H)
