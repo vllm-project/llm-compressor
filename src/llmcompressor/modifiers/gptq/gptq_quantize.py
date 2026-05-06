@@ -276,8 +276,9 @@ def quantize_weight(
         "weight": W,
         "weight_scale": scale.to(dtype=final_dtype),
         "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
-        "weight_global_scale": global_scale.to(dtype=final_dtype),
     }
+    if global_scale:
+        q_param_dict["weight_global_scale"] = global_scale.to(dtype=final_dtype)
     if actorder == ActivationOrdering.GROUP:
         q_param_dict["weight_g_idx"] = g_idx[invperm]
     return (loss, q_param_dict)
