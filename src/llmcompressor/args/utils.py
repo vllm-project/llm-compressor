@@ -64,7 +64,7 @@ def parse_args(
             "columns which are invalid inputs the tokenizer will be removed",
             DeprecationWarning,
         )
-    if dataset_args.quantization_aware_calibration is not True:
+    if not dataset_args.quantization_aware_calibration:
         logger.warning(
             "`quantization_aware_calibration` argument is deprecated and has no effect."
             "It will be removed in a future release.",
