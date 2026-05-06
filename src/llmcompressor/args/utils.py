@@ -66,7 +66,7 @@ def parse_args(
         )
     if dataset_args.quantization_aware_calibration is not True:
         logger.warning(
-            "`quantization_aware_calibration` argument is deprecated and has no effect. "
+            "`quantization_aware_calibration` argument is deprecated and has no effect."
             "It will be removed in a future release.",
             DeprecationWarning,
         )
