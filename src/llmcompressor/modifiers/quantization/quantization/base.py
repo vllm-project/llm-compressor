@@ -83,7 +83,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             self.sync_obs_act_stats(state.model)
             self.update_activation_qparams(state.model)
             observe(modules, "weight")
-            update_qparams(modules, "weight", only_update_onloads=not is_src())
+            update_qparams(modules, "weight", only_update_onload=not is_src())
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:

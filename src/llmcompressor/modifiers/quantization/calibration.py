@@ -108,7 +108,7 @@ def observe(
 def update_qparams(
     module: Module | Iterable[Module],
     base_name: str,
-    only_update_onloads: bool = False,
+    only_update_onload: bool = False,
 ):
     """
     Compute quantization parameters from observer statistics and store on module.
@@ -126,7 +126,7 @@ def update_qparams(
     """
     if isinstance(module, Iterable):
         for m in module:
-            update_qparams(m, base_name, only_update_onloads)
+            update_qparams(m, base_name, only_update_onload)
         return
 
     with align_module_device(module):
@@ -148,7 +148,7 @@ def update_qparams(
                 continue
             full_param_name = f"{base_name}_{param_name}"
             if hasattr(module, full_param_name):
-                if not only_update_onloads:  # update offload + onload
+                if not only_update_onload:  # update offload + onload
                     update_offload_parameter(module, full_param_name, param_val)
                 else:  # only update onload
                     getattr(module, full_param_name).data = param_val

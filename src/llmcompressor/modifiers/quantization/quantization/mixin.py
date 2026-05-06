@@ -281,7 +281,7 @@ class QuantizationMixin(HooksMixin):
         """
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             for base_name in ("input", "output", "q", "k", "v"):
-                update_qparams(module, base_name, only_update_onloads=not is_src())
+                update_qparams(module, base_name, only_update_onload=not is_src())
 
     def sync_obs_act_stats(self, model: torch.nn.Module):
         """
