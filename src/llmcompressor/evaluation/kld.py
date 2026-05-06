@@ -346,7 +346,7 @@ class KLDivergenceEvaluator:
         """
         import os
 
-        from vllm import LLM, SamplingParams
+        from vllm import SamplingParams
 
         os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
 

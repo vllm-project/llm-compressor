@@ -391,7 +391,9 @@ def test_evaluator_temperature_stored():
 
 
 def test_resolve_prompts_from_list():
-    long_a = "hello world this is a test sentence with enough characters to pass the filter"
+    long_a = (
+        "hello world this is a test sentence with enough characters to pass the filter"
+    )
     long_b = "another long sentence here with sufficient length to exceed the minimum"
     prompts = _resolve_prompts(
         dataset=[long_a, "  ", long_b],
@@ -407,7 +409,10 @@ def test_resolve_prompts_from_list():
 
 
 def test_resolve_prompts_list_respects_num_samples():
-    data = [f"sentence number {i} with enough words to pass the fifty character filter" for i in range(100)]
+    data = [
+        f"sentence number {i} with enough words to pass the fifty character filter"
+        for i in range(100)
+    ]
     prompts = _resolve_prompts(
         dataset=data,
         dataset_config_name=None,
