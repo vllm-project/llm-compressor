@@ -3,6 +3,11 @@ from unittest.mock import patch
 import pytest
 
 from llmcompressor.modifiers.transform.smoothquant.utils import (
+    COHERE_SMOOTHQUANT_MAPPINGS,
+    DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    DEFAULT_SMOOTHQUANT_MAPPINGS,
+    MAPPINGS_REGISTRY,
+    PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
@@ -40,3 +45,34 @@ def test_get_layer_mappings_from_architecture():
 
     # Test when architecture is not in MAPPINGS_REGISTRY
     assert get_layer_mappings_from_architecture("arch3") == "default_mapping"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture,expected_mappings",
+    [
+        ("CohereForCausalLM", COHERE_SMOOTHQUANT_MAPPINGS),
+        ("Cohere2ForCausalLM", COHERE_SMOOTHQUANT_MAPPINGS),
+        ("Cohere2VisionForConditionalGeneration", COHERE_SMOOTHQUANT_MAPPINGS),
+    ],
+)
+def test_new_architecture_mappings_resolve(architecture, expected_mappings):
+    assert architecture in MAPPINGS_REGISTRY
+    resolved = get_layer_mappings_from_architecture(architecture)
+    assert resolved is expected_mappings
+    assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture,expected_mappings",
+    [
+        ("DeepseekV3ForCausalLM", DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS),
+        ("Phi3ForCausalLM", PHI3_VISION_SMOOTHQUANT_MAPPINGS),
+    ],
+)
+def test_specialized_architecture_overrides_default(architecture, expected_mappings):
+    assert architecture in MAPPINGS_REGISTRY
+    resolved = get_layer_mappings_from_architecture(architecture)
+    assert resolved is expected_mappings
+    assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS

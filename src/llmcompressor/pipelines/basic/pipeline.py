@@ -10,6 +10,7 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
+from llmcompressor.utils.helpers import DISABLE_QAC_MODIFIERS, DisableQuantization
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -50,8 +51,17 @@ class BasicPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
+        disable_qac = any(
+            type(mod).__name__ in DISABLE_QAC_MODIFIERS
+            for mod in session.lifecycle.recipe.modifiers
+        ) or getattr(dataset_args, "quantization_aware_calibration", True)
+
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
+            # Optionally disable quantization
+            if disable_qac:
+                stack.enter_context(DisableQuantization(model))
+
             for batch_idx, batch in enumerate(
                 tqdm.tqdm(dataloader, desc="Calibrating")
             ):

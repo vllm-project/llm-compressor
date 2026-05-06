@@ -2,7 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.utils import disable_offloading
+from compressed_tensors.offload import disable_offloading, set_onload_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -11,7 +11,6 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
-    dispatch_for_sequential,
     handle_sequential_oom,
     trace_subgraphs,
 )
@@ -89,7 +88,7 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        dispatch_for_sequential(model, onload_device)
+        set_onload_device(model, onload_device)
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
@@ -158,24 +157,33 @@ class SequentialPipeline(CalibrationPipeline):
                         sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
-                        subgraph.forward(model, **inputs)
+                        outputs = subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph)
-
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx, inputs in _get_batches(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            prop_desc,
-                            sequential_prefetch,
-                        ):
-                            output = subgraph.forward(model, **inputs)
+                        if not dataset_args.propagate_error:
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
+                                activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+
+                    modules = list(subgraph.submodules(model))
+                    LifecycleCallbacks.sequential_epoch_end(modules)
+
+                    if dataset_args.propagate_error:
+                        # this pass does not trigger modifier hooks
+                        # and is only used for capturing outputs of compressed modules
+                        with HooksMixin.disable_hooks():
+                            for batch_idx, inputs in _get_batches(
+                                activations,
+                                num_batches,
+                                subgraph.input_names,
+                                prop_desc,
+                                sequential_prefetch,
+                            ):
+                                output = subgraph.forward(model, **inputs)
+                                if subgraph_index < num_subgraphs - 1:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
