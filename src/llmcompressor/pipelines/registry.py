@@ -7,6 +7,7 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.pruning.sparsegpt.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.modifiers.transform import AWQModifier, SmoothQuantModifier
@@ -66,6 +67,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
                     SparsityModifierBase,
                     GPTQModifier,
                     AWQModifier,
+                    AutoRoundModifier,
                     IMatrixGatherer,
                 ),
             ):
