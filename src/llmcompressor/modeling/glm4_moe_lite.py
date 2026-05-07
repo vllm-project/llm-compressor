@@ -65,12 +65,11 @@ class SequentialGlm4MoeLiteExperts(torch.nn.ModuleList):
                 ]
             )
 
-        with torch.no_grad():
-            for i in range(self.num_experts):
-                gate_up = original.gate_up_proj[i]
-                down = original.down_proj[i]
-                gate_proj, up_proj = gate_up.chunk(2, dim=0)
+        for i in range(self.num_experts):
+            gate_up = original.gate_up_proj[i]
+            down = original.down_proj[i]
+            gate_proj, up_proj = gate_up.chunk(2, dim=0)
 
-                self[i].gate_proj.weight.copy_(gate_proj.contiguous())
-                self[i].up_proj.weight.copy_(up_proj.contiguous())
-                self[i].down_proj.weight.copy_(down.contiguous())
+            self[i].gate_proj.weight.data = gate_proj.clone().contiguous()
+            self[i].up_proj.weight.data = up_proj.clone().contiguous()
+            self[i].down_proj.weight.data = down.clone().contiguous()
