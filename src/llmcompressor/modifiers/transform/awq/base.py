@@ -1,5 +1,4 @@
 import inspect
-import math
 from typing import Iterator, Literal
 
 import torch
@@ -646,7 +645,7 @@ class AWQModifier(Modifier):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
-        initial_error = None            
+        initial_error = None
 
         device = get_execution_device(mapping.parent)
 
