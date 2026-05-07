@@ -646,17 +646,7 @@ class AWQModifier(Modifier):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
-        initial_error = None
-
-        def _raise_no_finite_loss() -> None:
-            logger.debug(history)
-            raise Exception(
-                "No finite loss was found in best scales grid search "
-                f"(best_ratio={best_ratio}, initial_error={initial_error}). "
-                "This typically means NaN values are appearing in the forward "
-                "pass of the parent module. If you encounter this error, raise "
-                "an issue at https://github.com/vllm-project/llm-compressor/issues"
-            )
+        initial_error = None            
 
         device = get_execution_device(mapping.parent)
 
@@ -755,16 +745,12 @@ class AWQModifier(Modifier):
                 loss = self._compute_loss(fp16_outputs, int_w_outputs)
                 del int_w_outputs
 
+                if initial_error is None:
+                    initial_error = loss
+
                 history.append(
                     {"ratio": ratio, "duo_scaling": use_duo_scaling, "error": loss}
                 )
-                if initial_error is None:
-                    initial_error = loss
-                    # The first grid point is identity. If its loss is NaN/Inf,
-                    # fail fast before later candidates can hide the bad baseline.
-                    if not math.isfinite(initial_error):
-                        _raise_no_finite_loss()
-
                 if loss < best_error:
                     best_error = loss
                     best_ratio = ratio
@@ -772,7 +758,13 @@ class AWQModifier(Modifier):
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
         if best_ratio == -1:
-            _raise_no_finite_loss()
+            logger.debug(history)
+            raise Exception(
+                "No finite loss was found in best scalesgrid search. This typically "
+                "means NaN values are appearing in the forward pass of the parent "
+                "module. If you encounter this error, raise an issue at "
+                "https://github.com/vllm-project/llm-compressor/issues"
+            )
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
         logger.debug(
