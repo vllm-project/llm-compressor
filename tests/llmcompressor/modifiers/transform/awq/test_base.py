@@ -693,6 +693,9 @@ def test_awq_raises_on_non_finite_identity_grid_loss():
     self_attn = model.model.layers[0].self_attn
     forward_count = 0
 
+    # hook will set weights to NaN after first forward pass,
+    # so fp16 baseline has reasonable output but first scales
+    # search does not, to test this specific edge case
     def corrupt_weights_after_baseline(module, _inputs, _output):
         nonlocal forward_count
         forward_count += 1
