@@ -150,13 +150,36 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "remove `actorder` from config groups."
             )
 
+        # compressed-tensors only accepts actorder=GROUP on these strategies
+        # on reload; other strategies fall back to None below.
+        grouped_strategies = (
+            QuantizationStrategy.GROUP,
+            QuantizationStrategy.TENSOR_GROUP,
+        )
+
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if (
-                getattr_chain(scheme, "weights.strategy", None)
-                == QuantizationStrategy.GROUP
+            strategy = getattr_chain(scheme, "weights.strategy", None)
+            if strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+                QuantizationStrategy.CHANNEL,
+                QuantizationStrategy.TENSOR,
+                QuantizationStrategy.BLOCK,
             ):
+                # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+
+                if (
+                    scheme.weights.actorder == ActivationOrdering.GROUP
+                    and strategy not in grouped_strategies
+                ):
+                    logger.warning(
+                        f"ActivationOrdering.GROUP is not compatible with "
+                        f"strategy={strategy}; falling back to actorder=None "
+                        f"for this scheme."
+                    )
+                    scheme.weights.actorder = None
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
