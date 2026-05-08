@@ -50,7 +50,9 @@ def test_observers_update(shape, group_size, actorder):
         ("output", output),
     ):
         observer = getattr(module, f"{location}_observer")
-        updated_scale, updated_zero_point = observer(value)
+        qparams = observer(value).get_qparams()
+        updated_scale = qparams["scale"]
+        updated_zero_point = qparams["zero_point"]
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
         assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))
@@ -61,7 +63,6 @@ def assert_alike(a, b):
     assert a.shape == b.shape
 
 
-@pytest.mark.parametrize("is_global", [False, True])
 @pytest.mark.parametrize(
     "name,kwargs,observed,exp_min_vals,exp_max_vals",
     (
@@ -102,19 +103,16 @@ def assert_alike(a, b):
         ),
     ),
 )
-def test_observer_min_max_vals(
-    name, kwargs, observed, exp_min_vals, exp_max_vals, is_global
-):
+def test_observer_min_max_vals(name, kwargs, observed, exp_min_vals, exp_max_vals):
     observer = Observer.load_from_registry(
         name, base_name="input", args=QuantizationArgs(strategy="tensor"), **kwargs
     )
 
     min_vals, max_vals = [], []
     for _observed in observed:
-        if not is_global:
-            _, _, _min_vals, _max_vals = observer._forward_with_minmax(_observed)
-        else:
-            _, _min_vals, _max_vals = observer._get_global_scale_with_minmax(_observed)
+        observer(_observed)
+        _min_vals = observer.min_vals
+        _max_vals = observer.max_vals
 
         min_vals.append(_min_vals)
         max_vals.append(_max_vals)

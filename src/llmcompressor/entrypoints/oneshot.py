@@ -390,10 +390,8 @@ def oneshot(
     :param sequential_offload_device: Device used to offload intermediate activations
         between sequential layers. It is recommended to use `cuda:1` if using more
         than one gpu. Default is cpu.
-    :param quantization_aware_calibration: Whether to enable quantization-aware
-        calibration in the sequential pipeline. When True, quantization is applied
-        during forward pass in calibration. When False, quantization is disabled
-        during forward pass in calibration. Default is set to True.
+    :param quantization_aware_calibration: Deprecated. This argument has no effect
+        and will be removed in a future release.
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.
