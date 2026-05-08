@@ -93,10 +93,8 @@ def observe(
     :param base_name: substring used to fetch the observer and value to observe
     """
     if isinstance(module, Iterable):
-        # iterate through but avoid duplicates
-        unique_modules = set(module)
-        for m in unique_modules:
-                observe(m, base_name)
+        for m in set(module):
+            observe(m, base_name)
         return
 
     observer = getattr(module, f"{base_name}_observer", None)
@@ -126,7 +124,7 @@ def update_qparams(
         multiple writes to the offload (rest just update onload)
     """
     if isinstance(module, Iterable):
-        for m in module:
+        for m in set(module):
             update_qparams(m, base_name, only_update_onload)
         return
 
