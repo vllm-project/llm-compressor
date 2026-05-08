@@ -93,8 +93,12 @@ def observe(
     :param base_name: substring used to fetch the observer and value to observe
     """
     if isinstance(module, Iterable):
+        # iterate through but avoid duplicates
+        seen = set()
         for m in module:
-            observe(m, base_name)
+            if id(m) not in seen:
+                seen.add(id(m))
+                observe(m, base_name)
         return
 
     observer = getattr(module, f"{base_name}_observer", None)

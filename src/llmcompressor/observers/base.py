@@ -50,14 +50,14 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
-        self._fused_observers: list["Observer"] = []
+        self._fused_observers: set["Observer"] = set()
 
     @property
     def has_statistics(self) -> bool:
         return hasattr(self, "min_vals")
 
     @abstractmethod
-    def update_statistics(self, observed: torch.Tensor) -> None:
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         """
         Update internal observer statistics (min_vals, max_vals) from observed tensor.
 
@@ -66,7 +66,8 @@ class Observer(InternalModule, RegistryMixin):
         """
         raise NotImplementedError()
 
-    def compute_qparams_from_statistics(self) -> QParamsDict:
+    @torch.no_grad
+    def get_qparams(self) -> QParamsDict:
         """
         Compute quantization parameters from accumulated statistics.
 
@@ -104,15 +105,6 @@ class Observer(InternalModule, RegistryMixin):
         return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
 
     @torch.no_grad
-    def get_qparams(self) -> QParamsDict:
-        """
-        Compute quantization parameters from accumulated statistics.
-
-        :return: dict with keys "scale", "zero_point", and "global_scale"
-        """
-        return self.compute_qparams_from_statistics()
-
-    @torch.no_grad
     def forward(self, observed: torch.Tensor) -> "Observer":
         """
         Update observer statistics from observed value.
@@ -124,7 +116,7 @@ class Observer(InternalModule, RegistryMixin):
             return self
 
         observed = flatten_for_calibration(observed, self.base_name, self.args)
-        self.update_statistics(observed)
+        self.update_statistics_from_observed(observed)
         return self
 
     @staticmethod
@@ -137,8 +129,8 @@ class Observer(InternalModule, RegistryMixin):
         observers = list(observers)
         for obs in observers:
             for other in observers:
-                if other is not obs and other not in obs._fused_observers:
-                    obs._fused_observers.append(other)
+                if other is not obs:
+                    obs._fused_observers.add(other)
 
     def sync_activation_stats(self) -> List[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.

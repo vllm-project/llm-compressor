@@ -1,5 +1,4 @@
 import math
-import weakref
 from typing import Optional
 
 import torch
@@ -73,8 +72,6 @@ class IMatrixMSEObserver(Observer):
         exist on the module (second pass after IMatrixGatherer), copy them
         to the observer and skip hook registration.
         """
-        self._module_ref = weakref.ref(module)
-
         if hasattr(module, "_imatrix_sum"):
             self._imatrix_sum = module._imatrix_sum
             self._imatrix_count = module._imatrix_count
@@ -123,7 +120,7 @@ class IMatrixMSEObserver(Observer):
 
     # ------------------------------------------------------------------
 
-    def update_statistics(self, observed: torch.Tensor) -> None:
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         importance_weights = self._prepare_importance(observed)
         self.min_vals, self.max_vals = _grid_search(
             observed,
@@ -264,7 +261,7 @@ def _grid_search(
 
     Note: global_scale is NOT used during optimization since it cancels out when
     using FP32 scales. After optimization, global_scale is computed from the final
-    min/max values in compute_qparams_from_statistics().
+    min/max values in get_qparams().
     """
     min_val = torch.amin(observed, dim=(0, -1))
     max_val = torch.amax(observed, dim=(0, -1))

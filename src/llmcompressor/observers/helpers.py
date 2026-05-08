@@ -193,3 +193,8 @@ def fuse_weight_observers(model: Module):
                 observers.append(obs)
             else:
                 Observer.fuse(observers)
+
+
+def lerp(start: torch.Tensor, end: torch.Tensor, weight: float) -> torch.Tensor:
+    """Linear interpolation — torch.lerp is not implemented for all dtypes."""
+    return (start * (1.0 - weight)) + (end * weight)
