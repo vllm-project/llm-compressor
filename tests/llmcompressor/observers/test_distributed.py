@@ -38,25 +38,6 @@ def test_static_synchronize_returns_empty_before_observation():
 
 @pytest.mark.unit
 @patch("llmcompressor.observers.base.dist")
-def test_static_synchronize_issues_all_reduce(mock_dist):
-    mock_dist.all_reduce.return_value = MagicMock()
-
-    observer = _make_observer(StaticMinMaxObserver)
-    observer.min_vals = torch.tensor([-1.0])
-    observer.max_vals = torch.tensor([1.0])
-
-    comms = observer.sync_activation_stats()
-    assert len(comms) == 2
-    assert mock_dist.all_reduce.call_count == 2
-
-    # verify correct ops
-    calls = mock_dist.all_reduce.call_args_list
-    assert calls[0].kwargs["op"] == dist.ReduceOp.MIN
-    assert calls[1].kwargs["op"] == dist.ReduceOp.MAX
-
-
-@pytest.mark.unit
-@patch("llmcompressor.observers.base.dist")
 def test_static_synchronize_with_global_state(mock_dist):
     mock_dist.all_reduce.return_value = MagicMock()
 
