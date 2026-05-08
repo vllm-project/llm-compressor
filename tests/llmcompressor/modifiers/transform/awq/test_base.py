@@ -6,12 +6,16 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
     QuantizationStrategy,
+    QuantizationType,
     apply_quantization_config,
 )
+from datasets import Dataset
 from pydantic import ValidationError
 from torch.nn import Linear
 from torch.testing import assert_close
+from transformers import AutoModelForCausalLM
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
@@ -643,17 +647,6 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 @pytest.mark.smoke
 def test_awq_with_kv_cache_quantization():
     """Test AWQModifier with kv_cache_scheme runs without errors"""
-    from compressed_tensors.quantization import (
-        QuantizationArgs,
-        QuantizationStrategy,
-        QuantizationType,
-    )
-    from datasets import Dataset
-    from transformers import AutoModelForCausalLM
-
-    from llmcompressor import oneshot
-    from llmcompressor.modifiers.quantization import QuantizationModifier
-
     model_id = "nm-testing/tinysmokellama-3.2"
     model = AutoModelForCausalLM.from_pretrained(
         model_id, torch_dtype="auto", device_map="cuda"
@@ -685,6 +678,47 @@ def test_awq_with_kv_cache_quantization():
 
     # Verify quantization was applied
     assert hasattr(model.model.layers[0].self_attn, "kv_cache")
+
+
+@requires_gpu(1)
+@pytest.mark.smoke
+def test_awq_raises_on_non_finite_identity_grid_loss():
+    """Test AWQModifier raises when the identity grid loss is non-finite"""
+    model_id = "nm-testing/tinysmokellama-3.2"
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, torch_dtype="auto", device_map="cuda"
+    )
+    dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
+
+    self_attn = model.model.layers[0].self_attn
+    forward_count = 0
+
+    # hook will set weights to NaN after first forward pass,
+    # so fp16 baseline has reasonable output but first scales
+    # search does not, to test this specific edge case
+    def corrupt_weights_after_baseline(module, _inputs, _output):
+        nonlocal forward_count
+        forward_count += 1
+        if forward_count == 2:
+            module.q_proj.weight.data.fill_(float("nan"))
+
+    handle = self_attn.register_forward_hook(corrupt_weights_after_baseline)
+    recipe = [
+        AWQModifier(n_grid=3),
+        QuantizationModifier(targets="Linear", scheme="W8A16"),
+    ]
+
+    try:
+        with pytest.raises(Exception, match="No finite loss"):
+            oneshot(
+                model=model,
+                dataset=dataset,
+                recipe=recipe,
+                max_seq_length=16,
+                num_calibration_samples=1,
+            )
+    finally:
+        handle.remove()
 
 
 @pytest.mark.unit
