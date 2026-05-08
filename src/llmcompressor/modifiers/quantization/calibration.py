@@ -94,10 +94,8 @@ def observe(
     """
     if isinstance(module, Iterable):
         # iterate through but avoid duplicates
-        seen = set()
-        for m in module:
-            if id(m) not in seen:
-                seen.add(id(m))
+        unique_modules = set(module)
+        for m in unique_modules:
                 observe(m, base_name)
         return
 
