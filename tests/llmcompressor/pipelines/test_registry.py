@@ -1,5 +1,6 @@
 import pytest
 
+from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.pruning import SparseGPTModifier, WandaPruningModifier
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.modifiers.transform import (
@@ -33,6 +34,7 @@ from llmcompressor.pipelines import (
         ([SpinQuantModifier()], DataFreePipeline),
         ([QuIPModifier(), QuantizationModifier(scheme="FP8")], SequentialPipeline),
         ([QuIPModifier(), QuantizationModifier(scheme="W4A16")], DataFreePipeline),
+        ([AutoRoundModifier()], SequentialPipeline),
     ],
 )
 def test_infer_pipeline(modifiers, exp_pipeline):
