@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe_model
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import skip_weights_download
 
 # Select model and load it.
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
@@ -23,6 +24,13 @@ with load_offloaded_model():
         # max_memory={"cpu": 3e10},
         # offload_folder="offload_folder",
     )
+# from transformers.core_model_loading import revert_weight_conversion
+# from compressed_tensors.offload import disable_onloading
+# with disable_onloading():
+#     new_state_dict = revert_weight_conversion(model, model.state_dict())
+#     print(new_state_dict.keys())
+# exit(0)
+
 linearize_moe_model(model)
 
 # kluge for the way I saved the decompressed checkpoint
@@ -128,6 +136,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     sequential_targets=["DeepseekV4DecoderLayer"],
     batch_size=1,
+    shuffle_calibration_samples=True,
 )
 
 # Save to disk compressed.

@@ -25,15 +25,15 @@ from .helpers import (
 
 @torch.no_grad()
 def linearize_moe_model(model: PreTrainedModel):
-    weight_conversions = extract_weight_conversions_for_model(model, "")
+    weight_conversions = extract_weight_conversions_for_model(model)
     weight_conversions = [] if weight_conversions is None else weight_conversions
 
-    # remove all weight loading conversions; save as linearized
-    model._weight_conversions = [
-        converter
-        for converter in weight_conversions
-        if not _is_moe_experts_converter(converter)
-    ]
+    # # remove all weight loading conversions; save as linearized
+    # model._weight_conversions = [
+    #     converter
+    #     for converter in weight_conversions
+    #     if not _is_moe_experts_converter(converter)
+    # ]
 
     named_experts_modules = [
         (name, module)
