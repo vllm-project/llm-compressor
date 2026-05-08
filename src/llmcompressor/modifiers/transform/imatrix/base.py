@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import List, Union
 
 from compressed_tensors.quantization import QuantizationArgs
 from compressed_tensors.utils import match_named_modules
@@ -20,9 +20,9 @@ class IMatrixGatherer(Modifier):
     actual quantization is done by the subsequent
     ``QuantizationModifier`` / ``GPTQModifier``.
 
-    The observer's ``detach()`` method computes ``_imatrix_importance``
-    from the accumulated statistics and leaves it on the module for the
-    next quantization pass to consume.
+    The observer's ``detach()`` method leaves raw ``_imatrix_sum`` and
+    ``_imatrix_count`` on the module for the next quantization pass
+    observer to pick up via ``attach()``.
 
     Example recipe::
 
@@ -74,24 +74,21 @@ class IMatrixGatherer(Modifier):
         self._resolved_targets = (
             self.targets if isinstance(self.targets, list) else [self.targets]
         )
-        self._observers: Dict[str, Observer] = {}
 
         # Minimal QuantizationArgs — only used to instantiate the observer,
         # no quantization config is applied to the model.
         observer_args = QuantizationArgs(observer=self.weight_observer)
 
-        for name, module in match_named_modules(
+        for _, module in match_named_modules(
             state.model, self._resolved_targets, self.ignore
         ):
             observer = Observer.load_from_registry(
                 self.weight_observer,
                 base_name="weight",
                 args=observer_args,
-                module=module,
             )
             module.register_module("weight_observer", observer)
             observer.attach(module)
-            self._observers[name] = observer
 
         return True
 
@@ -109,26 +106,26 @@ class IMatrixGatherer(Modifier):
 
     def on_end(self, state: State, event: Event, **kwargs):
         self.ended_ = True
-        for name, observer in self._observers.items():
-            module = observer.module() if observer.module is not None else None
-            if module is not None:
+        for _, module in match_named_modules(
+            state.model, self._resolved_targets, self.ignore
+        ):
+            observer = getattr(module, "weight_observer", None)
+            if observer is not None and hasattr(observer, "detach"):
                 observer.detach(module)
-                if hasattr(module, "weight_observer"):
-                    delattr(module, "weight_observer")
-        self._observers.clear()
+                delattr(module, "weight_observer")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
-        Clean up importance tensors so they don't end up in the checkpoint
+        Clean up any remaining accumulators so they don't end up in the checkpoint
         """
         if not self.ended_:
             self.on_end(state, None)
 
-        # Clean up importance tensors so they don't end up in checkpoint
         for _, module in match_named_modules(
             state.model, self._resolved_targets, self.ignore
         ):
-            if hasattr(module, "_imatrix_importance"):
-                del module._imatrix_importance
+            for attr in ("_imatrix_sum", "_imatrix_count"):
+                if hasattr(module, attr):
+                    delattr(module, attr)
 
         return True
