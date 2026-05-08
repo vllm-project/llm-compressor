@@ -60,7 +60,32 @@ _moe_default_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*post_attention_layernorm$",
-        ["re:.*mlp.experts.*.gate_proj$", "re:.*mlp.experts.*.up_proj$"],
+        [
+            "re:.*mlp.gate$",
+            "re:.*mlp.experts.*.gate_proj$",
+            "re:.*mlp.experts.*.up_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
+# Llama4TextDecoderLayer calls mlp layer feed_forward
+_llama4_default_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        [
+            "re:.*feed_forward.router$",
+            "re:.*feed_forward.*.gate_proj$",
+            "re:.*feed_forward.*.up_proj$",
+        ],
     ),
     AWQMapping(
         "re:.*up_proj$",
@@ -140,7 +165,7 @@ _deepseek_mappings = [
     AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
     AWQMapping(
         "re:.*post_attention_layernorm$",
-        ["re:.*gate_proj$", "re:.*up_proj$"],
+        ["re:.*mlp.gate$", "re:.*gate_proj$", "re:.*up_proj$"],
     ),
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
@@ -182,7 +207,7 @@ _afmoe_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_mlp_layernorm$",
-        ["re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
+        ["re:.*mlp.router$", "re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
     ),
     AWQMapping(
         "re:.*up_proj$",
@@ -225,10 +250,10 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
-    "Glm4MoeForCausalLM": default_mappings,
+    "Glm4MoeForCausalLM": _moe_default_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": default_mappings,
-    "Llama4ForConditionalGeneration": default_mappings,
+    "Llama4ForConditionalGeneration": _llama4_default_mappings,
     "Mistral3ForConditionalGeneration": default_mappings,
     "MistralForCausalLM": default_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,

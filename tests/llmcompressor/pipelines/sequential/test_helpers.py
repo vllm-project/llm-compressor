@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 import torch.fx
@@ -121,7 +123,11 @@ def test_trace_subgraphs(targets_per_subgraph):
         targets_per_subgraph=targets_per_subgraph,
     )
 
-    for subgraph in subgraphs[:-1]:
+    # +1 refers to preamble before first target
+    min_num_subgraphs = len(model.model.layers) // targets_per_subgraph + 1
+    max_num_subgraphs = math.ceil(len(model.model.layers) / targets_per_subgraph) + 1
+    assert min_num_subgraphs <= len(subgraphs) <= max_num_subgraphs
+    for subgraph in subgraphs[1:-1]:  # only check middle, ends can can be non-divisible
         subgraph_modules = subgraph.submodules(model)
         num_targets_present = len(
             [

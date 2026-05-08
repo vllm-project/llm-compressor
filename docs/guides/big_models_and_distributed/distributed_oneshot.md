@@ -1,5 +1,5 @@
 ## Distributed Oneshot ##
-As an experimental feature, LLM Compressor supports distributed oneshot for the purpose of greatly speeding up the runtime of model calibration and compression. For more information on implementation, see [[RFC] [Performance Refactor][Distributed] Sequential Onloading with Data-Parallel Calibration and Weight-Parallel Optimization](https://github.com/vllm-project/llm-compressor/issues/2180) as well as [[GPTQ][ddp] enabling DDP for GPTQ](https://github.com/vllm-project/llm-compressor/pull/2333).
+LLM Compressor supports distributed oneshot for the purpose of greatly speeding up the runtime of model calibration and compression. For more information on implementation, see [[RFC] [Performance Refactor][Distributed] Sequential Onloading with Data-Parallel Calibration and Weight-Parallel Optimization](https://github.com/vllm-project/llm-compressor/issues/2180) as well as [[GPTQ][ddp] enabling DDP for GPTQ](https://github.com/vllm-project/llm-compressor/pull/2333).
 
 ## Usage ##
 In order to convert a script meant for single-threaded compression into one of distributed compression, please make the following changes:

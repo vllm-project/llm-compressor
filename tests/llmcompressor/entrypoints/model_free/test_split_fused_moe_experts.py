@@ -16,11 +16,11 @@ def test_split_fused_moe_experts():
 
     tensors = {
         # MoE gate_up_proj: [num_experts, 2*intermediate, hidden]
-        "model.layers.0.mlp.experts.gate_up_proj": torch.randn(
+        "model.layers.0.mlp.experts.gate_up_proj.weight": torch.randn(
             num_experts, 2 * intermediate_size, hidden_size, dtype=torch.float16
         ),
         # MoE down_proj: [num_experts, hidden, intermediate]
-        "model.layers.0.mlp.experts.down_proj": torch.randn(
+        "model.layers.0.mlp.experts.down_proj.weight": torch.randn(
             num_experts, hidden_size, intermediate_size, dtype=torch.float16
         ),
         # Non-MoE tensor
