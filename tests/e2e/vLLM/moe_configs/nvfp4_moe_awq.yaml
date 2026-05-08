@@ -4,4 +4,4 @@ model: Qwen/Qwen3-30B-A3B
 dataset_id: HuggingFaceH4/ultrachat_200k
 dataset_split: train_sft
 recipe: tests/e2e/vLLM/recipes/NVFP4/recipe_awq_nvfp4.yaml
-save_dir: Qwen/Qwen3-30B-A3B-NVFP4-AWQ
+save_dir: Qwen3-30B-A3B-NVFP4-AWQ
