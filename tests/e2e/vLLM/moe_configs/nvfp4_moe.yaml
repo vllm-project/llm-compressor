@@ -1,5 +1,4 @@
 cadence: "nightly"
-test_type: "regression"
 model: Qwen/Qwen3-30B-A3B
 scheme: NVFP4
 dataset_id: HuggingFaceH4/ultrachat_200k
