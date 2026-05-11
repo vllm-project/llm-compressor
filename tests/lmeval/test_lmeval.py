@@ -2,7 +2,7 @@ import os
 import random
 import shutil
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import numpy
 import pandas as pd
@@ -10,7 +10,7 @@ import pytest
 import torch
 import yaml
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
@@ -31,6 +31,161 @@ class LmEvalConfig(BaseModel):
     recovery_threshold: Union[float, dict] = 0.95
     # Optional absolute metrics for warnings (not failures)
     metrics: Optional[dict] = None
+
+
+class TestConfig(BaseModel):
+    """
+    Configuration for a single lm-eval test case, loaded from a YAML config file.
+
+    Required fields
+    ---------------
+    cadence : str
+        When this test runs. Must match the CADENCE env var. One of: "commit", "weekly".
+    model : str
+        HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
+    scheme OR recipe : str
+        At least one must be provided.
+        - scheme  : preset quantization scheme passed directly to the modifier
+                    (e.g. "FP8", "FP8_DYNAMIC", "W4A16", "INT8_dyn_per_token", "NVFP4").
+        - recipe  : path to a YAML recipe file. When both are supplied, recipe wins.
+
+    Optional calibration dataset fields
+    ------------------------------------
+    dataset_id : str | None
+        HuggingFace dataset ID for calibration. Leave unset to skip calibration.
+        Datasets with data-collator handling in run_oneshot_for_e2e_testing:
+          - "HuggingFaceH4/ultrachat_200k"  → text, DefaultDataCollator
+          - "neuralmagic/calibration"        → multimodal; set dataset_config="LLM"
+          - any ID containing "flickr30k"   → multimodal, flickr30k collator
+        Any other dataset ID uses DefaultDataCollator.
+    dataset_config : str | None
+        Dataset config/subset name (e.g. "LLM" for "neuralmagic/calibration").
+    dataset_split : str | None
+        Dataset split string (e.g. "train_sft", "train[:512]").
+    num_calibration_samples : int
+        How many samples to use for calibration (default: 512).
+
+    Optional quantization overrides
+    --------------------------------
+    model_class : str
+        Transformers class used to load the model (default: "AutoModelForCausalLM").
+        Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
+    quant_type : "GPTQ" | None
+        Modifier to use when no recipe is provided.
+          - None  → QuantizationModifier (default for most schemes)
+          - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
+    seed : int
+        Random seed for reproducibility (default: 42).
+
+    Save / output
+    -------------
+    save_dir : str | None
+        Where to write the compressed model. Defaults to the config file's stem
+        (e.g. "fp8_dynamic_per_token" for fp8_dynamic_per_token.yaml) so that
+        each config always produces a unique, predictable directory without
+        depending on the scheme name.
+
+    LM Eval settings
+    ----------------
+    lmeval : LmEvalConfig
+        Full lm-evaluation-harness configuration (task, shots, limits, thresholds…).
+    """
+
+    # -------------------------------------------------------------------------
+    # Required
+    # -------------------------------------------------------------------------
+    cadence: str = Field(..., description="'commit' or 'weekly'")
+    model: str = Field(..., description="HuggingFace model ID to quantize")
+
+    # -------------------------------------------------------------------------
+    # Quantization source — at least one must be set (enforced below)
+    # -------------------------------------------------------------------------
+    scheme: Optional[str] = Field(
+        None,
+        description=(
+            "Preset quantization scheme (e.g. FP8, FP8_DYNAMIC, W4A16, "
+            "INT8_dyn_per_token, NVFP4). Used when no recipe is provided."
+        ),
+    )
+    recipe: Optional[str] = Field(
+        None,
+        description=(
+            "Path to a quantization recipe YAML file. "
+            "Takes precedence over scheme when both are set."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Calibration dataset (all optional — omit to skip calibration)
+    # -------------------------------------------------------------------------
+    dataset_id: Optional[str] = Field(
+        None,
+        description=(
+            "HuggingFace dataset ID. Known datasets with special collator handling:\n"
+            " 'HuggingFaceH4/ultrachat_200k' — text, DefaultDataCollator\n"
+            " 'neuralmagic/calibration'      — multimodal (set dataset_config='LLM')\n"
+            " any ID containing 'flickr30k'  — multimodal, flickr30k collator\n"
+            "Any other ID uses DefaultDataCollator."
+        ),
+    )
+    dataset_config: Optional[str] = Field(
+        None,
+        description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
+    )
+    dataset_split: Optional[str] = Field(
+        None, description="Dataset split (e.g. 'train_sft', 'train[:512]')"
+    )
+    num_calibration_samples: int = Field(
+        512, description="Number of calibration samples"
+    )
+
+    # -------------------------------------------------------------------------
+    # Model / quantization overrides
+    # -------------------------------------------------------------------------
+    model_class: str = Field(
+        "AutoModelForCausalLM",
+        description=(
+            "Transformers class used to load the model. "
+            "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
+        ),
+    )
+    quant_type: Optional[Literal["GPTQ"]] = Field(
+        None,
+        description=(
+            "Modifier used when no recipe is provided.\n"
+            "  None   → QuantizationModifier (default)\n"
+            "  'GPTQ' → GPTQModifier"
+        ),
+    )
+    seed: int = Field(42, description="Random seed for reproducibility")
+
+    # -------------------------------------------------------------------------
+    # Save directory
+    # -------------------------------------------------------------------------
+    save_dir: Optional[str] = Field(
+        None,
+        description=(
+            "Directory to save the compressed model. "
+            "If unset, defaults to the config file's stem "
+            "(e.g. 'fp8_dynamic_per_token' for fp8_dynamic_per_token.yaml)."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # LM Eval settings
+    # -------------------------------------------------------------------------
+    lmeval: LmEvalConfig = Field(
+        default_factory=LmEvalConfig,
+        description="LM Eval harness configuration (task, shots, limits, thresholds…)",
+    )
+
+    @model_validator(mode="after")
+    def require_scheme_or_recipe(self) -> "TestConfig":
+        if not self.scheme and not self.recipe:
+            raise ValueError(
+                "At least one of 'scheme' or 'recipe' must be provided in the config."
+            )
+        return self
 
 
 try:
@@ -90,40 +245,33 @@ class TestLMEval:
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
 
-        self.model = eval_config["model"]
-        self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
-        self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))
-        self.scheme = eval_config.get("scheme")
-        self.dataset_id = eval_config.get("dataset_id")
-        self.dataset_config = eval_config.get("dataset_config")
-        self.dataset_split = eval_config.get("dataset_split")
-        self.recipe = eval_config.get("recipe")
-        self.quant_type = eval_config.get("quant_type")
-        self.save_dir = eval_config.get("save_dir")
-        self.seed = eval_config.get("seed", 42)
+        self.config = TestConfig(**eval_config)
 
-        random.seed(self.seed)
-        numpy.random.seed(self.seed)
-        torch.manual_seed(self.seed)
+        # Derive save_dir from the config filename so there is no dependency on scheme
+        if not self.config.save_dir:
+            self.config.save_dir = Path(test_data_file).stem
+
+        self.max_seq_length = 2048
+
+        random.seed(self.config.seed)
+        numpy.random.seed(self.config.seed)
+        torch.manual_seed(self.config.seed)
         torch.use_deterministic_algorithms(True)
 
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.seed)
+            torch.cuda.manual_seed_all(self.config.seed)
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
-        logger.info(f"Seed set to {self.seed} with deterministic mode enabled")
+        logger.info(f"Seed set to {self.config.seed} with deterministic mode enabled")
 
         logger.info("========== RUNNING ==============")
-        logger.info(self.scheme)
+        logger.info(self.config.scheme)
         logger.info(
-            f"Recovery threshold: {self.lmeval.recovery_threshold} (default: 0.95)"
+            f"Recovery threshold: {self.config.lmeval.recovery_threshold} (default: 0.95)"  # noqa: E501
         )
-        if self.lmeval.metrics:
+        if self.config.lmeval.metrics:
             logger.info("Absolute metrics provided - will show warnings if outside ±5%")
-
-        self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
-        self.max_seq_length = 2048
 
     def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model
@@ -133,19 +281,17 @@ class TestLMEval:
         logger.info("================= Evaluating BASE model ======================")
         base_results = self._eval_base_model()
 
-        if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, processor = run_oneshot_for_e2e_testing(
-            model=self.model,
-            model_class=self.model_class,
-            num_calibration_samples=self.num_calibration_samples,
+            model=self.config.model,
+            model_class=self.config.model_class,
+            num_calibration_samples=self.config.num_calibration_samples,
             max_seq_length=self.max_seq_length,
-            scheme=self.scheme,
-            dataset_id=self.dataset_id,
-            dataset_config=self.dataset_config,
-            dataset_split=self.dataset_split,
-            recipe=self.recipe,
-            quant_type=self.quant_type,
+            scheme=self.config.scheme,
+            dataset_id=self.config.dataset_id,
+            dataset_config=self.config.dataset_config,
+            dataset_split=self.config.dataset_split,
+            recipe=self.config.recipe,
+            quant_type=self.config.quant_type,
         )
 
         logger.info("================= SAVING TO DISK ======================")
@@ -162,7 +308,7 @@ class TestLMEval:
         self._validate_recovery(base_results, compressed_results)
 
         # If absolute metrics provided, show warnings (not failures)
-        if self.lmeval.metrics:
+        if self.config.lmeval.metrics:
             self._check_absolute_warnings(compressed_results)
 
         self.tear_down()
@@ -171,46 +317,48 @@ class TestLMEval:
     @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
         """Evaluate the base (uncompressed) model with caching."""
-        return self._eval_model(self.model)
+        return self._eval_model(self.config.model)
 
     @log_time
     def _eval_compressed_model(self) -> dict:
         """Evaluate the compressed model."""
-        return self._eval_model(self.save_dir)
+        return self._eval_model(self.config.save_dir)
 
     def _eval_model(self, model: str) -> dict:
         # NOTE: pass in PreTrainedModel to avoid lm_eval's model-loading logic
         # https://github.com/EleutherAI/lm-evaluation-harness/pull/3393
-        lm_eval_cls = lm_eval.api.registry.get_model(self.lmeval.model)
+        lm_eval_cls = lm_eval.api.registry.get_model(self.config.lmeval.model)
 
         results = lm_eval.simple_evaluate(
             model=lm_eval_cls(
-                pretrained=load_model(model, self.model_class, device_map="cuda:0"),
-                batch_size=self.lmeval.batch_size,
-                **self.lmeval.model_args,
+                pretrained=load_model(
+                    model, self.config.model_class, device_map="cuda:0"
+                ),
+                batch_size=self.config.lmeval.batch_size,
+                **self.config.lmeval.model_args,
             ),
-            tasks=[self.lmeval.task],
-            num_fewshot=self.lmeval.num_fewshot,
-            limit=self.lmeval.limit,
-            apply_chat_template=self.lmeval.apply_chat_template,
-            batch_size=self.lmeval.batch_size,
+            tasks=[self.config.lmeval.task],
+            num_fewshot=self.config.lmeval.num_fewshot,
+            limit=self.config.lmeval.limit,
+            apply_chat_template=self.config.lmeval.apply_chat_template,
+            batch_size=self.config.lmeval.batch_size,
             # Pass seeds to lm_eval for deterministic evaluation
-            random_seed=self.seed,
-            numpy_random_seed=self.seed,
-            torch_random_seed=self.seed,
-            fewshot_random_seed=self.seed,
+            random_seed=self.config.seed,
+            numpy_random_seed=self.config.seed,
+            torch_random_seed=self.config.seed,
+            fewshot_random_seed=self.config.seed,
         )
 
         return results
 
     @log_time
     def _save_compressed_model(self, oneshot_model, processor):
-        oneshot_model.save_pretrained(self.save_dir)
-        processor.save_pretrained(self.save_dir)
+        oneshot_model.save_pretrained(self.config.save_dir)
+        processor.save_pretrained(self.config.save_dir)
 
     @log_time
     def _handle_recipe(self):
-        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+        recipe_path = os.path.join(self.config.save_dir, "recipe.yaml")
         session = active_session()
         recipe_yaml_str = session.get_serialized_recipe()
         with open(recipe_path, "w") as fp:
@@ -219,10 +367,10 @@ class TestLMEval:
 
     def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""
-        base_metrics = base_results["results"][self.lmeval.task]
-        compressed_metrics = compressed_results["results"][self.lmeval.task]
+        base_metrics = base_results["results"][self.config.lmeval.task]
+        compressed_metrics = compressed_results["results"][self.config.lmeval.task]
         higher_is_better_map = compressed_results.get("higher_is_better", {}).get(
-            self.lmeval.task, {}
+            self.config.lmeval.task, {}
         )
 
         logger.info("=" * 80)
@@ -230,7 +378,9 @@ class TestLMEval:
         logger.info("=" * 80)
 
         # Get default threshold from config schema
-        default_threshold = self.lmeval.model_fields["recovery_threshold"].default
+        default_threshold = self.config.lmeval.model_fields[
+            "recovery_threshold"
+        ].default
 
         failures = []
         # Iterate over compressed metrics (what we actually got)
@@ -248,12 +398,12 @@ class TestLMEval:
                 continue
 
             # Get threshold for this metric
-            if isinstance(self.lmeval.recovery_threshold, dict):
-                threshold = self.lmeval.recovery_threshold.get(
+            if isinstance(self.config.lmeval.recovery_threshold, dict):
+                threshold = self.config.lmeval.recovery_threshold.get(
                     metric_key, default_threshold
                 )
             else:
-                threshold = self.lmeval.recovery_threshold
+                threshold = self.config.lmeval.recovery_threshold
 
             # Get direction
             base_metric_name = metric_key.split(",")[0]
@@ -289,8 +439,8 @@ class TestLMEval:
                 )
 
         # Validate that config thresholds match actual results
-        if isinstance(self.lmeval.recovery_threshold, dict):
-            for config_metric_key in self.lmeval.recovery_threshold.keys():
+        if isinstance(self.config.lmeval.recovery_threshold, dict):
+            for config_metric_key in self.config.lmeval.recovery_threshold.keys():
                 if config_metric_key not in compressed_metrics:
                     logger.warning(
                         f"Metric {config_metric_key} in recovery_threshold config "
@@ -312,8 +462,8 @@ class TestLMEval:
         logger.info("ABSOLUTE METRICS CHECK (warnings only, not failures)")
         logger.info("=" * 80)
 
-        metrics: dict = results["results"][self.lmeval.task]
-        for metric_key, expected_val in self.lmeval.metrics.items():
+        metrics: dict = results["results"][self.config.lmeval.task]
+        for metric_key, expected_val in self.config.lmeval.metrics.items():
             # Skip stderr metrics
             if "stderr" in metric_key:
                 continue
@@ -328,7 +478,7 @@ class TestLMEval:
 
             higher_is_better = (
                 results.get("higher_is_better", {})
-                .get(self.lmeval.task, {})
+                .get(self.config.lmeval.task, {})
                 .get(metric_key.split(",")[0], True)
             )
 
@@ -364,7 +514,7 @@ class TestLMEval:
             p.mkdir(parents=True, exist_ok=True)
 
             df = pd.DataFrame(measurements)
-            df.to_csv(p / f"{self.save_dir}.csv", index=False)
+            df.to_csv(p / f"{self.config.save_dir}.csv", index=False)
 
-        if self.save_dir is not None and os.path.isdir(self.save_dir):
-            shutil.rmtree(self.save_dir)
+        if self.config.save_dir is not None and os.path.isdir(self.config.save_dir):
+            shutil.rmtree(self.config.save_dir)

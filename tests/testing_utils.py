@@ -454,12 +454,12 @@ class LMEvalCacheKey:
         except (ImportError, AttributeError):
             lmeval_version = "unknown"
 
-        lmeval = test_instance.lmeval
+        lmeval = test_instance.config.lmeval
         model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
-        seed = getattr(test_instance, "seed", None)
+        seed = test_instance.config.seed
 
         return cls(
-            model=test_instance.model,
+            model=test_instance.config.model,
             task=lmeval.task,
             num_fewshot=lmeval.num_fewshot,
             limit=lmeval.limit,
