@@ -153,6 +153,8 @@ def torchrun(world_size: int = 1):
     When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it simply
     runs the test. The test is responsible for its own distributed initialization.
 
+    related to https://github.com/vllm-project/compressed-tensors/blob/main/tests/test_offload/conftest.py#L81
+
     Usage:
         @pytest.mark.unit
         @requires_gpu(2)
