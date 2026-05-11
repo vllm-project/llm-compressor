@@ -151,11 +151,13 @@ class AWQModifier(Modifier):
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: IntermediatesCache[tuple[Module, int]] = PrivateAttr(
-        default=None
+    _parent_args_cache: IntermediatesCache[tuple[Module, int], dict[str, torch.Tensor]] = PrivateAttr(
+        default_factory=lambda: IntermediatesCache(offload_device=None)
     )
     # Cache dict[smooth layer name, [activation sums, activation counts]]
-    _smooth_activation_stats: IntermediatesCache[str] = PrivateAttr(default=None)
+    _smooth_activation_stats: IntermediatesCache[str, list[torch.Tensor]] = PrivateAttr(
+        default_factory=lambda: IntermediatesCache(offload_device=None)
+    )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
@@ -188,6 +190,10 @@ class AWQModifier(Modifier):
                 # For non-MoE models, convert sentinel to None
                 # (no offloading by default)
                 self.offload_device = None
+
+        # Set offload_device for caches
+        self._parent_args_cache.offload_device = self.offload_device
+        self._smooth_activation_stats.offload_device = self.offload_device
 
         return True
 
@@ -279,8 +285,7 @@ class AWQModifier(Modifier):
 
         self._log_error_metrics()
 
-        if self._parent_args_cache is not None:
-            self._parent_args_cache.clear()
+        self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
         self._error_metrics.clear()
@@ -459,10 +464,7 @@ class AWQModifier(Modifier):
         for mapping in self._resolved_mappings:
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
-            if self._parent_args_cache is None:
-                self._parent_args_cache = IntermediatesCache(self.offload_device)
-                self._smooth_activation_stats = IntermediatesCache(self.offload_device)
-
+            if len(self._parent_args_cache) == 0:
                 self.register_hook(
                     mapping.parent,
                     cache_parent_kwargs_hook,

@@ -12,6 +12,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 from tqdm import tqdm
 
 TKey = TypeVar("TKey", bound=Any)
+TValue = TypeVar("TValue", bound=Any)
 
 
 @dataclass
@@ -26,7 +27,7 @@ class IntermediateValue:
     device: torch.device | None
 
 
-class IntermediatesCache(Generic[TKey]):
+class IntermediatesCache(Generic[TKey, TValue]):
     """
     Cache which stores intermediate values (activations) produced by batched, sequential
     execution of models. Values are offloaded to the `offload_device` when stored in
@@ -48,6 +49,8 @@ class IntermediatesCache(Generic[TKey]):
 
     def __init__(self, offload_device: torch.device | None = None):
         self._store = {}
+        self._prefix_counters: dict[tuple, int] = {}
+        self._prefix_indices: dict[tuple, list[int]] = {}
         self.offload_device = offload_device
 
     @classmethod
@@ -59,7 +62,7 @@ class IntermediatesCache(Generic[TKey]):
     ):
         """
         Initialize a cache with data from the provided dataloader.
-        Stores each batch as a dict under key batch_idx.
+        Stores each batch item with key (batch_idx, dict_key) for granular access.
 
         :param dataloader: dataloader which generates values to be cached
         :param model_device: device which values will be onloaded to when fetched
@@ -67,12 +70,16 @@ class IntermediatesCache(Generic[TKey]):
         """
         cache = cls(offload_device)
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Preparing cache")):
-            cache._store[batch_idx] = cls._offload_value(
-                batch, offload_device, model_device
-            )
+            for key, value in batch.items():
+                full_key = (batch_idx, key)
+                cache._store[full_key] = cls._offload_value(
+                    value, offload_device, model_device
+                )
+        cache._prefix_counters[()] = len(dataloader)
+        cache._prefix_indices[()] = list(range(len(dataloader)))
         return cache
 
-    def __getitem__(self, key: TKey) -> Any:
+    def __getitem__(self, key: TKey) -> TValue:
         """
         Fetch a value by key, onloading it to the original device
 
@@ -84,7 +91,7 @@ class IntermediatesCache(Generic[TKey]):
             raise KeyError(f"Key {key} not found in cache")
         return self._onload_value(self._store[key])
 
-    def update(self, key: TKey, value: Any) -> None:
+    def update(self, key: TKey, value: TValue) -> None:
         """
         Update/put a value for a key, offloading any tensors
 
@@ -93,7 +100,25 @@ class IntermediatesCache(Generic[TKey]):
         """
         self._store[key] = self._offload_value(value, self.offload_device)
 
-    def append(self, key_prefix: TKey | None, value: Any) -> tuple[TKey, int]:
+        # Update prefix counter and indices to ensure append doesn't overwrite
+        if isinstance(key, int):
+            prefix = ()
+            idx = key
+        elif isinstance(key, tuple) and len(key) > 0 and isinstance(key[-1], int):
+            prefix = key[:-1]
+            idx = key[-1]
+        else:
+            return
+
+        current_max = self._prefix_counters.get(prefix, 0)
+        if idx >= current_max:
+            self._prefix_counters[prefix] = idx + 1
+
+        indices = self._prefix_indices.setdefault(prefix, [])
+        if idx not in indices:
+            indices.append(idx)
+
+    def append(self, key_prefix: TKey | None, value: TValue) -> tuple[TKey, int]:
         """
         Append a value with an auto-generated index.
 
@@ -105,28 +130,22 @@ class IntermediatesCache(Generic[TKey]):
         :return: tuple of (full_key, index) where full_key is the complete key used
         """
         if key_prefix is None:
-            matching_keys = [k for k in self._store.keys() if isinstance(k, int)]
-            next_idx = max(matching_keys, default=-1) + 1
+            prefix = ()
+        elif isinstance(key_prefix, tuple):
+            prefix = key_prefix
+        else:
+            prefix = (key_prefix,)
+
+        next_idx = self._prefix_counters.get(prefix, 0)
+        self._prefix_counters[prefix] = next_idx + 1
+
+        if prefix == ():
             full_key = next_idx
         else:
-            if isinstance(key_prefix, tuple):
-                prefix = key_prefix
-            else:
-                prefix = (key_prefix,)
-
-            matching_keys = [
-                k
-                for k in self._store.keys()
-                if isinstance(k, tuple)
-                and len(k) == len(prefix) + 1
-                and k[:-1] == prefix
-                and isinstance(k[-1], int)
-            ]
-
-            next_idx = max((k[-1] for k in matching_keys), default=-1) + 1
             full_key = prefix + (next_idx,)
 
         self._store[full_key] = self._offload_value(value, self.offload_device)
+        self._prefix_indices.setdefault(prefix, []).append(next_idx)
         return full_key, next_idx
 
     def delete(self, key: TKey) -> None:
@@ -136,6 +155,22 @@ class IntermediatesCache(Generic[TKey]):
         :param key: key to delete
         """
         del self._store[key]
+
+        # Remove from prefix indices
+        if isinstance(key, int):
+            prefix = ()
+            idx = key
+        elif isinstance(key, tuple) and len(key) > 0 and isinstance(key[-1], int):
+            prefix = key[:-1]
+            idx = key[-1]
+        else:
+            return
+
+        if prefix in self._prefix_indices:
+            try:
+                self._prefix_indices[prefix].remove(idx)
+            except ValueError:
+                pass
 
     def __contains__(self, key: TKey) -> bool:
         """
@@ -154,7 +189,7 @@ class IntermediatesCache(Generic[TKey]):
         Non-tuple prefixes are treated as single-element tuples.
 
         :param prefix: prefix to match keys starting with this prefix
-        :return: list of matching keys sorted by final integer index
+        :return: list of matching keys (sorted by final index if integer, otherwise unsorted)
         """
         if prefix is None:
             return list(self._store.keys())
@@ -164,16 +199,24 @@ class IntermediatesCache(Generic[TKey]):
         else:
             p = (prefix,)
 
+        # Use prefix indices for O(K) lookup if available
+        if p in self._prefix_indices:
+            indices = sorted(self._prefix_indices[p])
+            return [p + (idx,) for idx in indices]
+
+        # Fallback: scan store for keys matching prefix (handles non-integer suffixes)
         keys = []
         for k in self._store.keys():
-            if not isinstance(k, tuple):
-                continue
-            if len(k) == len(p) + 1 and k[:-1] == p and isinstance(k[-1], int):
+            if isinstance(k, tuple) and len(k) == len(p) + 1 and k[:-1] == p:
                 keys.append(k)
 
-        return sorted(keys, key=lambda k: k[-1])
+        # Sort by final element if it's an integer
+        if keys and isinstance(keys[0][-1], int):
+            keys = sorted(keys, key=lambda k: k[-1])
 
-    def iter(self, keys: list[TKey] | None = None) -> Generator[Any, None, None]:
+        return keys
+
+    def iter(self, keys: list[TKey] | None = None) -> Generator[TValue, None, None]:
         """
         Iterate over keys with values onloaded in the current thread.
 
@@ -199,7 +242,7 @@ class IntermediatesCache(Generic[TKey]):
 
     def iter_prefetch(
         self, keys: list[TKey] | None = None
-    ) -> Generator[Any, None, None]:
+    ) -> Generator[TValue, None, None]:
         """
         Iterate over keys with values prefetched in a background thread.
         Overlaps onload from offload_device with consumption of the current value.
@@ -259,7 +302,7 @@ class IntermediatesCache(Generic[TKey]):
                     torch.cuda.current_stream().wait_event(event)
                 yield current
 
-    def __iter__(self) -> Generator[Any, None, None]:
+    def __iter__(self) -> Generator[TValue, None, None]:
         """
         Iterate over all values in the cache
         """
@@ -269,6 +312,8 @@ class IntermediatesCache(Generic[TKey]):
     def clear(self) -> None:
         """Clear all entries from the cache."""
         self._store.clear()
+        self._prefix_counters.clear()
+        self._prefix_indices.clear()
 
     def __len__(self) -> int:
         """Return the number of entries in the cache."""

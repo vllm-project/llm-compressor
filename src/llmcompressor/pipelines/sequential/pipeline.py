@@ -34,15 +34,26 @@ def _get_batches(
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched.
 
-    Uses wildcard pattern (None,) to match all (batch_idx,) keys.
+    Reconstructs batch dicts from granular keys (batch_idx, name).
+    Only fetches keys matching input_names to minimize data transfer.
     """
+    all_keys = []
+    for batch_idx in range(num_batches):
+        for name in input_names:
+            full_key = (batch_idx, name)
+            if full_key in activations:
+                all_keys.append(full_key)
+
     iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter
-    batch_iter = iter_fn()
-    for batch_idx, batch_dict in tqdm(
-        enumerate(batch_iter), total=num_batches, desc=desc
-    ):
-        inputs = {name: batch_dict[name] for name in input_names if name in batch_dict}
-        yield batch_idx, inputs
+    value_iter = iter_fn(keys=all_keys)
+
+    for batch_idx in tqdm(range(num_batches), desc=desc):
+        batch_dict = {}
+        for name in input_names:
+            full_key = (batch_idx, name)
+            if full_key in all_keys:
+                batch_dict[name] = next(value_iter)
+        yield batch_idx, batch_dict
 
 
 @CalibrationPipeline.register("sequential")
@@ -121,7 +132,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations[batch_idx]["loss_mask"]
+                    activations[(batch_idx, "loss_mask")]
                     for batch_idx in range(len(dataloader))
                 ]
             else:
@@ -151,8 +162,17 @@ class SequentialPipeline(CalibrationPipeline):
 
                         if not dataset_args.propagate_error:
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, outputs)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                # Update outputs with granular keys
+                                if outputs is not None:
+                                    if isinstance(outputs, tuple) and len(outputs) == 1:
+                                        outputs = outputs[0]
+                                    for key, value in outputs.items():
+                                        activations.update((batch_idx, key), value)
+                                # Delete consumed names with granular keys
+                                for key in subgraph.consumed_names:
+                                    full_key = (batch_idx, key)
+                                    if full_key in activations:
+                                        activations.delete(full_key)
 
                     modules = list(subgraph.submodules(model))
                     LifecycleCallbacks.sequential_epoch_end(modules)
@@ -170,10 +190,17 @@ class SequentialPipeline(CalibrationPipeline):
                             ):
                                 output = subgraph.forward(model, **inputs)
                                 if subgraph_index < num_subgraphs - 1:
-                                    activations.update(batch_idx, output)
-                                    activations.delete(
-                                        batch_idx, subgraph.consumed_names
-                                    )
+                                    # Update outputs with granular keys
+                                    if output is not None:
+                                        if isinstance(output, tuple) and len(output) == 1:
+                                            output = output[0]
+                                        for key, value in output.items():
+                                            activations.update((batch_idx, key), value)
+                                    # Delete consumed names with granular keys
+                                    for key in subgraph.consumed_names:
+                                        full_key = (batch_idx, key)
+                                        if full_key in activations:
+                                            activations.delete(full_key)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

@@ -129,7 +129,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _hessians_cache: IntermediatesCache[torch.nn.Module] = PrivateAttr(default=None)
+    _hessians_cache: IntermediatesCache[torch.nn.Module, torch.Tensor] = PrivateAttr(
+        default_factory=lambda: IntermediatesCache(offload_device=None)
+    )
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
@@ -214,9 +216,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
 
-        # Initialize hessians cache with optional offloading
-        offload_device = torch.device("cpu") if self.offload_hessians else None
-        self._hessians_cache = IntermediatesCache(offload_device=offload_device)
+        # Configure hessians cache offload device
+        self._hessians_cache.offload_device = (
+            torch.device("cpu") if self.offload_hessians else None
+        )
 
         # register gptq hooks
         added_hook = False

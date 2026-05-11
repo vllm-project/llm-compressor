@@ -78,12 +78,15 @@ class SparseGPTModifier(SparsityModifierBase):
 
     # private variables
     _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _hessians_cache: IntermediatesCache[torch.nn.Module] = PrivateAttr(default=None)
+    _hessians_cache: IntermediatesCache[torch.nn.Module, torch.Tensor] = PrivateAttr(
+        default_factory=lambda: IntermediatesCache(offload_device=None)
+    )
 
     def on_start(self, state: State, event: Event, **kwargs):
         super().on_start(state, event, **kwargs)
-        offload_device = torch.device("cpu") if self.offload_hessians else None
-        self._hessians_cache = IntermediatesCache(offload_device=offload_device)
+        self._hessians_cache.offload_device = (
+            torch.device("cpu") if self.offload_hessians else None
+        )
 
     def calibrate_module(
         self,
