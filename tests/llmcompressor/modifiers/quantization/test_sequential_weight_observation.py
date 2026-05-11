@@ -1,5 +1,3 @@
-"""Test SEQUENTIAL_EPOCH_END only observes passed modules, not all weights (prevents OOM)."""
-
 from unittest.mock import patch
 
 from compressed_tensors.quantization import (
