@@ -77,9 +77,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.sync_obs_act_stats(state.model)
-            self.update_activation_qparams(state.model)
             modules = kwargs.get("modules", [])  # onloaded chunk
+            self.sync_obs_act_stats(modules)
+            self.update_activation_qparams(modules)
             observe(modules, "weight")
             update_qparams(modules, "weight", only_update_onload=not is_src())
 
