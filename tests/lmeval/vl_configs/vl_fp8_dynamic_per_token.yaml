@@ -1,7 +1,7 @@
 cadence: "weekly"
 model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
-recipe: tests/e2e/vLLM/recipes/FP8/recipe_fp8_dynamic.yaml
+recipe: tests/e2e/recipes/FP8/recipe_fp8_dynamic.yaml
 lmeval:
   model: "hf-multimodal"
   model_args:

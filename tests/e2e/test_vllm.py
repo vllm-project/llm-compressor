@@ -6,7 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-import pandas as pd
 import pytest
 import torch
 import yaml
@@ -15,13 +14,12 @@ from loguru import logger
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
-from tests.test_timer.timer_utils import get_singleton_manager, log_time
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import BaseTestConfig, requires_gpu
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get(
-    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
+    "TEST_DATA_FILE", "tests/e2e/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 # vllm python environment
@@ -29,7 +27,6 @@ VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
 if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
     IS_VLLM_IMAGE = True
-TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
     "config.json",
@@ -68,32 +65,18 @@ class TestvLLM:
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
 
-        self.model = eval_config["model"]
-        self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
-        self.scheme = eval_config.get("scheme")
-        self.dataset_id = eval_config.get("dataset_id")
-        self.dataset_config = eval_config.get("dataset_config")
-        self.dataset_split = eval_config.get("dataset_split")
-        self.recipe = eval_config.get("recipe")
-        self.quant_type = eval_config.get("quant_type")
-        self.save_dir = eval_config.get("save_dir")
-        self.save_compressed = eval_config.get("save_compressed", True)
-        self.num_calibration_samples = eval_config.get("num_calibration_samples", 256)
-        self.max_seq_length = eval_config.get("max_seq_length", 2048)
-        # GPU memory utilization - only set if explicitly provided in config
-        self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
-        # vllm python env - if same, use the current python env, otherwise use
-        # the python passed in VLLM_PYTHON_ENV
+        self.config = BaseTestConfig(**eval_config)
+
+        if not self.config.save_dir:
+            self.config.save_dir = Path(test_data_file).stem
+
         if VLLM_PYTHON_ENV.lower() != "same":
             self.vllm_env = VLLM_PYTHON_ENV
         else:
             self.vllm_env = sys.executable
 
-        if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
-
         logger.info("========== RUNNING ==============")
-        logger.info(self.save_dir)
+        logger.info(self.config.save_dir)
 
         self.prompts = [
             "The capital of France is",
@@ -105,16 +88,16 @@ class TestvLLM:
     def compress_model(self, test_data_file: str):
         self.set_up(test_data_file)
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
-            model=self.model,
-            model_class=self.model_class,
-            num_calibration_samples=self.num_calibration_samples,
-            max_seq_length=self.max_seq_length,
-            scheme=self.scheme,
-            dataset_id=self.dataset_id,
-            dataset_config=self.dataset_config,
-            dataset_split=self.dataset_split,
-            recipe=self.recipe,
-            quant_type=self.quant_type,
+            model=self.config.model,
+            model_class=self.config.model_class,
+            num_calibration_samples=self.config.num_calibration_samples,
+            max_seq_length=2048,
+            scheme=self.config.scheme,
+            dataset_id=self.config.dataset_id,
+            dataset_config=self.config.dataset_config,
+            dataset_split=self.config.dataset_split,
+            recipe=self.config.recipe,
+            quant_type=self.config.quant_type,
         )
         self.oneshot_model = oneshot_model
         self.tokenizer = tokenizer
@@ -128,7 +111,7 @@ class TestvLLM:
             oneshot_model=self.oneshot_model, tokenizer=self.tokenizer
         )
 
-        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+        recipe_path = os.path.join(self.config.save_dir, "recipe.yaml")
 
         # check that expected files exist
         self._check_save_dir_has_expected_files()
@@ -154,7 +137,7 @@ class TestvLLM:
         if SKIP_HF_UPLOAD.lower() != "yes":
             logger.info("================= UPLOADING TO HUB ======================")
 
-            stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+            stub = f"{HF_MODEL_HUB_NAME}/{self.config.save_dir}-e2e"
 
             self.api.create_repo(
                 repo_id=stub,
@@ -165,7 +148,7 @@ class TestvLLM:
 
             self.api.upload_folder(
                 repo_id=stub,
-                folder_path=self.save_dir,
+                folder_path=self.config.save_dir,
             )
 
     def test_vllm(self, test_data_file: str):
@@ -186,46 +169,30 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
-        if self.save_dir is not None and os.path.isdir(self.save_dir):
-            shutil.rmtree(self.save_dir)
+        if self.config.save_dir is not None and os.path.isdir(self.config.save_dir):
+            shutil.rmtree(self.config.save_dir)
 
-        timer = get_singleton_manager()
-        # fetch dictionary of measurements, where keys are func names
-        # and values are the time it took to run the method, each
-        # time it was called
-        measurements = timer.measurements
-        if measurements:
-            p = Path(TIMINGS_DIR)
-            p.mkdir(parents=True, exist_ok=True)
-
-            df = pd.DataFrame(measurements)
-            df.to_csv(p / f"{self.save_dir}.csv", index=False)
-
-    @log_time
     def _save_compressed_model(self, oneshot_model, tokenizer):
-        oneshot_model.save_pretrained(
-            self.save_dir, save_compressed=self.save_compressed
-        )
-        tokenizer.save_pretrained(self.save_dir)
+        oneshot_model.save_pretrained(self.config.save_dir, save_compressed=True)
+        tokenizer.save_pretrained(self.config.save_dir)
 
-    @log_time
     def _run_vllm(self, logger):
         import json
         import subprocess
 
-        llm_kwargs = {"model": self.save_dir}
+        llm_kwargs = {"model": self.config.save_dir}
 
         # if FP8A16 scheme, must set VLLM_TEST_FORCE_FP8_MARLIN=1
         # to force usage of marlin kernel
-        if self.scheme and "FP8A16" in self.scheme.upper():
+        if self.config.scheme and "FP8A16" in self.config.scheme.upper():
             os.environ["VLLM_TEST_FORCE_FP8_MARLIN"] = "1"
         else:
             os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
 
-        if self.gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+        if self.config.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
 
-        json_scheme = json.dumps(self.scheme)
+        json_scheme = json.dumps(self.config.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)
         json_prompts = json.dumps(self.prompts)
 
@@ -233,7 +200,7 @@ class TestvLLM:
 
         if IS_VLLM_IMAGE:
             # generate python command to run in the vllm image
-            RUN_SAVE_DIR = os.path.dirname(self.save_dir)
+            RUN_SAVE_DIR = os.path.dirname(self.config.save_dir)
             run_file_path = os.path.join(RUN_SAVE_DIR, "run_vllm.py")
             shutil.copy(
                 os.path.join(test_file_dir, "run_vllm.py"),
@@ -309,7 +276,7 @@ class TestvLLM:
         assert recipe_yaml_str is not None
 
     def _check_save_dir_has_expected_files(self):
-        files = os.listdir(self.save_dir)
+        files = os.listdir(self.config.save_dir)
         logger.debug("Saved files: ", files)
 
         matched_patterns = set()

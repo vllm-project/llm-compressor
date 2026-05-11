@@ -2,20 +2,18 @@ import os
 import random
 import shutil
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Optional, Union
 
 import numpy
-import pandas as pd
 import pytest
 import torch
 import yaml
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
-from tests.test_timer.timer_utils import get_singleton_manager, log_time
-from tests.testing_utils import cached_lm_eval_run, requires_gpu
+from tests.testing_utils import BaseTestConfig, cached_lm_eval_run, requires_gpu
 
 
 class LmEvalConfig(BaseModel):
@@ -33,57 +31,11 @@ class LmEvalConfig(BaseModel):
     metrics: Optional[dict] = None
 
 
-class TestConfig(BaseModel):
+class TestConfig(BaseTestConfig):
     """
     Configuration for a single lm-eval test case, loaded from a YAML config file.
 
-    Required fields
-    ---------------
-    cadence : str
-        When this test runs. Must match the CADENCE env var. One of: "commit", "weekly".
-    model : str
-        HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
-    scheme OR recipe : str
-        At least one must be provided.
-        - scheme  : preset quantization scheme passed directly to the modifier
-                    (e.g. "FP8", "FP8_DYNAMIC", "W4A16", "INT8_dyn_per_token", "NVFP4").
-        - recipe  : path to a YAML recipe file. When both are supplied, recipe wins.
-
-    Optional calibration dataset fields
-    ------------------------------------
-    dataset_id : str | None
-        HuggingFace dataset ID for calibration. Leave unset to skip calibration.
-        Datasets with data-collator handling in run_oneshot_for_e2e_testing:
-          - "HuggingFaceH4/ultrachat_200k"  → text, DefaultDataCollator
-          - "neuralmagic/calibration"        → multimodal; set dataset_config="LLM"
-          - any ID containing "flickr30k"   → multimodal, flickr30k collator
-        Any other dataset ID uses DefaultDataCollator.
-    dataset_config : str | None
-        Dataset config/subset name (e.g. "LLM" for "neuralmagic/calibration").
-    dataset_split : str | None
-        Dataset split string (e.g. "train_sft", "train[:512]").
-    num_calibration_samples : int
-        How many samples to use for calibration (default: 512).
-
-    Optional quantization overrides
-    --------------------------------
-    model_class : str
-        Transformers class used to load the model (default: "AutoModelForCausalLM").
-        Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
-    quant_type : "GPTQ" | None
-        Modifier to use when no recipe is provided.
-          - None  → QuantizationModifier (default for most schemes)
-          - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
-    seed : int
-        Random seed for reproducibility (default: 42).
-
-    Save / output
-    -------------
-    save_dir : str | None
-        Where to write the compressed model. Defaults to the config file's stem
-        (e.g. "fp8_dynamic_per_token" for fp8_dynamic_per_token.yaml) so that
-        each config always produces a unique, predictable directory without
-        depending on the scheme name.
+    Extends BaseTestConfig with lm-evaluation-harness settings.
 
     LM Eval settings
     ----------------
@@ -91,101 +43,10 @@ class TestConfig(BaseModel):
         Full lm-evaluation-harness configuration (task, shots, limits, thresholds…).
     """
 
-    # -------------------------------------------------------------------------
-    # Required
-    # -------------------------------------------------------------------------
-    cadence: str = Field(..., description="'commit' or 'weekly'")
-    model: str = Field(..., description="HuggingFace model ID to quantize")
-
-    # -------------------------------------------------------------------------
-    # Quantization source — at least one must be set (enforced below)
-    # -------------------------------------------------------------------------
-    scheme: Optional[str] = Field(
-        None,
-        description=(
-            "Preset quantization scheme (e.g. FP8, FP8_DYNAMIC, W4A16, "
-            "INT8_dyn_per_token, NVFP4). Used when no recipe is provided."
-        ),
-    )
-    recipe: Optional[str] = Field(
-        None,
-        description=(
-            "Path to a quantization recipe YAML file. "
-            "Takes precedence over scheme when both are set."
-        ),
-    )
-
-    # -------------------------------------------------------------------------
-    # Calibration dataset (all optional — omit to skip calibration)
-    # -------------------------------------------------------------------------
-    dataset_id: Optional[str] = Field(
-        None,
-        description=(
-            "HuggingFace dataset ID. Known datasets with special collator handling:\n"
-            " 'HuggingFaceH4/ultrachat_200k' — text, DefaultDataCollator\n"
-            " 'neuralmagic/calibration'      — multimodal (set dataset_config='LLM')\n"
-            " any ID containing 'flickr30k'  — multimodal, flickr30k collator\n"
-            "Any other ID uses DefaultDataCollator."
-        ),
-    )
-    dataset_config: Optional[str] = Field(
-        None,
-        description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
-    )
-    dataset_split: Optional[str] = Field(
-        None, description="Dataset split (e.g. 'train_sft', 'train[:512]')"
-    )
-    num_calibration_samples: int = Field(
-        512, description="Number of calibration samples"
-    )
-
-    # -------------------------------------------------------------------------
-    # Model / quantization overrides
-    # -------------------------------------------------------------------------
-    model_class: str = Field(
-        "AutoModelForCausalLM",
-        description=(
-            "Transformers class used to load the model. "
-            "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
-        ),
-    )
-    quant_type: Optional[Literal["GPTQ"]] = Field(
-        None,
-        description=(
-            "Modifier used when no recipe is provided.\n"
-            "  None   → QuantizationModifier (default)\n"
-            "  'GPTQ' → GPTQModifier"
-        ),
-    )
-    seed: int = Field(42, description="Random seed for reproducibility")
-
-    # -------------------------------------------------------------------------
-    # Save directory
-    # -------------------------------------------------------------------------
-    save_dir: Optional[str] = Field(
-        None,
-        description=(
-            "Directory to save the compressed model. "
-            "If unset, defaults to the config file's stem "
-            "(e.g. 'fp8_dynamic_per_token' for fp8_dynamic_per_token.yaml)."
-        ),
-    )
-
-    # -------------------------------------------------------------------------
-    # LM Eval settings
-    # -------------------------------------------------------------------------
     lmeval: LmEvalConfig = Field(
         default_factory=LmEvalConfig,
         description="LM Eval harness configuration (task, shots, limits, thresholds…)",
     )
-
-    @model_validator(mode="after")
-    def require_scheme_or_recipe(self) -> "TestConfig":
-        if not self.scheme and not self.recipe:
-            raise ValueError(
-                "At least one of 'scheme' or 'recipe' must be provided in the config."
-            )
-        return self
 
 
 try:
@@ -201,7 +62,6 @@ except ImportError:
     logger.warning("lm_eval is not installed. This test will be skipped")
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
-TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
 # Will run each test case in its own process through run_tests_in_python.sh
@@ -251,8 +111,6 @@ class TestLMEval:
         if not self.config.save_dir:
             self.config.save_dir = Path(test_data_file).stem
 
-        self.max_seq_length = 2048
-
         random.seed(self.config.seed)
         numpy.random.seed(self.config.seed)
         torch.manual_seed(self.config.seed)
@@ -285,7 +143,7 @@ class TestLMEval:
             model=self.config.model,
             model_class=self.config.model_class,
             num_calibration_samples=self.config.num_calibration_samples,
-            max_seq_length=self.max_seq_length,
+            max_seq_length=2048,
             scheme=self.config.scheme,
             dataset_id=self.config.dataset_id,
             dataset_config=self.config.dataset_config,
@@ -313,13 +171,11 @@ class TestLMEval:
 
         self.tear_down()
 
-    @log_time
     @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
         """Evaluate the base (uncompressed) model with caching."""
         return self._eval_model(self.config.model)
 
-    @log_time
     def _eval_compressed_model(self) -> dict:
         """Evaluate the compressed model."""
         return self._eval_model(self.config.save_dir)
@@ -351,12 +207,10 @@ class TestLMEval:
 
         return results
 
-    @log_time
     def _save_compressed_model(self, oneshot_model, processor):
         oneshot_model.save_pretrained(self.config.save_dir)
         processor.save_pretrained(self.config.save_dir)
 
-    @log_time
     def _handle_recipe(self):
         recipe_path = os.path.join(self.config.save_dir, "recipe.yaml")
         session = active_session()
@@ -504,17 +358,5 @@ class TestLMEval:
         logger.info("=" * 80)
 
     def tear_down(self):
-        timer = get_singleton_manager()
-        # fetch dictionary of measurements, where keys are func names
-        # and values are the time it took to run the method, each
-        # time it was called
-        measurements = timer.measurements
-        if measurements:
-            p = Path(TIMINGS_DIR)
-            p.mkdir(parents=True, exist_ok=True)
-
-            df = pd.DataFrame(measurements)
-            df.to_csv(p / f"{self.config.save_dir}.csv", index=False)
-
         if self.config.save_dir is not None and os.path.isdir(self.config.save_dir):
             shutil.rmtree(self.config.save_dir)

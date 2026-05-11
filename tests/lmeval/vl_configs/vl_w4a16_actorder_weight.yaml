@@ -1,7 +1,7 @@
 cadence: "weekly"
 model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
-recipe: tests/e2e/vLLM/recipes/actorder/recipe_w4a16_actorder_weight.yaml
+recipe: tests/e2e/recipes/actorder/recipe_w4a16_actorder_weight.yaml
 dataset_id: neuralmagic/calibration
 dataset_config: LLM
 dataset_split: "train[:512]"

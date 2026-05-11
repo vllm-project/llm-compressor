@@ -1,7 +1,7 @@
 cadence: "weekly"
 model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
-recipe: tests/e2e/vLLM/recipes/non_uniform/recipe_nvfp4_fp8_mixed.yaml
+recipe: tests/e2e/recipes/non_uniform/recipe_nvfp4_fp8_mixed.yaml
 dataset_id: neuralmagic/calibration
 dataset_config: LLM
 dataset_split: "train[:20]"
