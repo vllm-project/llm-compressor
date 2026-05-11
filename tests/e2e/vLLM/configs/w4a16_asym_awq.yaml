@@ -1,5 +1,4 @@
 cadence: "nightly"
-test_type: "regression"
 test_group: "rhaiis"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 recipe: tests/e2e/vLLM/recipes/WNA16/recipe_w4a16_awq_asym.yaml
