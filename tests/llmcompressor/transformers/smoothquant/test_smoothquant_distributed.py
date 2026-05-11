@@ -223,23 +223,17 @@ def test_smoothquant_distributed_weights_match_single_gpu():
     MODEL = "nm-testing/tinysmokellama-3.2"
     NUM_SAMPLES = 32
 
-    rank = torch.distributed.get_rank()
-
     # ------------------------------------------------------------------
-    # Single-GPU reference (only rank 0)
+    # Single-GPU reference (both ranks run independently before init_dist)
     # ------------------------------------------------------------------
-    if rank == 0:
-        ref = _run_single_gpu_smoothquant(MODEL, NUM_SAMPLES)
-    else:
-        ref = None
-
-    torch.distributed.barrier()
+    ref = _run_single_gpu_smoothquant(MODEL, NUM_SAMPLES)
 
     # ------------------------------------------------------------------
     # Distributed run (all ranks participate)
     # ------------------------------------------------------------------
     # Initialize distributed for offloading
     init_dist()
+    rank = torch.distributed.get_rank()
 
     # Load model with offloading
     with load_offloaded_model():
