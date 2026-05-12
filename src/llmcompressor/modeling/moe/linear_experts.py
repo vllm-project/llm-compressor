@@ -110,6 +110,7 @@ class ExpertMLPWithGate(ExpertMLP):
         return instance
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # TODO: handle is_transposed
         return self.down_proj(
             self._apply_gate(
                 torch.cat(
@@ -117,6 +118,32 @@ class ExpertMLPWithGate(ExpertMLP):
                 )
             )
         )
+    
+class ExpertMLPWithFusedGate(ExpertMLP):
+    up_proj: torch.nn.Linear
+    gate_proj: torch.nn.Linear
+    down_proj: torch.nn.Linear
+    _apply_gate: Callable[[torch.Tensor], torch.Tensor]
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        moe_intermediate_size: int,
+        has_bias: bool,
+        _apply_gate: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        super().__init__()
+        self.gate_up_proj = torch.nn.Linear(
+            hidden_dim, moe_intermediate_size * 2, bias=has_bias
+        )
+        self.down_proj = torch.nn.Linear(
+            moe_intermediate_size, hidden_dim, bias=has_bias
+        )
+        self._apply_gate = _apply_gate
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # TODO: handle is_transposed
+        return self.down_proj(self._apply_gate(self.gate_up_proj(hidden_states)))
 
 class ExpertMLPWithoutGate(ExpertMLP):
     up_proj: torch.nn.Linear
@@ -146,20 +173,13 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
 class LinearExperts(torch.nn.ModuleList):
     def __init__(self, *args, **kwargs):
-        breakpoint()
-        breakpoint()
-        # with local_torch_dtype(model.config.dtype, model.__class__.__name__):
-        #     num_experts, moe_intermediate_size, hidden_dim = _get_moe_shapes(experts)
+        # TODO: use inspect to get config, regardless of whether it's an arg or kwarg
+        config = ...
+    
+        # TODO: pick expert_cls based on wrapper
+        experts_cls = ...
 
-        #     # TODO: add registry
-        #     experts_cls = ExpertMLPWithGate if experts.has_gate else ExpertMLPWithoutGate
-
-        #     return cls(
-        #         [
-        #             experts_cls(hidden_dim, moe_intermediate_size)
-        #             for index in range(num_experts)
-        #         ]
-        #     )
+        super().__init__([experts_cls(config) for _ in range(config.num_experts)])
 
     def forward(
         self,
