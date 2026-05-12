@@ -161,82 +161,40 @@ def test_iter_prefetch_runs_in_separate_thread():
 
 @pytest.mark.unit
 def test_iter_prefetch_overlaps_onload_operations():
-    """Test that iter_prefetch overlaps onload with processing, reducing total time.
+    """Test that iter_prefetch overlaps onload with processing (background prefetch).
 
-    Simulates realistic scenario:
-    - onload: time to transfer data (e.g., H2D transfer)
-    - processing: time to use data in main thread (e.g., forward pass)
-
-    With prefetch: while main thread processes item N, background thread loads item N+1.
-
-    Using large delays (50ms) to make threading overhead negligible, so we can
-    measure actual speedup from overlap.
+    Uses synchronization primitives to deterministically detect concurrent execution:
+    if a background thread runs onload while the main thread is processing,
+    overlap is proven without relying on wall-clock timing.
     """
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
 
-    num_items = 10
-    onload_delay = 0.05  # 50ms - simulate data transfer
-    processing_delay = 0.05  # 50ms - simulate forward pass
-
-    # Store items
+    num_items = 5
     for i in range(num_items):
         cache.update(i, torch.randn(10, 10))
 
-    onload_thread_ids = []
+    processing_active = threading.Event()
+    overlap_detected = threading.Event()
 
     original_onload = IntermediatesCache._onload_value
 
-    def delayed_onload(cls, value):
-        onload_thread_ids.append(threading.current_thread().ident)
-        time.sleep(onload_delay)  # Simulate H2D transfer time
+    def instrumented_onload(cls, value):
+        if (
+            processing_active.is_set()
+            and threading.current_thread() is not threading.main_thread()
+        ):
+            overlap_detected.set()
         return original_onload(value)
 
-    def simulate_processing(data):
-        time.sleep(processing_delay)  # Simulate forward pass time
-        return data
-
-    # Test 1: Sequential (no prefetch)
-    with patch.object(IntermediatesCache, "_onload_value", delayed_onload):
-        onload_thread_ids.clear()
-        start_sequential = time.time()
-        for item in cache.iter(list(range(num_items))):
-            simulate_processing(item)
-        sequential_time = time.time() - start_sequential
-
-    # Test 2: Prefetch (overlap)
-    with patch.object(IntermediatesCache, "_onload_value", delayed_onload):
-        onload_thread_ids.clear()
-        start_prefetch = time.time()
+    with patch.object(IntermediatesCache, "_onload_value", instrumented_onload):
         for item in cache.iter_prefetch(list(range(num_items))):
-            simulate_processing(item)
-        prefetch_time = time.time() - start_prefetch
-        prefetch_threads = set(onload_thread_ids)
+            processing_active.set()
+            time.sleep(0.02)
+            processing_active.clear()
 
-    # Verify: onload calls happened in multiple threads (background prefetch works)
-    assert (
-        len(prefetch_threads) > 1
-    ), f"Expected multiple threads for prefetch, got threads: {prefetch_threads}"
-
-    # Verify timing:
-    # Sequential: num_items * (onload + processing) = 10 * (0.05 + 0.05) = 1.0s
-    expected_sequential = num_items * (onload_delay + processing_delay)
-    assert (
-        sequential_time >= expected_sequential * 0.85
-    ), f"Sequential time {sequential_time:.3f}s should be ~{expected_sequential:.3f}s"
-
-    # Prefetch with perfect overlap:
-    # - First onload (0.05s) + first processing starts
-    # - While processing N, onload N+1 happens in background
-    # - Total ≈ onload_delay + num_items * max(onload, processing) + small overhead
-    # When onload == processing: ≈ (num_items + 1) * delay = 0.55s (vs 1.0s sequential)
-    # Expected speedup: ~1.8x
-    # Prefetch should be at least 70% faster than sequential (speedup >= 1.7x)
-    # With large delays, threading overhead becomes negligible
-    speedup = sequential_time / prefetch_time
-    assert speedup >= 1.7, (
-        f"Prefetch should provide significant speedup. "
-        f"Sequential: {sequential_time:.3f}s, Prefetch: {prefetch_time:.3f}s, "
-        f"Speedup: {speedup:.2f}x (expected >= 1.7x)"
+    assert overlap_detected.is_set(), (
+        "iter_prefetch should overlap background onload with main-thread processing, "
+        "but no concurrent execution was detected"
     )
 
 
