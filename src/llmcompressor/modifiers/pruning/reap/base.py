@@ -32,16 +32,16 @@ class REAPPruningModifier(Modifier):
     Prunes experts from MoE layers using the REAP saliency metric:
     S_j = mean(g_j * ||f_j||_2), averaged over tokens routed to expert j.
 
-    :param compression_ratio: fraction of experts to remove per layer (0, 1).
+    :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
 
     Example recipe::
 
         REAPPruningModifier:
-          compression_ratio: 0.5
+          sparsity: 0.5
     """
 
-    compression_ratio: float = 0.5
+    sparsity: float
     ignore: list[str] = Field(default_factory=list)
 
     _attrs: MoEModelAttrs | None = PrivateAttr(default=None)
@@ -57,11 +57,9 @@ class REAPPruningModifier(Modifier):
     _routing_cache: dict = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_compression_ratio(self) -> "REAPPruningModifier":
-        if not 0.0 < self.compression_ratio < 1.0:
-            raise ValueError(
-                f"compression_ratio must be in (0, 1), got {self.compression_ratio}"
-            )
+    def _validate_sparsity(self) -> "REAPPruningModifier":
+        if not 0.0 < self.sparsity < 1.0:
+            raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
         return self
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -85,11 +83,11 @@ class REAPPruningModifier(Modifier):
 
         sample_module = next(iter(moe_layers.values()))
         num_experts = get_num_experts(sample_module, self._attrs)
-        self._n_experts_to_drop = int(num_experts * self.compression_ratio)
+        self._n_experts_to_drop = int(num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
             logger.warning(
-                f"compression_ratio={self.compression_ratio} results in 0 "
+                f"sparsity={self.sparsity} results in 0 "
                 f"experts to drop (out of {num_experts}). No pruning will "
                 "be performed."
             )
@@ -97,7 +95,7 @@ class REAPPruningModifier(Modifier):
         logger.info(
             f"REAP initialized: {len(moe_layers)} MoE layers, "
             f"{num_experts} experts/layer, will drop "
-            f"{self._n_experts_to_drop} ({self.compression_ratio:.0%})"
+            f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
         )
 
         return True
@@ -181,9 +179,7 @@ class REAPPruningModifier(Modifier):
 
         return True
 
-    def _moe_pre_hook(
-        self, layer_name: str, module: torch.nn.Module, args: tuple
-    ):
+    def _moe_pre_hook(self, layer_name: str, module: torch.nn.Module, args: tuple):
         """Run the router (one Linear layer) and cache routing decisions."""
         hidden_states = args[0]
         if hidden_states.dim() == 3:
@@ -198,12 +194,8 @@ class REAPPruningModifier(Modifier):
             else:
                 router_logits = router_output
 
-            routing_weights = F.softmax(
-                router_logits, dim=-1, dtype=torch.float32
-            )
-            _, topk_indices = torch.topk(
-                routing_weights, self._top_k, dim=-1
-            )
+            routing_weights = F.softmax(router_logits, dim=-1, dtype=torch.float32)
+            _, topk_indices = torch.topk(routing_weights, self._top_k, dim=-1)
 
         self._routing_cache[layer_name] = {
             "routing_weights": routing_weights,
