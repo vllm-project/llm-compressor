@@ -276,17 +276,25 @@ def topological_partition(
     while len(queue) > 0:
         node = queue.popleft()
 
-        # assign to partition
-        partitions[partition_index].append(node)
+        is_target = node in target_nodes
+        if is_target:
+            # put all nodes prior to first target into separate subgraph
+            is_head = partition_index == 0 and len(partitions[partition_index]) > 0
 
-        # guarantee targets are assigned to disjoint partitions
-        if node in target_nodes:
-            targets_seen += 1
+            # finish creating subgraph when number of targets has been seen
+            is_complete = targets_seen >= targets_per_subgraph
 
-            if targets_seen >= targets_per_subgraph:
+            if is_head or is_complete:
                 partition_index += 1
                 partitions.append([])
                 targets_seen = 0
+
+        # assign to partition
+        partitions[partition_index].append(node)
+
+        # increment after assignment so is_complete fires after the target is placed
+        if is_target:
+            targets_seen += 1
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition

@@ -2,21 +2,25 @@ from functools import partial
 
 import pytest
 import torch
+import transformers
 
-_glm_cfg = pytest.importorskip(
-    "transformers.models.glm_moe_dsa.configuration_glm_moe_dsa",
-    reason="glm_moe_dsa requires transformers >= 5.x",
-)
-_glm_mod = pytest.importorskip(
-    "transformers.models.glm_moe_dsa.modeling_glm_moe_dsa",
-    reason="glm_moe_dsa requires transformers >= 5.x",
-)
-GlmMoeDsaConfig = _glm_cfg.GlmMoeDsaConfig
-GlmMoeDsaMoE = _glm_mod.GlmMoeDsaMoE
+_TRANSFORMERS_MAJOR = int(transformers.__version__.split(".")[0])
+
+try:
+    from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import (
+        GlmMoeDsaConfig,
+    )
+    from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaMoE
+except ImportError:
+    if _TRANSFORMERS_MAJOR < 5:
+        pytest.skip("glm_moe_dsa requires transformers >= 5.x", allow_module_level=True)
+    raise
 
 from llmcompressor.modeling.glm_moe_dsa import CalibrationGlmMoeDsaMoE  # noqa: E402
 from llmcompressor.utils.helpers import calibration_forward_context  # noqa: E402
-from tests.testing_utils import requires_gpu  # noqa: E402
+from tests.testing_utils import requires_gpu, requires_transformers_v5  # noqa: E402
+
+pytestmark = requires_transformers_v5
 
 
 def _tiny_config():

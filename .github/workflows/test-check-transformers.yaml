@@ -91,30 +91,19 @@ jobs:
         uses: ./.github/actions/prepare-code-coverage
       - name: List packages
         run: pip list
-      - name: "🔬 Running compression tests"
+      - name: "🔬 Running transformers tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -vra tests/llmcompressor/transformers/compression
-      - name: Run Data Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/data
-      - name: Running GPTQ Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/gptq
-      - name: Running AutoRound Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/autoround
-      - name: Running Tracing Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/tracing
-      - name: Running KV Cache Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -vra tests/llmcompressor/transformers/kv_cache
+          EXIT_CODE=0
+          COV_APPEND=""
+          for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
+            echo "--- Running: $test_file ---"
+            pytest -vra $COV_APPEND "$test_file" || EXIT_CODE=$?
+            if [[ "${{ inputs.code_coverage }}" == "true" ]]; then
+              COV_APPEND="--cov-append"
+            fi
+          done
+          exit $EXIT_CODE
       - name: "Upload coverage report"
         if: (success() || failure()) && inputs.code_coverage
         uses: actions/upload-artifact@v4

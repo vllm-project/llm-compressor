@@ -16,7 +16,7 @@ from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.state import ModifiedState
 
 if TYPE_CHECKING:
-    from llmcompressor.pipelines.sequential import Subgraph
+    from torch.nn import Module
 
 
 __all__ = [
@@ -154,7 +154,7 @@ class LifecycleCallbacks:
         return cls.event(EventType.CALIBRATION_EPOCH_START, **kwargs)
 
     @classmethod
-    def sequential_epoch_end(cls, subgraph: "Subgraph", **kwargs) -> ModifiedState:
+    def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
         """
         Invoke a sequential epoch end event for the active session. This event should be
         called after one sequential layer has been calibrated/trained for one epoch
@@ -162,7 +162,7 @@ class LifecycleCallbacks:
         This is called after a sequential layer has been calibrated with one batch, see
         `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
         """
-        return cls.event(EventType.SEQUENTIAL_EPOCH_END, subgraph=subgraph, **kwargs)
+        return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
 
     @classmethod
     def calibration_epoch_end(cls, **kwargs) -> ModifiedState:

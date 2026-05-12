@@ -184,8 +184,6 @@ class SparsityModifierBase(Modifier):
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self.compress_modules()
-
             if not self.ended_:
                 self.on_end(state, None)
 

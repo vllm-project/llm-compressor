@@ -85,6 +85,14 @@ from tests.testing_utils import requires_hf_token
             "vision",
             ["torchvision"],
         ),
+        # TODO: add gated model command-a to CI runner tokens
+        # (
+        #     "CohereLabs/command-a-vision-07-2025",
+        #     Cohere2VisionForConditionalGeneration,
+        #     ["Cohere2DecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
         (
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,

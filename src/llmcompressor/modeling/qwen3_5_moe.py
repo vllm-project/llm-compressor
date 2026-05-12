@@ -44,7 +44,9 @@ class CalibrationQwen3_5MoeSparseMoeBlock(MoECalibrationModule):
         self.gate = torch.nn.Linear(
             text_config.hidden_size, text_config.num_experts, bias=False
         )
-        self.gate.weight.data = self.gate.weight.data.to(original_weight.dtype)
+        self.gate.weight.data = self.gate.weight.data.to(
+            dtype=original_weight.dtype, device=original_weight.device
+        )
         self.gate.weight.data.copy_(original_weight)
 
         # Store routing parameters needed for forward pass

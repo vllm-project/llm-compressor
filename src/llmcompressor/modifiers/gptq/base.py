@@ -28,9 +28,8 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import update_weight_global_scale
+from llmcompressor.modifiers.quantization.calibration import observe
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
 
@@ -150,13 +149,36 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "remove `actorder` from config groups."
             )
 
+        # compressed-tensors only accepts actorder=GROUP on these strategies
+        # on reload; other strategies fall back to None below.
+        grouped_strategies = (
+            QuantizationStrategy.GROUP,
+            QuantizationStrategy.TENSOR_GROUP,
+        )
+
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if (
-                getattr_chain(scheme, "weights.strategy", None)
-                == QuantizationStrategy.GROUP
+            strategy = getattr_chain(scheme, "weights.strategy", None)
+            if strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+                QuantizationStrategy.CHANNEL,
+                QuantizationStrategy.TENSOR,
+                QuantizationStrategy.BLOCK,
             ):
+                # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+
+                if (
+                    scheme.weights.actorder == ActivationOrdering.GROUP
+                    and strategy not in grouped_strategies
+                ):
+                    logger.warning(
+                        f"ActivationOrdering.GROUP is not compatible with "
+                        f"strategy={strategy}; falling back to actorder=None "
+                        f"for this scheme."
+                    )
+                    scheme.weights.actorder = None
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -202,13 +224,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self.register_hook(module, self.calibrate_module, "forward")
                     added_hook = True
 
-        # Optionally generate global scales if using TENSOR_GROUP quantization
-        for _, module in named_modules:
-            update_weight_global_scale(module)
-
-        for module in state.model.modules():
-            update_fused_layer_weight_global_scales(module)
-
         if not added_hook:
             raise ValueError(
                 "GPTQModifier was unable to find any modules to quantize. Please "
@@ -221,13 +236,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            QuantizationMixin.sync_activation_observers(self, state.model)
+            self.sync_obs_act_stats(state.model)
+            self.update_activation_qparams(state.model)
+            observe(self._num_samples.keys(), base_name="weight")
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            QuantizationMixin.sync_activation_observers(self, state.model)
-            self.compress_modules()
-
             if not self.ended_:
                 self.on_end(state, None)
 
