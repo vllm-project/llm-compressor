@@ -153,19 +153,11 @@ class SequentialPipeline(CalibrationPipeline):
                                 # Get raw batch dict (no onload of existing tensors)
                                 raw_batch = activations.fetch_no_onload(batch_idx)
 
-                                # Delete consumed keys (no transfer)
+                                raw_batch.update(outputs)
                                 for key in subgraph.consumed_names:
                                     raw_batch.pop(key, None)
 
-                                # Add new outputs - only offload new values
-                                for key, value in outputs.items():
-                                    # Offload new tensors, existing ones stay offloaded
-                                    raw_batch[key] = IntermediatesCache._offload_value(
-                                        value, activations.offload_device, onload_device
-                                    )
-
-                                # Store back - existing tensors stay offloaded
-                                activations.update(batch_idx, raw_batch)
+                                activations.update(batch_idx, raw_batch, onload_device)
 
                     modules = list(subgraph.submodules(model))
                     LifecycleCallbacks.sequential_epoch_end(modules)
@@ -186,19 +178,11 @@ class SequentialPipeline(CalibrationPipeline):
                                     # Get raw batch dict (no onload of existing tensors)
                                     raw_batch = activations.fetch_no_onload(batch_idx)
 
-                                    # Delete consumed keys (no transfer)
+                                    raw_batch.update(output)
                                     for key in subgraph.consumed_names:
                                         raw_batch.pop(key, None)
 
-                                    # Add new outputs - only offload new values
-                                    for key, value in output.items():
-                                        # Offload new tensors, existing ones stay offloaded
-                                        raw_batch[key] = IntermediatesCache._offload_value(
-                                            value, activations.offload_device, onload_device
-                                        )
-
-                                    # Store back - existing tensors stay offloaded
-                                    activations.update(batch_idx, raw_batch)
+                                    activations.update(batch_idx, raw_batch, onload_device)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
