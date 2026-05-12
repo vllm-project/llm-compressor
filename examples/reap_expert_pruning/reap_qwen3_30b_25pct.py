@@ -1,8 +1,8 @@
 """
-REAP Expert Pruning: Qwen3-30B-A3B at 25% compression.
+REAP Expert Pruning: Qwen3-30B-A3B at 25% sparsity.
 
 Usage:
-    CUDA_VISIBLE_DEVICES=0,1,2,3 uv run python examples/reap_expert_pruning/reap_qwen3_30b_25pct.py
+CUDA_VISIBLE_DEVICES=0,1 python examples/reap_expert_pruning/reap_qwen3_30b_25pct.py
 """
 
 import torch
@@ -10,31 +10,22 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 
-# ── Configuration ──────────────────────────────────────────────────────────
-
-MODEL_ID = "/home/eldarkurtic/hf_models/Qwen/Qwen3-30B-A3B-Instruct-2507"
-OUTPUT_DIR = "/home/eldarkurtic/github/eldarkurtic/llm-compressor/output_dir/Qwen3-30B-A3B-Instruct-2507_REAP_sp25"
-COMPRESSION_RATIO = 0.25
+MDL = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+SPARSITY = 0.25
+BASE_PATH = "/home/eldarkurtic/"
+OUT_PATH = "github/eldarkurtic/llm-compressor/output_dir/"
+MODEL_ID = BASE_PATH + "hf_models/" + MDL
+OUTPUT_DIR = BASE_PATH + OUT_PATH + MDL + "_REAP_sp" + str(int(SPARSITY * 100))
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQ_LENGTH = 2048
 DATASET = "open_platypus"
-
-# ── Recipe ─────────────────────────────────────────────────────────────────
 
 RECIPE = """
 pruning_stage:
   pruning_modifiers:
     REAPPruningModifier:
-      compression_ratio: 0.25
-"""
-
-# ── Run pruning ────────────────────────────────────────────────────────────
-
-print(f"Model:             {MODEL_ID}")
-print(f"Compression ratio: {COMPRESSION_RATIO}")
-print(f"Output:            {OUTPUT_DIR}")
-print(f"Calibration:       {NUM_CALIBRATION_SAMPLES} samples, {MAX_SEQ_LENGTH} max seq len")
-print()
+      sparsity: {SPARSITY}
+""".format(SPARSITY=SPARSITY)
 
 oneshot(
     model=MODEL_ID,
@@ -46,9 +37,6 @@ oneshot(
 )
 
 print(f"\nDone! Pruned model saved to: {OUTPUT_DIR}")
-
-# ── Quick smoke test ───────────────────────────────────────────────────────
-
 print("\nRunning generation smoke test...")
 
 tokenizer = AutoTokenizer.from_pretrained(OUTPUT_DIR)

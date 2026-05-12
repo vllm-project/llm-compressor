@@ -54,12 +54,10 @@ MOE_ATTR_REGISTRY: dict[str, MoEModelAttrs] = {
     "Glm4MoeMoE": MoEModelAttrs("gate", "experts", "n_routed_experts"),
     "CalibrationGlm4MoeMoE": MoEModelAttrs("gate", "experts", "n_routed_experts"),
     # Llama4
-    "Llama4TextMoe": MoEModelAttrs(
-        "router", "experts", "num_local_experts"    ),
+    "Llama4TextMoe": MoEModelAttrs("router", "experts", "num_local_experts"),
     "SequentialLlama4TextMoe": MoEModelAttrs("router", "experts", "num_local_experts"),
     # Gemma4
-    "Gemma4TextExperts": MoEModelAttrs(
-        "router", "experts", "num_experts"    ),
+    "Gemma4TextExperts": MoEModelAttrs("router", "experts", "num_experts"),
     "SequentialGemma4TextExperts": MoEModelAttrs("router", "experts", "num_experts"),
     # AfMoE
     "AfmoeMoE": MoEModelAttrs("router", "experts", "num_experts"),
@@ -189,7 +187,7 @@ def prune_moe_layer(
     drop_set = set(drop_indices.tolist())
     retained = sorted(i for i in range(num_experts) if i not in drop_set)
 
-    logger.info(
+    logger.debug(
         f"Pruning {layer_name}: dropping experts {sorted(drop_set)}, "
         f"retaining {retained} ({len(retained)}/{num_experts})"
     )
@@ -215,13 +213,9 @@ def prune_moe_layer(
 def _prune_router(router: nn.Module, retained: list[int]):
     retained_t = torch.tensor(retained, dtype=torch.long)
 
-    router.weight = nn.Parameter(
-        router.weight.data[retained_t, :], requires_grad=False
-    )
+    router.weight = nn.Parameter(router.weight.data[retained_t, :], requires_grad=False)
     if router.bias is not None:
-        router.bias = nn.Parameter(
-            router.bias.data[retained_t], requires_grad=False
-        )
+        router.bias = nn.Parameter(router.bias.data[retained_t], requires_grad=False)
     router.out_features = len(retained)
 
 
