@@ -272,18 +272,33 @@ class QuantizationMixin(HooksMixin):
 
         model.apply(enable_quantization)  # keep quantization enabled
 
-    def update_activation_qparams(self, model: torch.nn.Module):
+    def update_activation_qparams(
+        self, model_or_modules: Union[torch.nn.Module, List[torch.nn.Module]]
+    ):
         """
         Compute and store quantization parameters for all activation observers
         (input, output, q, k, v) from accumulated statistics.
 
-        :param model: model containing quantized modules
+        :param model_or_modules: model containing quantized modules, or iterable
+            of modules to update (e.g., from a sequential chunk)
         """
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        if isinstance(model_or_modules, torch.nn.Module):
+            modules = [
+                m
+                for _, m in match_named_modules(
+                    model_or_modules, self.resolved_targets, self.ignore
+                )
+            ]
+        else:
+            modules = list(model_or_modules)
+
+        for module in modules:
             for base_name in ("input", "output", "q", "k", "v"):
                 update_qparams(module, base_name, only_update_onload=not is_src())
 
-    def sync_obs_act_stats(self, model: torch.nn.Module):
+    def sync_obs_act_stats(
+        self, model_or_modules: Union[torch.nn.Module, List[torch.nn.Module]]
+    ):
         """
         Synchronize the activation statistics for observers
         across DDP ranks. Iterates all observers
@@ -292,13 +307,24 @@ class QuantizationMixin(HooksMixin):
         most weight observers don't have activation
         statistics and thus are no-ops as well.
 
-        :param model: model containing quantized modules
+        :param model_or_modules: model containing quantized modules, or iterable
+            of modules to sync (e.g., from a sequential chunk)
         """
         if not is_distributed():
             return
 
+        if isinstance(model_or_modules, torch.nn.Module):
+            modules = [
+                m
+                for _, m in match_named_modules(
+                    model_or_modules, self.resolved_targets, self.ignore
+                )
+            ]
+        else:
+            modules = list(model_or_modules)
+
         pending_comms = []
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for module in modules:
             for base_name in ("weight", "input", "output", "q", "k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
