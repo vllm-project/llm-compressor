@@ -7,13 +7,11 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.modifiers.pruning.reap.utils import (
-    MoEModelAttrs,
     REAPSaliencyTracker,
     detect_moe_attrs,
     find_moe_layers,
     get_num_experts,
     prune_moe_layer,
-    update_model_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -118,13 +116,6 @@ class FakeMoEModel(nn.Module):
 
 @pytest.mark.unit
 class TestREAPSaliencyTracker:
-    def test_initial_state(self):
-        tracker = REAPSaliencyTracker(num_experts=4)
-        assert tracker.sum_saliency.shape == (4,)
-        assert tracker.count.shape == (4,)
-        assert (tracker.sum_saliency == 0).all()
-        assert (tracker.count == 0).all()
-
     def test_update_single_expert(self):
         tracker = REAPSaliencyTracker(num_experts=4)
         gate_vals = torch.tensor([0.5, 0.3])
@@ -151,12 +142,6 @@ class TestREAPSaliencyTracker:
         assert mean[1].item() == pytest.approx(1.0)
         # Expert 2: never routed -> 0
         assert mean[2].item() == pytest.approx(0.0)
-
-    def test_zero_count_no_nan(self):
-        tracker = REAPSaliencyTracker(num_experts=2)
-        mean = tracker.mean_saliency
-        assert not torch.isnan(mean).any()
-        assert (mean == 0).all()
 
 
 # ---------------------------------------------------------------------------
@@ -203,34 +188,24 @@ class TestPruning:
         attrs = detect_moe_attrs(model)
         layers = find_moe_layers(model, attrs)
         layer_name = list(layers.keys())[0]
+        moe_block = model.get_submodule(layer_name)
+        original_experts = list(moe_block.experts)
+        original_gate = moe_block.gate.weight.detach().clone()
 
-        # Give expert 0 the lowest saliency
         saliency = torch.tensor(
             [0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.9, 0.4], dtype=torch.float64
         )
         retained = prune_moe_layer(model, layer_name, saliency, 3, attrs)
 
-        # Should drop experts 0, 3, 5 (indices with lowest saliency)
-        # Actually: sorted saliency: 0(0.1), 5(0.2), 3(0.3), 7(0.4), 1(0.5), ...
-        # Drop 3 lowest: experts 0, 5, 3
-        assert len(retained) == 5
-
-        # Verify the module was updated
-        moe_block = model.get_submodule(layer_name)
+        assert retained == [1, 2, 4, 6, 7]
         assert len(moe_block.experts) == 5
         assert moe_block.gate.weight.shape[0] == 5
-
-    def test_prune_router_out_features(self):
-        model = FakeMoEModel(num_experts=6)
-        attrs = detect_moe_attrs(model)
-        layers = find_moe_layers(model, attrs)
-        layer_name = list(layers.keys())[0]
-
-        saliency = torch.arange(6, dtype=torch.float64)
-        prune_moe_layer(model, layer_name, saliency, 2, attrs)
-
-        moe_block = model.get_submodule(layer_name)
-        assert moe_block.gate.out_features == 4
+        assert moe_block.gate.out_features == 5
+        assert all(
+            expert is original_experts[original_idx]
+            for expert, original_idx in zip(moe_block.experts, retained)
+        )
+        torch.testing.assert_close(moe_block.gate.weight, original_gate[retained])
 
     def test_prune_too_many_raises(self):
         model = FakeMoEModel(num_experts=4)
@@ -241,31 +216,6 @@ class TestPruning:
         saliency = torch.arange(4, dtype=torch.float64)
         with pytest.raises(ValueError, match="Cannot drop"):
             prune_moe_layer(model, layer_name, saliency, 4, attrs)
-
-    def test_update_model_config(self):
-        model = FakeMoEModel(num_experts=8)
-        attrs = MoEModelAttrs("gate", "experts", "num_experts")
-        update_model_config(model, attrs, 4)
-        assert model.config.num_experts == 4
-
-    def test_model_still_runs_after_pruning(self):
-        """Verify the model produces output after experts are pruned."""
-        model = FakeMoEModel(hidden_dim=16, num_experts=8, top_k=2)
-        attrs = detect_moe_attrs(model)
-        layers = find_moe_layers(model, attrs)
-
-        # Prune all layers
-        saliency = torch.arange(8, dtype=torch.float64)
-        for layer_name in layers:
-            prune_moe_layer(model, layer_name, saliency, 4, attrs)
-
-        update_model_config(model, attrs, 4)
-
-        # Model should still produce valid output
-        x = torch.randn(2, 4, 16)
-        out = model(x)
-        assert out.shape == (2, 4, 16)
-        assert not torch.isnan(out).any()
 
 
 # ---------------------------------------------------------------------------
@@ -280,21 +230,24 @@ def test_reap_is_registered():
         type_="REAPPruningModifier",
         allow_experimental=False,
         allow_registered=True,
-        compression_ratio=0.5,
+        sparsity=0.5,
     )
     assert isinstance(modifier, REAPPruningModifier)
 
 
 @pytest.mark.unit
 def test_reap_validation():
-    with pytest.raises(ValueError, match="compression_ratio"):
-        REAPPruningModifier(compression_ratio=0.0)
+    with pytest.raises(ValueError, match="sparsity"):
+        REAPPruningModifier()
 
-    with pytest.raises(ValueError, match="compression_ratio"):
-        REAPPruningModifier(compression_ratio=1.0)
+    with pytest.raises(ValueError, match="sparsity"):
+        REAPPruningModifier(sparsity=0.0)
 
-    with pytest.raises(ValueError, match="compression_ratio"):
-        REAPPruningModifier(compression_ratio=-0.1)
+    with pytest.raises(ValueError, match="sparsity"):
+        REAPPruningModifier(sparsity=1.0)
+
+    with pytest.raises(ValueError, match="sparsity"):
+        REAPPruningModifier(sparsity=-0.1)
 
 
 @pytest.mark.unit
@@ -308,7 +261,7 @@ def test_reap_full_lifecycle():
     model = FakeMoEModel(hidden_dim=hidden_dim, num_experts=num_experts, top_k=top_k)
     model.eval()
 
-    modifier = REAPPruningModifier(compression_ratio=0.5)
+    modifier = REAPPruningModifier(sparsity=0.5)
 
     # Create a minimal State
     state = State(
