@@ -449,17 +449,17 @@ class AWQModifier(Modifier):
                     masked_activations = activations.flatten(0, -2)
 
                 # accumulate activation sum&count
-                new_sum = masked_activations.float().sum(dim=0)
-                new_count = torch.tensor(masked_activations.size(0))
+                new_sum = masked_activations.float().sum(dim=0).cpu()
+                new_count = torch.tensor(masked_activations.size(0)).cpu()
                 if smooth_name not in self._smooth_activation_stats:
                     self._smooth_activation_stats.update(
                         smooth_name,
                         [torch.zeros_like(new_sum), torch.zeros_like(new_count)],
                     )
-                x_sum, count = self._smooth_activation_stats[smooth_name]
+                x_sum, count = self._smooth_activation_stats.fetch_no_onload(smooth_name)
                 x_sum += new_sum
                 count += new_count
-                self._smooth_activation_stats.update(smooth_name, [x_sum, count])
+                self._smooth_activation_stats.update(smooth_name, [x_sum, count], get_execution_device(_module))
 
             return cache_smooth_activations_hook
 

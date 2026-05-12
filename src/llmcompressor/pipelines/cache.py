@@ -40,7 +40,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
     Construct using `from_dataloader` class method or directly with offload_device
     """
 
-    _store: dict[TKey, Any]
+    _store: dict[TKey, TValue] # Notice the tensor inside TValue is wrapped in IntermediateValue
     offload_device: torch.device | None
 
     # map of onload value -> offload value
@@ -89,9 +89,9 @@ class IntermediatesCache(Generic[TKey, TValue]):
             raise KeyError(f"Key {key} not found in cache")
         return self._onload_value(self._store[key])
 
-    def fetch_no_onload(self, key: TKey) -> Any:
+    def fetch_no_onload(self, key: TKey) -> TValue:
         """
-        Fetch a value by key WITHOUT onloading (returns IntermediateValue wrapped data)
+        Fetch a value by key WITHOUT onloading
 
         :param key: key to fetch
         :return: raw offloaded value (IntermediateValue wrappers at tensor positions)
@@ -99,16 +99,18 @@ class IntermediatesCache(Generic[TKey, TValue]):
         """
         if key not in self._store:
             raise KeyError(f"Key {key} not found in cache")
-        return self._store[key]
+        leaves, spec = tree_flatten(self._store[key])
+        cleaned_leaves = [x.value if isinstance(x, IntermediateValue) else x for x in leaves]
+        return tree_unflatten(cleaned_leaves, spec)
 
-    def update(self, key: TKey, value: TValue) -> None:
+    def update(self, key: TKey, value: TValue, onload_device=None) -> None:
         """
         Update/put a value for a key, offloading any tensors
 
         :param key: key to store value under
         :param value: value to store (tensors will be offloaded)
         """
-        self._store[key] = self._offload_value(value, self.offload_device)
+        self._store[key] = self._offload_value(value, self.offload_device, onload_device)
 
         # Update prefix counter and indices to ensure append doesn't overwrite
         if isinstance(key, int):
@@ -128,7 +130,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
         if idx not in indices:
             indices.append(idx)
 
-    def append(self, key_prefix: TKey | None, value: TValue) -> tuple[TKey, int]:
+    def append(self, key_prefix: TKey | None, value: TValue, onload_device=None) -> tuple[TKey, int]:
         """
         Append a value with an auto-generated index.
 
@@ -154,7 +156,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
         else:
             full_key = prefix + (next_idx,)
 
-        self._store[full_key] = self._offload_value(value, self.offload_device)
+        self._store[full_key] = self._offload_value(value, self.offload_device, onload_device)
         self._prefix_indices.setdefault(prefix, []).append(next_idx)
         return full_key, next_idx
 
@@ -164,6 +166,9 @@ class IntermediatesCache(Generic[TKey, TValue]):
 
         :param key: key to delete
         """
+        # Avoid raising KeyError if key doesn't exist
+        if key not in self._store:
+            return
         del self._store[key]
 
         # Remove from prefix indices
@@ -181,6 +186,10 @@ class IntermediatesCache(Generic[TKey, TValue]):
                 self._prefix_indices[prefix].remove(idx)
             except ValueError:
                 pass
+
+        # Decrement counter if deleted index was the max
+        if prefix in self._prefix_counters and self._prefix_counters[prefix] == idx + 1:
+            self._prefix_counters[prefix] = idx
 
     def __contains__(self, key: TKey) -> bool:
         """
@@ -330,7 +339,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
         return len(self._store)
 
     @classmethod
-    def _onload_value(cls, value: Any) -> Any:
+    def _onload_value(cls, value: TValue) -> TValue:
         """
         Onload a value's tensors to their original devices.
 
@@ -365,10 +374,10 @@ class IntermediatesCache(Generic[TKey, TValue]):
     @classmethod
     def _offload_value(
         cls,
-        value: Any,
+        value: TValue,
         offload_device: torch.device | None,
         onload_device: torch.device | None = None,
-    ) -> Any:
+    ) -> TValue:
         """
         Offload a value's tensors to the offload device.
 

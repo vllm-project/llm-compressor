@@ -158,14 +158,11 @@ class SequentialPipeline(CalibrationPipeline):
                                     raw_batch.pop(key, None)
 
                                 # Add new outputs - only offload new values
-                                if outputs is not None:
-                                    if isinstance(outputs, tuple) and len(outputs) == 1:
-                                        outputs = outputs[0]
-                                    for key, value in outputs.items():
-                                        # Offload new tensors, existing ones stay offloaded
-                                        raw_batch[key] = IntermediatesCache._offload_value(
-                                            value, activations.offload_device, onload_device
-                                        )
+                                for key, value in outputs.items():
+                                    # Offload new tensors, existing ones stay offloaded
+                                    raw_batch[key] = IntermediatesCache._offload_value(
+                                        value, activations.offload_device, onload_device
+                                    )
 
                                 # Store back - existing tensors stay offloaded
                                 activations.update(batch_idx, raw_batch)
@@ -194,14 +191,11 @@ class SequentialPipeline(CalibrationPipeline):
                                         raw_batch.pop(key, None)
 
                                     # Add new outputs - only offload new values
-                                    if output is not None:
-                                        if isinstance(output, tuple) and len(output) == 1:
-                                            output = output[0]
-                                        for key, value in output.items():
-                                            # Offload new tensors, existing ones stay offloaded
-                                            raw_batch[key] = IntermediatesCache._offload_value(
-                                                value, activations.offload_device, onload_device
-                                            )
+                                    for key, value in output.items():
+                                        # Offload new tensors, existing ones stay offloaded
+                                        raw_batch[key] = IntermediatesCache._offload_value(
+                                            value, activations.offload_device, onload_device
+                                        )
 
                                     # Store back - existing tensors stay offloaded
                                     activations.update(batch_idx, raw_batch)

@@ -295,6 +295,107 @@ def deep_equal(a, b) -> bool:
             return a == b
 
 
+@pytest.mark.unit
+def test_fetch_no_onload_returns_unwrapped_value_on_offload_device():
+    """Test fetch_no_onload returns value without IntermediateValue wrappers on offload device."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    tensor = torch.randn(2, 3)
+    cache.update("key", tensor)
+
+    fetched = cache.fetch_no_onload("key")
+    assert isinstance(fetched, torch.Tensor)
+    assert torch.equal(fetched, tensor)
+    assert fetched.device.type == "cpu"
+
+
+@pytest.mark.unit
+def test_fetch_no_onload_nested_structure():
+    """Test fetch_no_onload unwraps IntermediateValue in nested dicts."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    value = {
+        "a": torch.randn(2, 3),
+        "b": torch.randn(4, 5),
+        "c": "string_value",
+    }
+    cache.update("batch", value)
+
+    fetched = cache.fetch_no_onload("batch")
+    assert isinstance(fetched, dict)
+    assert set(fetched.keys()) == {"a", "b", "c"}
+    assert torch.equal(fetched["a"], value["a"])
+    assert torch.equal(fetched["b"], value["b"])
+    assert fetched["c"] == "string_value"
+    assert fetched["a"].device.type == "cpu"
+    assert fetched["b"].device.type == "cpu"
+
+
+@pytest.mark.unit
+def test_fetch_no_onload_vs_regular_fetch():
+    """Test fetch_no_onload differs from regular fetch by not onloading."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    tensor = torch.randn(2, 3)
+    cache.update("key", tensor)
+
+    no_onload = cache.fetch_no_onload("key")
+    onloaded = cache["key"]
+
+    assert torch.equal(no_onload, onloaded)
+    assert no_onload.device.type == "cpu"
+
+
+@pytest.mark.unit
+def test_prefix_counters_and_indices():
+    """Test _prefix_counters and _prefix_indices are maintained correctly."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+
+    # update with integer keys
+    cache.update(0, "a")
+    cache.update(2, "b")
+    cache.update(5, "c")
+    assert cache._prefix_counters[()] == 6
+    assert sorted(cache._prefix_indices[()]) == [0, 2, 5]
+
+    # append uses the counter to generate next index
+    _, idx = cache.append(None, "d")
+    assert idx == 6
+    assert cache._prefix_counters[()] == 7
+
+    # append with tuple prefix
+    _, idx0 = cache.append("layer", "x")
+    _, idx1 = cache.append("layer", "y")
+    assert idx0 == 0 and idx1 == 1
+    assert cache._prefix_counters[("layer",)] == 2
+    assert cache._prefix_indices[("layer",)] == [0, 1]
+
+    # delete removes from both structures
+    cache.delete(2)
+    assert 2 not in cache
+    assert sorted(cache._prefix_indices[()]) == [0, 5, 6]
+    assert cache._prefix_counters[()] == 7
+
+    # delete max index should decrement counter
+    cache.delete(("layer", 1))
+    assert cache._prefix_counters[("layer",)] == 1
+
+    # iter_keys uses prefix_indices for fast sorted lookup
+    cache.update(("module", 3), "a")
+    cache.update(("module", 1), "b")
+    keys = cache.iter_keys("module")
+    assert keys == [("module", 1), ("module", 3)]
+
+    # multiple prefixes tracked independently
+    assert cache._prefix_counters[()] == 7
+    assert cache._prefix_counters[("layer",)] == 1
+
+
+@pytest.mark.unit
+def test_delete_nonexistent_key_no_error():
+    """Test deleting a key that doesn't exist does not raise."""
+    cache = IntermediatesCache(offload_device=torch.device("cpu"))
+    cache.delete("nonexistent")
+    assert len(cache) == 0
+
+
 def test_override_eq_mode():
     a = torch.tensor([1, 2, 3])
     b = a
