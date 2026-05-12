@@ -46,7 +46,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Feature       | Description                                                                                  |
 |---------------|----------------------------------------------------------------------------------------------|
 | WNA16         | Quantizes weights to 4 or 8-bit integer precision, retaining activations in 16-bit FP16  |
-| Weights       | Typically ~3.7× compressed on a per-group or per-channel basis; supports asymmetric quantization |
+| Weights       | Typically ~3.7× compressed on a per-group basis; supports asymmetric quantization |
 | Activations   | Retained in 16-bit floating point (FP16)                                                    |
 | Calibration   | Optimally compressed using non-RTN algorithms (GPTQ, AWQ) which require a dataset           |                                                 
 | Use case      | Maximum compression for latency-sensitive applications with limited memory; useful speedups in low-QPS regimes; recommended for any GPU |
