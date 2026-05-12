@@ -1,5 +1,3 @@
-from typing import Dict, List, Optional
-
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 from transformers import PreTrainedModel
@@ -35,10 +33,10 @@ class SpinQuantMapping(BaseModel):
     attn_k: str
     attn_v: str
     attn_o: str
-    attn_head_dim: Optional[int] = Field(default=None)
+    attn_head_dim: int | None = Field(default=None)
 
-    mlp_in: List[str]  # up_proj, gate_proj
-    mlp_out: List[str]  # down_proj
+    mlp_in: list[str]  # up_proj, gate_proj
+    mlp_out: list[str]  # down_proj
 
     lm_head: str
 
@@ -63,7 +61,7 @@ _default_mappings = SpinQuantMapping(
 )
 
 
-SPINQUANT_MAPPING_REGISTRY: Dict[str, SpinQuantMapping] = {
+SPINQUANT_MAPPING_REGISTRY: dict[str, SpinQuantMapping] = {
     "LlamaForCausalLM": _default_mappings,
 }
 
