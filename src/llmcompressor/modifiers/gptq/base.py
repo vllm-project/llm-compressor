@@ -236,7 +236,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = kwargs.get("modules", [])  # onloaded chunk
+            modules = kwargs.get("modules", [])
             self.sync_obs_act_stats(modules)
             self.update_activation_qparams(modules)
             observe(self._num_samples.keys(), base_name="weight")

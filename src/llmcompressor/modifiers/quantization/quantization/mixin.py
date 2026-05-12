@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, Iterator, List, Optional, Set, Union
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -273,32 +273,26 @@ class QuantizationMixin(HooksMixin):
         model.apply(enable_quantization)  # keep quantization enabled
 
     def update_activation_qparams(
-        self, model_or_modules: Union[torch.nn.Module, List[torch.nn.Module]]
+        self, model: torch.nn.Module | Iterator[torch.nn.Module]
     ):
         """
         Compute and store quantization parameters for all activation observers
         (input, output, q, k, v) from accumulated statistics.
 
-        :param model_or_modules: model containing quantized modules, or iterable
+        :param model: model containing quantized modules, or iterable
             of modules to update (e.g., from a sequential chunk)
         """
-        if isinstance(model_or_modules, torch.nn.Module):
-            modules = [
-                m
-                for _, m in match_named_modules(
-                    model_or_modules, self.resolved_targets, self.ignore
-                )
-            ]
+        if isinstance(model, torch.nn.Module):
+            tmp = match_named_modules(model, self.resolved_targets, self.ignore)
+            modules = set([m for _, m in tmp])
         else:
-            modules = list(model_or_modules)
+            modules = set(model)
 
         for module in modules:
             for base_name in ("input", "output", "q", "k", "v"):
                 update_qparams(module, base_name, only_update_onload=not is_src())
 
-    def sync_obs_act_stats(
-        self, model_or_modules: Union[torch.nn.Module, List[torch.nn.Module]]
-    ):
+    def sync_obs_act_stats(self, model: torch.nn.Module | Iterator[torch.nn.Module]):
         """
         Synchronize the activation statistics for observers
         across DDP ranks. Iterates all observers
@@ -307,21 +301,17 @@ class QuantizationMixin(HooksMixin):
         most weight observers don't have activation
         statistics and thus are no-ops as well.
 
-        :param model_or_modules: model containing quantized modules, or iterable
+        :param model: model containing quantized modules, or iterable
             of modules to sync (e.g., from a sequential chunk)
         """
         if not is_distributed():
             return
 
-        if isinstance(model_or_modules, torch.nn.Module):
-            modules = [
-                m
-                for _, m in match_named_modules(
-                    model_or_modules, self.resolved_targets, self.ignore
-                )
-            ]
+        if isinstance(model, torch.nn.Module):
+            tmp = match_named_modules(model, self.resolved_targets, self.ignore)
+            module = set([m for _, m in tmp])
         else:
-            modules = list(model_or_modules)
+            modules = set(model)
 
         pending_comms = []
         for module in modules:
