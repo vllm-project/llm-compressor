@@ -288,9 +288,8 @@ class QuantizationMixin(HooksMixin):
         else:
             modules = set(model)
 
-        for module in modules:
-            for base_name in ("input", "output", "q", "k", "v"):
-                update_qparams(module, base_name, only_update_onload=not is_src())
+        for base_name in ("input", "output", "q", "k", "v"):
+            update_qparams(modules, base_name, only_update_onload=not is_src())
 
     def sync_obs_act_stats(self, model: torch.nn.Module | Iterator[torch.nn.Module]):
         """
