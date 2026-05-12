@@ -31,7 +31,7 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
+def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM, skip_init: bool = True):
     """
     Context manager under which models are initialized without having to download
     the model weight files. This differs from `init_empty_weights` in that weights are
@@ -39,6 +39,8 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
     device
 
     :param model_class: class to patch, defaults to `AutoModelForCausalLM`
+    :param skip_init: skip weight initialization, which can be costly when allocating
+        a large number of weights
     """
     original_fn = model_class.from_pretrained
     weights_files = [
@@ -80,7 +82,7 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
     with (
         tempfile.TemporaryDirectory() as tmp_dir,
         patch_attr(model_class, "from_pretrained", patched),
-        skip_weights_initialize(),
+        skip_weights_initialize() if not skip_init else contextlib.nullcontext(),
         patch_transformers_logger_level(),
     ):
         yield

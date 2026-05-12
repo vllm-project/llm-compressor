@@ -1,17 +1,21 @@
 from abc import ABC
-from typing import Callable
+from typing import Callable, Type
 
 import torch
+import contextlib
 import torch.distributed as dist
 import tqdm
 from compressed_tensors.distributed import is_distributed
 from compressed_tensors.offload import get_cache_init_kwargs, offload_module
-from transformers import PreTrainedModel
+from transformers import PreTrainedModel, AutoConfig, AutoModelForCausalLM
 from transformers.conversion_mapping import (
     extract_weight_conversions_for_model,
 )
 from transformers.integrations.moe import _default_apply_gate
 from transformers.modeling_utils import local_torch_dtype
+from transformers.monkey_patching import register_patch_mapping
+from transformers.conversion_mapping import register_checkpoint_conversion_mapping, WeightConverter
+
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -21,294 +25,45 @@ from .helpers import (
     _is_moe_experts_converter,
     _is_moe_experts_module,
 )
+from .linear_experts import LinearExperts
+
+from compressed_tensors.utils import patch_attr
 
 
-@torch.no_grad()
-def linearize_moe_model(model: PreTrainedModel):
-    weight_conversions = extract_weight_conversions_for_model(model)
-    weight_conversions = [] if weight_conversions is None else weight_conversions
-
-    # # remove all weight loading conversions; save as linearized
-    # model._weight_conversions = [
-    #     converter
-    #     for converter in weight_conversions
-    #     if not _is_moe_experts_converter(converter)
-    # ]
-
-    named_experts_modules = [
-        (name, module)
-        for name, module in model.named_modules()
-        if _is_moe_experts_module(module)
-    ]
-
-    with local_torch_dtype(model.config.dtype, model.__class__.__name__):
-        for name, module in tqdm.tqdm(named_experts_modules):
-            new_moe = LinearExperts.from_experts(module)
-            model.set_submodule(name, new_moe)
-
-            # avoid desync timeouts due to long processing times
-            if is_distributed():
-                dist.barrier()
+# TODO: in the future, can probably match using regex
+ARCH_TO_EXPERTS_MODULE_CLS = {
+    "deepseek_v4": "DeepseekV4Experts"
+}
 
 
-@contextlib.contextmanager
-def load_linearized_moe(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
-
-    
-
-    register_patch_mapping(mapping={"LlamaAttention": CustomLlamaAttention})
-
-    register_checkpoint_conversion_mapping(
-        model_type="llama",
-        mapping=[
-            WeightConverter(
-                source_patterns=["q_proj", "k_proj", "v_proj"],
-                target_patterns=["qkv_proj"],
-                operations=[
-                    Concatenate(dim=0),
-                ],
-            )
-        ],
-        overwrite=True,
-    )
-
-    @classmethod
-    def patched(cls, *args, **kwargs):
-        nonlocal tmp_dir
-
-        # intercept model stub
-        model_stub = args[0] if args else kwargs.pop("pretrained_model_name_or_path")
-
-        # download files into tmp dir
-        os.makedirs(tmp_dir, exist_ok=True)
-        snapshot_download(
-            repo_id=model_stub, local_dir=tmp_dir, ignore_patterns=weights_files
-        )
-
-        # make an empty weights file to avoid errors
-        weights_file_path = os.path.join(tmp_dir, "model.safetensors")
-        save_file({}, weights_file_path, metadata={"format": "pt"})
-
-        # load from tmp dir
-        model = original_fn(tmp_dir, **kwargs)
-
-        # replace model_path
-        model.name_or_path = model_stub
-        model.config._name_or_path = model_stub
-
-        return model
-
-    with (
-        tempfile.TemporaryDirectory() as tmp_dir,
-        patch_attr(model_class, "from_pretrained", patched),
-        skip_weights_initialize(),
-        patch_transformers_logger_level(),
-    ):
-        yield
-    
-
-
-# probably only need to registry this class
-class ExpertMLP(torch.nn.Module, ABC):
+def get_linear_conversion_mapping():
     pass
 
 
-class ExpertMLPWithGate(ExpertMLP):
-    up_proj: torch.nn.Linear
-    gate_proj: torch.nn.Linear
-    down_proj: torch.nn.Linear
-    _apply_gate: Callable[[torch.Tensor], torch.Tensor]
+@contextlib.contextmanager
+def load_linearized_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
 
-    def __init__(
-        self,
-        hidden_dim: int,
-        moe_intermediate_size: int,
-        has_bias: bool,
-        _apply_gate: Callable[[torch.Tensor], torch.Tensor],
-    ):
-        super().__init__()
-        self.up_proj = torch.nn.Linear(hidden_dim, moe_intermediate_size, bias=has_bias)
-        self.gate_proj = torch.nn.Linear(
-            hidden_dim, moe_intermediate_size, bias=has_bias
-        )
-        self.down_proj = torch.nn.Linear(
-            moe_intermediate_size, hidden_dim, bias=has_bias
-        )
-        self._apply_gate = _apply_gate
+    original_from_pretrained = model_cls.from_pretrained
 
     @classmethod
-    def from_experts(
-        cls,
-        experts: FusedExpertsModule,
-        expert_index: int,
-        moe_intermediate_size: int,
-        hidden_dim: int,
-    ):
-        assert experts.has_gate
-        # if experts.__class__._apply_gate is not _default_apply_gate:
-        #     # assume that if a `_apply_gate` is implemented, then the weight
-        #     # is not valid for quantization (for example, might be interleaved)
-        #     raise NotImplementedError(
-        #         f"Linearization for {experts.__class__.__name__} "
-        #         "has not been implemented yet"
-        #     )
+    def patched(cls, *args, **kwargs):
+        config = AutoConfig.from_pretrained(*args, **kwargs)
+        model_type = config.model_type
 
-        with skip_weights_initialize():
-            instance = cls(
-                hidden_dim, moe_intermediate_size, experts.has_bias, experts._apply_gate
-            )
+        experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
+        #forward_mapping, backward_mapping = get_linear_conversion_mapping(model_type)
 
-        for module in instance.modules():
-            offload_module(module, **get_cache_init_kwargs(experts))
-
-        # load weights
-        gate_weight = experts.gate_up_proj[expert_index, :moe_intermediate_size]
-        up_weight = experts.gate_up_proj[expert_index, moe_intermediate_size:]
-        down_weight = experts.down_proj[expert_index]
-
-        if experts.is_transposed:
-            gate_weight = gate_weight.T
-            up_weight = up_weight.T
-            down_weight = down_weight.T
-
-        instance.gate_proj.weight.copy_(gate_weight)
-        instance.up_proj.weight.copy_(up_weight)
-        instance.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            gate_bias = experts.gate_up_proj_bias[expert_index, :moe_intermediate_size]
-            up_bias = experts.gate_up_proj_bias[expert_index, moe_intermediate_size:]
-            down_bias = experts.down_proj_bias[expert_index]
-
-            instance.gate_proj.bias.copy_(gate_bias)
-            instance.up_proj.bias.copy_(up_bias)
-            instance.down_proj.bias.copy_(down_bias)
-
-        return instance
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(
-            self._apply_gate(
-                torch.cat(
-                    [self.gate_proj(hidden_states), self.up_proj(hidden_states)], dim=-1
-                )
-            )
+        register_patch_mapping(
+            {experts_cls.__name__: LinearExperts}
         )
+        # register_checkpoint_conversion_mapping(
+        #     model_type=model_type, mapping=forward_mapping, overwrite=True
+        # )
 
+        model: PreTrainedModel = original_from_pretrained(cls, *args, **kwargs)
+        #model._conversion_mapping = backward_mapping
+        return model
 
-class ExpertMLPWithoutGate(ExpertMLP):
-    up_proj: torch.nn.Linear
-    down_proj: torch.nn.Linear
-    act_fn: torch.nn.Module
+    with patch_attr(model_cls, "from_pretrained", patched):
+        yield
 
-    def __init__(
-        self,
-        hidden_dim: int,
-        moe_intermediate_size: int,
-        has_bias: bool,
-        act_fn: torch.nn.Module,
-    ):
-        super().__init__()
-        self.up_proj = torch.nn.Linear(hidden_dim, moe_intermediate_size, bias=has_bias)
-        self.down_proj = torch.nn.Linear(
-            moe_intermediate_size, hidden_dim, bias=has_bias
-        )
-        self.act_fn = act_fn
-
-    @classmethod
-    def from_experts(
-        cls,
-        experts: FusedExpertsModule,
-        expert_index: int,
-        moe_intermediate_size: int,
-        hidden_dim: int,
-    ):
-        assert not experts.has_gate
-        if experts.__class__._apply_gate is not _default_apply_gate:
-            raise ValueError("TODO")
-
-        with skip_weights_initialize():
-            instance = cls(
-                hidden_dim, moe_intermediate_size, experts.has_bias, experts.act_fn
-            )
-
-        # load weights
-        up_weight = experts.up_proj[expert_index]
-        down_weight = experts.down_proj[expert_index]
-
-        if experts.is_transposed:
-            up_weight = up_weight.T
-            down_weight = down_weight.T
-
-        instance.up_proj.weight.copy_(up_weight)
-        instance.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            up_bias = experts.up_proj_bias[expert_index]
-            down_bias = experts.down_proj_bias[expert_index]
-
-            instance.up_proj.bias.copy_(up_bias)
-            instance.down_proj.bias.copy_(down_bias)
-
-        return instance
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
-
-
-class LinearExperts(torch.nn.ModuleList):
-    @classmethod
-    def from_experts(cls, experts: FusedExpertsModule):
-        num_experts, moe_intermediate_size, hidden_dim = _get_moe_shapes(experts)
-
-        # TODO: add registry
-        experts_cls = ExpertMLPWithGate if experts.has_gate else ExpertMLPWithoutGate
-
-        return cls(
-            [
-                experts_cls.from_experts(
-                    experts, index, moe_intermediate_size, hidden_dim
-                )
-                for index in range(num_experts)
-            ]
-        )
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        top_k_index: torch.Tensor,
-        top_k_weights: torch.Tensor,
-    ) -> torch.Tensor:
-        final_hidden_states = torch.zeros_like(hidden_states)
-        num_experts = len(self)
-
-        # create tokens mask
-        with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(top_k_index, num_experts)
-            expert_mask = expert_mask.permute(2, 1, 0)
-
-        for expert_idx in range(num_experts):
-            # select tokens for this expert
-            top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
-
-            # apply expert, maybe pass all tokens to the expert
-            expert = self[expert_idx]
-            # if context.CALIBRATE_ALL_EXPERTS:
-            # TODO: fully integrate moe context
-            if True:
-                expert_output = expert(hidden_states)[token_indices]
-            else:
-                expert_output = expert(hidden_states[token_indices])
-
-            # apply weighting to outputs
-            expert_weights = top_k_weights[token_indices, top_k_pos, None]
-            weighted_output = expert_output * expert_weights
-
-            # accumulate the selected tokens
-            final_hidden_states.index_add_(
-                0, token_indices, weighted_output.to(final_hidden_states.dtype)
-            )  # TODO: check why float
-
-        return final_hidden_states
