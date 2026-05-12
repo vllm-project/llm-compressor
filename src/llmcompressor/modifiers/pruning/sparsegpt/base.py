@@ -79,14 +79,13 @@ class SparseGPTModifier(SparsityModifierBase):
     # private variables
     _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
     _hessians_cache: IntermediatesCache[torch.nn.Module, torch.Tensor] = PrivateAttr(
-        default_factory=lambda: IntermediatesCache(offload_device=None)
+        default=None
     )
 
     def on_start(self, state: State, event: Event, **kwargs):
         super().on_start(state, event, **kwargs)
-        self._hessians_cache.offload_device = (
-            torch.device("cpu") if self.offload_hessians else None
-        )
+        offload_device = torch.device("cpu") if self.offload_hessians else None
+        self._hessians_cache = IntermediatesCache(offload_device=offload_device)
 
     def calibrate_module(
         self,
@@ -158,7 +157,8 @@ class SparseGPTModifier(SparsityModifierBase):
         if len(self._num_samples) > 0:
             raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
-        self._hessians_cache.clear()
+        if self._hessians_cache is not None:
+            self._hessians_cache.clear()
         self._num_samples = dict()
         self._module_names = dict()
         self._module_sparsities = dict()

@@ -62,7 +62,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
     ):
         """
         Initialize a cache with data from the provided dataloader.
-        Stores each batch item with key (batch_idx, dict_key) for granular access.
+        Stores each batch as a dict under key batch_idx.
 
         :param dataloader: dataloader which generates values to be cached
         :param model_device: device which values will be onloaded to when fetched
@@ -70,11 +70,9 @@ class IntermediatesCache(Generic[TKey, TValue]):
         """
         cache = cls(offload_device)
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Preparing cache")):
-            for key, value in batch.items():
-                full_key = (batch_idx, key)
-                cache._store[full_key] = cls._offload_value(
-                    value, offload_device, model_device
-                )
+            cache._store[batch_idx] = cls._offload_value(
+                batch, offload_device, model_device
+            )
         cache._prefix_counters[()] = len(dataloader)
         cache._prefix_indices[()] = list(range(len(dataloader)))
         return cache
@@ -90,6 +88,18 @@ class IntermediatesCache(Generic[TKey, TValue]):
         if key not in self._store:
             raise KeyError(f"Key {key} not found in cache")
         return self._onload_value(self._store[key])
+
+    def fetch_no_onload(self, key: TKey) -> Any:
+        """
+        Fetch a value by key WITHOUT onloading (returns IntermediateValue wrapped data)
+
+        :param key: key to fetch
+        :return: raw offloaded value (IntermediateValue wrappers at tensor positions)
+        :raises KeyError: if key is not found in cache
+        """
+        if key not in self._store:
+            raise KeyError(f"Key {key} not found in cache")
+        return self._store[key]
 
     def update(self, key: TKey, value: TValue) -> None:
         """
@@ -399,10 +409,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
                     )
                 )
             elif isinstance(leaf, IntermediateValue):
-                warnings.warn(
-                    "Unexpected IntermediateValue in input to _offload_value; "
-                    "passing through unchanged"
-                )
+                # Pass through existing IntermediateValue (expected when merging batch dicts)
                 offloaded_leaves.append(leaf)
             else:
                 if not isinstance(

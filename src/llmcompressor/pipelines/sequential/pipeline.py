@@ -33,27 +33,15 @@ def _get_batches(
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched.
-
-    Reconstructs batch dicts from granular keys (batch_idx, name).
-    Only fetches keys matching input_names to minimize data transfer.
     """
-    all_keys = []
-    for batch_idx in range(num_batches):
-        for name in input_names:
-            full_key = (batch_idx, name)
-            if full_key in activations:
-                all_keys.append(full_key)
-
     iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter
-    value_iter = iter_fn(keys=all_keys)
+    batch_iter = iter_fn(keys=list(range(num_batches)))
 
-    for batch_idx in tqdm(range(num_batches), desc=desc):
-        batch_dict = {}
-        for name in input_names:
-            full_key = (batch_idx, name)
-            if full_key in all_keys:
-                batch_dict[name] = next(value_iter)
-        yield batch_idx, batch_dict
+    for batch_idx, batch_dict in tqdm(
+        enumerate(batch_iter), total=num_batches, desc=desc
+    ):
+        inputs = {name: batch_dict[name] for name in input_names if name in batch_dict}
+        yield batch_idx, inputs
 
 
 @CalibrationPipeline.register("sequential")
@@ -76,7 +64,7 @@ class SequentialPipeline(CalibrationPipeline):
             to the cpu between each batch in order to save memory
 
         This pipeline requires that the model be traceable with respect to data from the
-        data loader. This may be an issue for vision models with vision datasets, due to
+        data loader. This may be an issue for vision models with vision datasets, due
         to specialized input processing in the model.
 
         In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A
@@ -132,7 +120,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations[(batch_idx, "loss_mask")]
+                    activations[batch_idx]["loss_mask"]
                     for batch_idx in range(len(dataloader))
                 ]
             else:
@@ -162,17 +150,25 @@ class SequentialPipeline(CalibrationPipeline):
 
                         if not dataset_args.propagate_error:
                             if subgraph_index < num_subgraphs - 1:
-                                # Update outputs with granular keys
+                                # Get raw batch dict (no onload of existing tensors)
+                                raw_batch = activations.fetch_no_onload(batch_idx)
+
+                                # Delete consumed keys (no transfer)
+                                for key in subgraph.consumed_names:
+                                    raw_batch.pop(key, None)
+
+                                # Add new outputs - only offload new values
                                 if outputs is not None:
                                     if isinstance(outputs, tuple) and len(outputs) == 1:
                                         outputs = outputs[0]
                                     for key, value in outputs.items():
-                                        activations.update((batch_idx, key), value)
-                                # Delete consumed names with granular keys
-                                for key in subgraph.consumed_names:
-                                    full_key = (batch_idx, key)
-                                    if full_key in activations:
-                                        activations.delete(full_key)
+                                        # Offload new tensors, existing ones stay offloaded
+                                        raw_batch[key] = IntermediatesCache._offload_value(
+                                            value, activations.offload_device, onload_device
+                                        )
+
+                                # Store back - existing tensors stay offloaded
+                                activations.update(batch_idx, raw_batch)
 
                     modules = list(subgraph.submodules(model))
                     LifecycleCallbacks.sequential_epoch_end(modules)
@@ -190,17 +186,25 @@ class SequentialPipeline(CalibrationPipeline):
                             ):
                                 output = subgraph.forward(model, **inputs)
                                 if subgraph_index < num_subgraphs - 1:
-                                    # Update outputs with granular keys
+                                    # Get raw batch dict (no onload of existing tensors)
+                                    raw_batch = activations.fetch_no_onload(batch_idx)
+
+                                    # Delete consumed keys (no transfer)
+                                    for key in subgraph.consumed_names:
+                                        raw_batch.pop(key, None)
+
+                                    # Add new outputs - only offload new values
                                     if output is not None:
                                         if isinstance(output, tuple) and len(output) == 1:
                                             output = output[0]
                                         for key, value in output.items():
-                                            activations.update((batch_idx, key), value)
-                                    # Delete consumed names with granular keys
-                                    for key in subgraph.consumed_names:
-                                        full_key = (batch_idx, key)
-                                        if full_key in activations:
-                                            activations.delete(full_key)
+                                            # Offload new tensors, existing ones stay offloaded
+                                            raw_batch[key] = IntermediatesCache._offload_value(
+                                                value, activations.offload_device, onload_device
+                                            )
+
+                                    # Store back - existing tensors stay offloaded
+                                    activations.update(batch_idx, raw_batch)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
