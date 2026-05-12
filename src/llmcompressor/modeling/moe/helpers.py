@@ -74,3 +74,4 @@ def _get_moe_shapes(experts: FusedExpertsModule) -> tuple[int, int, int]:
         experts.config.moe_intermediate_size,
         experts.config.hidden_size,
     )
+

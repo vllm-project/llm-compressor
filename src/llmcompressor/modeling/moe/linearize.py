@@ -51,6 +51,63 @@ def linearize_moe_model(model: PreTrainedModel):
                 dist.barrier()
 
 
+@contextlib.contextmanager
+def load_linearized_moe(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
+
+    
+
+    register_patch_mapping(mapping={"LlamaAttention": CustomLlamaAttention})
+
+    register_checkpoint_conversion_mapping(
+        model_type="llama",
+        mapping=[
+            WeightConverter(
+                source_patterns=["q_proj", "k_proj", "v_proj"],
+                target_patterns=["qkv_proj"],
+                operations=[
+                    Concatenate(dim=0),
+                ],
+            )
+        ],
+        overwrite=True,
+    )
+
+    @classmethod
+    def patched(cls, *args, **kwargs):
+        nonlocal tmp_dir
+
+        # intercept model stub
+        model_stub = args[0] if args else kwargs.pop("pretrained_model_name_or_path")
+
+        # download files into tmp dir
+        os.makedirs(tmp_dir, exist_ok=True)
+        snapshot_download(
+            repo_id=model_stub, local_dir=tmp_dir, ignore_patterns=weights_files
+        )
+
+        # make an empty weights file to avoid errors
+        weights_file_path = os.path.join(tmp_dir, "model.safetensors")
+        save_file({}, weights_file_path, metadata={"format": "pt"})
+
+        # load from tmp dir
+        model = original_fn(tmp_dir, **kwargs)
+
+        # replace model_path
+        model.name_or_path = model_stub
+        model.config._name_or_path = model_stub
+
+        return model
+
+    with (
+        tempfile.TemporaryDirectory() as tmp_dir,
+        patch_attr(model_class, "from_pretrained", patched),
+        skip_weights_initialize(),
+        patch_transformers_logger_level(),
+    ):
+        yield
+    
+
+
 # probably only need to registry this class
 class ExpertMLP(torch.nn.Module, ABC):
     pass
