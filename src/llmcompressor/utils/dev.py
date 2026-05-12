@@ -11,7 +11,7 @@ from compressed_tensors.utils import deprecated, patch_attr
 from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoModelForCausalLM, PreTrainedModel, AutoConfig
 
 try:
     # Transformers < v5 support
@@ -71,7 +71,13 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         save_file({}, weights_file_path, metadata={"format": "pt"})
 
         # load from tmp dir
-        model = original_fn(tmp_dir, **kwargs)
+        # config, model_kwargs = AutoConfig.from_pretrained(
+        #     tmp_dir,
+        #     return_unused_kwargs=True,
+        #     **kwargs,
+        # )
+        # breakpoint()
+        model = original_fn(tmp_dir, *args[1:], **kwargs)
 
         # replace model_path
         model.name_or_path = model_stub

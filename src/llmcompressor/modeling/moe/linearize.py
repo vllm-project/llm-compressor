@@ -19,12 +19,6 @@ from transformers.conversion_mapping import register_checkpoint_conversion_mappi
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
-from .helpers import (
-    FusedExpertsModule,
-    _get_moe_shapes,
-    _is_moe_experts_converter,
-    _is_moe_experts_module,
-)
 from .linear_experts import LinearExperts
 
 from compressed_tensors.utils import patch_attr

@@ -1,3 +1,35 @@
+from abc import ABC
+from typing import Callable, Type
+
+import torch
+import contextlib
+import torch.distributed as dist
+import tqdm
+from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from transformers import PreTrainedModel, AutoConfig, AutoModelForCausalLM
+from transformers.conversion_mapping import (
+    extract_weight_conversions_for_model,
+)
+from transformers import PreTrainedConfig
+from transformers.integrations.moe import _default_apply_gate
+from transformers.modeling_utils import local_torch_dtype
+from transformers.monkey_patching import register_patch_mapping
+from transformers.conversion_mapping import register_checkpoint_conversion_mapping, WeightConverter
+
+
+from llmcompressor.utils.dev import skip_weights_initialize
+
+from .helpers import (
+    FusedExpertsModule,
+    _get_moe_shapes,
+    _is_moe_experts_converter,
+    _is_moe_experts_module,
+)
+
+from compressed_tensors.utils import patch_attr
+
+
 # probably only need to registry this class
 class ExpertMLP(torch.nn.Module, ABC):
     pass
@@ -93,12 +125,13 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
     def __init__(
         self,
+        config: PreTrainedConfig,
         hidden_dim: int,
         moe_intermediate_size: int,
         has_bias: bool,
         act_fn: torch.nn.Module,
     ):
-        with local_torch_dtype(model.config.dtype, model.__class__.__name__):
+        with local_torch_dtype(config.dtype):
             super().__init__()
 
             self.up_proj = torch.nn.Linear(hidden_dim, moe_intermediate_size, bias=has_bias)
@@ -112,19 +145,21 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
 
 class LinearExperts(torch.nn.ModuleList):
-    def __init__(self, config):
-        with local_torch_dtype(model.config.dtype, model.__class__.__name__):
-            num_experts, moe_intermediate_size, hidden_dim = _get_moe_shapes(experts)
+    def __init__(self, *args, **kwargs):
+        breakpoint()
+        breakpoint()
+        # with local_torch_dtype(model.config.dtype, model.__class__.__name__):
+        #     num_experts, moe_intermediate_size, hidden_dim = _get_moe_shapes(experts)
 
-            # TODO: add registry
-            experts_cls = ExpertMLPWithGate if experts.has_gate else ExpertMLPWithoutGate
+        #     # TODO: add registry
+        #     experts_cls = ExpertMLPWithGate if experts.has_gate else ExpertMLPWithoutGate
 
-            return cls(
-                [
-                    experts_cls(hidden_dim, moe_intermediate_size)
-                    for index in range(num_experts)
-                ]
-            )
+        #     return cls(
+        #         [
+        #             experts_cls(hidden_dim, moe_intermediate_size)
+        #             for index in range(num_experts)
+        #         ]
+        #     )
 
     def forward(
         self,
