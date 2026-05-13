@@ -50,6 +50,7 @@ def main():
     )
 
     print(json.dumps(results))
+    print("DONE")
 
 
 if __name__ == "__main__":
