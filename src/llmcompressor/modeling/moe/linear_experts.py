@@ -22,7 +22,8 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 from .helpers import (
     FusedExpertsModule,
-    _get_moe_shapes,
+    get_moe_dims,
+    get_use_experts_implementation_args,
     _is_moe_experts_converter,
     _is_moe_experts_module,
 )
@@ -44,70 +45,19 @@ class ExpertMLPWithGate(ExpertMLP):
     def __init__(
         self,
         hidden_dim: int,
-        moe_intermediate_size: int,
-        has_bias: bool,
+        intermediate_dim: int,
+        mlp_bias: bool,
         _apply_gate: Callable[[torch.Tensor], torch.Tensor],
     ):
         super().__init__()
-        self.up_proj = torch.nn.Linear(hidden_dim, moe_intermediate_size, bias=has_bias)
+        self.up_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=mlp_bias)
         self.gate_proj = torch.nn.Linear(
-            hidden_dim, moe_intermediate_size, bias=has_bias
+            hidden_dim, intermediate_dim, bias=mlp_bias
         )
         self.down_proj = torch.nn.Linear(
-            moe_intermediate_size, hidden_dim, bias=has_bias
+            intermediate_dim, hidden_dim, bias=mlp_bias
         )
         self._apply_gate = _apply_gate
-
-    @classmethod
-    def from_experts(
-        cls,
-        experts: FusedExpertsModule,
-        expert_index: int,
-        moe_intermediate_size: int,
-        hidden_dim: int,
-    ):
-        assert experts.has_gate
-        # if experts.__class__._apply_gate is not _default_apply_gate:
-        #     # assume that if a `_apply_gate` is implemented, then the weight
-        #     # is not valid for quantization (for example, might be interleaved)
-        #     raise NotImplementedError(
-        #         f"Linearization for {experts.__class__.__name__} "
-        #         "has not been implemented yet"
-        #     )
-
-        with skip_weights_initialize():
-            instance = cls(
-                hidden_dim, moe_intermediate_size, experts.has_bias, experts._apply_gate
-            )
-
-        for module in instance.modules():
-            offload_module(module, **get_cache_init_kwargs(experts))
-
-        # load weights
-        gate_weight = experts.gate_up_proj[expert_index, :moe_intermediate_size]
-        up_weight = experts.gate_up_proj[expert_index, moe_intermediate_size:]
-        down_weight = experts.down_proj[expert_index]
-
-        if experts.is_transposed:
-            gate_weight = gate_weight.T
-            up_weight = up_weight.T
-            down_weight = down_weight.T
-
-        instance.gate_proj.weight.copy_(gate_weight)
-        instance.up_proj.weight.copy_(up_weight)
-        instance.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            gate_bias = experts.gate_up_proj_bias[expert_index, :moe_intermediate_size]
-            up_bias = experts.gate_up_proj_bias[expert_index, moe_intermediate_size:]
-            down_bias = experts.down_proj_bias[expert_index]
-
-            instance.gate_proj.bias.copy_(gate_bias)
-            instance.up_proj.bias.copy_(up_bias)
-            instance.down_proj.bias.copy_(down_bias)
-
-        return instance
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         # TODO: handle is_transposed
@@ -128,16 +78,16 @@ class ExpertMLPWithFusedGate(ExpertMLP):
     def __init__(
         self,
         hidden_dim: int,
-        moe_intermediate_size: int,
-        has_bias: bool,
+        intermediate_dim: int,
+        mlp_bias: bool,
         _apply_gate: Callable[[torch.Tensor], torch.Tensor],
     ):
         super().__init__()
         self.gate_up_proj = torch.nn.Linear(
-            hidden_dim, moe_intermediate_size * 2, bias=has_bias
+            hidden_dim, intermediate_dim * 2, bias=mlp_bias
         )
         self.down_proj = torch.nn.Linear(
-            moe_intermediate_size, hidden_dim, bias=has_bias
+            intermediate_dim, hidden_dim, bias=mlp_bias
         )
         self._apply_gate = _apply_gate
 
@@ -152,34 +102,56 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
     def __init__(
         self,
-        config: PreTrainedConfig,
         hidden_dim: int,
-        moe_intermediate_size: int,
-        has_bias: bool,
-        act_fn: torch.nn.Module,
+        intermediate_dim: int,
+        mlp_bias: bool,
+        act_fn: torch.nn.Module | None,
     ):
-        with local_torch_dtype(config.dtype):
-            super().__init__()
+        super().__init__()
+        assert act_fn is not None
 
-            self.up_proj = torch.nn.Linear(hidden_dim, moe_intermediate_size, bias=has_bias)
-            self.down_proj = torch.nn.Linear(
-                moe_intermediate_size, hidden_dim, bias=has_bias
-            )
-            self.act_fn = act_fn
+        self.up_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=mlp_bias)
+        self.down_proj = torch.nn.Linear(
+            intermediate_dim, hidden_dim, bias=mlp_bias
+        )
+        self.act_fn = act_fn
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
 
 
-class LinearExperts(torch.nn.ModuleList):
-    def __init__(self, *args, **kwargs):
-        # TODO: use inspect to get config, regardless of whether it's an arg or kwarg
-        config = ...
-    
-        # TODO: pick expert_cls based on wrapper
-        experts_cls = ...
+class LinearExperts2D(torch.nn.ModuleList):
+    """
+    Args:
+        experts_class (`type[torch.nn.Module]`, *optional*):
+            The experts class to modify. If not provided, returns a decorator that can be applied to the class.
+        experts_interface (`ExpertsInterface`, *optional*, defaults to `ALL_EXPERTS_FUNCTIONS`):
+            The experts interface to use for dispatching the forward method.
+        is_concatenated (`bool`, *optional*, defaults to `True`):
+            Whether the expert weights are stored in concatenated layout [gate;up]
+            or interleaved layout [gate0, up0, gate1, up1, ...].
+        is_transposed (`bool`, *optional*, defaults to `False`):
+            Whether the expert weights are stored in transposed format.
+        has_bias (`bool`, *optional*, defaults to `False`):
+            Whether the expert layers include bias terms or not.
+        has_gate (`bool`, *optional*, defaults to `True`):
+            Whether the experts use a gating mechanism or not.
+            Whether it has gate_up_proj weights or just up_proj weights.
+    """
+    is_concatenated: bool
+    is_transposed: bool
+    has_bias: bool
+    has_gate: bool
+    _apply_gate: Callable[[torch.Tensor], torch.Tensor]
 
-        super().__init__([experts_cls(config) for _ in range(config.num_experts)])
+    def __init__(self, config: PreTrainedConfig, *args, **kwargs):
+        num_experts, hidden_dim, intermediate_dim, mlp_bias, act_fn = get_moe_dims(config)
+
+        with local_torch_dtype(config.dtype):
+            if self.has_gate:
+                super().__init__([ExpertMLPWithGate(hidden_dim, intermediate_dim, mlp_bias, self._apply_gate) for _ in range(num_experts)])
+            else:
+                super().__init__([ExpertMLPWithoutGate(hidden_dim, intermediate_dim, mlp_bias, act_fn) for _ in range(num_experts)])
 
     def forward(
         self,
@@ -203,7 +175,7 @@ class LinearExperts(torch.nn.ModuleList):
             expert = self[expert_idx]
             # if context.CALIBRATE_ALL_EXPERTS:
             # TODO: fully integrate moe context
-            if True:
+            if False:
                 expert_output = expert(hidden_states)[token_indices]
             else:
                 expert_output = expert(hidden_states[token_indices])
@@ -218,3 +190,23 @@ class LinearExperts(torch.nn.ModuleList):
             )  # TODO: check why float
 
         return final_hidden_states
+
+
+def create_linear_experts_2d(experts_cls: type) -> type[LinearExperts2D]:
+    """Factory for creating LinearExperts2D classes with decorator args from the original experts class.
+
+    Args:
+        experts_cls: The original experts class decorated with @use_experts_implementation
+
+    Returns:
+        A new LinearExperts2D class with decorator arguments as class attributes
+    """
+    experts_cls_args = get_use_experts_implementation_args(experts_cls)
+    # TODO: parameterize on whether the checkpoint has gate_up concatted
+
+    if experts_cls_args["has_gate"]:
+        experts_cls_args["_apply_gate"] = experts_cls._apply_gate
+    else:
+        experts_cls_args["_apply_gate"] = _default_apply_gate
+
+    return type("LinearExperts2D", (LinearExperts2D,), experts_cls_args)
