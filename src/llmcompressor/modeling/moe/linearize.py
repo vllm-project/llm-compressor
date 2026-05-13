@@ -23,7 +23,9 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from .linear_experts import create_linear_experts_2d
 
 # TODO: in the future, we can potentially grep the source code for this
-ARCH_TO_EXPERTS_MODULE_CLS = {"deepseek_v4": DeepseekV4Experts}
+ARCH_TO_EXPERTS_MODULE_CLS = {
+    "deepseek_v4": DeepseekV4Experts
+}
 
 
 def extract_moe_merge_operations(

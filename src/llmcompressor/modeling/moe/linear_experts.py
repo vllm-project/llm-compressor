@@ -127,25 +127,24 @@ class LinearExperts2D(torch.nn.ModuleList):
             config
         )
 
-        with local_torch_dtype(config.dtype):
-            if self.has_gate:
-                super().__init__(
-                    [
-                        ExpertMLPWithGate(
-                            hidden_dim, intermediate_dim, mlp_bias, self._apply_gate
-                        )
-                        for _ in range(num_experts)
-                    ]
-                )
-            else:
-                super().__init__(
-                    [
-                        ExpertMLPWithoutGate(
-                            hidden_dim, intermediate_dim, mlp_bias, act_fn
-                        )
-                        for _ in range(num_experts)
-                    ]
-                )
+        if self.has_gate:
+            super().__init__(
+                [
+                    ExpertMLPWithGate(
+                        hidden_dim, intermediate_dim, mlp_bias, self._apply_gate
+                    )
+                    for _ in range(num_experts)
+                ]
+            )
+        else:
+            super().__init__(
+                [
+                    ExpertMLPWithoutGate(
+                        hidden_dim, intermediate_dim, mlp_bias, act_fn
+                    )
+                    for _ in range(num_experts)
+                ]
+            )
 
     def forward(
         self,

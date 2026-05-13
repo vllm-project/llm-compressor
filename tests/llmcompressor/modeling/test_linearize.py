@@ -5,7 +5,21 @@ import torch
 from safetensors import safe_open
 from transformers import AutoConfig, AutoModelForCausalLM
 
+# BUG in norms which is masked by quant config
+from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4PreTrainedModel
+DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = {
+    #"attn_hc",
+    #"ffn_hc",
+    #"e_score_correction_bias",
+    #"q_a_norm",
+    #"kv_norm",
+    #"input_layernorm",
+    #"post_attention_layernorm",
+    #"norm",
+}
+
 from llmcompressor.utils.dev import skip_weights_download
+from llmcompressor.modeling.moe.linearize import load_linearized_moe
 
 
 def expert_key_exists(model_path: Path, key: str) -> bool:
@@ -34,29 +48,10 @@ def test_linearize_moe_model(tmp_path):
     os.mkdir(offload_dir)
 
     input_ids = torch.randint(1024, size=(1, 64), device="cuda")
-
-    with skip_weights_download(skip_init=False):  # TODO: test with cpu offloading
-        config = AutoConfig.from_pretrained(
-            "deepseek-ai/DeepSeek-V4-Flash",
-            num_hidden_layers=3,
-            num_nextn_predict_layers=0,
-            layer_types=[
-                "heavily_compressed_attention",
-                "compressed_sparse_attention",
-                "sliding_attention",
-            ],
-            mlp_layer_types=["hash_moe", "moe", "moe"],
-        )
-        delattr(config, "quantization_config")
-        model = AutoModelForCausalLM.from_pretrained(
-            "deepseek-ai/DeepSeek-V4-Flash",
-            config=config,
-            device_map="cuda",
-        )
-
+    model = AutoModelForCausalLM.from_pretrained(
+        "inference-optimization/DSV4-tiny-empty", device_map="cuda",
+    )
     true_outputs = model(input_ids=input_ids).logits
-    model.save_pretrained(offload_dir)
-    assert expert_key_exists(offload_dir, "model.layers.0.ffn.experts.0.w1")
     del model
 
     # TODO: revert/inverse conversion seems to not work for this model
@@ -67,8 +62,10 @@ def test_linearize_moe_model(tmp_path):
     # rget_patterns=['experts.gate_up_proj']), WeightConverter(source_patterns=['experts.*.w2.weight'], target_patterns=['expert
     # s.down_proj'])
 
-    # with load_linearized_moe():
-    #     linearized_model = AutoModelForCausalLM.from_pretrained(offload_dir, device_map="cuda")
+    with load_linearized_moe():
+        linearized_model = AutoModelForCausalLM.from_pretrained("inference-optimization/DSV4-tiny-empty", device_map="cuda")
+
+    breakpoint()
 
     # breakpoint()
 
