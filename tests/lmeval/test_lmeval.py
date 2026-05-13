@@ -177,6 +177,7 @@ class TestLMEval:
         time.sleep(2)
 
         compressed_results = self._eval_compressed_model()
+        print("COMPRESSED RESULTS", compressed_results)
 
         # Recovery Testing
         self._validate_recovery(base_results, compressed_results)
@@ -196,6 +197,7 @@ class TestLMEval:
         return self._eval_model_with_vllm(self.config.save_dir)
 
     def _eval_model_with_vllm(self, model: str) -> dict:
+        print("MODEL", model)
         run_file_path = os.path.join(test_file_dir, "run_lmeval.py")
         logger.info("Run lm-eval in subprocess.Popen using python env:")
         logger.info(VLLM_PYTHON_ENV)
