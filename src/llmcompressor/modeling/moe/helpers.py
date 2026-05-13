@@ -1,11 +1,10 @@
 import ast
 import inspect
 from abc import ABC
-from typing import Callable, ClassVar, Optional, Any
+from typing import Any, Callable, ClassVar, Optional
 
 import torch
 from transformers import PreTrainedConfig
-from transformers.activations import ACT2FN
 from transformers.core_model_loading import (
     WeightConverter,
     WeightTransform,
@@ -91,7 +90,10 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
 
         for decorator in node.decorator_list:
             # Handle @use_experts_implementation (no arguments)
-            if isinstance(decorator, ast.Name) and decorator.id == "use_experts_implementation":
+            if (
+                isinstance(decorator, ast.Name)
+                and decorator.id == "use_experts_implementation"
+            ):
                 return default_args
 
             # Handle @use_experts_implementation(...) with arguments
@@ -105,14 +107,16 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
                             # Evaluate the constant value
                             if isinstance(keyword.value, ast.Constant):
                                 args[keyword.arg] = keyword.value.value
-                            elif isinstance(keyword.value, (ast.NameConstant, ast.Name)):
+                            elif isinstance(
+                                keyword.value, (ast.NameConstant, ast.Name)
+                            ):
                                 # Handle True/False/None
                                 if isinstance(keyword.value, ast.NameConstant):
                                     args[keyword.arg] = keyword.value.value
-                                elif hasattr(keyword.value, 'id'):
+                                elif hasattr(keyword.value, "id"):
                                     # Try to evaluate simple names like True, False
-                                    if keyword.value.id in ('True', 'False'):
-                                        args[keyword.arg] = keyword.value.id == 'True'
+                                    if keyword.value.id in ("True", "False"):
+                                        args[keyword.arg] = keyword.value.id == "True"
 
                     return args
 
@@ -136,13 +140,14 @@ def get_moe_dims(config: PreTrainedConfig) -> tuple[int, int, int, bool, str]:
     )
 
 
-def _getattr_fallbacks(target: object, attrs: list[str], default: Any = Sentinel("None")) -> Any:
+def _getattr_fallbacks(
+    target: object, attrs: list[str], default: Any = Sentinel("None")
+) -> Any:
     for attr in attrs:
         if hasattr(target, attr):
             return getattr(target, attr)
-        
+
     if default is not Sentinel("None"):
         return default
-    
+
     raise AttributeError(f"{target} does not have any of {attrs} attributes")
-    

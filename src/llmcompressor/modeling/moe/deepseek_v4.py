@@ -15,9 +15,7 @@ def modify_save_with_linearized_experts_deepseek_v4(model: PreTrainedModel):
         weight_conversions = []
 
     new_conversions = [
-        conv
-        for conv in weight_conversions
-        if not _is_fused_experts_converter(conv)
+        conv for conv in weight_conversions if not _is_fused_experts_converter(conv)
     ]
 
     new_conversions.extend(
@@ -55,9 +53,7 @@ def modify_save_with_linearized_experts_qwen2_moe(model: PreTrainedModel):
         weight_conversions = []
 
     model._weight_conversions = [
-        conv
-        for conv in weight_conversions
-        if not _is_fused_experts_converter(conv)
+        conv for conv in weight_conversions if not _is_fused_experts_converter(conv)
     ]
 
 

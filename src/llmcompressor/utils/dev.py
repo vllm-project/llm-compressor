@@ -11,7 +11,7 @@ from compressed_tensors.utils import deprecated, patch_attr
 from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, PreTrainedModel, AutoConfig
+from transformers import AutoModelForCausalLM, PreTrainedModel
 
 try:
     # Transformers < v5 support
@@ -31,7 +31,9 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM, skip_init: bool = True):
+def skip_weights_download(
+    model_class: Type[PreTrainedModel] = AutoModelForCausalLM, skip_init: bool = True
+):
     """
     Context manager under which models are initialized without having to download
     the model weight files. This differs from `init_empty_weights` in that weights are
@@ -82,6 +84,12 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         # replace model_path
         model.name_or_path = model_stub
         model.config._name_or_path = model_stub
+
+        # transformers will cache the model weight conversions which were used during
+        # loading. However, this checkpoint has no weights to convert, so
+        # `_weight_conversions` will be an empty list/ not useful. Deleting the cache
+        # ensures that original model architecture conversions are used and saving works
+        delattr(model, "_weight_conversions")
 
         return model
 

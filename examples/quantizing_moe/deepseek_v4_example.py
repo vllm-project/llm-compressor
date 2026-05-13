@@ -10,7 +10,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe_model
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import skip_weights_download
 
 # Select model and load it.
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"

@@ -1,34 +1,17 @@
 from abc import ABC
-from typing import Callable, Type
+from typing import Callable
 
 import torch
-import contextlib
-import torch.distributed as dist
-import tqdm
-from compressed_tensors.distributed import is_distributed
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
-from transformers import PreTrainedModel, AutoConfig, AutoModelForCausalLM
-from transformers.conversion_mapping import (
-    extract_weight_conversions_for_model,
+from transformers import (
+    PreTrainedConfig,
 )
-from transformers import PreTrainedConfig
 from transformers.integrations.moe import _default_apply_gate
 from transformers.modeling_utils import local_torch_dtype
-from transformers.monkey_patching import register_patch_mapping
-from transformers.conversion_mapping import register_checkpoint_conversion_mapping, WeightConverter
-
-
-from llmcompressor.utils.dev import skip_weights_initialize
 
 from .helpers import (
-    FusedExpertsModule,
     get_moe_dims,
     get_use_experts_implementation_args,
-    _is_moe_experts_converter,
-    _is_moe_experts_module,
 )
-
-from compressed_tensors.utils import patch_attr
 
 
 # probably only need to registry this class
@@ -51,12 +34,8 @@ class ExpertMLPWithGate(ExpertMLP):
     ):
         super().__init__()
         self.up_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=mlp_bias)
-        self.gate_proj = torch.nn.Linear(
-            hidden_dim, intermediate_dim, bias=mlp_bias
-        )
-        self.down_proj = torch.nn.Linear(
-            intermediate_dim, hidden_dim, bias=mlp_bias
-        )
+        self.gate_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=mlp_bias)
+        self.down_proj = torch.nn.Linear(intermediate_dim, hidden_dim, bias=mlp_bias)
         self._apply_gate = _apply_gate
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -68,7 +47,8 @@ class ExpertMLPWithGate(ExpertMLP):
                 )
             )
         )
-    
+
+
 class ExpertMLPWithFusedGate(ExpertMLP):
     up_proj: torch.nn.Linear
     gate_proj: torch.nn.Linear
@@ -86,14 +66,13 @@ class ExpertMLPWithFusedGate(ExpertMLP):
         self.gate_up_proj = torch.nn.Linear(
             hidden_dim, intermediate_dim * 2, bias=mlp_bias
         )
-        self.down_proj = torch.nn.Linear(
-            intermediate_dim, hidden_dim, bias=mlp_bias
-        )
+        self.down_proj = torch.nn.Linear(intermediate_dim, hidden_dim, bias=mlp_bias)
         self._apply_gate = _apply_gate
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         # TODO: handle is_transposed
         return self.down_proj(self._apply_gate(self.gate_up_proj(hidden_states)))
+
 
 class ExpertMLPWithoutGate(ExpertMLP):
     up_proj: torch.nn.Linear
@@ -111,9 +90,7 @@ class ExpertMLPWithoutGate(ExpertMLP):
         assert act_fn is not None
 
         self.up_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=mlp_bias)
-        self.down_proj = torch.nn.Linear(
-            intermediate_dim, hidden_dim, bias=mlp_bias
-        )
+        self.down_proj = torch.nn.Linear(intermediate_dim, hidden_dim, bias=mlp_bias)
         self.act_fn = act_fn
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -138,6 +115,7 @@ class LinearExperts2D(torch.nn.ModuleList):
             Whether the experts use a gating mechanism or not.
             Whether it has gate_up_proj weights or just up_proj weights.
     """
+
     is_concatenated: bool
     is_transposed: bool
     has_bias: bool
@@ -145,13 +123,29 @@ class LinearExperts2D(torch.nn.ModuleList):
     _apply_gate: Callable[[torch.Tensor], torch.Tensor]
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
-        num_experts, hidden_dim, intermediate_dim, mlp_bias, act_fn = get_moe_dims(config)
+        num_experts, hidden_dim, intermediate_dim, mlp_bias, act_fn = get_moe_dims(
+            config
+        )
 
         with local_torch_dtype(config.dtype):
             if self.has_gate:
-                super().__init__([ExpertMLPWithGate(hidden_dim, intermediate_dim, mlp_bias, self._apply_gate) for _ in range(num_experts)])
+                super().__init__(
+                    [
+                        ExpertMLPWithGate(
+                            hidden_dim, intermediate_dim, mlp_bias, self._apply_gate
+                        )
+                        for _ in range(num_experts)
+                    ]
+                )
             else:
-                super().__init__([ExpertMLPWithoutGate(hidden_dim, intermediate_dim, mlp_bias, act_fn) for _ in range(num_experts)])
+                super().__init__(
+                    [
+                        ExpertMLPWithoutGate(
+                            hidden_dim, intermediate_dim, mlp_bias, act_fn
+                        )
+                        for _ in range(num_experts)
+                    ]
+                )
 
     def forward(
         self,
