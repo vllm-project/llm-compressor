@@ -255,7 +255,8 @@ def deep_equal(a, b) -> bool:
 
 @pytest.mark.unit
 def test_fetch_no_onload_returns_unwrapped_value_on_offload_device():
-    """Test fetch_no_onload returns value without IntermediateValue wrappers on offload device."""
+    """Test fetch_no_onload returns value without IntermediateValue
+    wrappers on offload device."""
     cache = IntermediatesCache(offload_device=torch.device("cpu"))
     tensor = torch.randn(2, 3)
     cache.update("key", tensor)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Generator, Generic, TypeVar
@@ -213,7 +212,8 @@ class IntermediatesCache(Generic[TKey, TValue]):
         Non-tuple prefixes are treated as single-element tuples.
 
         :param prefix: prefix to match keys starting with this prefix
-        :return: list of matching keys (sorted by final index if integer, otherwise unsorted)
+        :return: list of matching keys (sorted by final index if integer,
+            otherwise unsorted)
         """
         if prefix is None:
             return list(self._store.keys())
@@ -407,7 +407,11 @@ class IntermediatesCache(Generic[TKey, TValue]):
                     # move to offload if no hit
                     offloaded_tensor = leaf.to(device=offload_device)
                     if offloaded_tensor is not leaf:
-                        cls.offload_values[leaf] = offloaded_tensor.pin_memory() if do_pin else offloaded_tensor
+                        cls.offload_values[leaf] = (
+                            offloaded_tensor.pin_memory()
+                            if do_pin
+                            else offloaded_tensor
+                        )
 
             offloaded_leaves.append(
                 IntermediateValue(
