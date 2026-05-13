@@ -17,7 +17,8 @@ Depending on your selected algorithm or scheme, you may also require a dataset. 
 Quantization schemes where activations are quantized non-dynamically (i.e the scales to quantize the activations are not determined during inference time) will also require a dataset. 
 
 These Include:
-- **NVFP4**: Data is required to calibrate the activation scales, allowing quantization of the activatins to FP4 during inference
+- **NVFP4**: Data is required to calibrate the activation scales, allowing quantization of the activations to FP4 during inference
+- **MXFP4 / MXFP8**: No calibration data required if using RTN; activation quantization is fully dynamic using per-group quantization. These can be used as data-free alternatives to NVFP4 when a calibration dataset is not available.
 - **Static-Per Tensor Activation Quantization**: Commonly used with FP8 and INT8 weight quantization, if you are targeting a static-per tensor scheme for activation quantization, data is required to calibrate a single scale which enables quantization of the activations to 8 bits during inference
 
 ## Key considerations
