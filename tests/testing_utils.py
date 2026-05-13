@@ -1,15 +1,12 @@
-import dataclasses
-import enum
 import hashlib
 import json
 import logging
 import os
 from dataclasses import dataclass
-from enum import Enum
 from functools import wraps
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 import pandas as pd
 import pytest
@@ -18,9 +15,9 @@ import transformers as _transformers
 import yaml
 from datasets import Dataset
 from loguru import logger
+from pydantic import BaseModel, Field, model_validator
 from transformers import ProcessorMixin
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 DISABLE_LMEVAL_CACHE = os.environ.get("DISABLE_LMEVAL_CACHE", "").lower() in (
     "1",
     "true",
@@ -35,23 +32,164 @@ def _sha256_hash(text: str, length: Optional[int] = None) -> str:
     return hash_result[:length] if length else hash_result
 
 
-# TODO: maybe test type as decorators?
-class TestType(Enum):
-    SANITY = "sanity"
-    REGRESSION = "regression"
-    SMOKE = "smoke"
+class BaseTestConfig(BaseModel):
+    """
+    Shared configuration for lm-eval and e2e test cases, loaded from a YAML config file.
 
+    Required fields
+    ---------------
+    cadence : str
+        When this test runs. One of: "commit", "nightly", "weekly".
+    model : str
+        HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
+    scheme OR recipe : str
+        At least one must be provided.
+        - scheme  : preset quantization scheme passed directly to the modifier
+                    (e.g. "FP8", "FP8_DYNAMIC", "W4A16", "INT8_dyn_per_token", "NVFP4").
+        - recipe  : path to a YAML recipe file. When both are supplied, recipe wins.
 
-class Cadence(Enum):
-    COMMIT = "commit"
-    WEEKLY = "weekly"
-    NIGHTLY = "nightly"
+    Optional calibration dataset fields
+    ------------------------------------
+    dataset_id : str | None
+        HuggingFace dataset ID for calibration. Leave unset to skip calibration.
+        Datasets with data-collator handling in run_oneshot_for_e2e_testing:
+          - "HuggingFaceH4/ultrachat_200k"  → text, DefaultDataCollator
+          - "neuralmagic/calibration"        → multimodal; set dataset_config="LLM"
+          - any ID containing "flickr30k"   → multimodal, flickr30k collator
+        Any other dataset ID uses DefaultDataCollator.
+    dataset_config : str | None
+        Dataset config/subset name (e.g. "LLM" for "neuralmagic/calibration").
+    dataset_split : str | None
+        Dataset split string (e.g. "train_sft", "train[:512]").
+    num_calibration_samples : int
+        How many samples to use for calibration (default: 512).
 
+    Optional quantization overrides
+    --------------------------------
+    model_class : str
+        Transformers class used to load the model (default: "AutoModelForCausalLM").
+        Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
+    quant_type : "GPTQ" | None
+        Modifier to use when no recipe is provided.
+          - None  → QuantizationModifier (default for most schemes)
+          - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
+    seed : int
+        Random seed for reproducibility (default: 42).
 
-@dataclass
-class TestConfig:
-    test_type: TestType
-    cadence: Cadence
+    Save / output
+    -------------
+    save_dir : str | None
+        Where to write the compressed model. Defaults to the config file's stem
+        (e.g. "fp8_dynamic_per_token" for fp8_dynamic_per_token.yaml) so that
+        each config always produces a unique, predictable directory without
+        depending on the scheme name.
+
+    Test infra
+    ----------
+    gpu_memory_utilization : float | None
+        Fraction of GPU memory for vLLM to use (e.g. 0.8). Omit to use vLLM default.
+    test_group : str | None
+        Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
+    """
+
+    # -------------------------------------------------------------------------
+    # Required
+    # -------------------------------------------------------------------------
+    cadence: str = Field(..., description="'commit', 'nightly', or 'weekly'")
+    model: str = Field(..., description="HuggingFace model ID to quantize")
+
+    # -------------------------------------------------------------------------
+    # Quantization source — at least one must be set (enforced below)
+    # -------------------------------------------------------------------------
+    scheme: Optional[str] = Field(
+        None,
+        description=(
+            "Preset quantization scheme (e.g. FP8, FP8_DYNAMIC, W4A16, "
+            "INT8_dyn_per_token, NVFP4). Used when no recipe is provided."
+        ),
+    )
+    recipe: Optional[str] = Field(
+        None,
+        description=(
+            "Path to a quantization recipe YAML file. "
+            "Takes precedence over scheme when both are set."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Calibration dataset (all optional — omit to skip calibration)
+    # -------------------------------------------------------------------------
+    dataset_id: Optional[str] = Field(
+        None,
+        description=(
+            "HuggingFace dataset ID. Known datasets with special collator handling:\n"
+            " 'HuggingFaceH4/ultrachat_200k' — text, DefaultDataCollator\n"
+            " 'neuralmagic/calibration'      — multimodal (set dataset_config='LLM')\n"
+            " any ID containing 'flickr30k'  — multimodal, flickr30k collator\n"
+            "Any other ID uses DefaultDataCollator."
+        ),
+    )
+    dataset_config: Optional[str] = Field(
+        None,
+        description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
+    )
+    dataset_split: Optional[str] = Field(
+        None, description="Dataset split (e.g. 'train_sft', 'train[:512]')"
+    )
+    num_calibration_samples: int = Field(
+        512, description="Number of calibration samples"
+    )
+
+    # -------------------------------------------------------------------------
+    # Model / quantization overrides
+    # -------------------------------------------------------------------------
+    model_class: str = Field(
+        "AutoModelForCausalLM",
+        description=(
+            "Transformers class used to load the model. "
+            "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
+        ),
+    )
+    quant_type: Optional[Literal["GPTQ"]] = Field(
+        None,
+        description=(
+            "Modifier used when no recipe is provided.\n"
+            "  None   → QuantizationModifier (default)\n"
+            "  'GPTQ' → GPTQModifier"
+        ),
+    )
+    seed: int = Field(42, description="Random seed for reproducibility")
+
+    # -------------------------------------------------------------------------
+    # Save directory
+    # -------------------------------------------------------------------------
+    save_dir: Optional[str] = Field(
+        None,
+        description=(
+            "Directory to save the compressed model. "
+            "If unset, defaults to the config file's stem "
+            "(e.g. 'fp8_dynamic_per_token' for fp8_dynamic_per_token.yaml)."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Test infra
+    # -------------------------------------------------------------------------
+    gpu_memory_utilization: Optional[float] = Field(
+        None,
+        description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
+    )
+    test_group: Optional[str] = Field(
+        None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
+    )
+
+    @model_validator(mode="after")
+    def require_scheme_or_recipe(self) -> "BaseTestConfig":
+        if not self.scheme and not self.recipe:
+            raise ValueError(
+                "At least one of 'scheme' or 'recipe' must be provided in the config."
+            )
+        return self
 
 
 def _enough_gpus(num_required_gpus):
@@ -244,17 +382,15 @@ def _load_yaml(config_path: str):
     return None
 
 
-def _validate_test_config(config: dict):
-    for f in dataclasses.fields(TestConfig):
-        if f.name not in config:
-            return False
-        config_value = config.get(f.name)
-        if issubclass(f.type, enum.Enum):
-            try:
-                f.type(config_value)
-            except ValueError:
-                return False
-    return True
+_VALID_CADENCES = {"commit", "weekly", "nightly"}
+
+
+def _validate_test_config(config: dict) -> bool:
+    cadence = config.get("cadence")
+    if not cadence:
+        return False
+    cadences = cadence if isinstance(cadence, list) else [cadence]
+    return all(c in _VALID_CADENCES for c in cadences)
 
 
 # Set cadence in the config. The environment must set if nightly, weekly or commit
@@ -271,10 +407,6 @@ def parse_params(configs_directory: Union[list, str]) -> List[dict]:
 
         for file in os.listdir(current_config_dir):
             config_path = os.path.join(current_config_dir, file)
-            if TEST_DATA_FILE is not None:
-                if not config_path.endswith(TEST_DATA_FILE):
-                    continue
-
             config = _load_yaml(config_path)
             if not config:
                 continue
@@ -454,12 +586,12 @@ class LMEvalCacheKey:
         except (ImportError, AttributeError):
             lmeval_version = "unknown"
 
-        lmeval = test_instance.lmeval
+        lmeval = test_instance.config.lmeval
         model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
-        seed = getattr(test_instance, "seed", None)
+        seed = test_instance.config.seed
 
         return cls(
-            model=test_instance.model,
+            model=test_instance.config.model,
             task=lmeval.task,
             num_fewshot=lmeval.num_fewshot,
             limit=lmeval.limit,
