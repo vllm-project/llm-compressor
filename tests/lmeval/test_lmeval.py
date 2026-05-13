@@ -199,8 +199,7 @@ class TestLMEval:
         error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
         assert result.returncode == 0, error_msg
 
-        print("STDOUT", stdout)
-        return json.loads(stdout)
+        return json.loads(stdout.strip().splitlines()[-1])
 
     def _save_compressed_model(self, oneshot_model, processor):
         oneshot_model.save_pretrained(self.config.save_dir)
