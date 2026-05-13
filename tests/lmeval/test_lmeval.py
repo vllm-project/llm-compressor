@@ -1,6 +1,8 @@
+import json
 import os
 import random
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional, Union
 
@@ -11,24 +13,25 @@ import yaml
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from llmcompressor.core import active_session
-from tests.e2e.e2e_utils import load_model, run_oneshot_for_e2e_testing
+from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.testing_utils import BaseTestConfig, cached_lm_eval_run, requires_gpu
 
 
 class LmEvalConfig(BaseModel):
-    model: str = "hf"
-    model_args: dict = {"add_bos_token": True, "dtype": "bfloat16"}
+    model: str = "vllm"
+    add_bos_token: bool = True
+    dtype: str = "bfloat16"
     task: str = "gsm8k"
     num_fewshot: int = 5
     limit: int = 1000
-    batch_size: int = 100
+    fewshot_as_multiturn: bool = False
     apply_chat_template: bool = False
     # Recovery testing (default): compare against base model performance
     # Default threshold is 0.95 (retain ≥95% of base), can be overridden
     recovery_threshold: Union[float, dict] = 0.95
     # Optional absolute metrics for warnings (not failures)
     metrics: Optional[dict] = None
+    trust_remote_code: bool = False
 
 
 class TestConfig(BaseTestConfig):
@@ -49,19 +52,8 @@ class TestConfig(BaseTestConfig):
     )
 
 
-try:
-    import lm_eval
-    import lm_eval.api.registry
-
-    # needed to populate model registry
-    import lm_eval.models  # noqa
-
-    lm_eval_installed = True
-except ImportError:
-    lm_eval_installed = False
-    logger.warning("lm_eval is not installed. This test will be skipped")
-
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 # Will run each test case in its own process through run_tests_in_python.sh
@@ -69,9 +61,6 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 @requires_gpu(1)
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
-)
-@pytest.mark.skipif(
-    not lm_eval_installed, reason="lm eval is not installed, skipping test"
 )
 class TestLMEval:
     """
@@ -155,10 +144,6 @@ class TestLMEval:
         logger.info("================= SAVING TO DISK ======================")
         self._save_compressed_model(oneshot_model, processor)
 
-        # Use the session to fetch the recipe;
-        # Reset session for next test case
-        self._handle_recipe()
-
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
         compressed_results = self._eval_compressed_model()
 
@@ -174,50 +159,44 @@ class TestLMEval:
     @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
         """Evaluate the base (uncompressed) model with caching."""
-        return self._eval_model(self.config.model)
+        return self._eval_model_with_vllm(self.config.model)
 
     def _eval_compressed_model(self) -> dict:
         """Evaluate the compressed model."""
-        return self._eval_model(self.config.save_dir)
+        return self._eval_model_with_vllm(self.config.save_dir)
 
-    def _eval_model(self, model: str) -> dict:
-        # NOTE: pass in PreTrainedModel to avoid lm_eval's model-loading logic
-        # https://github.com/EleutherAI/lm-evaluation-harness/pull/3393
-        lm_eval_cls = lm_eval.api.registry.get_model(self.config.lmeval.model)
-
-        results = lm_eval.simple_evaluate(
-            model=lm_eval_cls(
-                pretrained=load_model(
-                    model, self.config.model_class, device_map="cuda:0"
-                ),
-                batch_size=self.config.lmeval.batch_size,
-                **self.config.lmeval.model_args,
-            ),
-            tasks=[self.config.lmeval.task],
-            num_fewshot=self.config.lmeval.num_fewshot,
-            limit=self.config.lmeval.limit,
-            apply_chat_template=self.config.lmeval.apply_chat_template,
-            batch_size=self.config.lmeval.batch_size,
-            # Pass seeds to lm_eval for deterministic evaluation
-            random_seed=self.config.seed,
-            numpy_random_seed=self.config.seed,
-            torch_random_seed=self.config.seed,
-            fewshot_random_seed=self.config.seed,
+    def _eval_model_with_vllm(self, model: str) -> dict:
+        run_file_path = os.path.join(test_file_dir, "run_lmeval.py")
+        logger.info("Run vllm in subprocess.Popen using python env:")
+        logger.info(self.vllm_env)
+        # Ensure the venv's bin dir is on PATH so tools like ninja can be found
+        env = os.environ.copy()
+        venv_bin = os.path.dirname(self.vllm_env)
+        env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+        result = subprocess.Popen(
+            [
+                self.vllm_env,
+                run_file_path,
+                model,
+                self.config.model_dump_json(),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
         )
 
-        return results
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+        assert result.returncode == 0, error_msg
+
+        return json.loads(stdout)
 
     def _save_compressed_model(self, oneshot_model, processor):
         oneshot_model.save_pretrained(self.config.save_dir)
         processor.save_pretrained(self.config.save_dir)
-
-    def _handle_recipe(self):
-        recipe_path = os.path.join(self.config.save_dir, "recipe.yaml")
-        session = active_session()
-        recipe_yaml_str = session.get_serialized_recipe()
-        with open(recipe_path, "w") as fp:
-            fp.write(recipe_yaml_str)
-        session.reset()
 
     def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""

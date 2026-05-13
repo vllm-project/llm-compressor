@@ -7,7 +7,6 @@ dataset_config: LLM
 dataset_split: "train[:20]"
 num_calibration_samples: 20
 lmeval:
-  model: "hf-multimodal"
   model_args:
     dtype: bfloat16
     convert_img_format: True
