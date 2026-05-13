@@ -52,7 +52,6 @@ def main():
     task = lmeval_config["task"]
     task_results = results["results"][task]
     metrics = {metric: task_results[metric] for metric in lmeval_config["metrics"]}
-    print("METRICS", metrics)
     print(json.dumps(metrics))
 
 
