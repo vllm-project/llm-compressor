@@ -36,6 +36,7 @@ def main():
         f"trust_remote_code={lmeval_config['trust_remote_code']},"
         f"max_model_len=2048,"
         f"seed={seed},"
+        f"gpu_memory_utilization={config['gpu_memory_utilization']},"
     )
 
     results = lm_eval.simple_evaluate(
