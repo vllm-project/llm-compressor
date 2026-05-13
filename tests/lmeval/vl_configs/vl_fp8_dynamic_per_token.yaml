@@ -3,6 +3,7 @@ model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
 recipe: tests/e2e/recipes/FP8/recipe_fp8_dynamic.yaml
 lmeval:
+  model: vllm-vlm
   dtype: bfloat16
   task: chartqa
   apply_chat_template: True
