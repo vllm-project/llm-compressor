@@ -571,8 +571,11 @@ class LMEvalCacheKey:
     task: str
     num_fewshot: int
     limit: int
-    batch_size: int
-    model_args_hash: str
+    apply_chat_template: bool
+    fewshot_as_multiturn: bool
+    dtype: str
+    add_bos_token: bool
+    trust_remote_code: bool
     lmeval_version: str
     seed: Optional[int]
 
@@ -587,7 +590,6 @@ class LMEvalCacheKey:
             lmeval_version = "unknown"
 
         lmeval = test_instance.config.lmeval
-        model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
         seed = test_instance.config.seed
 
         return cls(
@@ -595,8 +597,11 @@ class LMEvalCacheKey:
             task=lmeval.task,
             num_fewshot=lmeval.num_fewshot,
             limit=lmeval.limit,
-            batch_size=lmeval.batch_size,
-            model_args_hash=_sha256_hash(model_args_json, 16),
+            apply_chat_template=lmeval.apply_chat_template,
+            fewshot_as_multiturn=lmeval.fewshot_as_multiturn,
+            dtype=lmeval.dtype,
+            add_bos_token=lmeval.add_bos_token,
+            trust_remote_code=lmeval.trust_remote_code,
             lmeval_version=lmeval_version,
             seed=seed,
         )
@@ -612,8 +617,11 @@ class LMEvalCacheKey:
             and row["task"] == self.task
             and row["num_fewshot"] == self.num_fewshot
             and row["limit"] == self.limit
-            and row["batch_size"] == self.batch_size
-            and row["model_args_hash"] == self.model_args_hash
+            and row["apply_chat_template"] == self.apply_chat_template
+            and row["fewshot_as_multiturn"] == self.fewshot_as_multiturn
+            and row["dtype"] == self.dtype
+            and row["add_bos_token"] == self.add_bos_token
+            and row["trust_remote_code"] == self.trust_remote_code
             and row["lmeval_version"] == self.lmeval_version
             and seed_matches
         )
@@ -646,8 +654,11 @@ class LMEvalCacheKey:
                 "task": self.task,
                 "num_fewshot": self.num_fewshot,
                 "limit": self.limit,
-                "batch_size": self.batch_size,
-                "model_args_hash": self.model_args_hash,
+                "apply_chat_template": self.apply_chat_template,
+                "fewshot_as_multiturn": self.fewshot_as_multiturn,
+                "dtype": self.dtype,
+                "add_bos_token": self.add_bos_token,
+                "trust_remote_code": self.trust_remote_code,
                 "lmeval_version": self.lmeval_version,
                 "seed": self.seed,
                 "result": json.dumps(result, default=str),
