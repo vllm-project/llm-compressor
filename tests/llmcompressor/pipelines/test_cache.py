@@ -323,7 +323,7 @@ def test_prefix_counters_and_indices():
     _, idx1 = cache.append("layer", "y")
     assert idx0 == 0 and idx1 == 1
     assert cache._prefix_counters[("layer",)] == 2
-    assert cache._prefix_indices[("layer",)] == [0, 1]
+    assert cache._prefix_indices[("layer",)] == {0, 1}
 
     # delete removes from both structures
     cache.delete(2)

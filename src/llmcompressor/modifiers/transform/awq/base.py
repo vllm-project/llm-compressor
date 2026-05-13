@@ -151,9 +151,9 @@ class AWQModifier(Modifier):
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: IntermediatesCache[tuple[Module, int], dict[str, torch.Tensor]] = PrivateAttr(
-        default=None
-    )
+    _parent_args_cache: IntermediatesCache[
+        tuple[Module, int], dict[str, torch.Tensor]
+    ] = PrivateAttr(default=None)
     # Cache dict[smooth layer name, [activation sums, activation counts]]
     _smooth_activation_stats: IntermediatesCache[str, list[torch.Tensor]] = PrivateAttr(
         default=None
@@ -193,7 +193,9 @@ class AWQModifier(Modifier):
 
         # Initialize caches
         self._parent_args_cache = IntermediatesCache(offload_device=self.offload_device)
-        self._smooth_activation_stats = IntermediatesCache(offload_device=self.offload_device)
+        self._smooth_activation_stats = IntermediatesCache(
+            offload_device=self.offload_device
+        )
 
         return True
 
@@ -285,10 +287,8 @@ class AWQModifier(Modifier):
 
         self._log_error_metrics()
 
-        if self._parent_args_cache is not None:
-            self._parent_args_cache.clear()
-        if self._smooth_activation_stats is not None:
-            self._smooth_activation_stats.clear()
+        self._parent_args_cache.clear() if self._parent_args_cache else None
+        self._smooth_activation_stats.clear() if self._smooth_activation_stats else None
         self._resolved_mappings.clear()
         self._error_metrics.clear()
 
@@ -449,17 +449,17 @@ class AWQModifier(Modifier):
                     masked_activations = activations.flatten(0, -2)
 
                 # accumulate activation sum&count
-                new_sum = masked_activations.float().sum(dim=0).cpu()
-                new_count = torch.tensor(masked_activations.size(0)).cpu()
+                new_sum = masked_activations.float().sum(dim=0).to(self.offload_device)
+                new_count = torch.tensor(masked_activations.size(0)).to(self.offload_device)
+
+                device = get_execution_device(_module)
                 if smooth_name not in self._smooth_activation_stats:
-                    self._smooth_activation_stats.update(
-                        smooth_name,
-                        [torch.zeros_like(new_sum), torch.zeros_like(new_count)],
-                    )
+                    new = [torch.zeros_like(new_sum), torch.zeros_like(new_count)]
+                    self._smooth_activation_stats.update(smooth_name, new)
                 x_sum, count = self._smooth_activation_stats.fetch_no_onload(smooth_name)
                 x_sum += new_sum
                 count += new_count
-                self._smooth_activation_stats.update(smooth_name, [x_sum, count], get_execution_device(_module))
+                self._smooth_activation_stats.update(smooth_name, [x_sum, count], device)
 
             return cache_smooth_activations_hook
 
@@ -601,12 +601,8 @@ class AWQModifier(Modifier):
         cache = self._parent_args_cache
         use_prefetch = active_session().state.sequential_prefetch
 
-        if use_prefetch:
-            batch_iter = cache.iter_prefetch([(module)])
-        else:
-            batch_iter = cache.iter([(module)])
-
-        outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
+        iter_fn = cache.iter_prefetch if use_prefetch else cache.iter
+        outputs = [module(**batch_kwargs) for batch_kwargs in iter_fn([(module)])]
         return [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output

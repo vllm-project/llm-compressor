@@ -182,7 +182,9 @@ class SequentialPipeline(CalibrationPipeline):
                                     for key in subgraph.consumed_names:
                                         raw_batch.pop(key, None)
 
-                                    activations.update(batch_idx, raw_batch, onload_device)
+                                    activations.update(
+                                        batch_idx, raw_batch, onload_device
+                                    )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

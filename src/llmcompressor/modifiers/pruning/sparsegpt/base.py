@@ -157,8 +157,7 @@ class SparseGPTModifier(SparsityModifierBase):
         if len(self._num_samples) > 0:
             raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
-        if self._hessians_cache is not None:
-            self._hessians_cache.clear()
+        self._hessians_cache.clear() if self._hessians_cache else None
         self._num_samples = dict()
         self._module_names = dict()
         self._module_sparsities = dict()

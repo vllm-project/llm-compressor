@@ -24,7 +24,7 @@ from torch import distributed as dist
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
-    accumulate_hessian,
+    calculate_hessian,
     make_empty_hessian,
     quantize_weight,
 )
@@ -129,11 +129,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _hessians_cache: IntermediatesCache[torch.nn.Module, torch.Tensor] = PrivateAttr(
-        default=None
-    )
-    _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
-        default_factory=dict
+    # cache for Module: [hessian, count]
+    _hessians_cache: IntermediatesCache[torch.nn.Module, list[torch.Tensor]] = (
+        PrivateAttr(default=None)
     )
 
     def resolve_quantization_config(self) -> QuantizationConfig:
@@ -276,21 +274,23 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # Assume that first argument is the input
         inp = args[0]
 
+        device = get_execution_device(module)
         # Initialize hessian if not present
-        if module not in self._num_samples:
+        if module not in self._hessians_cache:
             self._hessians_cache.update(
-                module, make_empty_hessian(module, device=get_execution_device(module))
-            )
-            self._num_samples[module] = torch.zeros(
-                tuple(), device=get_execution_device(module)
+                module,
+                [
+                    make_empty_hessian(module, device=device),
+                    torch.zeros(tuple(), device=device),
+                ],
             )
 
         # Fetch hessian (onloads to original device automatically)
-        hessian = self._hessians_cache[module]
-        hessian, self._num_samples[module] = accumulate_hessian(
-            inp, module, hessian, self._num_samples[module]
-        )
-        self._hessians_cache.update(module, hessian)
+        hessian, count = self._hessians_cache.fetch_no_onload(module)
+        new_hessian, new_count = calculate_hessian(inp, module)
+        hessian += new_hessian.to(hessian.device)
+        count += new_count
+        self._hessians_cache.update(module, [hessian, count], device)
 
     def compress_modules(self):
         """
@@ -298,7 +298,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         ### Not Distributed
         if not is_distributed():
-            self.compress_module_list(list(self._num_samples.keys()))
+            self.compress_module_list(self._hessians_cache.iter_keys())
             return
 
         ### Distributed
@@ -326,18 +326,17 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def compress_module_list(self, module_list):
         for module in module_list:
             name = self._module_names[module]
-            num_samples = self._num_samples[module]
+            hessian, count = self._hessians_cache[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name} using {int(num_samples)} samples")
+            logger.info(f"Quantizing {name} using {int(count)} samples")
             with (
                 torch.no_grad(),
                 align_module_device(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                hessian = self._hessians_cache[module] / num_samples
+                hessian = hessian / count
                 self._hessians_cache.delete(module)
-                self._num_samples.pop(module)
 
                 loss, q_param_dict = quantize_weight(
                     module=module,
@@ -356,7 +355,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         pending_comms = []
         for module in module_list:
             target_rank = module_to_rank[module]
-            hessian = self._hessians_cache[module]
+            hessian, count = self._hessians_cache[module]
 
             pending_comms.append(
                 dist.reduce(
@@ -368,7 +367,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
             pending_comms.append(
                 dist.reduce(
-                    self._num_samples[module],
+                    count,
                     op=dist.ReduceOp.SUM,
                     dst=target_rank,
                     async_op=True,
@@ -376,7 +375,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
             if rank != target_rank:
                 self._hessians_cache.delete(module)
-                self._num_samples.pop(module, None)
         wait_for_comms(pending_comms)
 
     def _broadcast_quantized_params(self, module_list, module_to_rank):
@@ -413,11 +411,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        if len(self._num_samples) > 0:
-            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+        if len(self._hessians_cache) > 0:
+            raise ValueError(f"Failed to compress {len(self._hessians_cache)} modules")
 
-        if self._hessians_cache is not None:
-            self._hessians_cache.clear()
-        self._num_samples = dict()
+        self._hessians_cache.clear() if self._hessians_cache else None
 
         return True

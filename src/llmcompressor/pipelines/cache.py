@@ -40,7 +40,9 @@ class IntermediatesCache(Generic[TKey, TValue]):
     Construct using `from_dataloader` class method or directly with offload_device
     """
 
-    _store: dict[TKey, TValue] # Notice the tensor inside TValue is wrapped in IntermediateValue
+    _store: dict[
+        TKey, TValue
+    ]  # Notice the tensor inside TValue is wrapped in IntermediateValue
     offload_device: torch.device | None
 
     # map of onload value -> offload value
@@ -50,7 +52,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
     def __init__(self, offload_device: torch.device | None = None):
         self._store = {}
         self._prefix_counters: dict[tuple, int] = {}
-        self._prefix_indices: dict[tuple, list[int]] = {}
+        self._prefix_indices: dict[tuple, set[int]] = {}
         self.offload_device = offload_device
 
     @classmethod
@@ -74,7 +76,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
                 batch, offload_device, model_device
             )
         cache._prefix_counters[()] = len(dataloader)
-        cache._prefix_indices[()] = list(range(len(dataloader)))
+        cache._prefix_indices[()] = set(range(len(dataloader)))
         return cache
 
     def __getitem__(self, key: TKey) -> TValue:
@@ -100,7 +102,9 @@ class IntermediatesCache(Generic[TKey, TValue]):
         if key not in self._store:
             raise KeyError(f"Key {key} not found in cache")
         leaves, spec = tree_flatten(self._store[key])
-        cleaned_leaves = [x.value if isinstance(x, IntermediateValue) else x for x in leaves]
+        cleaned_leaves = [
+            x.value if isinstance(x, IntermediateValue) else x for x in leaves
+        ]
         return tree_unflatten(cleaned_leaves, spec)
 
     def update(self, key: TKey, value: TValue, onload_device=None) -> None:
@@ -110,7 +114,9 @@ class IntermediatesCache(Generic[TKey, TValue]):
         :param key: key to store value under
         :param value: value to store (tensors will be offloaded)
         """
-        self._store[key] = self._offload_value(value, self.offload_device, onload_device)
+        self._store[key] = self._offload_value(
+            value, self.offload_device, onload_device
+        )
 
         # Update prefix counter and indices to ensure append doesn't overwrite
         if isinstance(key, int):
@@ -126,11 +132,11 @@ class IntermediatesCache(Generic[TKey, TValue]):
         if idx >= current_max:
             self._prefix_counters[prefix] = idx + 1
 
-        indices = self._prefix_indices.setdefault(prefix, [])
-        if idx not in indices:
-            indices.append(idx)
+        self._prefix_indices.setdefault(prefix, set()).add(idx)
 
-    def append(self, key_prefix: TKey | None, value: TValue, onload_device=None) -> tuple[TKey, int]:
+    def append(
+        self, key_prefix: TKey | None, value: TValue, onload_device=None
+    ) -> tuple[TKey, int]:
         """
         Append a value with an auto-generated index.
 
@@ -156,8 +162,10 @@ class IntermediatesCache(Generic[TKey, TValue]):
         else:
             full_key = prefix + (next_idx,)
 
-        self._store[full_key] = self._offload_value(value, self.offload_device, onload_device)
-        self._prefix_indices.setdefault(prefix, []).append(next_idx)
+        self._store[full_key] = self._offload_value(
+            value, self.offload_device, onload_device
+        )
+        self._prefix_indices.setdefault(prefix, set()).add(next_idx)
         return full_key, next_idx
 
     def delete(self, key: TKey) -> None:
@@ -182,10 +190,7 @@ class IntermediatesCache(Generic[TKey, TValue]):
             return
 
         if prefix in self._prefix_indices:
-            try:
-                self._prefix_indices[prefix].remove(idx)
-            except ValueError:
-                pass
+            self._prefix_indices[prefix].discard(idx)
 
         # Decrement counter if deleted index was the max
         if prefix in self._prefix_counters and self._prefix_counters[prefix] == idx + 1:
@@ -352,23 +357,19 @@ class IntermediatesCache(Generic[TKey, TValue]):
         leaves, spec = tree_flatten(value)
         onloaded_leaves = []
         for leaf in leaves:
-            if isinstance(leaf, IntermediateValue):
-                tensor = leaf.value
-                device = leaf.device
-                if device is not None:
-                    non_blocking = (
-                        tensor.is_pinned()
-                        and torch.accelerator.is_available()
-                        and torch.device(device).type
-                        == torch.accelerator.current_accelerator().type
-                    )
-                    onloaded_leaves.append(
-                        tensor.to(device=device, non_blocking=non_blocking)
-                    )
-                else:
-                    onloaded_leaves.append(tensor)
-            else:
+            if not isinstance(leaf, IntermediateValue):
                 onloaded_leaves.append(leaf)
+                continue
+            tensor = leaf.value
+            device = leaf.device
+            non_blocking = (
+                tensor.is_pinned()
+                and torch.accelerator.is_available()
+                and torch.device(device).type
+                == torch.accelerator.current_accelerator().type
+            )
+            tensor = tensor.to(device=device, non_blocking=non_blocking)
+            onloaded_leaves.append(tensor)
         return tree_unflatten(onloaded_leaves, spec)
 
     @classmethod
@@ -392,44 +393,28 @@ class IntermediatesCache(Generic[TKey, TValue]):
         """
         leaves, spec = tree_flatten(value)
         offloaded_leaves = []
+        do_pin = str(offload_device) == "cpu" and torch.accelerator.is_available()
         for leaf in leaves:
-            if isinstance(leaf, torch.Tensor):
-                with OverrideEqMode():
-                    # check for cache hit between shared tensors
-                    if leaf in cls.offload_values:
-                        offloaded_tensor = cls.offload_values[leaf]
-                    else:
-                        # move to offload if no hit
-                        offloaded_tensor = leaf.to(device=offload_device)
-                        if offloaded_tensor is not leaf:  # avoid circular ref
-                            # pin CPU tensors so onload can use non_blocking DMA
-                            if (
-                                torch.device(offload_device).type == "cpu"
-                                and torch.accelerator.is_available()
-                                and not offloaded_tensor.is_pinned()
-                            ):
-                                offloaded_tensor = offloaded_tensor.pin_memory()
-                            cls.offload_values[leaf] = offloaded_tensor
+            if not isinstance(leaf, torch.Tensor):
+                offloaded_leaves.append(leaf)
+                continue
 
-                offloaded_leaves.append(
-                    IntermediateValue(
-                        value=offloaded_tensor,
-                        device=(onload_device if onload_device else leaf.device),
-                    )
+            with OverrideEqMode():
+                # check for cache hit between shared tensors
+                if leaf in cls.offload_values:
+                    offloaded_tensor = cls.offload_values[leaf]
+                else:
+                    # move to offload if no hit
+                    offloaded_tensor = leaf.to(device=offload_device)
+                    if offloaded_tensor is not leaf:
+                        cls.offload_values[leaf] = offloaded_tensor.pin_memory() if do_pin else offloaded_tensor
+
+            offloaded_leaves.append(
+                IntermediateValue(
+                    value=offloaded_tensor,
+                    device=(onload_device if onload_device else leaf.device),
                 )
-            elif isinstance(leaf, IntermediateValue):
-                # Pass through existing IntermediateValue (expected when merging batch dicts)
-                offloaded_leaves.append(leaf)
-            else:
-                if not isinstance(
-                    leaf,
-                    (int, str, float, bool, torch.dtype, torch.device, type(None)),
-                ):
-                    warnings.warn(
-                        f"Leaf type {type(leaf)} may not be handled correctly; "
-                        f"storing as-is"
-                    )
-                offloaded_leaves.append(leaf)
+            )
         return tree_unflatten(offloaded_leaves, spec)
 
 

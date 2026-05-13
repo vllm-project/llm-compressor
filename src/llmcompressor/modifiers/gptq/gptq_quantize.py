@@ -16,7 +16,7 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
 
-__all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
+__all__ = ["make_empty_hessian", "calculate_hessian", "quantize_weight"]
 
 
 def make_empty_hessian(
@@ -28,13 +28,10 @@ def make_empty_hessian(
     return torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
 
 
-def accumulate_hessian(
+def calculate_hessian(
     inp: torch.Tensor,
     module: torch.nn.Module,
-    H: torch.Tensor | None,
-    num_samples: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
@@ -56,11 +53,11 @@ def accumulate_hessian(
             inp = inp.permute([1, 0, 2])
             inp = inp.flatten(1)
 
-    num_samples += num_added
+    num_samples = num_added
 
     inp = inp.to(dtype=GPTQ_PRECISION)
     inp = math.sqrt(2) * inp
-    H += inp.matmul(inp.t())
+    H = inp.matmul(inp.t())
 
     return H, num_samples
 
