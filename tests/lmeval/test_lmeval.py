@@ -143,6 +143,7 @@ class TestLMEval:
         # Always evaluate base model for recovery testing
         logger.info("================= Evaluating BASE model ======================")
         base_results = self._eval_base_model()
+        print("BASE RESULTS", base_results)
 
         gc.collect()
         torch.cuda.empty_cache()
