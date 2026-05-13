@@ -53,6 +53,7 @@ class TestConfig(BaseTestConfig):
 
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV")
 test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -112,6 +113,13 @@ class TestLMEval:
 
         logger.info(f"Seed set to {self.config.seed} with deterministic mode enabled")
 
+        if not VLLM_PYTHON_ENV:
+            raise RuntimeError(
+                "VLLM_PYTHON_ENV environment variable must be set. "
+                "It should point to the Python binary of the vLLM virtual environment "
+                "(e.g. /path/to/VLLM_VENV/bin/python), so that lm-eval can be run "
+                "in a subprocess using the vLLM installation."
+            )
         logger.info("========== RUNNING ==============")
         logger.info(self.config.scheme)
         logger.info(
@@ -167,15 +175,15 @@ class TestLMEval:
 
     def _eval_model_with_vllm(self, model: str) -> dict:
         run_file_path = os.path.join(test_file_dir, "run_lmeval.py")
-        logger.info("Run vllm in subprocess.Popen using python env:")
-        logger.info(self.vllm_env)
+        logger.info("Run lm-eval in subprocess.Popen using python env:")
+        logger.info(VLLM_PYTHON_ENV)
         # Ensure the venv's bin dir is on PATH so tools like ninja can be found
         env = os.environ.copy()
-        venv_bin = os.path.dirname(self.vllm_env)
+        venv_bin = os.path.dirname(VLLM_PYTHON_ENV)
         env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
         result = subprocess.Popen(
             [
-                self.vllm_env,
+                VLLM_PYTHON_ENV,
                 run_file_path,
                 model,
                 self.config.model_dump_json(),
