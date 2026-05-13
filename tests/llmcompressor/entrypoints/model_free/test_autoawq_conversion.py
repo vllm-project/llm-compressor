@@ -78,6 +78,7 @@ def test_autoawq_to_compressed_tensors(tmp_path: Path) -> None:
         )
 
         tokens = baseline.keys()
+        assert tokens
         b_vals = torch.tensor([baseline[t] for t in tokens])
         c_vals = torch.tensor([converted[t] for t in tokens])
         assert torch.allclose(b_vals, c_vals), (
