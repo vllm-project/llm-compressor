@@ -31,6 +31,7 @@ def main():
 
     model_args = (
         f"pretrained={model},"
+        f"dtype={lmeval_config['dtype']},"
         f"add_bos_token={lmeval_config['add_bos_token']},"
         f"trust_remote_code={lmeval_config['trust_remote_code']},"
         f"max_model_len=2048,"
