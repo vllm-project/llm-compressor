@@ -49,8 +49,11 @@ def main():
         fewshot_random_seed=seed,
     )
 
-    print(json.dumps(results))
-    print("DONE")
+    task = lmeval_config["task"]
+    task_results = results["results"][task]
+    metrics = {metric: task_results[metric] for metric in lmeval_config["metrics"]}
+    print("METRICS", metrics)
+    print(json.dumps(metrics))
 
 
 if __name__ == "__main__":

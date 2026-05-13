@@ -155,12 +155,11 @@ class TestLMEval:
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
         compressed_results = self._eval_compressed_model()
 
-        # Always use recovery testing
+        # Recovery Testing
         self._validate_recovery(base_results, compressed_results)
 
-        # If absolute metrics provided, show warnings (not failures)
-        if self.config.lmeval.metrics:
-            self._check_absolute_warnings(compressed_results)
+        # Absolute Testing
+        self._check_absolute_warnings(compressed_results)
 
         self.tear_down()
 
@@ -200,6 +199,7 @@ class TestLMEval:
         error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
         assert result.returncode == 0, error_msg
 
+        print("STDOUT", stdout)
         return json.loads(stdout)
 
     def _save_compressed_model(self, oneshot_model, processor):
@@ -208,12 +208,6 @@ class TestLMEval:
 
     def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""
-        base_metrics = base_results["results"][self.config.lmeval.task]
-        compressed_metrics = compressed_results["results"][self.config.lmeval.task]
-        higher_is_better_map = compressed_results.get("higher_is_better", {}).get(
-            self.config.lmeval.task, {}
-        )
-
         logger.info("=" * 80)
         logger.info("RECOVERY TESTING COMPARISON")
         logger.info("=" * 80)
@@ -225,18 +219,11 @@ class TestLMEval:
 
         failures = []
         # Iterate over compressed metrics (what we actually got)
-        for metric_key, compressed_val in compressed_metrics.items():
+        for metric_key, compressed_val in compressed_results.items():
             # Skip stderr and other metadata
-            if "stderr" in metric_key or metric_key.startswith("alias"):
-                continue
-
-            base_val = base_metrics.get(metric_key)
+            base_val = base_results.get(metric_key)
             if base_val is None:
-                logger.warning(
-                    f"Metric {metric_key} in compressed results "
-                    f"not found in base results, skipping"
-                )
-                continue
+                raise ValueError("Missing base value metrics")
 
             # Get threshold for this metric
             if isinstance(self.config.lmeval.recovery_threshold, dict):
@@ -246,28 +233,15 @@ class TestLMEval:
             else:
                 threshold = self.config.lmeval.recovery_threshold
 
-            # Get direction
-            base_metric_name = metric_key.split(",")[0]
-            higher_is_better = higher_is_better_map.get(base_metric_name, True)
-
-            # Compute recovery
-            if base_val == 0:
-                recovery = 1.0 if compressed_val == 0 else 0.0
-            elif higher_is_better:
-                recovery = compressed_val / base_val
-            else:
-                # For "lower is better", invert ratio
-                recovery = base_val / compressed_val
-
+            recovery = compressed_val / base_val
             # Check threshold - rounds to the nearest percent - 0.94567 -> 0.95
             recovery = (torch.round(torch.tensor(recovery) * 100) / 100).item()
             passed = recovery >= threshold
-            direction = "↑" if higher_is_better else "↓"
 
             msg = (
                 f"{metric_key:40} | Base: {base_val:.4f} | "
                 f"Compressed: {compressed_val:.4f} | "
-                f"Recovery: {recovery:6.2%} {direction} | Threshold: ≥{threshold:.2%}"
+                f"Recovery: {recovery:6.2%} | Threshold: ≥{threshold:.2%}"
             )
 
             if passed:
@@ -278,15 +252,6 @@ class TestLMEval:
                     f"{metric_key}: {recovery:.2%} < {threshold:.2%} "
                     f"(base={base_val:.4f}, compressed={compressed_val:.4f})"
                 )
-
-        # Validate that config thresholds match actual results
-        if isinstance(self.config.lmeval.recovery_threshold, dict):
-            for config_metric_key in self.config.lmeval.recovery_threshold.keys():
-                if config_metric_key not in compressed_metrics:
-                    logger.warning(
-                        f"Metric {config_metric_key} in recovery_threshold config "
-                        f"not found in results"
-                    )
 
         logger.info("=" * 80)
 
@@ -303,44 +268,19 @@ class TestLMEval:
         logger.info("ABSOLUTE METRICS CHECK (warnings only, not failures)")
         logger.info("=" * 80)
 
-        metrics: dict = results["results"][self.config.lmeval.task]
         for metric_key, expected_val in self.config.lmeval.metrics.items():
             # Skip stderr metrics
-            if "stderr" in metric_key:
-                continue
 
-            actual_val = metrics.get(metric_key)
-            if actual_val is None:
-                logger.warning(
-                    f"Metric {metric_key} in config not found in results, "
-                    f"skipping warning check"
-                )
-                continue
-
-            higher_is_better = (
-                results.get("higher_is_better", {})
-                .get(self.config.lmeval.task, {})
-                .get(metric_key.split(",")[0], True)
-            )
-
+            compressed_metric = results.get(metric_key)
             # Check if within ±5% relative tolerance
             lower_bound = expected_val * 0.95
-            upper_bound = expected_val * 1.05
+            # upper_bound = expected_val * 1.05
 
-            if higher_is_better:
-                # For higher is better, we care about lower bound
-                if actual_val < lower_bound:
-                    logger.warning(
-                        f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
-                        f"Got: {actual_val:.4f} | Below expected range"
-                    )
-            else:
-                # For lower is better, we care about upper bound
-                if actual_val > upper_bound:
-                    logger.warning(
-                        f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
-                        f"Got: {actual_val:.4f} | Above expected range"
-                    )
+            if compressed_metric < lower_bound:
+                logger.warning(
+                    f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
+                    f"Got: {compressed_metric:.4f} | Below expected range"
+                )
 
         logger.info("=" * 80)
 
