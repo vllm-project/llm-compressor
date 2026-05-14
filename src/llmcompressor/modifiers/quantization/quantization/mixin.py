@@ -42,7 +42,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.observers.helpers import fuse_weight_observers
+from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -284,7 +284,7 @@ class QuantizationMixin(HooksMixin):
 
         pending_comms = []
         for module in set(modules):
-            for base_name in ("weight", "input", "output", "q", "k", "v"):
+            for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue

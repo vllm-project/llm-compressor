@@ -120,7 +120,8 @@ def test_nested_parent_modules_produce_valid_global_scale():
         num_bits=4, type="float", symmetric=True, group_size=16, strategy="tensor_group"
     )
     scheme = QuantizationScheme(
-        targets=[], weights=tg,
+        targets=[],
+        weights=tg,
         input_activations=QuantizationArgs(**{**tg.model_dump(), "dynamic": "local"}),
     )
     for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):
@@ -136,11 +137,13 @@ def test_nested_parent_modules_produce_valid_global_scale():
         child.input_observer(torch.randn(2, 64))
 
     modifier.on_event(
-        state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=[model[0]],
+        state,
+        Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+        modules=[model[0]],
     )
 
     for name, param in model.named_parameters():
         if "global_scale" in name:
-            assert torch.isfinite(param).all() and param.item() > 0, (
-                f"{name} not valid: {param.item()}"
-            )
+            assert (
+                torch.isfinite(param).all() and param.item() > 0
+            ), f"{name} not valid: {param.item()}"

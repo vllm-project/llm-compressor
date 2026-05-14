@@ -11,15 +11,7 @@ from torch import distributed as dist
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = [
-    "Observer",
-    "MinMaxTuple",
-    "QParamsDict",
-    "ACTIVATION_OBS",
-]
-
-# Observer base name constants
-ACTIVATION_OBS = ("input", "output", "q", "k", "v")
+__all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 
