@@ -405,7 +405,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     if name not in llmc_registered_qparams:
                         llmc_registered_qparams[name] = {}
                     llmc_registered_qparams[name][key] = getattr(module, key).clone()
-                    delattr(module, key)
+            QuantizationMetadata.clear_all_qparams(module)
         return llmc_registered_qparams
 
     def _postprocess_qparams(
@@ -433,12 +433,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             """Clear LLMC and AutoRound quantization metadata from a module."""
             cleared_scheme = False
             if hasattr(module, "quantization_scheme"):
-                delattr(module, "quantization_scheme")
                 cleared_scheme = True
 
-            for qparam_name in QuantizationMetadata.all_qparam_names():
-                if hasattr(module, qparam_name):
-                    delattr(module, qparam_name)
+            QuantizationMetadata.clear_quantization(module)
 
             for ar_param_name in AUTOROUND_QPARAM_NAMES:
                 if hasattr(module, ar_param_name):
