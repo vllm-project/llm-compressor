@@ -4,6 +4,7 @@ from typing import Dict, Optional, Tuple, Union
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
+from compressed_tensors.offload.dist_utils import is_source_process as is_src
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -28,8 +29,9 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import observe
+from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
 
@@ -236,9 +238,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.sync_obs_act_stats(state.model)
-            self.update_activation_qparams(state.model)
-            observe(self._num_samples.keys(), base_name="weight")
+            modules = self._num_samples.keys()
+            observe(modules, base_name="weight")
+            self.sync_obs_act_stats(modules)
+            update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
             self.compress_modules()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
