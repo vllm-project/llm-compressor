@@ -125,8 +125,6 @@ class TestLMEval:
         logger.info(
             f"Recovery threshold: {self.config.lmeval.recovery_threshold} (default: 0.95)"  # noqa: E501
         )
-        if self.config.lmeval.metrics:
-            logger.info("Absolute metrics provided - will show warnings if outside ±5%")
 
     def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model

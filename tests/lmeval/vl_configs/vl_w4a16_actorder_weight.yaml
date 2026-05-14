@@ -6,11 +6,12 @@ dataset_id: neuralmagic/calibration
 dataset_config: LLM
 dataset_split: "train[:512]"
 lmeval:
+  model: vllm-vlm
   dtype: bfloat16
   task: chartqa
   apply_chat_template: True
+  add_bos_token: False
   num_fewshot: 0
-  limit: 500
   # dense model achieves exact_match accuracy of 0.576
   # dense model achieves relaxed_accuracy of 0.780
   # dense model achieves anywhere_accuracy of 0.806
