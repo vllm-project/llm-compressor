@@ -238,8 +238,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = kwargs.get("modules", [])
-            observe(self._num_samples.keys(), base_name="weight")
+            modules = self._num_samples.keys()
+            observe(modules, base_name="weight")
             self.sync_obs_act_stats(modules)
             update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
             self.compress_modules()

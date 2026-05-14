@@ -78,7 +78,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = kwargs.get("modules", [])  # cur sequential chunk
+            parents = kwargs.get("modules", [])
+            modules = {m for parent in parents for m in parent.modules()}
             self.sync_obs_act_stats(modules)
             observe(modules, "weight")
             update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
