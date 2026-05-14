@@ -2,10 +2,10 @@
 
 An `Observer` in `llm-compressor` is a utility class responsible for analyzing weight and activation tensors during calibration. Observers work in two phases:
 
-1. **Observe**: accumulate statistics from tensors via `forward()` / `update_statistics()`. Most built-in observers accumulate `min_vals`/`max_vals`, but observers can track any statistics they need (e.g., `imatrix_mse` tracks `_imatrix_sum`/`_imatrix_count`).
-2. **Compute**: derive quantization parameters (`scale`, `zero_point`, and optionally `global_scale`) from accumulated statistics via `get_qparams()`, which calls `compute_qparams_from_statistics()`.
+1. **Observe**: accumulate statistics from tensors via `forward()` / `update_statistics_from_observed()`. Most built-in observers accumulate `min_vals`/`max_vals`, but observers can track any statistics they need (e.g., `imatrix_mse` tracks `_imatrix_sum`/`_imatrix_count`).
+2. **Compute**: derive quantization parameters (`scale`, `zero_point`, and optionally `global_scale`) from accumulated statistics via `get_qparams()`.
 
-The default `compute_qparams_from_statistics` passes `min_vals`/`max_vals` to `compressed-tensors` — specifically `calculate_qparams` for standard quantization and `generate_gparam` for FP4 global scales — to produce the final quantization parameters. Observers with custom statistics can override this method.
+The default `get_qparams` passes `min_vals`/`max_vals` to `compressed-tensors` — specifically `calculate_qparams` for standard quantization and `generate_gparam` for FP4 global scales — to produce the final quantization parameters. Observers with custom statistics can override this method.
 
 This two-phase design enables correct handling of fused layers (e.g., Q/K/V projections) that must share a `global_scale`: all observers accumulate statistics first, then `global_scale` is computed from the combined statistics of all fused observers.
 
@@ -14,11 +14,11 @@ Observers are designed to be flexible and support a variety of quantization stra
 ## Base Class
 
 ### [Observer](../../src/llmcompressor/observers/base.py)
-Base class for all observers. Subclasses must implement `update_statistics` to define how statistics are accumulated. Subclasses that use statistics other than `min_vals`/`max_vals` must also override `compute_qparams_from_statistics` and `has_statistics`.
+Base class for all observers. Subclasses must implement `update_statistics_from_observed` to define how statistics are accumulated. Subclasses that use statistics other than `min_vals`/`max_vals` must also override `get_qparams` and `has_statistics`.
 
 The base class handles:
 - Reshaping and slicing tensors according to the quantization strategy (group, channel, token, etc.) via `flatten_for_calibration`
-- Computing `scale` and `zero_point` from accumulated statistics via `compute_qparams_from_statistics` (default implementation uses `min_vals`/`max_vals` with `calculate_qparams` in `compressed-tensors`)
+- Computing `scale` and `zero_point` from accumulated statistics via `get_qparams` (default implementation uses `min_vals`/`max_vals` with `calculate_qparams` in `compressed-tensors`)
 - Computing `global_scale` for FP4 schemes (e.g., NVFP4, MXFP4) from the combined statistics of all fused observers via `generate_gparam` in `compressed-tensors`
 - Fusing observers across layer groups (Q/K/V, gate/up) via `Observer.fuse()` for shared `global_scale`
 - DDP synchronization of accumulated statistics via `sync_activation_stats()` using the declarative `_act_sync_dict`
@@ -30,9 +30,8 @@ This class is not used directly but provides the scaffolding for all custom obse
 | Method | Description |
 |--------|-------------|
 | `forward(observed)` | Accumulates statistics from the observed tensor. Returns `self` (for chaining). Does **not** compute qparams. |
-| `update_statistics(observed)` | Abstract. Subclasses implement this to accumulate statistics from a pre-shaped tensor. |
-| `compute_qparams_from_statistics()` | Converts accumulated statistics into a `QParamsDict`. Default implementation uses `min_vals`/`max_vals`. Override for custom statistics. |
-| `get_qparams()` | Calls `compute_qparams_from_statistics()` and returns a `QParamsDict` with keys `scale`, `zero_point`, and `global_scale`. |
+| `update_statistics_from_observed(observed)` | Abstract. Subclasses implement this to accumulate statistics from a pre-shaped tensor. |
+| `get_qparams()` | Converts accumulated statistics into a `QParamsDict` with keys `scale`, `zero_point`, and `global_scale`. Default implementation uses `min_vals`/`max_vals`. Override for custom statistics. |
 | `Observer.fuse(observers)` | Static method. Links observers so they share `global_scale` computed from combined statistics. |
 | `sync_activation_stats()` | All-reduces accumulated statistics across DDP ranks using `_act_sync_dict`. |
 | `has_statistics` | Property. Returns `True` if the observer has been called at least once. Default checks for `min_vals`; override for custom statistics. |
@@ -187,7 +186,7 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
 
-MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `compute_qparams_from_statistics()` from the final min/max values.
+MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `get_qparams()` from the final min/max values.
 
 ### IMatrix observer (`imatrix_mse`)
 

@@ -8,20 +8,20 @@ When a quantized layer runs a calibration forward pass, it passes the weight or 
 
 Observers work in two phases:
 
-1. **Observe**: `forward()` reshapes the tensor and calls `update_statistics()` to accumulate statistics
-2. **Compute**: `get_qparams()` calls `compute_qparams_from_statistics()` to produce a `QParamsDict`
+1. **Observe**: `forward()` reshapes the tensor and calls `update_statistics_from_observed()` to accumulate statistics
+2. **Compute**: `get_qparams()` converts accumulated statistics into a `QParamsDict`
 
 In situations that require a global scale (e.g., NVFP4) and for weights that require fusion of this global_scale (QKV, MoE), the observers are fused together so that they can jointly calculate a fused global_scale. This requires all fused observers have accumulated statistics.
 
-The base `Observer` class handles all slicing and reshaping for group-wise, channel-wise, and token-wise strategies before calling your subclass. Your subclass needs to define how statistics are accumulated and how those statistics are converted into quantization parameters.
+The base `Observer` class handles all slicing and reshaping for group-wise, channel-wise, and token-wise strategies before calling your subclass. Your subclass needs to define how statistics are accumulated. The base class `get_qparams()` handles converting `min_vals`/`max_vals` into quantization parameters.
 
 ## The Observer Contract
 
-All observers subclass `llmcompressor.observers.Observer`. At minimum, you must implement `update_statistics`. If your observer uses `min_vals`/`max_vals` as its statistics, the base class `compute_qparams_from_statistics` handles the rest. If your observer uses different statistics, you must also override `compute_qparams_from_statistics`.
+All observers subclass `llmcompressor.observers.Observer`. At minimum, you must implement `update_statistics_from_observed`. If your observer uses `min_vals`/`max_vals` as its statistics, the base class `get_qparams` handles the rest. If your observer uses different statistics, you must also override `get_qparams`.
 
 ### Simple case: min/max statistics
 
-Most observers accumulate `min_vals` and `max_vals`. In this case, you only need `update_statistics` — the base class default `compute_qparams_from_statistics` will pass your `min_vals`/`max_vals` to `calculate_qparams` and handle `global_scale` for TENSOR_GROUP automatically:
+Most observers accumulate `min_vals` and `max_vals`. In this case, you only need `update_statistics_from_observed` — the base class `get_qparams` will pass your `min_vals`/`max_vals` to `calculate_qparams` and handle `global_scale` for TENSOR_GROUP automatically:
 
 ```python
 import torch
@@ -32,7 +32,7 @@ class MyObserver(Observer):
 
     _act_sync_dict = {}
 
-    def update_statistics(self, observed: torch.Tensor) -> None:
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         """
         Update internal statistics from the observed tensor.
 
@@ -47,7 +47,7 @@ class MyObserver(Observer):
 
 ### Custom statistics
 
-If your observer uses statistics other than `min_vals`/`max_vals` (e.g., histograms, importance weights), you must also override `compute_qparams_from_statistics` to convert your statistics into a `QParamsDict`. You may also need to override `has_statistics` since the base class checks for `min_vals` by default:
+If your observer uses statistics other than `min_vals`/`max_vals` (e.g., histograms, importance weights), you must also override `get_qparams` to convert your statistics into a `QParamsDict`. You may also need to override `has_statistics` since the base class checks for `min_vals` by default:
 
 ```python
 from llmcompressor.observers.base import Observer, QParamsDict
@@ -59,7 +59,7 @@ class MyCustomObserver(Observer):
     def has_statistics(self) -> bool:
         return hasattr(self, "my_custom_stat")
 
-    def update_statistics(self, observed: torch.Tensor) -> None:
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         # Accumulate whatever statistics you need
         self.my_custom_stat = ...
         # Still set min_vals/max_vals if you want to use the base
@@ -67,7 +67,7 @@ class MyCustomObserver(Observer):
         self.min_vals = ...
         self.max_vals = ...
 
-    def compute_qparams_from_statistics(self) -> QParamsDict:
+    def get_qparams(self) -> QParamsDict:
         # Convert your custom statistics into scale/zero_point/global_scale
         ...
         return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
@@ -97,18 +97,19 @@ The `@Observer.register("my_observer")` decorator registers your observer under 
 
 ## How the Base Class Uses Your Statistics
 
-The default `compute_qparams_from_statistics` reads `min_vals`/`max_vals` and passes them to `calculate_qparams` from `compressed-tensors`:
+The default `get_qparams` reads `min_vals`/`max_vals` and passes them to `calculate_qparams` from `compressed-tensors`:
 
 ```python
-# Inside Observer.compute_qparams_from_statistics (simplified):
+# Inside Observer.get_qparams (simplified):
 
 # For TENSOR_GROUP: compute global_scale from this observer
 # and all fused observers' min_vals/max_vals
 global_scale = None
 if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
-    global_absmax = max(-self.min_vals.min(), self.max_vals.max())
+    global_absmax = torch.max(-self.min_vals.min(), self.max_vals.max())
     for obs in self._fused_observers:
-        global_absmax = max(global_absmax, -obs.min_vals.min(), obs.max_vals.max())
+        global_absmax = torch.max(global_absmax, -obs.min_vals.min())
+        global_absmax = torch.max(global_absmax, obs.max_vals.max())
     global_scale = generate_gparam(-global_absmax, global_absmax)
 
 scale, zero_point = calculate_qparams(
@@ -122,11 +123,11 @@ return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
 
 `calculate_qparams` handles the actual scale and zero point computation — symmetric vs asymmetric quantization, dtype clamping, MX scale generation, and so on. Your observer controls what statistics are accumulated and how they map to quantization parameters.
 
-If you override `compute_qparams_from_statistics` and your observer supports TENSOR_GROUP, you are responsible for computing `global_scale` from the fused observers yourself (see `self._fused_observers`).
+If you override `get_qparams` and your observer supports TENSOR_GROUP, you are responsible for computing `global_scale` from the fused observers yourself (see `self._fused_observers`).
 
 ## Stateful Observers
 
-Some observers accumulate statistics across multiple calibration batches. To do this, check for existing state in `update_statistics`:
+Some observers accumulate statistics across multiple calibration batches. To do this, check for existing state in `update_statistics_from_observed`:
 
 ```python
 @Observer.register("my_observer")
@@ -137,7 +138,7 @@ class MyObserver(Observer):
         "max_vals": dist.ReduceOp.MAX,
     }
 
-    def update_statistics(self, observed: torch.Tensor) -> None:
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         min_vals = torch.amin(observed, dim=(0, -1))
         max_vals = torch.amax(observed, dim=(0, -1))
 
@@ -168,7 +169,7 @@ class PercentileObserver(Observer):
 
     _act_sync_dict = {}
 
-    def update_statistics(self, observed: torch.Tensor) -> None:
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         percentile = self.args.observer_kwargs.get("percentile", 99.9)
         lower = 100.0 - percentile
         upper = percentile
@@ -234,10 +235,10 @@ quantization_stage:
 
 ## Tips
 
-- **Implement `update_statistics` and optionally `compute_qparams_from_statistics`.** If your statistics are `min_vals`/`max_vals`, the base class default handles the conversion to `scale`, `zero_point`, and `global_scale`. If you use different statistics, override `compute_qparams_from_statistics` (and `has_statistics`) as well.
-- **`update_statistics` receives a pre-shaped tensor.** The base class has already sliced the input according to `QuantizationArgs.strategy` (group, channel, token, etc.). You do not need to handle reshaping yourself.
-- **`global_scale` is handled automatically for min/max observers.** For TENSOR_GROUP strategies, the default `compute_qparams_from_statistics()` computes `global_scale` from the combined statistics of all fused observers. If you override `compute_qparams_from_statistics`, you must handle fused `global_scale` yourself.
+- **Implement `update_statistics_from_observed` and optionally `get_qparams`.** If your statistics are `min_vals`/`max_vals`, the base class `get_qparams` handles the conversion to `scale`, `zero_point`, and `global_scale`. If you use different statistics, override `get_qparams` (and `has_statistics`) as well.
+- **`update_statistics_from_observed` receives a pre-shaped tensor.** The base class has already sliced the input according to `QuantizationArgs.strategy` (group, channel, token, etc.). You do not need to handle reshaping yourself.
+- **`global_scale` is handled automatically for min/max observers.** For TENSOR_GROUP strategies, the default `get_qparams()` computes `global_scale` from the combined statistics of all fused observers. If you override `get_qparams`, you must handle fused `global_scale` yourself.
 - **Set `_act_sync_dict` correctly.** Every observer must declare this. If your observer accumulates state across batches, map each statistic attribute to its reduce operation. Memoryless observers should set `_act_sync_dict = {}`.
 - **`observer_kwargs` is the right place for hyperparameters.** Access them via `self.args.observer_kwargs.get(...)`.
-- **Match the shape contract for min/max observers.** If using the default `compute_qparams_from_statistics`, set `self.min_vals` and `self.max_vals` to tensors of shape `(*qparam_shape,)` — one scalar per quantization group/channel/token.
+- **Match the shape contract for min/max observers.** If using the default `get_qparams`, set `self.min_vals` and `self.max_vals` to tensors of shape `(*qparam_shape,)` — one scalar per quantization group/channel/token.
 - **Existing observers are good references.** See `min_max.py` for a simple stateless min/max example, `mse.py` for a stateful one, and `imatrix.py` for an observer that uses custom statistics beyond min/max.
