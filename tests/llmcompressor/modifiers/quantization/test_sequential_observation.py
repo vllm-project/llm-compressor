@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
@@ -10,6 +11,14 @@ from torch import nn
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.quantization.calibration import initialize_observer
+
+
+class _FakeDecoderLayer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.q_proj = nn.Linear(64, 64)
+        self.k_proj = nn.Linear(64, 64)
+        self.v_proj = nn.Linear(64, 64)
 
 
 def test_sequential_epoch_end_only_observes_passed_modules():
@@ -100,3 +109,38 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
         assert sync_mock0.call_count == 1
         assert sync_mock1.call_count == 1
         assert sync_mock2.call_count == 1
+
+
+def test_nested_parent_modules_produce_valid_global_scale():
+    """When SEQUENTIAL_EPOCH_END receives parent modules (as the pipeline does),
+    child Linear layers must get finite, positive global_scale values —
+    not uninitialized torch.empty garbage."""
+    model = nn.Sequential(_FakeDecoderLayer())
+    tg = QuantizationArgs(
+        num_bits=4, type="float", symmetric=True, group_size=16, strategy="tensor_group"
+    )
+    scheme = QuantizationScheme(
+        targets=[], weights=tg,
+        input_activations=QuantizationArgs(**{**tg.model_dump(), "dynamic": "local"}),
+    )
+    for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):
+        initialize_module_for_quantization(child, scheme)
+
+    modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
+    state = State(model=model)
+    modifier.on_initialize(state)
+    modifier.on_start(state, None)
+
+    for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):
+        child.weight_observer(child.weight)
+        child.input_observer(torch.randn(2, 64))
+
+    modifier.on_event(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=[model[0]],
+    )
+
+    for name, param in model.named_parameters():
+        if "global_scale" in name:
+            assert torch.isfinite(param).all() and param.item() > 0, (
+                f"{name} not valid: {param.item()}"
+            )
