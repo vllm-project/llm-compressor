@@ -47,29 +47,54 @@ class MyObserver(Observer):
 
 ### Custom statistics
 
-If your observer uses statistics other than `min_vals`/`max_vals` (e.g., histograms, importance weights), you must also override `get_qparams` to convert your statistics into a `QParamsDict`. You may also need to override `has_statistics` since the base class checks for `min_vals` by default:
+If your observer uses statistics other than `min_vals`/`max_vals` (e.g., mean/std, histograms), you must also override `get_qparams` to convert your statistics into a `QParamsDict`. You may also need to override `has_statistics` since the base class checks for `min_vals` by default.
+
+The following example tracks mean and standard deviation, then derives min/max as mean ± k·std to clip outliers before computing quantization parameters:
 
 ```python
+import torch
+from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from llmcompressor.observers.base import Observer, QParamsDict
 
-@Observer.register("my_custom_observer")
-class MyCustomObserver(Observer):
+@Observer.register("normal_observer")
+class NormalObserver(Observer):
+    """
+    Derives quantization range from mean ± k·std of the observed tensor.
+    Configure k via observer_kwargs (default: 2.0).
+    """
+
+    _act_sync_dict = {}
 
     @property
     def has_statistics(self) -> bool:
-        return hasattr(self, "my_custom_stat")
+        return hasattr(self, "_mean") and hasattr(self, "_std")
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
-        # Accumulate whatever statistics you need
-        self.my_custom_stat = ...
-        # Still set min_vals/max_vals if you want to use the base
-        # class global_scale logic, or compute global_scale yourself
-        self.min_vals = ...
-        self.max_vals = ...
+        self._mean = observed.mean(dim=(0, -1))
+        self._std = observed.std(dim=(0, -1))
 
     def get_qparams(self) -> QParamsDict:
-        # Convert your custom statistics into scale/zero_point/global_scale
-        ...
+        k = self.args.observer_kwargs.get("k", 2.0)
+        min_vals = self._mean - k * self._std
+        max_vals = self._mean + k * self._std
+
+        global_scale = None
+        if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            global_absmax = torch.max(-min_vals.min(), max_vals.max())
+            for obs in self._fused_observers:
+                assert obs.has_statistics
+                global_absmax = torch.max(global_absmax, obs._mean.abs().max())
+            global_scale = generate_gparam(
+                -global_absmax.reshape(1), global_absmax.reshape(1)
+            )
+
+        scale, zero_point = calculate_qparams(
+            min_vals=min_vals,
+            max_vals=max_vals,
+            quantization_args=self.args,
+            global_scale=global_scale,
+        )
         return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
 ```
 
