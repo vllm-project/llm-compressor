@@ -8,7 +8,7 @@ When a quantized layer runs a calibration forward pass, it passes the weight or 
 
 Observers do **not** compute scales or zero points directly — that responsibility belongs to `compressed-tensors`. The observer's only job is to characterize the tensor's range via min and max values.
 
-For schemes that require a global scale (e.g., NVFP4, MXFP4), the observer's `get_global_min_max` output is similarly passed to `compressed_tensors.quantization.utils.generate_gparam`, which generates the global scale used to keep per-group local scales within a target dtype range (e.g., FP8 for NVFP4 group scales).
+For schemes that require a global scale (e.g., NVFP4), the observer's `get_global_min_max` output is similarly passed to `compressed_tensors.quantization.utils.generate_gparam`, which generates the global scale used to keep per-group local scales within a target dtype range (e.g., FP8 for NVFP4 group scales).
 
 The base `Observer` class handles all slicing and reshaping for group-wise, channel-wise, and token-wise strategies before calling your subclass. Your subclass only needs to answer: **given this pre-shaped tensor, what are the min and max values?**
 
@@ -206,7 +206,7 @@ quantization_stage:
 
 - **Observers return min/max, not scale/zero_point.** The conversion from min/max → scale/zero_point is handled by `calculate_qparams` in `compressed-tensors`. Focus your implementation on accurately characterizing the tensor range.
 - **`get_min_max` receives a pre-shaped tensor.** The base class has already sliced the input according to `QuantizationArgs.strategy` (group, channel, token, etc.). You do not need to handle reshaping yourself.
-- **`get_global_min_max` is only used for FP4 schemes** (NVFP4, MXFP4) that require a global scale. For standard int8/fp8 quantization, the base class will not call it.
+- **`get_global_min_max` is only used for NVFP4**, which requires a global scale. For standard int4/int8/fp8 quantization and MX formats (MXFP4, MXFP8), the base class will not call it.
 - **`observer_kwargs` is the right place for hyperparameters.** Access them via `self.args.observer_kwargs.get(...)`.
 - **Match the shape contract.** `get_min_max` must return tensors of shape `(*qparam_shape,)` — one scalar per quantization group/channel/token. `get_global_min_max` must return shape `(1,)`.
 - **Existing observers are good references.** See `min_max.py` for a simple stateless example and `mse.py` for a more complex stateful one.
