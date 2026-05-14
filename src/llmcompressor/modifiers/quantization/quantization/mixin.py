@@ -9,9 +9,6 @@ from compressed_tensors.modeling import (
 from compressed_tensors.offload.dist_utils import (
     is_distributed,
 )
-from compressed_tensors.offload.dist_utils import (
-    is_source_process as is_src,
-)
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -40,7 +37,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     freeze_module_quantization,
     initialize_observer,
     reset_quantization_status,
-    update_qparams,
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
@@ -272,26 +268,7 @@ class QuantizationMixin(HooksMixin):
 
         model.apply(enable_quantization)  # keep quantization enabled
 
-    def update_activation_qparams(
-        self, model: torch.nn.Module | Iterator[torch.nn.Module]
-    ):
-        """
-        Compute and store quantization parameters for all activation observers
-        (input, output, q, k, v) from accumulated statistics.
-
-        :param model: model containing quantized modules, or iterable
-            of modules to update (e.g., from a sequential chunk)
-        """
-        if isinstance(model, torch.nn.Module):
-            tmp = match_named_modules(model, self.resolved_targets, self.ignore)
-            modules = set([m for _, m in tmp])
-        else:
-            modules = set(model)
-
-        for base_name in ("input", "output", "q", "k", "v"):
-            update_qparams(modules, base_name, only_update_onload=not is_src())
-
-    def sync_obs_act_stats(self, model: torch.nn.Module | Iterator[torch.nn.Module]):
+    def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
         Synchronize the activation statistics for observers
         across DDP ranks. Iterates all observers
@@ -300,20 +277,13 @@ class QuantizationMixin(HooksMixin):
         most weight observers don't have activation
         statistics and thus are no-ops as well.
 
-        :param model: model containing quantized modules, or iterable
-            of modules to sync (e.g., from a sequential chunk)
+        :param modules: iterable of modules to sync (e.g., from a sequential chunk)
         """
         if not is_distributed():
             return
 
-        if isinstance(model, torch.nn.Module):
-            tmp = match_named_modules(model, self.resolved_targets, self.ignore)
-            module = set([m for _, m in tmp])
-        else:
-            modules = set(model)
-
         pending_comms = []
-        for module in modules:
+        for module in set(modules):
             for base_name in ("weight", "input", "output", "q", "k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:

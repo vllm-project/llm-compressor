@@ -7,6 +7,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
+from llmcompressor.observers import ACTIVATION_OBS
 
 __all__ = ["QuantizationModifier"]
 
@@ -79,9 +80,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             modules = kwargs.get("modules", [])  # cur sequential chunk
             self.sync_obs_act_stats(modules)
-            self.update_activation_qparams(modules)
             observe(modules, "weight")
-            update_qparams(modules, "weight", only_update_onload=not is_src())
+            update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
