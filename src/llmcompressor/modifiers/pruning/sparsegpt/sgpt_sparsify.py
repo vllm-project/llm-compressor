@@ -30,21 +30,9 @@ def accumulate_hessian(
     num_added = inp.shape[0]  # note this is the number of dataset samples, not
     # multiplied by the sequence length
 
-    match module:
-        case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
-        case torch.nn.Conv2d():
-            unfold = torch.nn.Unfold(
-                module.kernel_size,
-                dilation=module.dilation,
-                padding=module.padding,
-                stride=module.stride,
-            )
-            inp = unfold(inp)
-            inp = inp.permute([1, 0, 2])
-            inp = inp.flatten(1)
+    if len(inp.shape) == 3:
+        inp = inp.reshape((-1, inp.shape[-1]))
+    inp = inp.t()
 
     H *= num_samples / (num_samples + num_added)
     num_samples += num_added

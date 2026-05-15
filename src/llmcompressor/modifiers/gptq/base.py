@@ -287,8 +287,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Fetch hessian (onloads to original device automatically)
         hessian, count = self._hessians_cache.fetch_no_onload(module)
-        new_hessian, new_count = calculate_hessian(inp, module)
-        hessian += new_hessian.to(hessian.device)
+        new_hessian, new_count = calculate_hessian(inp, hessian.device)
+        hessian += new_hessian
         count += new_count
         self._hessians_cache.update(module, [hessian, count], device)
 

@@ -2,7 +2,6 @@ import math
 from copy import copy
 
 import torch
-import transformers
 from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
@@ -30,36 +29,27 @@ def make_empty_hessian(
 
 def calculate_hessian(
     inp: torch.Tensor,
-    module: torch.nn.Module,
+    device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    # Move input to target device before any computation to avoid device mismatch
+    inp = inp.to(device=device)
+
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
     num_added = inp.shape[0]
 
-    match module:
-        case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
-        case torch.nn.Conv2d():
-            unfold = torch.nn.Unfold(
-                module.kernel_size,
-                dilation=module.dilation,
-                padding=module.padding,
-                stride=module.stride,
-            )
-            inp = unfold(inp)
-            inp = inp.permute([1, 0, 2])
-            inp = inp.flatten(1)
+    if len(inp.shape) == 3:
+        inp = inp.reshape((-1, inp.shape[-1]))
+    inp = inp.t()
 
-    num_samples = num_added
+    count = num_added
 
     inp = inp.to(dtype=GPTQ_PRECISION)
     inp = math.sqrt(2) * inp
     H = inp.matmul(inp.t())
 
-    return H, num_samples
+    return H, torch.tensor(count, device=device)
 
 
 def quantize_weight(
