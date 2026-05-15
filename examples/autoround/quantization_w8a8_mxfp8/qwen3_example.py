@@ -8,13 +8,14 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Select model and load it.
-model_id = "Qwen/Qwen3-8B"
+model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = 1024
 # Get aligned calibration dataset.
 
 ds = get_dataset(
@@ -41,6 +42,10 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
+    # For this recipe (128 samples, 200 iters), expert routing coverage is
+    # sufficient in practice. Enabling all experts can OOM on a single 80GB GPU,
+    # so keep this False for the single-GPU example path.
+    moe_calibrate_all_experts=False,
 )
 
 # Confirm generations of the quantized model look sane.
