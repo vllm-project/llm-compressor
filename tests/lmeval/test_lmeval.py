@@ -1,8 +1,10 @@
+import gc
 import json
 import os
 import random
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional, Union
 
@@ -136,6 +138,12 @@ class TestLMEval:
         base_results = self._eval_base_model()
         print("BASE RESULTS", base_results)
 
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        # Give GPU time to fully release memory
+        time.sleep(2)
+
         oneshot_model, processor = run_oneshot_for_e2e_testing(
             model=self.config.model,
             model_class=self.config.model_class,
@@ -153,6 +161,13 @@ class TestLMEval:
         self._save_compressed_model(oneshot_model, processor)
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        # Give GPU time to fully release memory
+        time.sleep(2)
+
         compressed_results = self._eval_compressed_model()
         print("COMPRESSED RESULTS", compressed_results)
 
@@ -236,7 +251,7 @@ class TestLMEval:
 
             recovery = compressed_val / base_val
             # Check threshold - rounds to the nearest percent - 0.94567 -> 0.95
-            recovery = (torch.round(torch.tensor(recovery) * 100) / 100).item()
+            recovery = round(recovery, 2)
             passed = recovery >= threshold
 
             msg = (
