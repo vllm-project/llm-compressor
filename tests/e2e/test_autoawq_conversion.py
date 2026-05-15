@@ -46,7 +46,7 @@ def test_autoawq_to_compressed_tensors(tmp_path: Path) -> None:
         max_model_len=64,
         enforce_eager=True,  # skip torch.compile + CUDA graphs to speed up test
     )
-    outputs = llm.generate([PROMPT], SamplingParams(temperature=0.0, max_tokens=16))
+    outputs = llm.generate([PROMPT], SamplingParams(temperature=0.0))
     generated_text = outputs[0].outputs[0].text
 
     print(f"PROMPT: {PROMPT}")
