@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from auto_round.calib_dataset import get_dataset
@@ -8,7 +9,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Select model and load it.
-model_id = "Qwen/Qwen3-8B"
+model_id = sys.argv[1] if len(sys.argv) > 1 else "Qwen/Qwen3-8B"
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 

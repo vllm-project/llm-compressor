@@ -70,7 +70,8 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
 | `W8A8-FP8` Block    | [llama3.1_example](./quantization_w8a8_fp8/llama3.1_block_quant_example.py) |                                     |
 | `NVFP4`  | [llama3.1_example](./quantization_w4a4_fp4/llama3.1_example.py)  |                                       |
-| `MXFP4`  | [qwen3_example](../quantization_w4a4_mxfp4/autoround_qwen3_example.py)  |                                       |
+| `MXFP4`  | [example](./quantization_w4a4_mxfp4/autoround_example.py)  |  Usage: python autoround_example.py ${model_id}  |
+| `MXFP8`  | [example](./quantization_w8a8_mxfp8/autoround_example.py)  |  Usage: python autoround_example.py ${model_id}  |
 
 
 ### Known Issues

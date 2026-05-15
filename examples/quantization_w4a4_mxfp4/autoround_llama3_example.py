@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from auto_round.calib_dataset import get_dataset
@@ -8,7 +9,8 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Select model and load it.
-model_id = "Qwen/Qwen3-8B"
+# 
+model_id = sys.argv[1] if len(sys.argv) > 1 else "Qwen/Qwen3-8B"
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -24,10 +26,10 @@ ds = get_dataset(
 )
 
 # Configure the quantization algorithm to run.
-#   * quantize the model to W8A8-MXFP8 with AutoRound
+#   * quantize the model to W4A4-MXFP4 with AutoRound
 recipe = AutoRoundModifier(
     targets="Linear",
-    scheme="MXFP8",
+    scheme="MXFP4",
     ignore=["lm_head"],
     iters=200,
 )
@@ -54,6 +56,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = Path(model_id).name + "-W8A8-MXFP8-AutoRound"
+SAVE_DIR = Path(model_id).name + "-W4A4-MXFP4-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
