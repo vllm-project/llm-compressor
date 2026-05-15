@@ -9,10 +9,7 @@ lmeval:
   apply_chat_template: True
   add_bos_token: False
   num_fewshot: 0
-  # dense model achieves exact_match accuracy of 0.576
-  # dense model achieves relaxed_accuracy of 0.780
-  # dense model achieves anywhere_accuracy of 0.806
   metrics:
-    exact_match,none: 0.596
-    relaxed_accuracy,none: 0.784
-    anywhere_accuracy,none: 0.810
+    exact_match,none: 0.53
+    relaxed_accuracy,none: 0.75
+    anywhere_accuracy,none: 0.80
