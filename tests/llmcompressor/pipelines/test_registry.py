@@ -22,6 +22,14 @@ from llmcompressor.pipelines import (
     [
         ([QuantizationModifier(scheme="FP8")], SequentialPipeline),
         ([QuantizationModifier(scheme="W4A16")], DataFreePipeline),
+        (
+            [QuantizationModifier(scheme="W4A16", weight_observer="imatrix_mse")],
+            SequentialPipeline,
+        ),
+        (
+            [QuantizationModifier(scheme="W4A16", observer={"weights": "imatrix_mse"})],
+            SequentialPipeline,
+        ),
         ([GPTQModifier(scheme="FP8")], SequentialPipeline),
         ([GPTQModifier(scheme="W4A16")], SequentialPipeline),
         ([SmoothQuantModifier(), GPTQModifier(scheme="W4A16")], SequentialPipeline),
