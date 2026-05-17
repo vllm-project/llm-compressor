@@ -9,23 +9,28 @@ from llmcompressor.observers.base import Observer
 # ---------------------------------------------------------------------------
 
 
-def _set_importance(module, importance):
+def _set_importance(observer, importance):
     """Set raw imatrix accumulators so that importance = sum / count."""
-    module._imatrix_sum = importance.clone()
-    module._imatrix_count = torch.tensor(1, dtype=torch.int64)
+    observer._imatrix_sum = importance.clone()
+    observer._imatrix_count = torch.tensor(1, dtype=torch.int64)
 
 
-def _make_linear_with_importance(in_features=8, out_features=4, seed=42):
-    """Create a Linear module with non-uniform imatrix importance."""
+def _make_linear(in_features=8, out_features=4, seed=42):
+    """Create a Linear module."""
     torch.manual_seed(seed)
-    module = torch.nn.Linear(in_features, out_features)
+    return torch.nn.Linear(in_features, out_features)
+
+
+def _make_importance(in_features=8):
+    """Create non-uniform imatrix importance."""
     importance = torch.ones(in_features)
     importance[: in_features // 2] = 10.0
-    _set_importance(module, importance)
-    return module
+    return importance
 
 
-def _make_observer(module, strategy="channel", group_size=None, **kwargs):
+def _make_observer(
+    module, strategy="channel", group_size=None, importance=None, **kwargs
+):
     """Create an imatrix_mse observer and attach it to the module."""
     args = QuantizationArgs(
         num_bits=4,
@@ -37,7 +42,46 @@ def _make_observer(module, strategy="channel", group_size=None, **kwargs):
     )
     observer = Observer.load_from_registry("imatrix_mse", base_name="weight", args=args)
     observer.attach(module)
+    if importance is not None:
+        _set_importance(observer, importance)
     return observer
+
+
+# ---------------------------------------------------------------------------
+# Activation collection lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestActivationCollection:
+    def test_attach_collects_importance_on_observer(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(module, strategy="channel")
+
+        x = torch.ones(2, 3, 8)
+        x[..., 0] = 2.0
+        module(x)
+
+        assert observer._imatrix_count.item() == 6
+        assert torch.allclose(
+            observer._imatrix_sum,
+            torch.tensor([24.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]),
+        )
+        assert not hasattr(module, "_imatrix_sum")
+        assert not hasattr(module, "_imatrix_count")
+        assert not hasattr(module, "_imatrix_hook")
+
+    def test_detach_stops_collection(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(module, strategy="channel")
+
+        module(torch.ones(2, 3, 8))
+        before = observer._imatrix_sum.clone()
+
+        observer.detach(module)
+        module(torch.full((2, 3, 8), 100.0))
+
+        assert torch.equal(observer._imatrix_sum, before)
+        assert observer._imatrix_hook is None
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +94,7 @@ class TestGlobalMinMaxTensorGroup:
 
     def test_global_scale_tensor_group_does_not_crash(self):
         """get_global_scale must complete without error on TENSOR_GROUP."""
-        module = _make_linear_with_importance(in_features=8, out_features=4)
+        module = _make_linear(in_features=8, out_features=4)
         args = QuantizationArgs(
             num_bits=4,
             symmetric=True,
@@ -62,6 +106,7 @@ class TestGlobalMinMaxTensorGroup:
             "imatrix_mse", base_name="weight", args=args
         )
         observer.attach(module)
+        _set_importance(observer, _make_importance(in_features=8))
 
         global_scale = observer(module.weight).get_qparams()["global_scale"]
         assert global_scale is not None
@@ -70,7 +115,7 @@ class TestGlobalMinMaxTensorGroup:
 
     def test_global_scale_then_forward_tensor_group(self):
         """Full flow: global_scale -> forward must produce valid qparams."""
-        module = _make_linear_with_importance(in_features=8, out_features=4)
+        module = _make_linear(in_features=8, out_features=4)
         args = QuantizationArgs(
             num_bits=4,
             symmetric=True,
@@ -82,6 +127,7 @@ class TestGlobalMinMaxTensorGroup:
             "imatrix_mse", base_name="weight", args=args
         )
         observer.attach(module)
+        _set_importance(observer, _make_importance(in_features=8))
 
         qparams = observer(module.weight).get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
@@ -96,26 +142,38 @@ class TestBasicFunctionality:
     """Sanity checks for the happy path."""
 
     def test_channel_strategy(self):
-        module = _make_linear_with_importance(in_features=8, out_features=4)
-        observer = _make_observer(module, strategy="channel")
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(
+            module, strategy="channel", importance=_make_importance(in_features=8)
+        )
         qparams = observer(module.weight).get_qparams()
         assert qparams["scale"].shape == (4, 1)
         assert torch.isfinite(qparams["scale"]).all()
 
     def test_group_strategy(self):
-        module = _make_linear_with_importance(in_features=8, out_features=4)
-        observer = _make_observer(module, strategy="group", group_size=4)
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(
+            module,
+            strategy="group",
+            group_size=4,
+            importance=_make_importance(in_features=8),
+        )
         qparams = observer(module.weight).get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
 
     def test_tensor_group_strategy(self):
-        module = _make_linear_with_importance(in_features=8, out_features=4)
-        observer = _make_observer(module, strategy="tensor_group", group_size=4)
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(
+            module,
+            strategy="tensor_group",
+            group_size=4,
+            importance=_make_importance(in_features=8),
+        )
         qparams = observer(module.weight).get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
 
     def test_block_strategy(self):
-        module = _make_linear_with_importance(in_features=8, out_features=4)
+        module = _make_linear(in_features=8, out_features=4)
         args = QuantizationArgs(
             num_bits=4,
             symmetric=True,
@@ -127,6 +185,7 @@ class TestBasicFunctionality:
             "imatrix_mse", base_name="weight", args=args
         )
         observer.attach(module)
+        _set_importance(observer, _make_importance(in_features=8))
         qparams = observer(module.weight).get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
 
@@ -148,9 +207,8 @@ class TestBasicFunctionality:
         importance = torch.tensor(
             [1000.0, 1000.0, 1000.0, 1000.0, 0.01, 0.01, 0.01, 0.01]
         )
-        _set_importance(module_weighted, importance)
-
         obs_w = _make_observer(module_weighted, strategy="channel")
+        _set_importance(obs_w, importance)
         obs_u = _make_observer(module_uniform, strategy="channel")
 
         scale_w = obs_w(module_weighted.weight).get_qparams()["scale"]
@@ -167,7 +225,6 @@ class TestBasicFunctionality:
         module_mse = torch.nn.Linear(8, 4)
         module_mse.weight.data.copy_(module_imatrix.weight.data)
         module_mse.bias.data.copy_(module_imatrix.bias.data)
-        _set_importance(module_imatrix, torch.ones(8))
 
         args_uniform = QuantizationArgs(
             num_bits=4,
@@ -177,7 +234,11 @@ class TestBasicFunctionality:
             observer_kwargs={"grid": 20},
         )
         obs_imatrix = _make_observer(
-            module_imatrix, strategy="channel", norm=2.4, maxshrink=0.20
+            module_imatrix,
+            strategy="channel",
+            importance=torch.ones(8),
+            norm=2.4,
+            maxshrink=0.20,
         )
         obs_uniform = Observer.load_from_registry(
             "memoryless_mse", base_name="weight", args=args_uniform
@@ -248,8 +309,9 @@ class TestValidation:
 
     def test_strict_raises_on_wrong_size(self):
         module = torch.nn.Linear(8, 4)
-        _set_importance(module, torch.ones(5))  # wrong size
-        observer = _make_observer(module, strategy="channel", strict=True)
+        observer = _make_observer(
+            module, strategy="channel", importance=torch.ones(5), strict=True
+        )
         with pytest.raises(ValueError, match="size mismatch"):
             observer(module.weight).get_qparams()
 
@@ -266,8 +328,9 @@ class TestValidation:
     )
     def test_strict_raises_on_invalid_importance_values(self, importance, match):
         module = torch.nn.Linear(8, 4)
-        _set_importance(module, importance)
-        observer = _make_observer(module, strategy="channel", strict=True)
+        observer = _make_observer(
+            module, strategy="channel", importance=importance, strict=True
+        )
         with pytest.raises(ValueError, match=match):
             observer(module.weight).get_qparams()
 
@@ -284,7 +347,6 @@ class TestValidation:
         module_mse = torch.nn.Linear(8, 4)
         module_mse.weight.data.copy_(module_imatrix.weight.data)
         module_mse.bias.data.copy_(module_imatrix.bias.data)
-        _set_importance(module_imatrix, importance)
 
         args_uniform = QuantizationArgs(
             num_bits=4,
@@ -293,7 +355,9 @@ class TestValidation:
             observer="memoryless_mse",
             observer_kwargs={"grid": 20},
         )
-        obs_imatrix = _make_observer(module_imatrix, strategy="channel", strict=False)
+        obs_imatrix = _make_observer(
+            module_imatrix, strategy="channel", importance=importance, strict=False
+        )
         obs_uniform = Observer.load_from_registry(
             "memoryless_mse", base_name="weight", args=args_uniform
         )
@@ -306,12 +370,12 @@ class TestValidation:
 
     @pytest.mark.parametrize("norm", [0, -1, float("inf"), float("nan")])
     def test_invalid_norm_raises(self, norm):
-        module = _make_linear_with_importance()
+        module = _make_linear()
         with pytest.raises(ValueError, match="norm must be a finite positive number"):
             _make_observer(module, strategy="channel", norm=norm)
 
     def test_strict_raises_on_tensor_strategy(self):
-        module = _make_linear_with_importance()
+        module = _make_linear()
         args = QuantizationArgs(
             num_bits=4,
             symmetric=True,
