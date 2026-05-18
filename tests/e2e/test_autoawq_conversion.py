@@ -12,16 +12,18 @@ Takes ~25s on a single A100-80GB.
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 from compressed_tensors.entrypoints.convert import convert_checkpoint
 from compressed_tensors.entrypoints.convert.converters import AutoAWQConverter
-from vllm import LLM, SamplingParams
 
 from tests.testing_utils import requires_cadence, requires_gpu
 
-# vLLM spawns engine in a subprocess; fork fails if CUDA is already initialized
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+
+VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct-AWQ"
 PROMPT = "The capital of France is"
@@ -41,17 +43,37 @@ def test_autoawq_to_compressed_tensors(tmp_path: Path) -> None:
         config = json.load(f)
     assert config["quantization_config"]["quant_method"] == "compressed-tensors"
 
-    llm = LLM(
-        model=str(convert_outdir),
-        max_model_len=64,
-        enforce_eager=True,  # skip torch.compile + CUDA graphs to speed up test
-    )
-    outputs = llm.generate([PROMPT], SamplingParams(temperature=0.0))
-    generated_text = outputs[0].outputs[0].text
+    llm_kwargs = {
+        "model": str(convert_outdir),
+        "max_model_len": 64,
+        "enforce_eager": True,
+    }
 
-    print(f"PROMPT: {PROMPT}")
-    print(f"GENERATED: {generated_text}")
+    run_vllm_path = str(Path(__file__).parent / "run_vllm.py")
+    vllm_env = sys.executable if VLLM_PYTHON_ENV.lower() == "same" else VLLM_PYTHON_ENV
+
+    env = os.environ.copy()
+    venv_bin = os.path.dirname(vllm_env)
+    env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+
+    result = subprocess.run(
+        [
+            vllm_env,
+            run_vllm_path,
+            json.dumps(None),
+            json.dumps(llm_kwargs),
+            json.dumps([PROMPT]),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    print(result.stdout)
 
     assert (
-        "Paris" in generated_text
-    ), f"Expected 'Paris' in generated output, got: {generated_text}"
+        result.returncode == 0
+    ), f"vLLM failed with exit code {result.returncode}:\n{result.stderr}"
+    assert (
+        "Paris" in result.stdout
+    ), f"Expected 'Paris' in generated output:\n{result.stdout}"
