@@ -199,12 +199,8 @@ class PercentileObserver(Observer):
         lower = 100.0 - percentile
         upper = percentile
 
-        # observed: (num_observations, *qparam_shape, group_size) after flatten_for_calibration
-        # merge num_observations and group_size so quantile reduces over the same dims as
-        # torch.amin/amax(observed, dim=(0, -1)) in a normal observer
-        flat = observed.movedim(0, -2).flatten(-2)  # (*qparam_shape, num_obs * group_size)
-        self.min_vals = torch.quantile(flat, lower / 100.0, dim=-1)
-        self.max_vals = torch.quantile(flat, upper / 100.0, dim=-1)
+        self.min_vals = torch.quantile(observed, lower / 100.0, dim=(0, -1))
+        self.max_vals = torch.quantile(observed, upper / 100.0, dim=(0, -1))
 ```
 
 ### Using the Observer in a Recipe
