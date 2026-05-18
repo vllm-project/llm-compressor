@@ -6,6 +6,7 @@ import torch.nn as nn
 from auto_round import AutoRound
 from auto_round.schemes import PRESET_SCHEMES as AR_PRESET_SCHEMES
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
+from auto_round.utils import check_to_quantized
 from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.offload import get_execution_device, get_offloaded_device
 from compressed_tensors.offload.module import offload_module, remove_module_offload
@@ -404,7 +405,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     if name not in llmc_registered_qparams:
                         llmc_registered_qparams[name] = {}
                     llmc_registered_qparams[name][key] = getattr(module, key).clone()
-                    delattr(module, key)
+            QuantizationMetadata.clear_all_qparams(module)
         return llmc_registered_qparams
 
     def _postprocess_qparams(
@@ -420,8 +421,38 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "weight_global_scale": "weight_global_scale",
             "act_max": "input_global_scale",
         }
+
+        AUTOROUND_QPARAM_NAMES = (
+            "scale",
+            "act_scale",
+            "weight_global_scale",
+            "act_max",
+        )
+
+        def _clear_layer_quantization_metadata(module: torch.nn.Module) -> bool:
+            """Clear LLMC and AutoRound quantization metadata from a module."""
+            cleared_scheme = False
+            if hasattr(module, "quantization_scheme"):
+                cleared_scheme = True
+
+            QuantizationMetadata.clear_quantization(module)
+
+            for ar_param_name in AUTOROUND_QPARAM_NAMES:
+                if hasattr(module, ar_param_name):
+                    delattr(module, ar_param_name)
+
+            return cleared_scheme
+
         # Update offload parameters and remove temporary attributes
         for name, module in model.named_modules():
+            # Respect AutoRound's final layer decision: if a layer is set back to
+            # full precision (bits/act_bits > 8), do not restore legacy LLMC
+            # qparams, otherwise the layer can look quantized again.
+            layer_should_be_quantized = check_to_quantized(module)
+            if not layer_should_be_quantized:
+                _clear_layer_quantization_metadata(module)
+                continue
+
             # Mapping qparams from AutoRound to LLMC naming
             for ar_param_name, llmc_param_name in qparams_mapping.items():
                 if hasattr(
