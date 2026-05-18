@@ -1,6 +1,6 @@
 import functools
 from collections import namedtuple
-from typing import Callable, Union
+from typing import Callable
 
 from loguru import logger
 
