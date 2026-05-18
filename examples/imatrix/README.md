@@ -2,9 +2,7 @@
 
 `imatrix_mse` is an observer that uses per-channel activation importance (E[x²]) to weight quantization error during range selection. Channels that carry more signal get more careful range optimization.
 
-Two components work together:
-- **`IMatrixGatherer`**: triggers a calibration pass so the observer can collect importance data
-- **`imatrix_mse` observer**: collects E[x²] per input channel via forward pre-hooks and uses importance weighting in the MSE grid search: `err = sum(importance * |Q(w) - w|^p)`
+When configured as a weight observer, `imatrix_mse` collects E[x²] per input channel during calibration via forward pre-hooks and uses importance weighting in the MSE grid search: `err = sum(importance * |Q(w) - w|^p)`.
 
 > See [RFC #2456](https://github.com/vllm-project/llm-compressor/discussions/2456) for the full design discussion.
 
@@ -19,13 +17,11 @@ The simplest setup uses `preset_name_to_scheme` to configure W4A16 and swaps in 
 ```python
 from compressed_tensors.quantization import preset_name_to_scheme
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 
 scheme = preset_name_to_scheme("W4A16", ["Linear"])
 scheme.weights.observer = "imatrix_mse"
 
 recipe = [
-    IMatrixGatherer(ignore=["lm_head"]),
     QuantizationModifier(
         config_groups={"group_0": scheme},
         ignore=["lm_head"],
@@ -44,7 +40,6 @@ scheme = preset_name_to_scheme("W4A16", ["Linear"])
 scheme.weights.observer = "imatrix_mse"
 
 recipe = [
-    IMatrixGatherer(ignore=["lm_head"]),
     GPTQModifier(
         config_groups={"group_0": scheme},
         ignore=["lm_head"],
