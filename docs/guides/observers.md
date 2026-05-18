@@ -51,28 +51,28 @@ class QParamsDict(TypedDict, total=False):
 
 ### MinMax Observers
 
-All MinMax observers compute min/max values by tracking the minimum and maximum of the observed tensor. They differ in how they handle state across multiple calibration batches.
+All MinMax observers compute min/max values by tracking the minimum and maximum of the observed tensor. They differ in how they handle state across multiple observations.
 
 #### [memoryless_minmax](../../src/llmcompressor/observers/min_max.py)
-Computes min/max from each observed tensor independently, with no memory of past observations. Each calibration batch is treated in isolation.
+Computes min/max from each observed tensor independently, with no memory of past observations. Each observation is handled in isolation.
 
 Best used when:
-- Only a single calibration batch is used
+- Only a single observation e.g. for weight quantization
 - You want the most recent observation to fully determine the range
 
-#### [static_minmax](../../src/llmcompressor/observers/min_max.py)
-Tracks the running global min/max across all calibration batches. The final range is the union of all observed ranges — the smallest min and largest max seen across all batches.
+#### [static_minmax](../../src/llmcompressor/observers/min_max.py) *(default)*
+Tracks the running global min/max across all observations. The final range is the union of all observed ranges — the smallest min and largest max seen across all batches.
 
 Best used for:
 - Scenarios where the range must encompass all possible observed values
-- Int8 or Int4 symmetric quantization with multiple calibration batches
+- Most standard activation quantization scenarios with static/local quantization (FP8, NVFP4)
 
-#### [minmax](../../src/llmcompressor/observers/min_max.py) *(default)*
-Computes min/max using an exponential moving average across calibration batches, controlled by `averaging_constant`. This smooths out batch-to-batch variance while still adapting to new observations.
+#### [minmax](../../src/llmcompressor/observers/min_max.py) 
+Computes min/max using an exponential moving average across observations, controlled by `averaging_constant`. This smooths out batch-to-batch variance while still adapting to new observations.
 
 Best used for:
-- Most standard quantization scenarios (Int8, Int4)
-- Channel-wise or group-wise strategies with multiple calibration batches
+- Scenarios with static/local activation quantization where there are infrequent outliers we'd like to average out but MSE observers are too slow.
+- Scenarios where the activations change over time and we want to gradually update the statistics over time.
 
 ### MSE Observers
 
@@ -86,7 +86,7 @@ Best used when:
 - Minimizing quantization error is more important than calibration speed
 
 #### [mse](../../src/llmcompressor/observers/mse.py)
-Performs an MSE grid search and maintains a moving average of the resulting min/max values across calibration batches, controlled by `averaging_constant`.
+Performs an MSE grid search and maintains a moving average of the resulting min/max values across observations, controlled by `averaging_constant`.
 
 Best used when:
 - Calibration accuracy is critical across multiple batches
@@ -176,7 +176,7 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 |----------------------|---------|-------------|
 | `averaging_constant` | `0.01`  | EMA weight for moving average observers. Only applies to `minmax`. Higher values weight recent observations more heavily. |
 
-#### MSE observers (`mse`, `memoryless_mse`)
+### MSE observers (`mse`, `memoryless_mse`)
 
 | Argument             | Default | Description |
 |----------------------|---------|-------------|
