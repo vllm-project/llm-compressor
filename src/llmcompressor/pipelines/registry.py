@@ -67,7 +67,11 @@ class CalibrationPipeline(ABC, RegistryMixin):
             ):
                 return True
             elif isinstance(modifier, QuantizationModifier):
-                return modifier.requires_calibration_data()
+                config = modifier.resolve_quantization_config()
+                return (
+                    config.requires_calibration_data()
+                    or modifier.requires_weight_observer_calibration_data()
+                )
             else:
                 return False
 
