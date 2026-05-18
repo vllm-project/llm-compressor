@@ -82,9 +82,9 @@ class MyModifier(Modifier):
 | `on_finalize` | Once, after calibration | No |
 
 > **Note on `on_start` / `on_end` vs `on_event`:** The base class dispatches `on_start` on the first `BATCH_START` event and `on_end` on `BATCH_END`. However, all built-in modifiers (GPTQ, AWQ, SmoothQuant, SparseGPT, etc.) bypass this by overriding `on_event` and calling `self.on_start()` / `self.on_end()` themselves on `CALIBRATION_EPOCH_START` / `CALIBRATION_EPOCH_END`. If you are writing a new modifier, follow this pattern.
-
+>
 > **Note on `SEQUENTIAL_EPOCH_END`:** This event is fired by **all** pipelines (sequential, basic, and data-free), not just the sequential pipeline. For the sequential pipeline, it fires after each layer group with a subgraph scoped to that group. For basic and data-free pipelines, it fires once with a subgraph covering the entire model. Built-in quantization modifiers (QuantizationModifier, GPTQModifier) use this event to compute weight and activation quantization parameters — DDP synchronization of activation statistics, weight observation, and qparam computation (for both activations and weights) all happen here.
-
+>
 > **Quantization is disabled during calibration.** All pipelines disable quantization during calibration forward passes via `DisableQuantization`. This means calibration hooks see unquantized activations. Quantization parameters are computed at `SEQUENTIAL_EPOCH_END` and quantization is enabled at `CALIBRATION_EPOCH_END`.
 
 ### The `State` Object
