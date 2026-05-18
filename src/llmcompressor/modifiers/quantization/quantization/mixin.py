@@ -305,14 +305,11 @@ class QuantizationMixin(HooksMixin):
             and self.kv_cache_scheme is None
         )
 
-    def requires_calibration_data(self) -> bool:
+    def requires_weight_observer_calibration_data(self) -> bool:
         """
-        Determine if the quantization config requires calibration data.
+        Determine if a weight observer needs calibration data.
         """
         config = self.resolve_quantization_config()
-        if config.requires_calibration_data():
-            return True
-
         return any(
             scheme.weights is not None
             and scheme.weights.observer is not None
