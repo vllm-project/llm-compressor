@@ -6,7 +6,7 @@ from transformers import (
     PreTrainedConfig,
 )
 from transformers.integrations.moe import _default_apply_gate
-from transformers.modeling_utils import local_torch_dtype
+from transformers.activations import ACT2FN
 
 from .helpers import (
     get_moe_dims,
@@ -47,31 +47,6 @@ class ExpertMLPWithGate(ExpertMLP):
                 )
             )
         )
-
-
-class ExpertMLPWithFusedGate(ExpertMLP):
-    up_proj: torch.nn.Linear
-    gate_proj: torch.nn.Linear
-    down_proj: torch.nn.Linear
-    _apply_gate: Callable[[torch.Tensor], torch.Tensor]
-
-    def __init__(
-        self,
-        hidden_dim: int,
-        intermediate_dim: int,
-        mlp_bias: bool,
-        _apply_gate: Callable[[torch.Tensor], torch.Tensor],
-    ):
-        super().__init__()
-        self.gate_up_proj = torch.nn.Linear(
-            hidden_dim, intermediate_dim * 2, bias=mlp_bias
-        )
-        self.down_proj = torch.nn.Linear(intermediate_dim, hidden_dim, bias=mlp_bias)
-        self._apply_gate = _apply_gate
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # TODO: handle is_transposed
-        return self.down_proj(self._apply_gate(self.gate_up_proj(hidden_states)))
 
 
 class ExpertMLPWithoutGate(ExpertMLP):
@@ -123,9 +98,16 @@ class LinearExperts2D(torch.nn.ModuleList):
     _apply_gate: Callable[[torch.Tensor], torch.Tensor]
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
-        num_experts, hidden_dim, intermediate_dim, mlp_bias, act_fn = get_moe_dims(
+        num_experts, hidden_dim, intermediate_dim, mlp_bias, hidden_act, limit = get_moe_dims(
             config
         )
+
+        # Store num_experts before super().__init__ so we can use it in forward()
+        # (len(self) will be incorrect after adding act_fn as a module attribute)
+        self.num_experts = num_experts
+
+        # Create act_fn before super().__init__ so we can reference it when creating experts
+        act_fn = ACT2FN[hidden_act]
 
         if self.has_gate:
             super().__init__(
@@ -146,6 +128,9 @@ class LinearExperts2D(torch.nn.ModuleList):
                 ]
             )
 
+        self.act_fn = act_fn
+        self.limit = limit
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -153,7 +138,8 @@ class LinearExperts2D(torch.nn.ModuleList):
         top_k_weights: torch.Tensor,
     ) -> torch.Tensor:
         final_hidden_states = torch.zeros_like(hidden_states)
-        num_experts = len(self)
+        # Use stored num_experts instead of len(self) which includes act_fn
+        num_experts = self.num_experts
 
         # create tokens mask
         with torch.no_grad():

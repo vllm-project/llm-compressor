@@ -10,8 +10,6 @@ from transformers import (
     conversion_mapping,
 )
 from transformers.conversion_mapping import (
-    MergeModulelist,
-    WeightConverter,
     WeightRenaming,
     WeightTransform,
     get_checkpoint_conversion_mapping,
@@ -27,49 +25,25 @@ ARCH_TO_EXPERTS_MODULE_CLS = {
     "deepseek_v4": DeepseekV4Experts
 }
 
-
-def extract_moe_merge_operations(
-    mapping: list[WeightTransform],
-) -> tuple[list[WeightTransform], list[WeightTransform]]:
-    merge_mappings, non_merge_mappings = [], []
-    for converter in mapping:
-        if isinstance(converter, WeightConverter):
-            merge_ops, non_merge_ops = [], []
-            for op in converter.operations:
-                if isinstance(op, MergeModulelist):
-                    merge_ops.append(op)
-                else:
-                    non_merge_ops.append(op)
-
-            merge_mappings.append(
-                WeightConverter(
-                    source_patterns=converter.source_patterns,
-                    target_patterns=converter.target_patterns,
-                    operations=merge_ops,
-                )
-            )
-
-            if len(non_merge_ops) <= 0:
-                non_merge_mappings.append(
-                    WeightRenaming(
-                        source_patterns=converter.source_patterns,
-                        target_patterns=converter.target_patterns,
-                    )
-                )
-
-            else:
-                non_merge_mappings.append(
-                    WeightConverter(
-                        source_patterns=converter.source_patterns,
-                        target_patterns=converter.target_patterns,
-                        operations=non_merge_ops,
-                    )
-                )
-
-        else:
-            non_merge_mappings.append(converter)
-
-    return merge_mappings, non_merge_mappings
+ARCH_TO_2D_MAPPINGS = {
+    "deepseek_v4": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w2\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+            ),
+        ]
+    )
+}
 
 
 def get_linearization(
@@ -79,23 +53,21 @@ def get_linearization(
     experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
-    merge_mappings, non_merge_mappings = extract_moe_merge_operations(mapping)
-    # _2d_moe_mappings = [converter for converter in mapping if _is_2d_converter(converter)]
+    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
-    if len(merge_mappings) > 0:
-        # if checkpoint is in 2d, keep in 2d
-        forward_mapping = backwards_mapping = non_merge_mappings
-
-    else:
-        # if checkpoint is in 3d, split into 2d, save as 2d
-        # TODO: split checkpoint into 2d
-        forward_mapping = backwards_mapping = mapping  # if checkpoint is 3d, keep in 3d
-        raise ValueError("3d not supported yet")
+    # backward := remove default moe mappings
+    backward_mappings = [
+        converter
+        for converter in mapping
+        if not any(target in remove_targets for target in converter.target_patterns)
+    ]
+    # forward := no moe mappings + (2d -> 2d) or (3d -> 2) mappings
+    forward_mappings = backward_mappings + new_mappings
 
     # TODO: some sort of validation which checks if any of the mappings have WeightConverters
     # if they do, warn that conversion occurs and that runtime may increase for offloaded models
 
-    return experts_cls, forward_mapping, backwards_mapping
+    return experts_cls, forward_mappings, backward_mappings
 
 
 @contextlib.contextmanager
@@ -115,9 +87,9 @@ def load_linearized_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM)
         )
 
         model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
-        model._conversion_mapping = backward_mapping
 
         clear_patch_mapping()
+        model._conversion_mapping = backward_mapping
         conversion_mapping._checkpoint_conversion_mapping_cache = None
         return model
 

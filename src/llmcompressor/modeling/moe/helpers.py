@@ -130,13 +130,14 @@ def _is_moe_experts_converter(converter: WeightTransform) -> bool:
     )
 
 
-def get_moe_dims(config: PreTrainedConfig) -> tuple[int, int, int, bool, str]:
+def get_moe_dims(config: PreTrainedConfig) -> tuple[int, int, int, bool, str, float]:
     return (
         _getattr_fallbacks(config, ["num_local_experts", "moe_num_experts"]),
         _getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
         _getattr_fallbacks(config, ["moe_intermediate_size"]),
         _getattr_fallbacks(config, ["use_bias", "mlp_bias"]),
         _getattr_fallbacks(config, ["hidden_act"]),
+        _getattr_fallbacks(config, ["swiglu_limit"]),
     )
 
 

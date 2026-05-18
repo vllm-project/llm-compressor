@@ -4,6 +4,12 @@ from pathlib import Path
 import torch
 from safetensors import safe_open
 from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.conversion_mapping import (
+    Concatenate,
+    MergeModulelist,
+    WeightConverter,
+    WeightRenaming,
+)
 
 # BUG in norms which is masked by quant config
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4PreTrainedModel
@@ -19,8 +25,9 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = {
 }
 
 from llmcompressor.utils.dev import skip_weights_download
-from llmcompressor.modeling.moe.linearize import load_linearized_moe
-
+from llmcompressor.modeling.moe.linearize import (
+    load_linearized_moe,
+)
 
 def expert_key_exists(model_path: Path, key: str) -> bool:
     """
@@ -48,11 +55,11 @@ def test_linearize_moe_model(tmp_path):
     os.mkdir(offload_dir)
 
     input_ids = torch.randint(1024, size=(1, 64), device="cuda")
-    model = AutoModelForCausalLM.from_pretrained(
-        "inference-optimization/DSV4-tiny-empty", device_map="cuda",
-    )
-    true_outputs = model(input_ids=input_ids).logits
-    del model
+    # model = AutoModelForCausalLM.from_pretrained(
+    #     "inference-optimization/DSV4-tiny-empty", device_map="cuda",
+    # )
+    # true_outputs = model(input_ids=input_ids).logits
+    # del model
 
     # TODO: revert/inverse conversion seems to not work for this model
     # as the checkpoint contains model.layers.0.mlp.experts.gate_up_proj, not model.layers.0.ffn.experts.0.w1
@@ -65,6 +72,7 @@ def test_linearize_moe_model(tmp_path):
     with load_linearized_moe():
         linearized_model = AutoModelForCausalLM.from_pretrained("inference-optimization/DSV4-tiny-empty", device_map="cuda")
 
+    outputs = linearized_model(input_ids=input_ids).logits
     breakpoint()
 
     # breakpoint()
