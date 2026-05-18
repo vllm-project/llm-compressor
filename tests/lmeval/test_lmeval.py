@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 import numpy
 import pytest
