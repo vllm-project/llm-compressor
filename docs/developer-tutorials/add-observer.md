@@ -167,7 +167,7 @@ class MyObserver(Observer):
         min_vals = torch.amin(observed, dim=(0, -1))
         max_vals = torch.amax(observed, dim=(0, -1))
 
-        if hasattr(self, "min_vals"):
+        if self.has_statistics:
             min_vals = torch.min(min_vals, self.min_vals)
             max_vals = torch.max(max_vals, self.max_vals)
 
