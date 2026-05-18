@@ -80,22 +80,6 @@ def suspend_offloading(model: nn.Module):
         offload_module(module, *offloading_info[name])
 
 
-def _noop_forward(*args, **kwargs):
-    """No-op forward that passes through hidden_states, skipping computation.
-
-    Used during calibration so that the forward_pre hook (input_capture_hook)
-    can capture inputs without running the expensive decoder layer forward.
-    Returns ``(hidden_states,)`` which is compatible with the fx-compiled
-    subgraph that typically only accesses ``output[0]``.
-    """
-    if args:
-        hidden_states = args[0]
-    else:
-        # fallback: take the first kwarg value (typically 'hidden_states')
-        hidden_states = next(iter(kwargs.values()))
-    return (hidden_states,)
-
-
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
     Implements the AutoRound algorithm from https://aclanthology.org/2024.findings-emnlp.662.pdf.
@@ -225,12 +209,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
-                # Replace forward with a no-op so the calibration pass only
-                # triggers input_capture_hook without running the full forward.
-                # The original forward is restored in apply_autoround before
-                # AutoRound tuning and the subsequent propagation pass.
-                module._original_forward = module.forward
-                module.forward = _noop_forward
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -274,12 +252,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             )
         decoding_layer = decoding_layers[0]
 
-        # Restore the original forward that was replaced with _noop_forward
-        # in on_start, so AutoRound tuning and the prop pass use real forward
-        if hasattr(decoding_layer, "_original_forward"):
-            decoding_layer.forward = decoding_layer._original_forward
-            del decoding_layer._original_forward
-
         logger.info("Applying AutoRound on layer {}", decoding_layer._tmp_name)
 
         # Build wrapped_model for AutoRound initialization
@@ -308,6 +280,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_offloading(wrapped_model),
         ):
+            self._update_device_map_for_dp(kwargs)
             ar = AutoRound(
                 model=wrapped_model,
                 **kwargs,
@@ -350,11 +323,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         Finish calibrating by removing observers and calibration hooks
         """
         self.ended_ = True
-        # Restore original forward for any remaining patched layers
-        for _, module in state.model.named_modules():
-            if hasattr(module, "_original_forward"):
-                module.forward = module._original_forward
-                del module._original_forward
         QuantizationMixin.end_calibration(self, state.model)
         self._remove_temporary_names(state.model)
         self.remove_hooks()
