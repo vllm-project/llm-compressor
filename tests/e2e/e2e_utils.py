@@ -1,5 +1,6 @@
 import os
 import shutil
+from functools import wraps
 from typing import Callable
 
 import torch
@@ -18,12 +19,26 @@ from tests.testing_utils import process_dataset
 OFFLOAD_DIR = "./offload_folder"
 
 
+def cleanup_offload_dir(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        finally:
+            if os.path.exists(OFFLOAD_DIR):
+                shutil.rmtree(OFFLOAD_DIR)
+
+    return wrapper
+
+
 def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | None):
     pretrained_model_class = getattr(transformers, model_class)
+    device_map = "auto_offload" if max_memory is not None else None
+
     with load_offloaded_model(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
             model,
-            device_map="auto_offload",
+            device_map=device_map,
             max_memory=max_memory,
             offload_folder=OFFLOAD_DIR,
             dtype="auto",
@@ -36,6 +51,7 @@ def _run_oneshot(**oneshot_kwargs):
     oneshot(**oneshot_kwargs)
 
 
+@cleanup_offload_dir
 def run_oneshot_for_e2e_testing(
     model: str,
     model_class: str,
@@ -113,11 +129,6 @@ def run_oneshot_for_e2e_testing(
 
     # Apply quantization.
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
-    try:
-        _run_oneshot(**oneshot_kwargs)
-    finally:
-        # Clean up disk offloading
-        if os.path.exists(OFFLOAD_DIR):
-            shutil.rmtree(OFFLOAD_DIR)
+    _run_oneshot(**oneshot_kwargs)
 
     return oneshot_kwargs["model"], processor
