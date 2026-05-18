@@ -63,7 +63,6 @@ class CalibrationPipeline(ABC, RegistryMixin):
                 "GPTQModifier",
                 "AWQModifier",
                 "AutoRoundModifier",
-                "IMatrixGatherer",
             ):
                 return True
             elif isinstance(modifier, QuantizationModifier):
