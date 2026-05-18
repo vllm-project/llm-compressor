@@ -63,14 +63,6 @@ def _is_moe_experts_module(module) -> bool:
 
 
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
-    """Extract arguments from @use_experts_implementation decorator by inspecting the class source AST.
-
-    Args:
-        experts_cls: The experts class decorated with @use_experts_implementation
-
-    Returns:
-        Dictionary of decorator arguments (is_concatenated, is_transposed, has_bias, has_gate)
-    """
     default_args = {
         "is_concatenated": True,
         "is_transposed": False,

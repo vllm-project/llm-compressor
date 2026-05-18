@@ -3,6 +3,7 @@ from typing import Type
 
 import torch
 from compressed_tensors.utils import patch_attr
+from loguru import logger
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -10,10 +11,13 @@ from transformers import (
     conversion_mapping,
 )
 from transformers.conversion_mapping import (
-    WeightRenaming,
-    WeightTransform,
     get_checkpoint_conversion_mapping,
     register_checkpoint_conversion_mapping,
+)
+from transformers.core_model_loading import (
+    WeightConverter,
+    WeightRenaming,
+    WeightTransform,
 )
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
@@ -21,9 +25,7 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from .linear_experts import create_linear_experts_2d
 
 # TODO: in the future, we can potentially grep the source code for this
-ARCH_TO_EXPERTS_MODULE_CLS = {
-    "deepseek_v4": DeepseekV4Experts
-}
+ARCH_TO_EXPERTS_MODULE_CLS = {"deepseek_v4": DeepseekV4Experts}
 
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
@@ -31,7 +33,7 @@ ARCH_TO_2D_MAPPINGS = {
         [
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w2\.",
@@ -39,9 +41,9 @@ ARCH_TO_2D_MAPPINGS = {
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
-        ]
+        ],
     )
 }
 
@@ -55,17 +57,28 @@ def get_linearization(
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
-    # backward := remove default moe mappings
+    # forwards has conversion mappings
+    # backwards has no mappings (stay 2d)
     backward_mappings = [
         converter
         for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    # forward := no moe mappings + (2d -> 2d) or (3d -> 2) mappings
     forward_mappings = backward_mappings + new_mappings
 
-    # TODO: some sort of validation which checks if any of the mappings have WeightConverters
-    # if they do, warn that conversion occurs and that runtime may increase for offloaded models
+    # validate that no transforms occur during loading/saving
+    for converter in forward_mappings:
+        if isinstance(converter, WeightConverter):
+            logger.warning(
+                "Linearized model performs a weight conversion during loading. This "
+                f"may lead to longer load times\n{converter}"
+            )
+    for converter in backward_mappings:
+        if isinstance(converter, WeightConverter):
+            logger.warning(
+                "Linearized model performs a weight conversion during saving. This "
+                f"may lead to longer save times\n{converter}"
+            )
 
     return experts_cls, forward_mappings, backward_mappings
 

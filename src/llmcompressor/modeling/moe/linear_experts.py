@@ -5,9 +5,10 @@ import torch
 from transformers import (
     PreTrainedConfig,
 )
-from transformers.integrations.moe import _default_apply_gate
 from transformers.activations import ACT2FN
+from transformers.integrations.moe import _default_apply_gate
 
+from .context import get_moe_calibration_context
 from .helpers import (
     get_moe_dims,
     get_use_experts_implementation_args,
@@ -73,24 +74,6 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
 
 class LinearExperts2D(torch.nn.ModuleList):
-    """
-    Args:
-        experts_class (`type[torch.nn.Module]`, *optional*):
-            The experts class to modify. If not provided, returns a decorator that can be applied to the class.
-        experts_interface (`ExpertsInterface`, *optional*, defaults to `ALL_EXPERTS_FUNCTIONS`):
-            The experts interface to use for dispatching the forward method.
-        is_concatenated (`bool`, *optional*, defaults to `True`):
-            Whether the expert weights are stored in concatenated layout [gate;up]
-            or interleaved layout [gate0, up0, gate1, up1, ...].
-        is_transposed (`bool`, *optional*, defaults to `False`):
-            Whether the expert weights are stored in transposed format.
-        has_bias (`bool`, *optional*, defaults to `False`):
-            Whether the expert layers include bias terms or not.
-        has_gate (`bool`, *optional*, defaults to `True`):
-            Whether the experts use a gating mechanism or not.
-            Whether it has gate_up_proj weights or just up_proj weights.
-    """
-
     is_concatenated: bool
     is_transposed: bool
     has_bias: bool
@@ -98,15 +81,12 @@ class LinearExperts2D(torch.nn.ModuleList):
     _apply_gate: Callable[[torch.Tensor], torch.Tensor]
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
-        num_experts, hidden_dim, intermediate_dim, mlp_bias, hidden_act, limit = get_moe_dims(
-            config
+        num_experts, hidden_dim, intermediate_dim, mlp_bias, hidden_act, limit = (
+            get_moe_dims(config)
         )
 
-        # Store num_experts before super().__init__ so we can use it in forward()
-        # (len(self) will be incorrect after adding act_fn as a module attribute)
+        # store num_experts before appending `act_fn` to module list
         self.num_experts = num_experts
-
-        # Create act_fn before super().__init__ so we can reference it when creating experts
         act_fn = ACT2FN[hidden_act]
 
         if self.has_gate:
@@ -121,9 +101,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         else:
             super().__init__(
                 [
-                    ExpertMLPWithoutGate(
-                        hidden_dim, intermediate_dim, mlp_bias, act_fn
-                    )
+                    ExpertMLPWithoutGate(hidden_dim, intermediate_dim, mlp_bias, act_fn)
                     for _ in range(num_experts)
                 ]
             )
@@ -137,24 +115,21 @@ class LinearExperts2D(torch.nn.ModuleList):
         top_k_index: torch.Tensor,
         top_k_weights: torch.Tensor,
     ) -> torch.Tensor:
+        # Match the eager implementation from transformers exactly
         final_hidden_states = torch.zeros_like(hidden_states)
-        # Use stored num_experts instead of len(self) which includes act_fn
-        num_experts = self.num_experts
 
         # create tokens mask
         with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(top_k_index, num_experts)
+            expert_mask = torch.nn.functional.one_hot(top_k_index, self.num_experts)
             expert_mask = expert_mask.permute(2, 1, 0)
 
-        for expert_idx in range(num_experts):
+        for expert_idx in range(self.num_experts):
             # select tokens for this expert
             top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
 
-            # apply expert, maybe pass all tokens to the expert
+            # apply expert
             expert = self[expert_idx]
-            # if context.CALIBRATE_ALL_EXPERTS:
-            # TODO: fully integrate moe context
-            if False:
+            if get_moe_calibration_context():
                 expert_output = expert(hidden_states)[token_indices]
             else:
                 expert_output = expert(hidden_states[token_indices])
@@ -163,23 +138,15 @@ class LinearExperts2D(torch.nn.ModuleList):
             expert_weights = top_k_weights[token_indices, top_k_pos, None]
             weighted_output = expert_output * expert_weights
 
-            # accumulate the selected tokens
+            # accumulate using index_add_ to match eager implementation exactly
             final_hidden_states.index_add_(
                 0, token_indices, weighted_output.to(final_hidden_states.dtype)
-            )  # TODO: check why float
+            )
 
         return final_hidden_states
 
 
 def create_linear_experts_2d(experts_cls: type) -> type[LinearExperts2D]:
-    """Factory for creating LinearExperts2D classes with decorator args from the original experts class.
-
-    Args:
-        experts_cls: The original experts class decorated with @use_experts_implementation
-
-    Returns:
-        A new LinearExperts2D class with decorator arguments as class attributes
-    """
     experts_cls_args = get_use_experts_implementation_args(experts_cls)
     # TODO: parameterize on whether the checkpoint has gate_up concatted
 
