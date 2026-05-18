@@ -35,6 +35,7 @@ class LmEvalConfig(BaseModel):
     metrics: dict = None
     trust_remote_code: bool = False
     max_model_len: int = 2048
+    higher_is_better: bool = True
 
 
 class TestConfig(BaseTestConfig):
@@ -123,6 +124,12 @@ class TestLMEval:
                 "(e.g. /path/to/VLLM_VENV/bin/python), so that lm-eval can be run "
                 "in a subprocess using the vLLM installation."
             )
+        if not self.config.lmeval.higher_is_better:
+            raise ValueError(
+                "Only evaluations with higher_is_better=True are supported. "
+                "Use a task where a higher metric value indicates better performance."
+            )
+
         logger.info("========== RUNNING ==============")
         logger.info(self.config.scheme)
         logger.info(
