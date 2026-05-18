@@ -198,6 +198,39 @@ MSE and iMatrix grid searches run with `global_scale=None` — the shrink search
 | `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
 
+## DDP (Distributed) Support
+
+Observers support distributed data-parallel calibration. When activation quantization runs across multiple ranks (each rank processing a disjoint partition of the calibration dataset), observer statistics must be synchronized before quantization parameters are computed so all ranks produce identical results.
+
+### How it works
+
+Each observer class declares a `_act_sync_dict` class attribute mapping statistic attribute names to their `torch.distributed.ReduceOp`. The base class `sync_activation_stats()` method iterates this dict and issues async `dist.all_reduce` calls:
+
+```python
+# Called by QuantizationMixin.sync_obs_act_stats() at each layer boundary
+pending_comms = observer.sync_activation_stats()
+# ... wait_for_comms(pending_comms) once all observers in the subgraph are queued
+```
+
+Only **activation** statistics are synchronized. Weight statistics are never synced because weights are identical across all ranks (broadcast during model load).
+
+### Per-observer sync behavior
+
+| Observer | Synced statistics | Reduce op | Notes |
+|----------|-------------------|-----------|-------|
+| `static_minmax` | `min_vals`, `max_vals` | MIN, MAX | Global min/max across all ranks |
+| `minmax` (EMA) | `min_vals`, `max_vals` | MIN, MAX | Global min/max across all ranks |
+| `memoryless_minmax` | *(none)* | — | Stateless; each rank's data is independent |
+| `mse` (EMA) | `min_vals`, `max_vals` | AVG | Averages the per-rank MSE-optimal ranges |
+| `memoryless_mse` | *(none)* | — | Stateless; each rank's data is independent |
+| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM | Accumulates importance scores across ranks before normalization |
+
+### Recommendation for DDP calibration
+
+Use `static_minmax` or `minmax` for activation observers when running distributed calibration — they synchronize global min/max across all ranks. `memoryless_*` variants do not sync state across batches or ranks, so each rank would independently compute parameters from its own data partition only.
+
+For more information on the distributed oneshot workflow, see [Distributed Oneshot](./big_models_and_distributed/distributed_oneshot.md).
+
 ## Example Usage
 
 ```python
