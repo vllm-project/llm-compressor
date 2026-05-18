@@ -225,10 +225,6 @@ Only **activation** statistics are synchronized. Weight statistics are never syn
 | `memoryless_mse` | *(none)* | — | Stateless; each rank's data is independent |
 | `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM | Accumulates importance scores across ranks before normalization |
 
-### Recommendation for DDP calibration
-
-Use `static_minmax` or `minmax` for activation observers when running distributed calibration — they synchronize global min/max across all ranks. `memoryless_*` variants do not sync state across batches or ranks, so each rank would independently compute parameters from its own data partition only.
-
 For more information on the distributed oneshot workflow, see [Distributed Oneshot](./big_models_and_distributed/distributed_oneshot.md).
 
 ## Example Usage
