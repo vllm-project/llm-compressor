@@ -8,7 +8,7 @@ lmeval:
   apply_chat_template: True
   add_bos_token: False
   num_fewshot: 0
-  max_model_len: 12000
+  max_model_len: 128000
   metrics:
     exact_match,none: 0.53
     relaxed_accuracy,none: 0.75
