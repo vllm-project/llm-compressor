@@ -200,11 +200,11 @@ class PercentileObserver(Observer):
         upper = percentile
 
         # observed: (num_observations, *qparam_shape, group_size) after flatten_for_calibration
-        # reshape to (num_channels, num_observations * group_size) for per-channel percentiles
-        num_channels = observed.shape[-2]
-        per_channel = observed.permute(1, 0, 2).reshape(num_channels, -1)
-        self.min_vals = torch.quantile(per_channel, lower / 100.0, dim=-1)
-        self.max_vals = torch.quantile(per_channel, upper / 100.0, dim=-1)
+        # merge num_observations and group_size so quantile reduces over the same dims as
+        # torch.amin/amax(observed, dim=(0, -1)) in a normal observer
+        flat = observed.movedim(0, -2).flatten(-2)  # (*qparam_shape, num_obs * group_size)
+        self.min_vals = torch.quantile(flat, lower / 100.0, dim=-1)
+        self.max_vals = torch.quantile(flat, upper / 100.0, dim=-1)
 ```
 
 ### Using the Observer in a Recipe
