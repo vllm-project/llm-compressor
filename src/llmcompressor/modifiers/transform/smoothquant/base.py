@@ -187,7 +187,8 @@ class SmoothQuantModifier(Modifier):
 
         logger.info("No SmoothQuantModifier.mappings provided, inferring from model...")
         return get_layer_mappings_from_architecture(
-            architecture=model.__class__.__name__
+            architecture=model.__class__.__name__,
+            model=model,
         )
 
     @handle_mapping_resolution_errors
