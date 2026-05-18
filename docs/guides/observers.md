@@ -97,15 +97,15 @@ Best used when:
 The IMatrix observer weights quantization error by per-input-channel activation importance (E[x²]), so channels that carry more signal get more careful range optimization.
 
 #### [imatrix_mse](../../src/llmcompressor/observers/imatrix.py)
-Extends the MSE grid search with importance weighting: `err = sum(importance * |Q(w) - w|^p)`. Importance scores (E[x²] per input channel) are collected by a preceding `IMatrixGatherer` modifier during a dedicated calibration pass.
+Extends the MSE grid search with importance weighting: `err = sum(importance * |Q(w) - w|^p)`. Importance scores (E[x²] per input channel) are collected by the observer during the quantization calibration pass.
 
-Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` modules. Falls back silently to uniform MSE (i.e., standard `memoryless_mse` behavior) whenever importance data is unavailable — for example, when no `IMatrixGatherer` preceded the quantization step — unless `strict=True` is set.
+Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` modules. Falls back silently to uniform MSE (i.e., standard `memoryless_mse` behavior) whenever importance data is unavailable unless `strict=True` is set.
 
 Best used when:
 - 4-bit weight quantization accuracy is critical
 - You want to combine with GPTQ for further improvement
 
-**Requires `IMatrixGatherer`** as the first modifier in your recipe to trigger the calibration pass that collects E[x²]. See [IMatrixGatherer](#imatrixgatherer) below.
+Configure `imatrix_mse` as the weight observer on `QuantizationModifier` or `GPTQModifier`. The modifier will use a calibration pipeline so the observer can collect E[x²] before selecting ranges.
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
 
@@ -117,18 +117,6 @@ Best used when:
 | AWQ | 6.89 |
 | RTN `imatrix_mse` | 6.85 |
 | GPTQ + `imatrix_mse` | 6.83 |
-
-### IMatrixGatherer
-
-[`IMatrixGatherer`](../../src/llmcompressor/modifiers/transform/imatrix/base.py) is a modifier (not an observer) that must precede `QuantizationModifier` or `GPTQModifier` in your recipe when using `imatrix_mse`. It orchestrates a dedicated calibration pass during which the observer collects E[x²] per input channel via forward pre-hooks. It does **not** quantize weights.
-
-At the end of the calibration epoch, it calls `observer.detach()` on each instrumented module, which leaves raw `_imatrix_sum` and `_imatrix_count` accumulators on the module for the subsequent quantization pass to pick up.
-
-| Parameter | Default | Description |
-|---|---|---|
-| `targets` | `["Linear"]` | Module types to instrument for importance collection. |
-| `ignore` | `["lm_head"]` | Layer name patterns to skip. |
-| `weight_observer` | `"imatrix_mse"` | Observer to attach during the calibration pass. |
 
 ## Observer Fusion (global_scale)
 
@@ -147,17 +135,6 @@ The fused layer groups are defined in `FUSED_LAYER_NAMES`:
 - `q_proj` / `k_proj` / `v_proj` (attention)
 - `q_a_proj` / `kv_a_proj_with_mqa` (DeepSeek multi-latent attention)
 - `w1` / `w3` (MoE expert layers)
-
-## DDP Synchronization
-
-Each observer subclass declares an `_act_sync_dict` mapping attribute names to DDP reduce operations. The base class `sync_activation_stats()` iterates this dict to all-reduce accumulated statistics across ranks:
-
-| Observer | Synced Attributes | Reduce Op |
-|----------|-------------------|-----------|
-| `static_minmax` | `min_vals`, `max_vals` | MIN, MAX |
-| `minmax` / `mse` | `min_vals`, `max_vals` | AVG |
-| `memoryless_minmax` / `memoryless_mse` | *(none)* | — |
-| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM |
 
 ## Quantization Strategies
 
