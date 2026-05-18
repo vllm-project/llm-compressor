@@ -14,7 +14,7 @@ Base class for all observers. Subclasses must implement `get_min_max` and `get_g
 The base class handles:
 - Reshaping and slicing tensors according to the quantization strategy (group, channel, token, etc.)
 - Passing the resulting min/max values to `calculate_qparams` in `compressed-tensors` to produce `scale` and `zero_point`
-- Computing global min/max and passing to `generate_gparam` in `compressed-tensors` for FP4 global scale generation (e.g., NVFP4, MXFP4)
+- Computing global min/max and passing to `generate_gparam` in `compressed-tensors` for FP4 global scale generation (e.g., NVFP4)
 - Optional support for `g_idx` (group index mappings)
 
 This class is not used directly but provides the scaffolding for all custom observers.

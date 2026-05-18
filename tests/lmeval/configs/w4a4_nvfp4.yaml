@@ -11,7 +11,6 @@ lmeval:
   recovery_threshold:
     exact_match,strict-match: 0.92
     exact_match,flexible-extract: 0.89
-  # Absolute metrics for warnings only
   metrics:
     exact_match,flexible-extract: 0.70
     exact_match,strict-match: 0.65
