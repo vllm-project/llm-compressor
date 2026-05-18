@@ -76,8 +76,7 @@ class TestIMatrixObserverIntegration:
         for name in targeted_names:
             mod = _get_module_by_name(model, name)
             assert hasattr(mod, "weight_scale"), f"{name} should be quantized"
-            assert not hasattr(mod, "_imatrix_sum")
-            assert not hasattr(mod, "_imatrix_count")
+            assert not hasattr(mod, "weight_observer")
 
         # Hooks should be cleaned up
         total_hooks = sum(len(m._forward_pre_hooks) for m in model.modules())
@@ -172,8 +171,9 @@ class TestIMatrixObserverIntegration:
         )
 
         for name, module in model.named_modules():
-            assert not hasattr(module, "_imatrix_sum")
-            assert not hasattr(module, "_imatrix_count")
+            assert not hasattr(
+                module, "weight_observer"
+            ), f"{name} should not retain its weight observer after finalization"
 
     @pytest.mark.smoke
     @pytest.mark.integration
