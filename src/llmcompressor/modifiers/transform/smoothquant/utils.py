@@ -91,13 +91,10 @@ def build_qwen3_5_moe_smoothquant_mappings(model) -> list[LayerMap]:
         joined = "|".join(full_attn_indices)
         smooth_pattern = rf"re:.*layers\.({joined})\.input_layernorm$"
     else:
-        # Fall back to matching every input_layernorm; will only work if the
-        # model happens to have full_attention on every layer.
-        logger.warning(
-            "Qwen3.5 MoE: model.config.layer_types not found or empty; "
-            "falling back to default input_layernorm smooth pattern."
+        raise ValueError(
+            "Qwen3.5 MoE SmoothQuant mappings require model.config.layer_types "
+            "to identify full_attention layers."
         )
-        smooth_pattern = r"re:.*input_layernorm$"
     return [
         LayerMap(
             balance_layers=[
