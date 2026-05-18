@@ -34,6 +34,7 @@ class LmEvalConfig(BaseModel):
     # Optional absolute metrics for warnings (not failures)
     metrics: dict = None
     trust_remote_code: bool = False
+    max_model_len: int = 2048
 
 
 class TestConfig(BaseTestConfig):

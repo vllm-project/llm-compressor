@@ -34,7 +34,7 @@ def main():
         f"dtype={lmeval_config['dtype']},"
         f"add_bos_token={lmeval_config['add_bos_token']},"
         f"trust_remote_code={lmeval_config['trust_remote_code']},"
-        f"max_model_len=2048,"
+        f"max_model_len={lmeval_config['max_model_len']},"
         f"seed={seed},"
         f"gpu_memory_utilization={config['gpu_memory_utilization']},"
     )
