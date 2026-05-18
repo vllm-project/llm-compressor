@@ -113,10 +113,11 @@ def run_oneshot_for_e2e_testing(
 
     # Apply quantization.
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
-    _run_oneshot(**oneshot_kwargs)
-
-    # Clean up disk offloading
-    if os.path.exists(OFFLOAD_DIR):
-        shutil.rmtree(OFFLOAD_DIR)
+    try:
+        _run_oneshot(**oneshot_kwargs)
+    finally:
+        # Clean up disk offloading
+        if os.path.exists(OFFLOAD_DIR):
+            shutil.rmtree(OFFLOAD_DIR)
 
     return oneshot_kwargs["model"], processor
