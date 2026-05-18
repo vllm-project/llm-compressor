@@ -8,7 +8,6 @@ dataset_split: "train[:20]"
 num_calibration_samples: 20
 lmeval:
   model: vllm-vlm
-  dtype: bfloat16
   task: chartqa
   apply_chat_template: True
   add_bos_token: False

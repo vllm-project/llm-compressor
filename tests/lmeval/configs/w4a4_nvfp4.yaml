@@ -7,6 +7,9 @@ seed: 100
 num_calibration_samples: 20
 lmeval:
   metrics:
-    # this is higher as tests are run on h100, not b200
+    # Note: recovery will be dependent on 
+    # the hardware cpabilities. For blackwell
+    # machines, we expect lower results as 
+    # activation quantization is also enabed.
     exact_match,flexible-extract: 0.73
     exact_match,strict-match: 0.66
