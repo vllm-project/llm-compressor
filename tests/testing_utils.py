@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 import os
@@ -25,11 +24,6 @@ DISABLE_LMEVAL_CACHE = os.environ.get("DISABLE_LMEVAL_CACHE", "").lower() in (
 )
 LMEVAL_CACHE_DIR = Path(os.environ.get("LMEVAL_CACHE_DIR", ".lmeval_cache"))
 LMEVAL_CACHE_FILE = LMEVAL_CACHE_DIR / "cache.csv"
-
-
-def _sha256_hash(text: str, length: Optional[int] = None) -> str:
-    hash_result = hashlib.sha256(text.encode()).hexdigest()
-    return hash_result[:length] if length else hash_result
 
 
 class BaseTestConfig(BaseModel):
