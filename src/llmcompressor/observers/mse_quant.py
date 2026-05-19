@@ -55,14 +55,33 @@ def _grid_search_mse(
 
     if active_session().state.enable_compile:
         return _grid_search_compiled(
-            observed, args, token_args,
-            min_val, max_val, best_error, best_min_val, best_max_val,
-            total_steps, patience, grid, norm, chunk_size,
+            observed,
+            args,
+            token_args,
+            min_val,
+            max_val,
+            best_error,
+            best_min_val,
+            best_max_val,
+            total_steps,
+            patience,
+            grid,
+            norm,
+            chunk_size,
         )
     return _grid_search_eager(
-        observed, args, token_args,
-        min_val, max_val, best_error, best_min_val, best_max_val,
-        total_steps, patience, grid, norm,
+        observed,
+        args,
+        token_args,
+        min_val,
+        max_val,
+        best_error,
+        best_min_val,
+        best_max_val,
+        total_steps,
+        patience,
+        grid,
+        norm,
     )
 
 

@@ -117,6 +117,3 @@ def test_mse_observer_torch_compile():
     finally:
         # always restore state, even if assertions fail
         active_session().state.enable_compile = False
-
-
-
