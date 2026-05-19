@@ -70,6 +70,23 @@ class TestActivationCollection:
         assert not hasattr(module, "_imatrix_count")
         assert not hasattr(module, "_imatrix_hook")
 
+    def test_attach_initializes_importance_on_module_device(self):
+        module = torch.nn.Linear(8, 4, device="meta")
+        observer = _make_observer(module, strategy="channel")
+
+        assert observer._imatrix_sum.device == module.weight.device
+        assert observer._imatrix_count.device == module.weight.device
+
+    def test_attach_to_unsupported_module_removes_existing_hook(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(module, strategy="channel")
+        old_hook = observer._imatrix_hook
+
+        observer.attach(torch.nn.ReLU())
+
+        assert observer._imatrix_hook is None
+        assert old_hook.id not in module._forward_pre_hooks
+
     def test_detach_stops_collection(self):
         module = _make_linear(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="channel")

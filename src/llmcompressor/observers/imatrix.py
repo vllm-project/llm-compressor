@@ -70,14 +70,20 @@ class IMatrixMSEObserver(Observer):
 
     def attach(self, module: torch.nn.Module) -> None:
         """Attach a forward-pre hook to accumulate E[x²] per input channel."""
-        if not hasattr(module, "in_features"):
-            return
         if self._imatrix_hook is not None:
             self._imatrix_hook.remove()
+            self._imatrix_hook = None
+
+        if not hasattr(module, "in_features"):
+            return
 
         in_features = module.in_features
-        self._imatrix_sum = torch.zeros(in_features, dtype=IMATRIX_PRECISION)
-        self._imatrix_count = torch.tensor(0, dtype=torch.int64)
+        param = next(module.parameters(), None)
+        device = param.device if param is not None else None
+        self._imatrix_sum = torch.zeros(
+            in_features, dtype=IMATRIX_PRECISION, device=device
+        )
+        self._imatrix_count = torch.tensor(0, dtype=torch.int64, device=device)
 
         def _hook(mod, args):
             x = args[0] if isinstance(args, tuple) else args
