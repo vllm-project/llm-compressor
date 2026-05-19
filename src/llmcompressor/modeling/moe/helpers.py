@@ -1,7 +1,7 @@
 import ast
 import inspect
 from abc import ABC
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, Callable, ClassVar, Optional, runtime_checkable
 
 import torch
 from transformers import PreTrainedConfig
@@ -11,28 +11,30 @@ from transformers.core_model_loading import (
 )
 
 from llmcompressor.sentinel import Sentinel
+from loguru import logger
+from typing import Callable, ClassVar, Optional, Protocol
+
+import torch
+from transformers import PreTrainedConfig
 
 
-class FusedExpertsModule(torch.nn.Module, ABC):
-    """
-    Fake Typing Class
-
-    """
-
+@runtime_checkable
+class FusedExpertsProtocol(Protocol):
     config: PreTrainedConfig
     has_gate: bool
     has_bias: bool
     is_transposed: bool
+
     _apply_gate: ClassVar[Callable]
 
     gate_up_proj: torch.nn.Parameter
     down_proj: torch.nn.Parameter
     act_fn: torch.nn.Module
 
-    up_proj: Optional[torch.nn.Parameter]  # not has_gate
-    up_proj_bias: Optional[torch.nn.Parameter]  # not has_gate, has_bias
-    gate_up_proj_bias: Optional[torch.nn.Parameter]  # has_bias
-    down_proj_bias: Optional[torch.nn.Parameter]  # has_bias
+    up_proj: Optional[torch.nn.Parameter]
+    up_proj_bias: Optional[torch.nn.Parameter]
+    gate_up_proj_bias: Optional[torch.nn.Parameter]
+    down_proj_bias: Optional[torch.nn.Parameter]
 
 
 def _is_moe_experts_module(module) -> bool:
@@ -62,7 +64,7 @@ def _is_moe_experts_module(module) -> bool:
     return False
 
 
-def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
+def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
     default_args = {
         "is_concatenated": True,
         "is_transposed": False,
@@ -74,7 +76,8 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
         source = inspect.getsource(experts_cls)
         tree = ast.parse(source)
     except (OSError, TypeError):
-        return default_args
+        logger.warning(f"Could not find source module code for {experts_cls.__name__}")
+        return None
 
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, ast.ClassDef):
@@ -91,7 +94,7 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
             # Handle @use_experts_implementation(...) with arguments
             if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Name):
                 if decorator.func.id == "use_experts_implementation":
-                    args = default_args.copy()
+                    args = default_args
 
                     # Extract keyword arguments
                     for keyword in decorator.keywords:
@@ -99,11 +102,9 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
                             # Evaluate the constant value
                             if isinstance(keyword.value, ast.Constant):
                                 args[keyword.arg] = keyword.value.value
-                            elif isinstance(
-                                keyword.value, (ast.NameConstant, ast.Name)
-                            ):
+                            elif isinstance(keyword.value, (ast.Constant, ast.Name)):
                                 # Handle True/False/None
-                                if isinstance(keyword.value, ast.NameConstant):
+                                if isinstance(keyword.value, ast.Constant):
                                     args[keyword.arg] = keyword.value.value
                                 elif hasattr(keyword.value, "id"):
                                     # Try to evaluate simple names like True, False
@@ -112,14 +113,7 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool]:
 
                     return args
 
-    return default_args
-
-
-def _is_moe_experts_converter(converter: WeightTransform) -> bool:
-    return isinstance(converter, WeightConverter) and converter.target_patterns in (
-        ".experts.gate_up_proj",
-        ".experts.down_proj",
-    )
+    return None
 
 
 def get_moe_dims(config: PreTrainedConfig) -> tuple[int, int, int, bool, str, float]:

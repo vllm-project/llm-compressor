@@ -14,7 +14,7 @@ from llmcompressor.modeling.moe.context import (
     moe_calibration_context,
 )
 from llmcompressor.modeling.moe.linearize import (
-    load_linearized_moe,
+    load_quantizable_moe,
 )
 from tests.testing_utils import requires_gpu
 
@@ -59,18 +59,17 @@ def test_linearize_moe_model(
     assert torch.any(true_outputs != 0), "Bad source of truth, all zeros"
     del model
 
-    with load_linearized_moe():
-        linear = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
+    with load_quantizable_moe():
+        model2 = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
 
-    with moe_calibration_context(False):
-        select_exp_outputs = linear(input_ids=input_ids).logits
-        assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < 1e-2
+    select_exp_outputs = model2(input_ids=input_ids).logits
+    assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < 1e-2
 
-    with moe_calibration_context(True):
-        all_exp_outputs = linear(input_ids=input_ids).logits
+    with moe_calibration_context():
+        all_exp_outputs = model2(input_ids=input_ids).logits
         assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < 1e-2
 
-    linear.save_pretrained(save_dir)
+    model2.save_pretrained(save_dir)
     assert keys_exist(save_dir, exp_keys)
 
 

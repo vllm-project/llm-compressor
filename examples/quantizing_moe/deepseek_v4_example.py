@@ -1,4 +1,3 @@
-from compressed_tensors.offload import load_offloaded_model
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
@@ -8,18 +7,26 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_linearized_moe
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
+    DeepseekV4PreTrainedModel,
+)
+
+# Upstream BUG: norms should be loaded in float32, but usually aren't due to the base
+# model having a quant_config which overrides this. Loading in float32 actually
+# breaks the model definition (it expects bfloat16). Let's force load in bfloat16. 
+DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 
 # Select model and load it.
-MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
+MODEL_ID =  "inference-optimization/DSV4-tiny-empty" #  "RedHatAI/DeepSeek-V4-Flash-BF16"
 
-with load_offloaded_model(), load_linearized_moe():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        torch_dtype="auto",
-        device_map="cpu",
-    )
+#with load_quantizable_moe():
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    torch_dtype="auto",
+    device_map="cpu",
+)
 
 # kluge for the way I saved the decompressed checkpoint
 # mds = model.model.layers[-1].self_attn.wq_a._hf_hook.weights_map.dataset.index
@@ -27,7 +34,7 @@ with load_offloaded_model(), load_linearized_moe():
 # mds["model.hc_head.fn"] = mds['model.hc_head.hc_fn']
 # mds["model.hc_head.scale"] = mds['model.hc_head.hc_scale']
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained("RedHatAI/DeepSeek-V4-Flash-BF16")
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -116,6 +123,7 @@ recipe = QuantizationModifier(
 # only one block is loaded into GPU memory at a time
 oneshot(
     model=model,
+    processor=tokenizer,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
@@ -123,6 +131,7 @@ oneshot(
     sequential_targets=["DeepseekV4DecoderLayer"],
     batch_size=1,
     shuffle_calibration_samples=True,
+    propagate_error=False,  # work around reliance on transformers cache
 )
 
 # Save to disk compressed.

@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Callable
+from typing import Callable, ClassVar
 
 import torch
 from transformers import (
@@ -8,10 +8,13 @@ from transformers import (
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
 
+from llmcompressor.utils.dev import skip_weights_initialize
+
 from .context import get_moe_calibration_context
 from .helpers import (
     get_moe_dims,
     get_use_experts_implementation_args,
+    FusedExpertsProtocol,
 )
 
 
@@ -74,11 +77,71 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
 
 class LinearExperts2D(torch.nn.ModuleList):
-    is_concatenated: bool
-    is_transposed: bool
-    has_bias: bool
-    has_gate: bool
-    _apply_gate: Callable[[torch.Tensor], torch.Tensor]
+    is_concatenated: ClassVar[bool]
+    is_transposed: ClassVar[bool]
+    has_bias: ClassVar[bool]
+    has_gate: ClassVar[bool]
+    _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]]
+
+    num_experts: int
+    intermediate_dim: int
+
+    @classmethod
+    def create_linear_experts_cls(cls, experts_cls: type) -> type["LinearExperts2D"]:
+        experts_cls_args = get_use_experts_implementation_args(experts_cls)
+        # TODO: parameterize on whether the checkpoint has gate_up concatted
+
+        if experts_cls_args["has_gate"]:
+            experts_cls_args["_apply_gate"] = experts_cls._apply_gate
+        else:
+            experts_cls_args["_apply_gate"] = _default_apply_gate
+
+        return type("LinearExperts2D", (cls,), experts_cls_args)
+
+
+    @classmethod
+    def from_experts_module(cls, experts: FusedExpertsProtocol, config: PreTrainedConfig):
+        if not cls.has_gate:
+            # assume that if a `_apply_gate` is implemented, then the weight
+            # is not valid for quantization (for example, might be interleaved)
+            raise NotImplementedError(
+                f"Linearization for {experts.__class__.__name__} "
+                "has not been implemented yet"
+            )
+
+        with skip_weights_initialize():
+            self = cls(config)
+
+        # TODO: experiment with copying views rather than data
+        for index in range(self.num_experts):
+            expert: ExpertMLPWithGate = self[index]
+
+            # load weights
+            gate_weight = experts.gate_up_proj[index, :self.intermediate_dim]
+            up_weight = experts.gate_up_proj[index, self.intermediate_dim:]
+            down_weight = experts.down_proj[index]
+
+            if experts.is_transposed:
+                gate_weight = gate_weight.T
+                up_weight = up_weight.T
+                down_weight = down_weight.T
+
+            expert.gate_proj.weight.copy_(gate_weight)
+            expert.up_proj.weight.copy_(up_weight)
+            expert.down_proj.weight.copy_(down_weight)
+
+            # load biases
+            if experts.has_bias:
+                gate_bias = experts.gate_up_proj_bias[index, :self.intermediate_dim]
+                up_bias = experts.gate_up_proj_bias[index, self.intermediate_dim:]
+                down_bias = experts.down_proj_bias[index]
+
+                expert.gate_proj.bias.copy_(gate_bias)
+                expert.up_proj.bias.copy_(up_bias)
+                expert.down_proj.bias.copy_(down_bias)
+
+        return self
+        
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
         num_experts, hidden_dim, intermediate_dim, mlp_bias, hidden_act, limit = (
@@ -87,6 +150,7 @@ class LinearExperts2D(torch.nn.ModuleList):
 
         # store num_experts before appending `act_fn` to module list
         self.num_experts = num_experts
+        self.intermediate_dim = intermediate_dim
         act_fn = ACT2FN[hidden_act]
 
         if self.has_gate:
@@ -123,12 +187,12 @@ class LinearExperts2D(torch.nn.ModuleList):
             expert_mask = torch.nn.functional.one_hot(top_k_index, self.num_experts)
             expert_mask = expert_mask.permute(2, 1, 0)
 
-        for expert_idx in range(self.num_experts):
+        for expert_index in range(self.num_experts):
             # select tokens for this expert
-            top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
+            top_k_pos, token_indices = torch.where(expert_mask[expert_index])
 
             # apply expert
-            expert = self[expert_idx]
+            expert = self[expert_index]
             if get_moe_calibration_context():
                 expert_output = expert(hidden_states)[token_indices]
             else:
@@ -144,15 +208,3 @@ class LinearExperts2D(torch.nn.ModuleList):
             )
 
         return final_hidden_states
-
-
-def create_linear_experts_2d(experts_cls: type) -> type[LinearExperts2D]:
-    experts_cls_args = get_use_experts_implementation_args(experts_cls)
-    # TODO: parameterize on whether the checkpoint has gate_up concatted
-
-    if experts_cls_args["has_gate"]:
-        experts_cls_args["_apply_gate"] = experts_cls._apply_gate
-    else:
-        experts_cls_args["_apply_gate"] = _default_apply_gate
-
-    return type("LinearExperts2D", (LinearExperts2D,), experts_cls_args)
