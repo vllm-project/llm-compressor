@@ -22,7 +22,6 @@ ignore = [
     "re:.*lm_head",
     "re:.*self_attn.*",
     "re:.*embed_tokens$",
-    "re:.*norm$",
     # ignore anything not in language_model
     "re:.*mm_projector.*",
     "re:.*vision.*",
@@ -36,7 +35,7 @@ convert_checkpoint(
         MODEL_ID,
         ignore=ignore,
     ),
-    max_workers=1,
+    max_workers=4,
 )
 
 # Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB
