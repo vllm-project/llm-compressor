@@ -1,4 +1,4 @@
-import sys
+import argparse
 from pathlib import Path
 
 from auto_round.calib_dataset import get_dataset
@@ -8,8 +8,23 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 
+parser = argparse.ArgumentParser(description="AutoRound W8A8-MXFP8 Quantization")
+parser.add_argument(
+    "--model",
+    type=str,
+    default="Qwen/Qwen3-8B",
+    help="Model name or path",
+)
+parser.add_argument(
+    "--iters",
+    type=int,
+    default=200,
+    help="Number of iterations for AutoRound",
+)
+args = parser.parse_args()
+
 # Select model and load it.
-model_id = sys.argv[1] if len(sys.argv) > 1 else "Qwen/Qwen3-8B"
+model_id = args.model
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -30,7 +45,7 @@ recipe = AutoRoundModifier(
     targets="Linear",
     scheme="MXFP8",
     ignore=["lm_head"],
-    iters=200,
+    iters=args.iters,
 )
 
 # Apply algorithms.
