@@ -10,10 +10,16 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 parser = argparse.ArgumentParser(description="AutoRound W4A4-MXFP4 Quantization")
 parser.add_argument(
+    "model_id",
+    nargs="?",
+    default="Qwen/Qwen3-8B",
+    help="Model name or path (positional)",
+)
+parser.add_argument(
     "--model",
     type=str,
-    default="Qwen/Qwen3-8B",
-    help="Model name or path",
+    default=None,
+    help="Model name or path (overrides positional argument)",
 )
 parser.add_argument(
     "--iters",
@@ -22,6 +28,7 @@ parser.add_argument(
     help="Number of iterations for AutoRound",
 )
 args = parser.parse_args()
+args.model = args.model or args.model_id
 
 # Select model and load it.
 model_id = args.model
