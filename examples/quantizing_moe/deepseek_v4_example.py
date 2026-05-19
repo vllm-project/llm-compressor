@@ -21,11 +21,11 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 # Select model and load it.
 MODEL_ID =  "inference-optimization/DSV4-tiny-empty" #  "RedHatAI/DeepSeek-V4-Flash-BF16"
 
-#with load_quantizable_moe():
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    torch_dtype="auto",
-    device_map="cpu",
+with load_quantizable_moe():
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        torch_dtype="auto",
+        device_map="cpu",
 )
 
 # kluge for the way I saved the decompressed checkpoint
@@ -109,8 +109,7 @@ recipe = QuantizationModifier(
         ),
         "experts": QuantizationScheme(
             targets=[
-                r"re:.*mlp\.experts.*(gate|up|down)_proj$",
-                r"re:.*mlp\.shared_experts.*(gate|up|down)_proj$",
+                r"re:.*mlp\..*(gate|up|down)_proj$",
             ],
             **NVFP4,
         ),
