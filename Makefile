@@ -52,4 +52,5 @@ build:
 clean:
 	rm -fr .pytest_cache;
 	rm -fr docs/_build docs/build;
+	rm -f .coverage .coverage.*;
 	find $(CHECKDIRS) | grep -E "(__pycache__|\.pyc|\.pyo)" | xargs rm -fr;
