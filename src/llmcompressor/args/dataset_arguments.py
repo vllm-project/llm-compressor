@@ -293,7 +293,7 @@ class DatasetArguments(CustomDatasetArguments):
     enable_compile: bool = field(
         default=False,
         metadata={
-            "help": "If True, use torch.compiled MSE observer inner loop for faster "
+            "help": "If True, use torch.compiled functions where available"
             "calibration. Default False."
         },
     )
