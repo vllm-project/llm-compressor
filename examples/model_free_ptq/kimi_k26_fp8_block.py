@@ -16,7 +16,6 @@ ignore = [
     "re:.*q_a_proj$",
     "re:.*vision_tower.*",
     "re:.*embed_tokens$",
-    "re:.*norm$",
     # ignore anything not in language_model
     "re:.*mm_projector.*",
     "re:.*vision.*",
