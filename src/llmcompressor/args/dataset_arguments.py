@@ -252,10 +252,8 @@ class DatasetArguments(CustomDatasetArguments):
     quantization_aware_calibration: bool = field(
         default=True,
         metadata={
-            "help": "Only relevant for the sequential pipeline. "
-            "If True, quantization is applied during forward pass in calibration. "
-            "If False, quantization is disabled during forward pass in calibration. "
-            "Default is True."
+            "help": "Deprecated. This argument has no effect and will be removed "
+            "in a future release."
         },
     )
     propagate_error: bool = field(

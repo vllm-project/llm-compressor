@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from collections.abc import Iterator
+from typing import Any
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -6,7 +7,9 @@ from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
 )
-from compressed_tensors.offload.dist_utils import is_distributed
+from compressed_tensors.offload.dist_utils import (
+    is_distributed,
+)
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -21,7 +24,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
-from compressed_tensors.utils import match_named_modules, update_offload_parameter
+from compressed_tensors.utils import match_named_modules
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -40,6 +43,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -70,8 +74,9 @@ class QuantizationMixin(HooksMixin):
 
     NOTE: QuantizationMixin does not update scales and zero-points on its own,
         as this is not desired for all Modifiers inheriting from it. Modifier must
-        explicitly call `update_weight_zp_scale`.
-        See QuantizationModifier.on_start method for example
+        explicitly call `observe(modules, base_name="weight")` then
+        `update_qparams(modules, base_name="weight")`.
+        See QuantizationModifier.on_event method for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -118,26 +123,26 @@ class QuantizationMixin(HooksMixin):
         (e.g. vLLM) supports non-divisible dimensions. Defaults to False.
     """
 
-    config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    config_groups: dict[str, QuantizationScheme] | None = None
     # NOTE: targets is not the sole source of truth for finding all matching target
     # layers in a model. Additional information can be stored in `config_groups`
     # Use self.resolved_targets as source of truth.
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
-    ignore: List[str] = Field(default_factory=list)
-    scheme: Optional[Union[str, Dict[str, Any]]] = None
-    kv_cache_scheme: Optional[QuantizationArgs] = None
+    targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
+    ignore: list[str] = Field(default_factory=list)
+    scheme: str | dict[str, Any] | None = None
+    kv_cache_scheme: QuantizationArgs | None = None
     # Observer parameters for easy specification
-    weight_observer: Optional[str] = None
-    input_observer: Optional[str] = None
-    output_observer: Optional[str] = None
-    observer: Optional[Dict[str, str]] = None
+    weight_observer: str | None = None
+    input_observer: str | None = None
+    output_observer: str | None = None
+    observer: dict[str, str] | None = None
     bypass_divisibility_checks: bool = False
 
-    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
-    _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
+    _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _resolved_config: QuantizationConfig | None = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
-    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+    def validate_targets(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return [value]
 
@@ -145,25 +150,25 @@ class QuantizationMixin(HooksMixin):
 
     @field_validator("scheme", mode="before")
     def validate_scheme(
-        cls, value: Optional[Union[str, Dict[str, Any]]]
-    ) -> Optional[Union[str, Dict[str, Any]]]:
-        if isinstance(value, str) and not is_preset_scheme(value):
-            raise ValueError(
-                "`scheme` must either be a preset scheme name or a dictionary "
-                "of preset scheme names"
-            )
+        cls, value: str | dict[str, Any] | None
+    ) -> str | dict[str, Any] | None:
+        match value:
+            case str() if not is_preset_scheme(value):
+                raise ValueError(
+                    "`scheme` must either be a preset scheme name or a dictionary "
+                    "of preset scheme names"
+                )
+            case dict():
+                for scheme_name in value.keys():
+                    cls.validate_scheme(scheme_name)
 
-        if isinstance(value, dict):
-            for scheme_name in value.keys():
-                cls.validate_scheme(scheme_name)
-
-            for key, target in value.items():
-                value[key] = cls.validate_targets(target)
+                for key, target in value.items():
+                    value[key] = cls.validate_targets(target)
 
         return value
 
     @field_validator("observer", mode="before")
-    def validate_observer(cls, value: Any) -> Optional[Dict[str, str]]:
+    def validate_observer(cls, value: Any) -> dict[str, str] | None:
         """
         Validate observer dictionary format. Accepts keys: 'weights', 'input', 'output'
         """
@@ -195,7 +200,7 @@ class QuantizationMixin(HooksMixin):
         return self._resolved_config
 
     @property
-    def resolved_targets(self) -> Set[str]:
+    def resolved_targets(self) -> set[str]:
         """
         Set of all resolved targets, i.e. all unique targets listed
         in resolved quantization config.
@@ -248,7 +253,8 @@ class QuantizationMixin(HooksMixin):
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+        # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
+        fuse_weight_observers(model)
 
     def end_calibration(self, model: torch.nn.Module):
         """
@@ -263,47 +269,28 @@ class QuantizationMixin(HooksMixin):
 
         model.apply(enable_quantization)  # keep quantization enabled
 
-    def sync_activation_observers(self, model: torch.nn.Module):
+    def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
-        All-reduce activation observer min/max values across DDP ranks,
-        then recompute scale/zp from the global statistics. No-op when
-        not distributed.
+        Synchronize the activation statistics for observers
+        across DDP ranks. Iterates all observers
+        (weight, input, output, q, k, v);
+        note: No-op when not distributed and
+        most weight observers don't have activation
+        statistics and thus are no-ops as well.
 
-        :param model: model containing quantized modules
+        :param modules: iterable of modules to sync (e.g., from a sequential chunk)
         """
         if not is_distributed():
             return
 
         pending_comms = []
-        modules_to_update = []
-
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            for base_name in ("input", "output", "q", "k", "v"):
+        for module in set(modules):
+            for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None:
                     continue
-                pending_comms.extend(observer.synchronize())
-                modules_to_update.append((module, base_name, observer))
-
+                pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
-
-        # recompute qparams from synchronized statistics
-        for module, base_name, observer in modules_to_update:
-            # recompute global scale if using TENSOR_GROUP strategy
-            global_scale = observer.recompute_global_scale()
-            if global_scale is not None:
-                update_offload_parameter(
-                    module, f"{base_name}_global_scale", global_scale
-                )
-
-            result = observer.recompute_qparams()
-            if result is not None:
-                scale, zero_point = result
-                update_offload_parameter(module, f"{base_name}_scale", scale)
-                if hasattr(module, f"{base_name}_zero_point"):
-                    update_offload_parameter(
-                        module, f"{base_name}_zero_point", zero_point
-                    )
 
     def has_config(self) -> bool:
         """
@@ -444,7 +431,7 @@ class QuantizationMixin(HooksMixin):
                     initialize_observer(module, base_name="k")
                     initialize_observer(module, base_name="v")
 
-        # weight observers (used by `update_weight_zp_scale` or child modifier)
+        # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
             initialize_observer(module, base_name="weight")
 
@@ -452,7 +439,7 @@ class QuantizationMixin(HooksMixin):
         if output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
+    def _initialize_hooks(self, module: torch.nn.Module) -> set[RemovableHandle]:
         hooks = set()
         if not hasattr(module, "quantization_scheme"):
             return hooks

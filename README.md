@@ -95,7 +95,7 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
 * [Activation quantization to MXFP8](examples/quantization_w8a8_mxfp8)
 * [Activation quantization to `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
-* [Activation quantization to `fp4` (MXFP4)](experimental/mxfp4)
+* [Activation quantization to `fp4` (MXFP4)](examples/quantization_w4a4_mxfp4)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)
 * [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8)
 
