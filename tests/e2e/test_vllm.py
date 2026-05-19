@@ -189,8 +189,7 @@ class TestvLLM:
         else:
             os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
 
-        if self.config.gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
+        llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
 
         json_scheme = json.dumps(self.config.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)
