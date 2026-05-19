@@ -233,6 +233,8 @@ class Oneshot:
                 sequential_targets=self.dataset_args.sequential_targets,
             )
 
+            session.state.enable_compile = self.dataset_args.enable_compile
+
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
@@ -305,6 +307,7 @@ def oneshot(
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
+    enable_compile: bool = False,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -400,6 +403,8 @@ def oneshot(
         Nothing is saved if None.
     :param log_dir: Path to save logs during oneshot run.
         Nothing is logged to file if None.
+    :param enable_compile: If True, use torch.compiled MSE observer inner loop
+        for faster calibration. Default False.
 
     :return: The calibrated PreTrainedModel
     """

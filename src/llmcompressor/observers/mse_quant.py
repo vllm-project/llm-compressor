@@ -1,11 +1,11 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 import torch._dynamo.config
 import torch._dynamo.decorators
 from compressed_tensors.quantization import QuantizationArgs
 from compressed_tensors.quantization.lifecycle import fake_quantize
-from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
+from compressed_tensors.quantization.utils import calculate_qparams
 
 from llmcompressor.observers.base import MinMaxTuple
 from llmcompressor.observers.compile_config import (
@@ -27,8 +27,6 @@ def _grid_search_mse(
     patience: int,
     grid: float,
     norm: float,
-    global_scale: Optional[torch.Tensor] = None,
-    optimize_global_scale: bool = False,
 ) -> MinMaxTuple:
     """Find per-channel min/max ranges that minimize quantization error.
 
@@ -47,10 +45,6 @@ def _grid_search_mse(
     :param grid: resolution of the shrink search. Larger values give finer granularity
         in shrink factors
     :param norm: exponent used when computing the error. norm = 2 approximates MSE
-    :param global_scale: precomputed global scale to use for quantization. Ignored if
-        `optimize_global_scale` is True
-    :param optimize_global_scale: If True, recompute ``global_scale`` from the
-        candidate min/max during each step of the search
     """
     min_val = torch.amin(observed, dim=(0, -1))
     max_val = torch.amax(observed, dim=(0, -1))
@@ -74,8 +68,6 @@ def _grid_search_mse(
         patience,
         grid,
         norm,
-        global_scale,
-        optimize_global_scale,
     )
 
 
@@ -92,8 +84,6 @@ def _grid_search_eager(
     patience: int,
     grid: float,
     norm: float,
-    global_scale: Optional[torch.Tensor],
-    optimize_global_scale: bool,
 ) -> MinMaxTuple:
     """Per-step grid search with boolean-indexing updates and early stopping."""
     no_improve_count = 0
@@ -110,8 +100,6 @@ def _grid_search_eager(
             shrinked_min_val,
             shrinked_max_val,
             norm,
-            global_scale,
-            optimize_global_scale,
         )
 
         improved = err < best_error
@@ -141,8 +129,6 @@ def _grid_search_compiled(
     patience: int,
     grid: float,
     norm: float,
-    global_scale: Optional[torch.Tensor],
-    optimize_global_scale: bool,
 ) -> MinMaxTuple:
     """Chunked grid search using torch.compiled inner loop.
 
@@ -180,8 +166,6 @@ def _grid_search_compiled(
             ps,
             current_chunk,
             norm,
-            global_scale,
-            optimize_global_scale,
             best_error,
             best_min_val,
             best_max_val,
@@ -208,8 +192,6 @@ def _compute_chunk(
     ps: torch.Tensor,
     chunk_size: int,
     norm: float,
-    global_scale: Optional[torch.Tensor],
-    optimize_global_scale: bool,
     best_error: torch.Tensor,
     best_min_val: torch.Tensor,
     best_max_val: torch.Tensor,
@@ -235,8 +217,6 @@ def _compute_chunk(
             shrinked_min,
             shrinked_max,
             norm,
-            global_scale,
-            optimize_global_scale,
         )
 
         improved = err < best_error
@@ -254,23 +234,17 @@ def _calculate_error(
     shrinked_min: torch.Tensor,
     shrinked_max: torch.Tensor,
     norm: float,
-    global_scale: Optional[torch.Tensor],
-    optimize_global_scale: bool,
 ) -> torch.Tensor:
     """Fake-quantize ``observed`` using the given shrinked min/max range and
     return the per-channel error.
 
     :return: per-channel quantization error, shape ``(*qparams_shape,)``
     """
-    gs = global_scale
-    if optimize_global_scale:
-        gs = generate_gparam(shrinked_min, shrinked_max)
-
     candidate_scales, candidate_zero_points = calculate_qparams(
         min_vals=shrinked_min,
         max_vals=shrinked_max,
         quantization_args=args,
-        global_scale=gs,
+        global_scale=None,
     )
 
     q = fake_quantize(
@@ -278,7 +252,6 @@ def _calculate_error(
         candidate_scales.unsqueeze(-1),
         candidate_zero_points.unsqueeze(-1),
         token_args,
-        global_scale=gs,
     ).to(observed.dtype)
 
     err = torch.sum((q - observed).abs().pow(norm), dim=(0, -1))
