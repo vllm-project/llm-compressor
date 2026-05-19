@@ -25,6 +25,9 @@ class MemorylessMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
+        self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
 
         # Pre-create token_args to avoid patch_attr context manager
         # which causes torch.compile graph breaks
@@ -41,6 +44,7 @@ class MemorylessMSEObserver(Observer):
             self.patience,
             self.grid,
             self.norm,
+            self.chunk_size,
         )
 
 
@@ -64,6 +68,9 @@ class MovingAverageMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
+        self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
 
         # Pre-create token_args to avoid patch_attr context manager
         # which causes torch.compile graph breaks
@@ -80,6 +87,7 @@ class MovingAverageMSEObserver(Observer):
             self.patience,
             self.grid,
             self.norm,
+            self.chunk_size,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:

@@ -244,6 +244,7 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
+
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)

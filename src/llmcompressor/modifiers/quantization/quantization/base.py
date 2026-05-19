@@ -8,7 +8,6 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
-from llmcompressor.observers.compile_config import set_torch_compile
 
 __all__ = ["QuantizationModifier"]
 
@@ -71,7 +70,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Begin calibrating activations.
         """
         self.started_ = True
-        set_torch_compile(state.enable_compile)
         QuantizationMixin.start_calibration(self, state.model)
 
     def on_event(self, state: State, event: Event, **kwargs):

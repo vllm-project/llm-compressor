@@ -7,11 +7,8 @@ from compressed_tensors.quantization import QuantizationArgs
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams
 
+from llmcompressor.core import active_session
 from llmcompressor.observers.base import MinMaxTuple
-from llmcompressor.observers.compile_config import (
-    get_compile_chunk_size,
-    get_torch_compile,
-)
 
 # Allow torch.compile to handle scalar conversions inside
 # compressed_tensors' calculate_qparams (float(bit_range)).
@@ -27,13 +24,14 @@ def _grid_search_mse(
     patience: int,
     grid: float,
     norm: float,
+    chunk_size: int,
 ) -> MinMaxTuple:
     """Find per-channel min/max ranges that minimize quantization error.
 
     Performs a 1-D grid search over shrink factors applied to the observed
     tensor's min/max values.  Delegates to :func:`_grid_search_eager` or
-    :func:`_grid_search_compiled` based on the global compile config set
-    via :func:`set_torch_compile`.
+    :func:`_grid_search_compiled` based on the module-level
+    ``_enable_torch_compile`` flag.
 
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
     :param args: quantization args used for computing qparams and fake quant
@@ -45,6 +43,7 @@ def _grid_search_mse(
     :param grid: resolution of the shrink search. Larger values give finer granularity
         in shrink factors
     :param norm: exponent used when computing the error. norm = 2 approximates MSE
+    :param chunk_size: number of grid steps per compiled call
     """
     min_val = torch.amin(observed, dim=(0, -1))
     max_val = torch.amax(observed, dim=(0, -1))
@@ -54,20 +53,16 @@ def _grid_search_mse(
 
     total_steps = int(maxshrink * grid)
 
-    dispatch = _grid_search_compiled if get_torch_compile() else _grid_search_eager
-    return dispatch(
-        observed,
-        args,
-        token_args,
-        min_val,
-        max_val,
-        best_error,
-        best_min_val,
-        best_max_val,
-        total_steps,
-        patience,
-        grid,
-        norm,
+    if active_session().state.enable_compile:
+        return _grid_search_compiled(
+            observed, args, token_args,
+            min_val, max_val, best_error, best_min_val, best_max_val,
+            total_steps, patience, grid, norm, chunk_size,
+        )
+    return _grid_search_eager(
+        observed, args, token_args,
+        min_val, max_val, best_error, best_min_val, best_max_val,
+        total_steps, patience, grid, norm,
     )
 
 
@@ -129,6 +124,7 @@ def _grid_search_compiled(
     patience: int,
     grid: float,
     norm: float,
+    chunk_size: int,
 ) -> MinMaxTuple:
     """Chunked grid search using torch.compiled inner loop.
 
@@ -137,7 +133,6 @@ def _grid_search_compiled(
     boundaries; compiled mode may run up to ``chunk_size - 1`` extra
     steps past the eager break point.
     """
-    chunk_size = get_compile_chunk_size()
     no_improve_count = 0
 
     # Eliminate stride/duck-sizing guards from view tensors
