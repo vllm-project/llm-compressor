@@ -1,5 +1,6 @@
 import inspect
-from typing import Iterator, Literal
+from collections.abc import Iterator
+from typing import Literal
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -153,7 +154,7 @@ class AWQModifier(Modifier):
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
-    # Dict[smooth layer name, [activation sums, activation counts]]
+    # dict[smooth layer name, [activation sums, activation counts]]
     _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
