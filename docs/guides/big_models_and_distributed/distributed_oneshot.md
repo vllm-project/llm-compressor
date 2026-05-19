@@ -143,7 +143,7 @@ Observers (used during activation calibration) expose a `sync_activation_stats()
 | Observer | Synced statistics | Reduce op |
 |----------|-------------------|-----------|
 | `static_minmax` | `min_vals`, `max_vals` | MIN, MAX |
-| `minmax` (EMA) | `min_vals`, `max_vals` | MIN, MAX |
+| `minmax` (EMA) | `min_vals`, `max_vals` | AVG |
 | `memoryless_minmax` | *(none — data-free)* | — |
 | `mse` (EMA) | `min_vals`, `max_vals` | AVG |
 | `memoryless_mse` | *(none — data-free)* | — |
