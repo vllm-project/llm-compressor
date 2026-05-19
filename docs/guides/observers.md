@@ -219,7 +219,7 @@ Only **activation** statistics are synchronized. Weight statistics are never syn
 | Observer | Synced statistics | Reduce op | Notes |
 |----------|-------------------|-----------|-------|
 | `static_minmax` | `min_vals`, `max_vals` | MIN, MAX | Global min/max across all ranks |
-| `minmax` (EMA) | `min_vals`, `max_vals` | MIN, MAX | Global min/max across all ranks |
+| `minmax` (EMA) | `min_vals`, `max_vals` | AVG | Global min/max across all ranks |
 | `memoryless_minmax` | *(none)* | — | Stateless; each rank's data is independent |
 | `mse` (EMA) | `min_vals`, `max_vals` | AVG | Averages the per-rank MSE-optimal ranges |
 | `memoryless_mse` | *(none)* | — | Stateless; each rank's data is independent |
