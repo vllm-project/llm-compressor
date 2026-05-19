@@ -86,6 +86,7 @@ def initialize_observer(
 def observe(
     module: Module | Iterable[Module],
     base_name: str,
+    observe_all_fused: bool = True,
 ):
     """
     Run observers to accumulate statistics on modules.
@@ -93,13 +94,26 @@ def observe(
 
     :param module: module or iterable of modules with observer attributes
     :param base_name: substring used to fetch the observer and value to observe
+    :param observe_all_fused: whether to also observe fused obs
     """
+    obs_name = f"{base_name}_observer"
+    
+    if observe_all_fused:
+        modules = set(module) if isinstance(module, Iterable) else {module}
+        all_modules = {} | modules
+        for mod in modules:
+            if not hasattr(mod, obs_name):
+                continue
+            all_modules |= set(getattr(mods, obs_name)._fused_observers)
+        observe(all_modules, base_name, False)
+        return 
+    
     if isinstance(module, Iterable):
         for m in set(module):
-            observe(m, base_name)
+            observe(m, base_name, False)
         return
 
-    observer = getattr(module, f"{base_name}_observer", None)
+    observer = getattr(module, obs_name, None)
     if observer is None:
         return
 
