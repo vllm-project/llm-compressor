@@ -1,5 +1,4 @@
 import math
-from typing import Dict, Optional, Tuple
 
 import torch
 import transformers
@@ -9,7 +8,7 @@ SGPT_PRECISION = torch.float32
 
 
 def make_empty_hessian(
-    module: torch.nn.Module, device: Optional[torch.device] = None
+    module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
     weight = module.weight
     num_columns = weight.shape[1]
@@ -22,27 +21,29 @@ def accumulate_hessian(
     module: torch.nn.Module,
     H: torch.Tensor,
     num_samples: int,
-) -> Tuple[torch.Tensor, int]:
+) -> tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
+    if len(inp.shape) == 2:
+        inp = inp.unsqueeze(0)
 
-    if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
-        num_added = inp[..., 0].numel()
-        inp = inp.reshape(-1, inp.shape[-1])
-        inp = inp.t()
+    num_added = inp.shape[0]  # note this is the number of dataset samples, not
+    # multiplied by the sequence length
 
-    if isinstance(module, torch.nn.Conv2d):
-        if len(inp.shape) == 2:
-            inp = inp.unsqueeze(0)
-        num_added = inp.shape[0]
-        unfold = torch.nn.Unfold(
-            module.kernel_size,
-            dilation=module.dilation,
-            padding=module.padding,
-            stride=module.stride,
-        )
-        inp = unfold(inp)
-        inp = inp.permute([1, 0, 2])
-        inp = inp.flatten(1)
+    match module:
+        case torch.nn.Linear() | transformers.Conv1D():
+            if len(inp.shape) == 3:
+                inp = inp.reshape((-1, inp.shape[-1]))
+            inp = inp.t()
+        case torch.nn.Conv2d():
+            unfold = torch.nn.Unfold(
+                module.kernel_size,
+                dilation=module.dilation,
+                padding=module.padding,
+                stride=module.stride,
+            )
+            inp = unfold(inp)
+            inp = inp.permute([1, 0, 2])
+            inp = inp.flatten(1)
 
     H *= num_samples / (num_samples + num_added)
     num_samples += num_added
@@ -56,7 +57,7 @@ def accumulate_hessian(
 
 def sparsify_weight(
     module: torch.nn.Module,
-    hessians_dict: Dict[torch.nn.Module, torch.Tensor],
+    hessians_dict: dict[torch.nn.Module, torch.Tensor],
     sparsity: float,
     prune_n: int,
     prune_m: int,
@@ -84,10 +85,11 @@ def sparsify_weight(
     del hessians_dict[module]  # so we have to delete the original reference manually
 
     # standardize shape and dtype
-    if isinstance(module, torch.nn.Conv2d):
-        W = W.flatten(1)
-    elif isinstance(module, transformers.Conv1D):
-        W.transpose_(0, 1)
+    match module:
+        case torch.nn.Conv2d():
+            W = W.flatten(1)
+        case transformers.Conv1D():
+            W.transpose_(0, 1)
     W = W.to(dtype=SGPT_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]

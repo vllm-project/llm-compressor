@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+import contextlib
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
@@ -22,6 +23,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
@@ -216,9 +218,13 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        # (Helen INFERENG-661): validate recipe modifiers before initialization
-        # Apply calibration contexts for the entire calibration process
-        with norm_calibration_context(self.model):
+        with contextlib.ExitStack() as stack:
+            # fix norm layers for gemma models
+            stack.enter_context(norm_calibration_context(self.model))
+            # linearize moe layers for moe models
+            calib_all_experts = self.dataset_args.moe_calibrate_all_experts
+            stack.enter_context(moe_calibration_context(self.model, calib_all_experts))
+
             session.initialize(
                 model=self.model,
                 start=-1,
@@ -228,6 +234,7 @@ class Oneshot:
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
             )
+
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
@@ -268,7 +275,7 @@ def oneshot(
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
-    max_seq_length: int = 384,
+    max_seq_length: int | None = None,
     pad_to_max_length: bool = True,
     text_column: str = "text",
     concatenate_data: bool = False,
@@ -385,10 +392,8 @@ def oneshot(
     :param sequential_offload_device: Device used to offload intermediate activations
         between sequential layers. It is recommended to use `cuda:1` if using more
         than one gpu. Default is cpu.
-    :param quantization_aware_calibration: Whether to enable quantization-aware
-        calibration in the sequential pipeline. When True, quantization is applied
-        during forward pass in calibration. When False, quantization is disabled
-        during forward pass in calibration. Default is set to True.
+    :param quantization_aware_calibration: Deprecated. This argument has no effect
+        and will be removed in a future release.
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.

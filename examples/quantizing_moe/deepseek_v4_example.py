@@ -8,29 +8,18 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import linearize_moe_model
+from llmcompressor.modeling.moe.linearize import load_linearized_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Select model and load it.
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 
-with load_offloaded_model():
+with load_offloaded_model(), load_linearized_moe():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         torch_dtype="auto",
-        # device_map="auto_offload",
         device_map="cpu",
-        # max_memory={"cpu": 3e10},
-        # offload_folder="offload_folder",
     )
-# from transformers.core_model_loading import revert_weight_conversion
-# from compressed_tensors.offload import disable_onloading
-# with disable_onloading():
-#     new_state_dict = revert_weight_conversion(model, model.state_dict())
-#     print(new_state_dict.keys())
-# exit(0)
-
-linearize_moe_model(model)
 
 # kluge for the way I saved the decompressed checkpoint
 # mds = model.model.layers[-1].self_attn.wq_a._hf_hook.weights_map.dataset.index
@@ -121,8 +110,6 @@ recipe = QuantizationModifier(
     },
     ignore=[],
 )
-# model.layers.4.self_attn.compressor.indexer.weights_proj
-# model.layers.3.ffn_hc
 
 # Apply algorithms.
 # due to the large size of DeepSeek-V4, we specify sequential targets such that

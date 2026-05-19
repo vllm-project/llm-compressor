@@ -12,7 +12,7 @@ def get_moe_calibration_context() -> bool:
 
 @contextlib.contextmanager
 def moe_calibration_context(
-    calibrate_all_experts: bool, model: Optional[PreTrainedModel] = None
+    model: Optional[PreTrainedModel] = None, calibrate_all_experts: bool = True
 ):
     global CALIBRATE_ALL_EXPERTS
 
@@ -32,6 +32,7 @@ def moe_calibration_context(
                 "model `with llmcompressor.modeling.moe.linearize.load_linearized_moe` "
                 "before passing into `oneshot`"
             )
+            # TODO: in-memory replacement
 
     restore_value, CALIBRATE_ALL_EXPERTS = CALIBRATE_ALL_EXPERTS, calibrate_all_experts
     try:
