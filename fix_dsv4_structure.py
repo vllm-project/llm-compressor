@@ -37,9 +37,13 @@ def build_name_mapping(source_keys: list[str]) -> Dict[str, str]:
         new_key = new_key.replace("post_attention_layernorm", "ffn_norm")
 
         # Flatten HC (head compression) tensors
-        new_key = re.sub(r'hc_head\.hc_(base|fn|scale)', r'hc_head_\1', new_key)
-        new_key = re.sub(r'layers\.(\d+)\.attn_hc\.(base|fn|scale)', r'layers.\1.hc_attn_\2', new_key)
-        new_key = re.sub(r'layers\.(\d+)\.ffn_hc\.(base|fn|scale)', r'layers.\1.hc_ffn_\2', new_key)
+        new_key = re.sub(r"hc_head\.hc_(base|fn|scale)", r"hc_head_\1", new_key)
+        new_key = re.sub(
+            r"layers\.(\d+)\.attn_hc\.(base|fn|scale)", r"layers.\1.hc_attn_\2", new_key
+        )
+        new_key = re.sub(
+            r"layers\.(\d+)\.ffn_hc\.(base|fn|scale)", r"layers.\1.hc_ffn_\2", new_key
+        )
 
         # Rename attention projections (but not in compressor.indexer)
         if ".compressor.indexer." not in new_key:
@@ -50,7 +54,7 @@ def build_name_mapping(source_keys: list[str]) -> Dict[str, str]:
             new_key = new_key.replace("o_b_proj", "wo_b")
             # kv_proj -> wkv only when not in compressor
             if ".compressor." not in new_key:
-                new_key = re.sub(r'\.kv_proj\.weight$', '.wkv.weight', new_key)
+                new_key = re.sub(r"\.kv_proj\.weight$", ".wkv.weight", new_key)
 
         new_key = new_key.replace("sinks", "attn_sink")
 
@@ -68,9 +72,15 @@ def build_name_mapping(source_keys: list[str]) -> Dict[str, str]:
 def should_convert_to_f32(key: str) -> bool:
     """Check if a tensor should be converted to F32."""
     f32_patterns = [
-        "hc_head_base", "hc_head_fn", "hc_head_scale",
-        "hc_attn_base", "hc_attn_fn", "hc_attn_scale",
-        "hc_ffn_base", "hc_ffn_fn", "hc_ffn_scale",
+        "hc_head_base",
+        "hc_head_fn",
+        "hc_head_scale",
+        "hc_attn_base",
+        "hc_attn_fn",
+        "hc_attn_scale",
+        "hc_ffn_base",
+        "hc_ffn_fn",
+        "hc_ffn_scale",
         "position_bias",
         "attn_sink",
         "e_score_correction_bias",
@@ -136,7 +146,12 @@ def convert_checkpoint(
         print(f"Saved name mapping to {mapping_file}")
 
     # Copy other files
-    for file in ["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json"]:
+    for file in [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ]:
         source_path = source_dir / file
         if source_path.exists():
             target_path = target_dir / file
