@@ -17,6 +17,7 @@ ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
         [
+            # ---- Main decoder layers: layers.<L>.mlp.experts.<E>.{w1,w2,w3} ----
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
                 target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
@@ -28,6 +29,32 @@ ARCH_TO_2D_MAPPINGS = {
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
                 target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+            ),
+            # ---- MTP (Multi-Token-Prediction) draft block: mtp.<M>.mlp.experts.<E>.{w1,w2,w3} ----
+            # Required for any DSv4 quantization that preserves the MTP layer
+            # (e.g. for vLLM `--speculative-config method=mtp num_speculative_tokens=N`).
+            # The MTP block has identical MoE structure to a main DecoderLayer
+            # but lives under a distinct `mtp.<M>.` prefix instead of `layers.<L>.`.
+            # Without these mappings, `linearize_moe` walks `named_modules()`
+            # for `FusedExpertsProtocol` but the regex anchor `^layers\.`
+            # excludes `mtp.<M>.mlp.experts.*` paths — so MTP's MoE block
+            # silently skips linearization and ships uncalibrated.
+            #
+            # Depends on huggingface/transformers#46127 landing first
+            # (adds `DeepseekV4NextNPredictor` so `mtp.*` keys load into
+            # real submodules instead of being filtered out by the
+            # `_keys_to_ignore_on_load_unexpected` regex).
+            WeightRenaming(
+                source_patterns=r"^mtp\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
+                target_patterns=r"mtp.\1.mlp.experts.\2.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^mtp\.(\d+)\.mlp\.experts\.(\d+)\.w2\.",
+                target_patterns=r"mtp.\1.mlp.experts.\2.down_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^mtp\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
+                target_patterns=r"mtp.\1.mlp.experts.\2.up_proj.",
             ),
         ],
     )
