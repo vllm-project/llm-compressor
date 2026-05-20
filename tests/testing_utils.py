@@ -181,6 +181,13 @@ class BaseTestConfig(BaseModel):
         0.70,
         description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
     )
+    num_gpus: int = Field(
+        1,
+        description=(
+            "Number of GPUs required for this test. "
+            "Tests are skipped if fewer are available.",
+        ),
+    )
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
     )

@@ -2,7 +2,7 @@
 Thin DDP compression runner, invoked via torchrun for any DDP test.
 
 Usage:
-    torchrun --nproc_per_node N tests/run_oneshot_ddp.py <config_json> [--save-compressed]
+    torchrun --nproc_per_node N tests/run_oneshot_ddp.py <config_json>
 
 Arguments:
     config_json       JSON-serialized BaseTestConfig / TestConfig
@@ -21,4 +21,6 @@ if __name__ == "__main__":
     config = json.loads(sys.argv[1])
 
     init_dist()
-    run_oneshot_for_e2e_testing_ddp(config, save_compressed=config.get("save_compressed", False))
+    run_oneshot_for_e2e_testing_ddp(
+        config, save_compressed=config.get("save_compressed", False)
+    )

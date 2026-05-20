@@ -3,6 +3,7 @@ import json
 import os
 import random
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Union
@@ -16,8 +17,6 @@ from pydantic import BaseModel, Field
 
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.testing_utils import BaseTestConfig, cached_lm_eval_run, requires_gpu
-
-NUM_GPUS = int(os.environ.get("NUM_GPUS", "1"))
 
 
 class LmEvalConfig(BaseModel):
@@ -64,7 +63,7 @@ test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
-@requires_gpu(NUM_GPUS)
+@requires_gpu(1)
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
@@ -101,6 +100,12 @@ class TestLMEval:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.config = TestConfig(**eval_config)
+
+        available_gpus = torch.cuda.device_count()
+        if available_gpus < self.config.num_gpus:
+            pytest.skip(
+                f"Not enough GPUs: need {self.config.num_gpus}, got {available_gpus}"
+            )
 
         # Derive save_dir from the config filename so there is no dependency on scheme
         if not self.config.save_dir:
@@ -163,7 +168,7 @@ class TestLMEval:
             dataset_split=self.config.dataset_split,
             recipe=self.config.recipe,
             quant_type=self.config.quant_type,
-            num_gpus=NUM_GPUS,
+            num_gpus=self.config.num_gpus,
             save_dir=self.config.save_dir,
             save_compressed=True,
         )
