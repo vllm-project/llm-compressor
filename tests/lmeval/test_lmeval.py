@@ -3,7 +3,6 @@ import json
 import os
 import random
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Union
@@ -17,6 +16,8 @@ from pydantic import BaseModel, Field
 
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.testing_utils import BaseTestConfig, cached_lm_eval_run, requires_gpu
+
+NUM_GPUS = int(os.environ.get("NUM_GPUS", "1"))
 
 
 class LmEvalConfig(BaseModel):
@@ -63,7 +64,7 @@ test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
-@requires_gpu(1)
+@requires_gpu(NUM_GPUS)
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
@@ -150,7 +151,7 @@ class TestLMEval:
         # Give GPU time to fully release memory
         time.sleep(2)
 
-        oneshot_model, processor = run_oneshot_for_e2e_testing(
+        run_oneshot_for_e2e_testing(
             model=self.config.model,
             model_class=self.config.model_class,
             max_memory=self.config.max_memory,
@@ -162,10 +163,10 @@ class TestLMEval:
             dataset_split=self.config.dataset_split,
             recipe=self.config.recipe,
             quant_type=self.config.quant_type,
+            num_gpus=NUM_GPUS,
+            save_dir=self.config.save_dir,
+            save_compressed=True,
         )
-
-        logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(oneshot_model, processor)
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
 
@@ -222,10 +223,6 @@ class TestLMEval:
         assert result.returncode == 0, error_msg
 
         return json.loads(stdout.strip().splitlines()[-1])
-
-    def _save_compressed_model(self, oneshot_model, processor):
-        oneshot_model.save_pretrained(self.config.save_dir)
-        processor.save_pretrained(self.config.save_dir)
 
     def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""
