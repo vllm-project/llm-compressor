@@ -243,6 +243,8 @@ class TestLMEval:
                     f"""#!/bin/bash
                     export HF_HUB_OFFLINE=0
                     export VLLM_NO_USAGE_STATS=1
+                    pip install --extra-index-url https://pypi.org/simple \
+                        "lm-eval[api]>=0.4.11" "ray[cgraph,default]>=2.48.0"
                     {vllm_cmd}
                     """
                 )
