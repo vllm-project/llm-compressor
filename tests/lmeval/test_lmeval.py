@@ -195,24 +195,76 @@ class TestLMEval:
 
     def _eval_model_with_vllm(self, model: str) -> dict:
         run_file_path = os.path.join(test_file_dir, "run_lmeval.py")
-        logger.info("Run lm-eval in subprocess.Popen using python env:")
         logger.info(VLLM_PYTHON_ENV)
-        # Ensure the venv's bin dir is on PATH so tools like ninja can be found
-        env = os.environ.copy()
-        venv_bin = os.path.dirname(VLLM_PYTHON_ENV)
-        env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
-        result = subprocess.Popen(
-            [
-                VLLM_PYTHON_ENV,
+
+        if Path(VLLM_PYTHON_ENV).exists():
+            #vllm from python env
+            logger.info("Run lm-eval in subprocess.Popen using python env:")
+            #Ensure the venv's bin dir is on PATH so tools like ninja can be found
+            env = os.environ.copy()
+            venv_bin = os.path.dirname(VLLM_PYTHON_ENV)
+            env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+            result = subprocess.Popen(
+                [
+                    VLLM_PYTHON_ENV,
+                    run_file_path,
+                    model,
+                    self.config.model_dump_json(),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+        else:
+           #vllm from rhaiis image
+           logger.info("Run lm-eval in kubectl.Popen using rhaiis image:")
+           RUN_SAVE_DIR = os.path.dirname(self.config.save_dir)
+           run_file_path = os.path.join(RUN_SAVE_DIR, "run_lmeval.py")
+           shutil.copy(
+               os.path.join(test_file_dir, "run_vllm.py"),
+               os.path.join(RUN_SAVE_DIR, "run_vllm.py"),
+           )
+           cmds = [
+                "python",
                 run_file_path,
                 model,
-                self.config.model_dump_json(),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-        )
+                self.config.model_dump_json()
+            ] 
+           vllm_cmd = " ".join(cmds)
+           if model == self.self.config.model:
+               #base model
+               vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-base.bash")
+           else:
+               #compressed model
+               vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-compressed.bash")
+           with open(vllm_bash, "w") as cf:
+                cf.write(
+                    f"""#!/bin/bash
+                    export HF_HUB_OFFLINE=0
+                    export VLLM_NO_USAGE_STATS=1
+                    {vllm_cmd}
+                    """
+                )
+            os.chmod(vllm_bash, 0o755)
+            logger.info(f"Wrote vllm cmd into {vllm_bash}:")
+            logger.info("vllm image. Run vllm cmd with kubectl.")
+            result = subprocess.Popen(
+                [
+                    "kubectl",
+                    "exec",
+                    "-it",
+                    VLLM_PYTHON_ENV,
+                    "-n",
+                    "arc-runners",
+                    "--",
+                    "/bin/bash",
+                    vllm_bash,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
 
         stdout, stderr = result.communicate()
         logger.info(stdout)
