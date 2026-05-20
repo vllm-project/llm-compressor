@@ -37,7 +37,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 In this case, we are doing the following:
 - Quantize the weights and activations to FP4 via data-driven PTQ
-- Skip the `lm_head`, visual encoder, MLP gate, embedding tokens, shared expert gate, and linear attention layers (Gated DeltaNet fused projections are incompatible with NVFP4)
+- Skip the `lm_head`, visual encoder, MoE router gate, embedding tokens, shared expert gate, and linear attention layers (Gated DeltaNet fused projections are incompatible with NVFP4)
 - MTP layers are not loaded through `Qwen3_5MoeForConditionalGeneration`, so there is no need to include them in the ignore list
 
 ```python
