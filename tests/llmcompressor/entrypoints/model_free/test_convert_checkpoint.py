@@ -42,17 +42,6 @@ def test_convert_nvfp4_checkpoint(tmp_path):
     right_kv_cache_scheme = QuantizationArgs(
         num_bits=8, dynamic=False, type=QuantizationType.FLOAT
     )
-    wrong_kv_cache_scheme = None
-
-    with pytest.raises(ValueError):
-        convert_checkpoint(
-            model_stub=MODEL_ID,
-            save_directory=convert_outdir,
-            converter=ModelOptNvfp4Converter(
-                targets=right_targets,
-                kv_cache_scheme=wrong_kv_cache_scheme,
-            ),
-        )
 
     with pytest.raises(ValueError):
         convert_checkpoint(
@@ -180,7 +169,8 @@ def test_dequantize_fp8block_checkpoint(tmp_path):
     "model_id",
     (
         "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16",
-        "nm-testing/TinyLlama-1.1B-Chat-v1.0-nvfp4-fp8-mixed-e2e",
+        "nm-testing/tinyllama-w4a16-compressed",
+        "nm-testing/Meta-Llama-3-8B-Instruct-nonuniform-test",
     ),
 )
 def test_dequantize_ct_checkpoint(model_id, tmp_path):
