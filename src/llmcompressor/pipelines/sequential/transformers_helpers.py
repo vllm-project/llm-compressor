@@ -31,6 +31,7 @@ import torch
 import torch.utils._pytree as pytree
 from torch import nn
 from torch.fx import Graph, GraphModule, Node, Proxy, Tracer
+from torch.fx.node import Argument
 from torch.fx._compatibility import compatibility
 from torch.fx._symbolic_trace import is_fx_tracing
 from torch.fx.proxy import ParameterProxy
@@ -804,9 +805,17 @@ def create_wrapper(
     return wrapper
 
 
-class HFProxyableClassMeta(type):
+class HFProxyableCacheMeta(type):
     """
     Metaclass that creates a class with its main methods wrapped to be proxyable.
+
+    In the same way that objects can be replaced with `Proxy`s during trace-time,
+    classes can also be replaced with `ProxyableClass`es during trace-time.
+    This meta class acts as factory for creating `ProxyableClass`es of `Cache` classes.
+
+    At trace-time, all references to `Cache` classes are monkeypatched with references
+    to `ProxyableCache` classes. Whenever this class is used to construct a new instance
+    of a `Cache`, an instance of `HFCacheProxy` is generated instead.
     """
 
     def __new__(
@@ -816,19 +825,34 @@ class HFProxyableClassMeta(type):
         attrs: dict[str, Any],
         proxy_factory_fn: Callable[[Node], Proxy] | None = None,
     ):
-        instance = super().__new__(cls, name, bases, attrs)
+        if len(bases) != 1:
+            raise ValueError(
+                "`HFProxyableCacheMeta` only supports creating proxies"
+                " with single class inheritance. Compose your classes directly "
+                "before creating the class with this meta"
+            )
+
+        instance = super().__new__(cls, name, bases, attrs)  # "instance" of Type[Cache]
         for attr_name in dir(instance):
             attr = getattr(instance, attr_name, None)
             if attr is None:
                 continue
+            if attr_name == "__new__":
+                setattr(
+                    instance,
+                    attr_name,
+                    cls.create__new__wrapper(bases[0], proxy_factory_fn),
+                )
+                continue
+
             if attr_name == "__init__":
                 op_type = "call_function"
             elif attr_name.startswith("__"):
                 op_type = None
             elif inspect.ismethod(attr):
-                op_type = "call_function"
-            elif inspect.isfunction(attr):
                 op_type = "call_method"
+            elif inspect.isfunction(attr):
+                op_type = "call_function"
             else:
                 op_type = None
             if op_type is not None:
@@ -838,6 +862,54 @@ class HFProxyableClassMeta(type):
                     create_wrapper(attr, op_type, proxy_factory_fn=proxy_factory_fn),
                 )
         return instance
+
+    @staticmethod
+    def create__new__wrapper(
+        orig_cache_cls: type[Cache],
+        proxy_factory_fn: Callable[[Node], Proxy],
+    ):
+        """
+        Mirrors `create_wrapper`, but only used to override the `__new__` method.
+        Whenever this class is used to construct a new instance of a `Cache`, an
+        instance of `HFCacheProxy` is generated instead.
+
+        The `HFCacheProxy` class allows caches to be traced through the fx graph.
+
+        :param orig_cache_cls: `Cache` class being proxied
+        :param proxy_factory_fn: function which converts an instance of `Cache` to
+            an instance of `HFCacheProxy`
+        :return: wrapper function used to replace the `__new__` method of
+            `HFProxyableClass`
+        """
+
+        def wrapper(*args, **kwargs):
+            if not isinstance(_CURRENT_TRACER, HFTracer):
+                raise RuntimeError(
+                    "Cannot create HFCacheProxy because "
+                    "there is no HFTracer currently tracing."
+                )
+
+            # unfortunately, there is no way easy way to call just `__new__`
+            # without also calling `__init__`. Calling as a method means that the `type`
+            # will end up in the fx graph, and fx graphs cannot encode `type`s. Calling
+            # as `orig_cache_cls.__init__` yields an error when `_find_module_of_method`
+            # attempts to find the original module to create a qualified name for graph
+
+            # kind: tell node to call target
+            # target: class constructor for original cache class
+            # args: positional arguments to class constructor
+            # kwargs: keyword arguments to class constructor
+            # proxy_factory_fn: converts instance of `orig_cache_cls`
+            #   into an instance of `HFCacheProxy`
+            return _CURRENT_TRACER.create_proxy(
+                kind="call_function",
+                target=orig_cache_cls,
+                args=args[1:],
+                kwargs=kwargs,  # typically {"config": PreTrainedConfig(...)}
+                proxy_factory_fn=proxy_factory_fn,
+            )
+
+        return wrapper
 
 
 def gen_constructor_wrapper(target: Callable) -> tuple[Callable, Callable]:
@@ -875,19 +947,19 @@ def create_cache_proxy_factory_fn(
 
 
 # Proxyable equivalent of the cache classes defined in `transformers.cache_utils`.
-ProxyableCache = HFProxyableClassMeta(
+ProxyableCache = HFProxyableCacheMeta(
     "ProxyableCache",
     (Cache,),
     {},
     proxy_factory_fn=create_cache_proxy_factory_fn(Cache),
 )
-ProxyableDynamicCache = HFProxyableClassMeta(
+ProxyableDynamicCache = HFProxyableCacheMeta(
     "ProxyableDynamicCache",
     (DynamicCache,),
     {},
     proxy_factory_fn=create_cache_proxy_factory_fn(DynamicCache),
 )
-ProxyableStaticCache = HFProxyableClassMeta(
+ProxyableStaticCache = HFProxyableCacheMeta(
     "ProxyableStaticCache",
     (StaticCache,),
     {},
@@ -1325,17 +1397,21 @@ class HFTracer(Tracer):
 
         # Patching classes
         patched = []
-        module_of_model = inspect.getmodule(root)
-        for name, mod in sys.modules.items():
-            if module_of_model is not None and mod is not module_of_model:
-                continue
-            if not name.startswith("transformers"):
-                continue
+        if isinstance(root, torch.nn.Module):
+            forward_fns = set(module.forward for module in root.modules())
+        else:
+            forward_fns = set([root])
+            logger.warning(
+                "Cannot patch all classes for tracing, "
+                "please pass model to HFTracer.trace()"
+            )
+
+        for forward_fn in forward_fns:
             for orig_cls, patched_cls in self._CLASSES_TO_PATCH.items():
-                for attr_name, attr in mod.__dict__.items():
+                for attr_name, attr in forward_fn.__globals__.items():
                     if attr is orig_cls:
-                        patched.append((mod, attr_name, orig_cls))
-                        setattr(mod, attr_name, patched_cls)
+                        patched.append((forward_fn.__globals__, attr_name, orig_cls))
+                        forward_fn.__globals__[attr_name] = patched_cls
 
         yield
 
@@ -1345,8 +1421,8 @@ class HFTracer(Tracer):
         self.patched_torch_methods = {}
         self.orig_fns = set()
 
-        for mod, attr_name, orig_cls in patched:
-            setattr(mod, attr_name, orig_cls)
+        for forward_fn_globals, attr_name, orig_cls in patched:
+            forward_fn_globals[attr_name] = orig_cls
 
     def trace(
         self,
