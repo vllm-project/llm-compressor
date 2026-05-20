@@ -79,7 +79,7 @@ with load_offloaded_model():
 DATASET_ID = "ultrachat-200k"
 DATASET_SPLIT = "train_sft"
 
-# Select number of samples. 512 samples is a good place to start.
+# Select number of samples. 20 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
