@@ -8,7 +8,7 @@ Let's walk through the main steps of the quantization process:
 1. Dequantize model
 2. Apply quantization to full-precision checkpoint
 
-The full example script can be found in the examples [here](../../../../examples/disk_offloading/kimi_k26_example.py).
+The full example script can be found in the examples [here](../../../examples/disk_offloading/kimi_k26_example.py).
 
 ### 1. Dequantize Model
 

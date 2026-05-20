@@ -7,7 +7,7 @@ In order to create an FP8 block checkpoint, we must first dequantize to full-pre
 Fortunately, this can be done in a single call to the `model_free_ptq` entrypoint because FP8 block quantization does not require a calibration dataset.
 The original 4-bit weights will be loaded from the safetensors files, upconverted to bfloat16, and quantized to FP8 block in a single pipeline.
 
-The full example script can be found in the examples [here](../../../../examples/model_free_ptq/kimi_k26_fp8_block.py).
+The full example script can be found in the examples [here](../../../examples/model_free_ptq/kimi_k26_fp8_block.py).
 
 The snippet below was run successfully on a single H100x80GB GPU.
 
