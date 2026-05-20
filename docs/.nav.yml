@@ -26,6 +26,10 @@ nav:
     - Kimi-K2:
       - key-models/kimi-k2/index.md
       - FP8 Example: key-models/kimi-k2/fp8-example.md
+    - Kimi-K2.6:
+      - key-models/kimi-k26/index.md
+      - NVFP4 Example: key-models/kimi-k26/nvfp4-example.md
+      - FP8 Block Example: key-models/kimi-k26/fp8-block-example.md
     - Mistral Large 3:
       - key-models/mistral-large-3/index.md
       - FP8 Example: key-models/mistral-large-3/fp8-example.md

@@ -36,6 +36,14 @@ The following models are among the most commonly used with LLM Compressor: Llama
 
       [:octicons-arrow-right-24: Kimi-K2](kimi-k2/index.md)
 
+  - **Kimi-K2.6**
+
+      ---
+
+      Moonshot AI's latest multimodal agentic model.
+
+      [:octicons-arrow-right-24: Kimi-K2.6](kimi-k26/index.md)
+
   - **Mistral Large 3**
 
       ---
