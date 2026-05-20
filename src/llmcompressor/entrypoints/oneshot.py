@@ -232,6 +232,7 @@ class Oneshot:
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
             )
+
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
@@ -272,7 +273,7 @@ def oneshot(
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
-    max_seq_length: int = 384,
+    max_seq_length: int | None = None,
     pad_to_max_length: bool = True,
     text_column: str = "text",
     concatenate_data: bool = False,
@@ -389,10 +390,8 @@ def oneshot(
     :param sequential_offload_device: Device used to offload intermediate activations
         between sequential layers. It is recommended to use `cuda:1` if using more
         than one gpu. Default is cpu.
-    :param quantization_aware_calibration: Whether to enable quantization-aware
-        calibration in the sequential pipeline. When True, quantization is applied
-        during forward pass in calibration. When False, quantization is disabled
-        during forward pass in calibration. Default is set to True.
+    :param quantization_aware_calibration: Deprecated. This argument has no effect
+        and will be removed in a future release.
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.

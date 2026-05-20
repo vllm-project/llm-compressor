@@ -13,9 +13,6 @@ PYTEST_ARGS ?= ""
 ifneq ($(findstring transformers,$(TARGETS)),transformers)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/llmcompressor/transformers
 endif
-ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/llmcompressor/pytorch
-endif
 ifneq ($(findstring examples,$(TARGETS)),examples)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/examples
 endif
@@ -55,4 +52,5 @@ build:
 clean:
 	rm -fr .pytest_cache;
 	rm -fr docs/_build docs/build;
+	rm -f .coverage .coverage.*;
 	find $(CHECKDIRS) | grep -E "(__pycache__|\.pyc|\.pyo)" | xargs rm -fr;

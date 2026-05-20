@@ -13,7 +13,9 @@ from llmcompressor.modeling.deepseek_v3 import CalibrationDeepseekV3MoE
 from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import calibration_forward_context
-from tests.testing_utils import requires_cadence, requires_gpu
+from tests.testing_utils import requires_cadence, requires_gpu, requires_transformers_v4
+
+pytestmark = requires_transformers_v4
 
 
 @requires_cadence("weekly")

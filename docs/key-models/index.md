@@ -52,4 +52,12 @@ The following models are among the most commonly used with LLM Compressor: Llama
 
       [:octicons-arrow-right-24: DeepSeek V3.2](deepseek-v32/index.md)
 
+  - **DeepSeek V4**
+
+      ---
+
+      DeepSeek V4 with HCA, CSA, and mHC, quantized to FP8 + NVFP4
+
+      [:octicons-arrow-right-24: DeepSeek V4](deepseek-v4/index.md)
+
 </div>

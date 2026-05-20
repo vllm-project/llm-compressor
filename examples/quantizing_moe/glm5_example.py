@@ -3,7 +3,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.glm_moe_dsa import CalibrationGlmMoeDsaMoE  # noqa: F401
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Load the model
 model_id = "ZhipuAI/GLM-5"
@@ -65,7 +66,10 @@ moe_ignores = [
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with AWQ with a group size 128
-recipe = AWQModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores)
+recipe = [
+    AWQModifier(),
+    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores),
+]
 
 # Apply algorithms.
 oneshot(

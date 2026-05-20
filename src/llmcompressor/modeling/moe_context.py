@@ -96,20 +96,21 @@ def moe_calibration_context(
 
     replaced = {}
 
-    # Step 1: Collect all MoE modules that need replacement
+    # Step 1: Collect names of all MoE modules that need replacement
     logger.debug("Entering MoE calibration context")
     modules_to_replace = []
     for name, module in model.named_modules():
         class_name = module.__class__.__name__
         if _is_registered(class_name, MoECalibrationModule):
-            modules_to_replace.append((name, module, class_name))
+            modules_to_replace.append((name, class_name))
 
     # Step 2: Replace modules with progress bar
     if modules_to_replace:
         logger.info(f"Found {len(modules_to_replace)} MoE modules to replace")
-        for name, module, class_name in tqdm(
+        for name, class_name in tqdm(
             modules_to_replace, desc="Replacing MoE modules for calibration"
         ):
+            module = model.get_submodule(name)
             replacement = MoECalibrationModule.load_from_registry(
                 class_name,
                 original=module,

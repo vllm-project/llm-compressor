@@ -13,8 +13,9 @@ The scheme you choose determines both the compression ratio and the hardware req
 | **W4A16/W8A16** | 4 or 8 bit weights, 16-bit activations | Weights | Turing | 7.5 | Memory reduction on older hardware |
 | **W8A8-INT8** | 8-bit integer | Weights and activations | Turing | 7.5 | High throughput on older hardware |
 | **W8A8-FP8** | 8-bit floating point | Weights and activations | Lovelace | 8.9 | High throughput on modern GPUs |
-| **NVFP4** | 4-bit NVIDIA floating point | Weights and activations | Blackwell | 10.0 | Maximum compression on latest hardware |
-| **MXFP4** | 4-bit MX floating point | Weights and activations | Blackwell | 10.0 | Maximum compression on latest hardware |
+| **NVFP4** | 4-bit NVIDIA floating point | Weights and activations | Blackwell (SM100) | 10.0 | Maximum compression on latest hardware |
+| **MXFP4** | 4-bit MX floating point | Weights and activations | Blackwell (SM100) | 10.0 | Maximum compression; cross-platform compatible via OCP MX spec |
+| **MXFP8** | 8-bit MX floating point | Weights and activations | Blackwell (SM100) | 10.0 | High accuracy MX format; cross-platform compatible via OCP MX spec |
 | **W4AFP8** | 4-bit weights, FP8 activations | Weights and activations | Hopper | 9.0 | Low-bit weights with FP8 activations |
 | **W4AINT8** | 4-bit weights, INT8 activations | Weights and activations | Arm | - | Low-bit weights with INT8 activations |
 
@@ -28,7 +29,7 @@ Your GPU architecture determines what compression schemes can be hardware-accele
 ### NVIDIA Blackwell
 - **Minimum compute capability**: 10.0
 - **Recommended**: NVFP4 or MXFP4 for maximum compression
-- **Alternative**: FP8 for balanced compression and speed
+- **Alternative**: MXFP8 or FP8 for balanced compression and speed
 
 ### NVIDIA Hopper
 - **Minimum compute capability**: 8.9
@@ -50,6 +51,9 @@ Your GPU architecture determines what compression schemes can be hardware-accele
 FP8 (8-bit floating point) provides an excellent balance between compression and accuracy on Hopper-class and newer GPUs.
 FP8 can be applied using any quantization algorithm (RTN, AWQ, GPTQ), allowing you to choose the accuracy-performance tradeoff that best fits your use case.
 
+- **W8A8-FP8**: FP8 format with per-channel or per-tensor weight scales and dynamic per-token activation quantization
+- **MXFP8**: Microscaling FP8 format using per-group quantization (group_size=32) with E8M0 scales; fully dynamic activations with no calibration data required; supported on Blackwell (SM100) GPUs
+
 See [FP8 weight and activation quantization](/examples/quantization_w8a8_fp8/) for more information.
 
 ## FP4 quantization (NVFP4/MXFP4)
@@ -57,8 +61,8 @@ See [FP8 weight and activation quantization](/examples/quantization_w8a8_fp8/) f
 4-bit floating point formats provide maximum compression on Blackwell GPUs, with 4x reduction compared to FP16.
 FP4 can sometimes provide good results with RTN algorithms for fast quantization, but potentially improved recovery can be gained using GPTQ or AWQ.
 
-- **NVFP4**: is NVIDIA's native 4-bit format with block-wise scaling
-- **MXFP4**: Microscaling FP4 format for cross-platform compatibility
+- **NVFP4**: NVIDIA's native 4-bit format with two-level micro-block scaling; requires calibration data for activation global scales
+- **MXFP4**: Microscaling FP4 format for cross-platform compatibility; per-group quantization (group_size=32) with E8M0 scales; no calibration data required if using RTN
 
 ## Compression Formats
 
@@ -78,6 +82,8 @@ config.json while a local format is indicated for each group of targeted layers.
 | NVFP4 - float  | nvfp4_pack_quantized   |
 | MXFP4A16 - float | mxfp4_pack_quantized |
 | MXFP4 - float  | mxfp4_pack_quantized   |
+| MXFP8A16 - float | mxfp8_pack_quantized |
+| MXFP8 - float  | mxfp8_pack_quantized   |
 | W4A16 - int   | pack_quantized          |
 | W4AFP8 - int   | pack_quantized         |
 | W4AInt8 - int   | pack_quantized        |
