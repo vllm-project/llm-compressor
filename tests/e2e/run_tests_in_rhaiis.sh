@@ -50,7 +50,7 @@ SUCCESS=0
 # Parse list of configs and add save_dir
 rm -rf $SAVE_DIR/configs
 mkdir -p $SAVE_DIR/configs
-for MODEL_CONFIG in $(echo -e "$CONFIGS" | sed "s|^|${script_path}/configs/|")
+for MODEL_CONFIG in $(echo -e "$CONFIGS" | sed "s|^|$CONFIG/|")
 do
     FILE_NAME=$(basename $MODEL_CONFIG)
     CONFIG_FILE=$SAVE_DIR/configs/$FILE_NAME
@@ -65,7 +65,11 @@ do
 
         # add or overwrite save_dir for each model
         if [[ -z "$save_dir" ]]; then
-            { cat $MODEL_CONFIG; echo -e "\nsave_dir: $SAVE_DIR/$model-$scheme"; } > $CONFIG_FILE
+            if [[ -z "$scheme" ]]; then
+                { cat $MODEL_CONFIG; echo -e "\nsave_dir: $SAVE_DIR/$model-${FILE_NAME%.yaml}"; } > $CONFIG_FILE
+            else
+                { cat $MODEL_CONFIG; echo -e "\nsave_dir: $SAVE_DIR/$model-$scheme"; } > $CONFIG_FILE
+            fi
         else
             { cat $MODEL_CONFIG | grep -v 'save_dir'; echo "save_dir: $SAVE_DIR/$save_dir"; } > $CONFIG_FILE
         fi
