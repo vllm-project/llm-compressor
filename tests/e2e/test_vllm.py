@@ -12,7 +12,6 @@ import yaml
 from huggingface_hub import HfApi
 from loguru import logger
 
-from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.testing_utils import BaseTestConfig, requires_gpu
 
@@ -22,6 +21,7 @@ TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
+NUM_GPUS = int(os.environ.get("NUM_GPUS", "1"))
 # vllm python environment
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
@@ -38,7 +38,7 @@ EXPECTED_SAVED_FILES = [
 
 # Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
-@requires_gpu(1)
+@requires_gpu(NUM_GPUS)
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
@@ -87,7 +87,7 @@ class TestvLLM:
 
     def compress_model(self, test_data_file: str):
         self.set_up(test_data_file)
-        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+        run_oneshot_for_e2e_testing(
             model=self.config.model,
             model_class=self.config.model_class,
             max_memory=self.config.max_memory,
@@ -99,35 +99,14 @@ class TestvLLM:
             dataset_split=self.config.dataset_split,
             recipe=self.config.recipe,
             quant_type=self.config.quant_type,
+            num_gpus=NUM_GPUS,
+            save_dir=self.config.save_dir,
+            save_compressed=True,
         )
-        self.oneshot_model = oneshot_model
-        self.tokenizer = tokenizer
-
-        # check that session contains recipe
-        self._check_session_contains_recipe()
 
     def save_compressed_model(self):
-        logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(
-            oneshot_model=self.oneshot_model, tokenizer=self.tokenizer
-        )
-
-        recipe_path = os.path.join(self.config.save_dir, "recipe.yaml")
-
-        # check that expected files exist
+        # Model, tokenizer, and recipe.yaml are on disk (written by compress_model)
         self._check_save_dir_has_expected_files()
-
-        # Use the session to fetch the recipe;
-        # Reset session for next test case
-        session = active_session()
-        recipe_yaml_str = session.get_serialized_recipe()
-        with open(recipe_path, "w") as fp:
-            fp.write(recipe_yaml_str)
-        session.reset()
-
-        # Release GPU memory before running vLLM
-        del self.oneshot_model
-        del self.tokenizer
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -172,10 +151,6 @@ class TestvLLM:
     def tear_down(self):
         if self.config.save_dir is not None and os.path.isdir(self.config.save_dir):
             shutil.rmtree(self.config.save_dir)
-
-    def _save_compressed_model(self, oneshot_model, tokenizer):
-        oneshot_model.save_pretrained(self.config.save_dir, save_compressed=True)
-        tokenizer.save_pretrained(self.config.save_dir)
 
     def _run_vllm(self, logger):
         import json
@@ -270,14 +245,9 @@ class TestvLLM:
         error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
         assert result.returncode == 0, error_msg
 
-    def _check_session_contains_recipe(self) -> None:
-        session = active_session()
-        recipe_yaml_str = session.get_serialized_recipe()
-        assert recipe_yaml_str is not None
-
     def _check_save_dir_has_expected_files(self):
         files = os.listdir(self.config.save_dir)
-        logger.debug("Saved files: ", files)
+        logger.debug(f"Saved files: {files}")
 
         matched_patterns = set()
 
