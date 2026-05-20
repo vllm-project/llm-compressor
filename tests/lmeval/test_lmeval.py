@@ -222,8 +222,8 @@ class TestLMEval:
             RUN_SAVE_DIR = os.path.dirname(self.config.save_dir)
             run_file_path = os.path.join(RUN_SAVE_DIR, "run_lmeval.py")
             shutil.copy(
-                os.path.join(test_file_dir, "run_vllm.py"),
-                os.path.join(RUN_SAVE_DIR, "run_vllm.py"),
+                os.path.join(test_file_dir, "run_lmeval.py"),
+                os.path.join(RUN_SAVE_DIR, "run_lmeval.py"),
             )
             cmds = [
                 "python",
@@ -232,13 +232,12 @@ class TestLMEval:
                 self.config.model_dump_json()
             ] 
             vllm_cmd = " ".join(cmds)
-            if model == self.self.config.model:
+            if model == self.config.model:
                 #base model
                 vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-base.bash")
             else:
                 #compressed model
                 vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-compressed.bash")
-
             with open(vllm_bash, "w") as cf:
                 cf.write(
                     f"""#!/bin/bash
@@ -249,25 +248,25 @@ class TestLMEval:
                     {vllm_cmd}
                     """
                 )
-             os.chmod(vllm_bash, 0o755)
-             logger.info(f"Wrote vllm cmd into {vllm_bash}:")
-             logger.info("vllm image. Run vllm cmd with kubectl.")
-             result = subprocess.Popen(
-                 [
-                     "kubectl",
-                     "exec",
-                     "-it",
-                     VLLM_PYTHON_ENV,
-                     "-n",
-                     "arc-runners",
-                     "--",
-                     "/bin/bash",
-                     vllm_bash,
-                 ],
-                 stdout=subprocess.PIPE,
-                 stderr=subprocess.PIPE,
-                 text=True,
-             )
+            os.chmod(vllm_bash, 0o755)
+            logger.info(f"Wrote vllm cmd into {vllm_bash}:")
+            logger.info("vllm image. Run vllm cmd with kubectl.")
+            result = subprocess.Popen(
+                [
+                    "kubectl",
+                    "exec",
+                    "-i",
+                    VLLM_PYTHON_ENV,
+                    "-n",
+                    "arc-runners",
+                    "--",
+                    "/bin/bash",
+                    vllm_bash,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
 
         stdout, stderr = result.communicate()
         logger.info(stdout)
