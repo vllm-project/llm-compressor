@@ -29,6 +29,9 @@ nav:
     - Mistral Large 3:
       - key-models/mistral-large-3/index.md
       - FP8 Example: key-models/mistral-large-3/fp8-example.md
+    - DeepSeek V4:
+      - key-models/deepseek-v4/index.md
+      - FP8 Example: key-models/deepseek-v4/fp8-nvfp4-example.md
   - User Guides:
     - Entrypoints:
       - guides/entrypoints/index.md

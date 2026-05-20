@@ -1,7 +1,6 @@
 import json
 import sys
 
-import torch
 from vllm import LLM, SamplingParams
 
 
@@ -12,15 +11,10 @@ def parse_args():
         raise ValueError(msg)
 
     try:
-        scheme = json.loads(sys.argv[1])
         llm_kwargs = json.loads(sys.argv[2])
         prompts = json.loads(sys.argv[3])
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON input: {e}")
-
-    if scheme is not None and "W4A16_2of4" in scheme:
-        # required by the kernel
-        llm_kwargs["dtype"] = torch.float16
 
     return llm_kwargs, prompts
 

@@ -6,11 +6,10 @@ dataset_split: train_sft
 seed: 100
 num_calibration_samples: 20
 lmeval:
-  # NVFP4 (4-bit weights + 4-bit activations) has lower recovery than FP8/INT8
-  # Observed: strict-match ~92.81%, flexible-extract ~89.59%
-  recovery_threshold:
-    exact_match,strict-match: 0.92
-    exact_match,flexible-extract: 0.89
   metrics:
-    exact_match,flexible-extract: 0.70
-    exact_match,strict-match: 0.65
+    # Note: recovery will be dependent on 
+    # the hardware cpabilities. For blackwell
+    # machines, we expect lower results as 
+    # activation quantization is also enabed.
+    exact_match,flexible-extract: 0.73
+    exact_match,strict-match: 0.66
