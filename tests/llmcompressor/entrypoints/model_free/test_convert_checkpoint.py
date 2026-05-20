@@ -42,6 +42,17 @@ def test_convert_nvfp4_checkpoint(tmp_path):
     right_kv_cache_scheme = QuantizationArgs(
         num_bits=8, dynamic=False, type=QuantizationType.FLOAT
     )
+    wrong_kv_cache_scheme = None
+
+    with pytest.raises(ValueError):
+        convert_checkpoint(
+            model_stub=MODEL_ID,
+            save_directory=convert_outdir,
+            converter=ModelOptNvfp4Converter(
+                targets=right_targets,
+                kv_cache_scheme=wrong_kv_cache_scheme,
+            ),
+        )
 
     with pytest.raises(ValueError):
         convert_checkpoint(
