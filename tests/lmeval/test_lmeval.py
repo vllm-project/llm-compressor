@@ -217,56 +217,57 @@ class TestLMEval:
                 env=env,
             )
         else:
-           #vllm from rhaiis image
-           logger.info("Run lm-eval in kubectl.Popen using rhaiis image:")
-           RUN_SAVE_DIR = os.path.dirname(self.config.save_dir)
-           run_file_path = os.path.join(RUN_SAVE_DIR, "run_lmeval.py")
-           shutil.copy(
-               os.path.join(test_file_dir, "run_vllm.py"),
-               os.path.join(RUN_SAVE_DIR, "run_vllm.py"),
-           )
-           cmds = [
+            #vllm from rhaiis image
+            logger.info("Run lm-eval in kubectl.Popen using rhaiis image:")
+            RUN_SAVE_DIR = os.path.dirname(self.config.save_dir)
+            run_file_path = os.path.join(RUN_SAVE_DIR, "run_lmeval.py")
+            shutil.copy(
+                os.path.join(test_file_dir, "run_vllm.py"),
+                os.path.join(RUN_SAVE_DIR, "run_vllm.py"),
+            )
+            cmds = [
                 "python",
                 run_file_path,
                 model,
                 self.config.model_dump_json()
-           ] 
-           vllm_cmd = " ".join(cmds)
-           if model == self.self.config.model:
-               #base model
-               vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-base.bash")
-           else:
-               #compressed model
-               vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-compressed.bash")
-           with open(vllm_bash, "w") as cf:
-               cf.write(
-                   f"""#!/bin/bash
-                   export HF_HUB_OFFLINE=0
-                   export VLLM_NO_USAGE_STATS=1
-                   pip install --extra-index-url https://pypi.org/simple \
-                       "lm-eval[api]>=0.4.11" "ray[cgraph,default]>=2.48.0"
-                   {vllm_cmd}
-                   """
-               )
-            os.chmod(vllm_bash, 0o755)
-            logger.info(f"Wrote vllm cmd into {vllm_bash}:")
-            logger.info("vllm image. Run vllm cmd with kubectl.")
-            result = subprocess.Popen(
-                [
-                    "kubectl",
-                    "exec",
-                    "-it",
-                    VLLM_PYTHON_ENV,
-                    "-n",
-                    "arc-runners",
-                    "--",
-                    "/bin/bash",
-                    vllm_bash,
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            ] 
+            vllm_cmd = " ".join(cmds)
+            if model == self.self.config.model:
+                #base model
+                vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-base.bash")
+            else:
+                #compressed model
+                vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm-compressed.bash")
+
+            with open(vllm_bash, "w") as cf:
+                cf.write(
+                    f"""#!/bin/bash
+                    export HF_HUB_OFFLINE=0
+                    export VLLM_NO_USAGE_STATS=1
+                    pip install --extra-index-url https://pypi.org/simple \
+                        "lm-eval[api]>=0.4.11" "ray[cgraph,default]>=2.48.0"
+                    {vllm_cmd}
+                    """
+                )
+             os.chmod(vllm_bash, 0o755)
+             logger.info(f"Wrote vllm cmd into {vllm_bash}:")
+             logger.info("vllm image. Run vllm cmd with kubectl.")
+             result = subprocess.Popen(
+                 [
+                     "kubectl",
+                     "exec",
+                     "-it",
+                     VLLM_PYTHON_ENV,
+                     "-n",
+                     "arc-runners",
+                     "--",
+                     "/bin/bash",
+                     vllm_bash,
+                 ],
+                 stdout=subprocess.PIPE,
+                 stderr=subprocess.PIPE,
+                 text=True,
+             )
 
         stdout, stderr = result.communicate()
         logger.info(stdout)
