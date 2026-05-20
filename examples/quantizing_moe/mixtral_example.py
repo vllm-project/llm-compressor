@@ -8,9 +8,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 # select a Mixture of Experts model for quantization
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, dtype=torch.bfloat16, trust_remote_code=True
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -56,10 +54,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = QuantizationModifier(
     scheme="FP8",
     targets="Linear",
-    ignore=[
-        "lm_head",
-        "re:.*block_sparse_moe.gate",  # does not quantize well
-    ],
+    ignore=["lm_head", "re:.*mlp.gate"],
 )
 
 oneshot(
@@ -68,7 +63,6 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
 )
 
 # Save to disk in compressed-tensors format.

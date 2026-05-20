@@ -11,7 +11,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 MODEL_ID = "google/gemma-4-E4B-it"
-model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForImageTextToText.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.

@@ -31,7 +31,9 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
+def skip_weights_download(
+    model_class: Type[PreTrainedModel] = AutoModelForCausalLM, skip_init: bool = True
+):
     """
     Context manager under which models are initialized without having to download
     the model weight files. This differs from `init_empty_weights` in that weights are
@@ -39,6 +41,8 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
     device
 
     :param model_class: class to patch, defaults to `AutoModelForCausalLM`
+    :param skip_init: skip weight initialization, which can be costly when allocating
+        a large number of weights
     """
     original_fn = model_class.from_pretrained
     weights_files = [
@@ -52,6 +56,7 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
     ]
 
     @classmethod
+    @wraps(original_fn)
     def patched(cls, *args, **kwargs):
         nonlocal tmp_dir
 
@@ -69,18 +74,24 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         save_file({}, weights_file_path, metadata={"format": "pt"})
 
         # load from tmp dir
-        model = original_fn(tmp_dir, **kwargs)
+        model = original_fn(tmp_dir, *args[1:], **kwargs)
 
         # replace model_path
         model.name_or_path = model_stub
         model.config._name_or_path = model_stub
+
+        # transformers will cache the model weight conversions which were used during
+        # loading. However, this checkpoint has no weights to convert, so
+        # `_weight_conversions` will be an empty list/ not useful. Deleting the cache
+        # ensures that original model architecture conversions are used and saving works
+        delattr(model, "_weight_conversions")
 
         return model
 
     with (
         tempfile.TemporaryDirectory() as tmp_dir,
         patch_attr(model_class, "from_pretrained", patched),
-        skip_weights_initialize(),
+        skip_weights_initialize() if not skip_init else contextlib.nullcontext(),
         patch_transformers_logger_level(),
     ):
         yield

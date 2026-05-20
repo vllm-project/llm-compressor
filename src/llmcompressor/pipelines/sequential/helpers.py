@@ -176,9 +176,16 @@ class SequentialTracer(HFTracer):
 
     def create_arg(self, a: Any) -> Argument:
         # special extension allows models which depend on config values to be traced
+        # whenever the config instance is referenced, create a new config on the fly
+        # with the same class and kwargs as the original
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
+
+        # special extension allows models which pass kv caches to be traced
+        # usually use of `past_key_values` is disabled by `calibration_forward_context`
+        # however, some models such as deepseekv4 require their use
+        # if isinstance(a, )
 
         else:
             return super().create_arg(a)

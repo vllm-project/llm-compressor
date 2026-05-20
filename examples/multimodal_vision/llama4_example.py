@@ -7,7 +7,7 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
+model = Llama4ForConditionalGeneration.from_pretrained(model_id)
 processor = Llama4Processor.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
 # The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)

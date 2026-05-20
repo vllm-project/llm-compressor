@@ -16,7 +16,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 model_id = "google/gemma-4-31B-it"
-model = Gemma4ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
+model = Gemma4ForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
