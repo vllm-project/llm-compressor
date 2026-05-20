@@ -48,7 +48,6 @@ recipe = QuantizationModifier(
     scheme="NVFP4",
     ignore=[
         "re:.*lm_head",
-        "re:visual.*",
         "re:model.visual.*",
         "re:.*mlp.gate$",
         "re:.*embed_tokens$",
