@@ -16,7 +16,7 @@ The following models are among the most commonly used with LLM Compressor: Llama
 
       ---
 
-      Qwen3.5 dense vision-language and sparse MoE models.
+      Qwen3.5 vision-language and sparse MoE models.
 
       [:octicons-arrow-right-24: Qwen3.5](qwen3.5/index.md)
 
