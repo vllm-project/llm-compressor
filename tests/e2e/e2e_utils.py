@@ -120,7 +120,9 @@ def run_oneshot_for_e2e_testing(
             json.dumps(config),
         ]
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
-        result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ.copy())
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, env=os.environ.copy()
+        )
         if result.stdout:
             logger.info(result.stdout)
         if result.returncode != 0:

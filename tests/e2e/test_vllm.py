@@ -21,7 +21,6 @@ TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
-NUM_GPUS = int(os.environ.get("NUM_GPUS", "1"))
 # vllm python environment
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 IS_VLLM_IMAGE = False
@@ -38,7 +37,7 @@ EXPECTED_SAVED_FILES = [
 
 # Will run each test case in its own process through run_tests_in_python.sh
 # emulating vLLM CI testing
-@requires_gpu(NUM_GPUS)
+@requires_gpu(1)
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
@@ -66,6 +65,12 @@ class TestvLLM:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.config = BaseTestConfig(**eval_config)
+
+        available_gpus = torch.cuda.device_count()
+        if available_gpus < self.config.num_gpus:
+            pytest.skip(
+                f"Not enough GPUs: need {self.config.num_gpus}, got {available_gpus}"
+            )
 
         if not self.config.save_dir:
             self.config.save_dir = Path(test_data_file).stem
@@ -99,7 +104,7 @@ class TestvLLM:
             dataset_split=self.config.dataset_split,
             recipe=self.config.recipe,
             quant_type=self.config.quant_type,
-            num_gpus=NUM_GPUS,
+            num_gpus=self.config.num_gpus,
             save_dir=self.config.save_dir,
             save_compressed=True,
         )
