@@ -67,6 +67,10 @@ class BaseTestConfig(BaseModel):
         Modifier to use when no recipe is provided.
           - None  → QuantizationModifier (default for most schemes)
           - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
+    max_memory : dict[int | str, int] | None
+        Max memory per device for model loading. Keys can be device indices (int)
+        or device names (str like "cpu"). Example: {0: 40000, 1: 40000, "cpu": 10000}.
+        Passed to from_pretrained's max_memory parameter, used for disk offloading
     seed : int
         Random seed for reproducibility (default: 42).
 
@@ -151,6 +155,10 @@ class BaseTestConfig(BaseModel):
             "  None   → QuantizationModifier (default)\n"
             "  'GPTQ' → GPTQModifier"
         ),
+    )
+    max_memory: Optional[dict[int | str, int]] = Field(
+        None,
+        description="Max memory for model loading. Used to induce disk offloading",
     )
     seed: int = Field(42, description="Random seed for reproducibility")
 
