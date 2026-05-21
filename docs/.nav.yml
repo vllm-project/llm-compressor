@@ -23,9 +23,6 @@ nav:
     - Qwen3.6:
       - key-models/qwen3.6/index.md
       - NVFP4 MoE Example: key-models/qwen3.6/nvfp4-moe-example.md
-    - Kimi-K2:
-      - key-models/kimi-k2/index.md
-      - FP8 Example: key-models/kimi-k2/fp8-example.md
     - Kimi-K2.6:
       - key-models/kimi-k26/index.md
       - NVFP4 Example: key-models/kimi-k26/nvfp4-example.md
