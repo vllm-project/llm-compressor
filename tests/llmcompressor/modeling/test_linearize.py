@@ -7,15 +7,23 @@ from compressed_tensors.utils import patch_attr
 from safetensors import safe_open
 from transformers import AutoModelForCausalLM
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
-    DeepseekV4PreTrainedModel,
+    DeepseekV4PreTrainedModel, DeepseekV4Experts
 )
+from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
+from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
+    Qwen3VLMoeTextConfig,
+)
+from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
+
+from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from llmcompressor.modeling.moe.context import (
     moe_calibration_context,
 )
 from llmcompressor.modeling.moe.linearize import (
-    load_quantizable_moe,
+    load_quantizable_moe, linearize_moe
 )
+from llmcompressor.modeling.moe.helpers import get_moe_dims
 from tests.testing_utils import requires_gpu
 
 
@@ -47,7 +55,7 @@ def patch_deepseek_fp32_modules():
         )
     ],
 )
-def test_linearize_moe_model(
+def test_load_quantizable_moe(
     model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
 ):
     save_dir = tmp_path / "offload_dir"
@@ -93,3 +101,43 @@ def keys_exist(model_path: Path, keys: list[str]) -> bool:
             all_keys.update(f.keys())
 
     return keys <= all_keys
+
+
+class DummyModel(torch.nn.Module):
+    def __init__(self, module, config):
+        super().__init__()
+        self.config = config
+        self.module = module
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+@torch.no_grad()
+@requires_gpu
+@pytest.mark.parametrize(
+    "config_cls,experts_cls",
+    [
+        (DeepseekV4Config, DeepseekV4Experts),
+        (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts),
+    ],
+)
+def test_linearize_moe(config_cls, experts_cls):
+    with torch.device("cuda"):
+        config = config_cls()
+        experts = experts_cls(config)
+        assert isinstance(experts, FusedExpertsProtocol)
+
+        mock_model = DummyModel(experts, config)
+        mock_model.config = config
+        mock_model = linearize_moe(mock_model)
+
+        num_tokens, num_experts, hidden_dim = (1, *get_moe_dims(config)[:2])
+
+        hidden_states = torch.randn(1, num_tokens, hidden_dim, dtype=config.dtype)
+        top_k_index = torch.randint(0, num_experts, size=(num_tokens, num_experts), device="cuda")
+        top_k_weights = torch.randn(num_tokens, num_experts, dtype=config.dtype)
+        true_outputs = experts(hidden_states, top_k_index, top_k_weights)
+        outputs = mock_model(hidden_states, top_k_index, top_k_weights)
+
+        assert torch.nn.functional.mse_loss(outputs, true_outputs) < 1e-2
