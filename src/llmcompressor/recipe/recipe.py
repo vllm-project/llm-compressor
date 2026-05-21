@@ -87,7 +87,9 @@ class Recipe(BaseModel):
     @classmethod
     def create_instance(
         cls,
-        path_or_modifiers: Union[str, Modifier, list[Modifier | list[Modifier]], "Recipe"],
+        path_or_modifiers: Union[
+            str, Modifier, list[Modifier | list[Modifier]], "Recipe"
+        ],
         modifier_group_name: str | None = None,
         target_stage: str | None = None,
     ) -> "Recipe":
