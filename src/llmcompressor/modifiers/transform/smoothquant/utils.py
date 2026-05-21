@@ -1,6 +1,5 @@
 import functools
 from collections import namedtuple
-from typing import Callable
 
 from loguru import logger
 
@@ -79,40 +78,6 @@ QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
-def build_qwen3_5_moe_smoothquant_mappings(model) -> list[LayerMap]:
-    layer_types = getattr(getattr(model, "config", None), "layer_types", None)
-    if layer_types:
-        full_attn_indices = [
-            str(i) for i, t in enumerate(layer_types) if t == "full_attention"
-        ]
-    else:
-        full_attn_indices = []
-    if full_attn_indices:
-        joined = "|".join(full_attn_indices)
-        smooth_pattern = rf"re:.*layers\.({joined})\.input_layernorm$"
-    else:
-        raise ValueError(
-            "Qwen3.5 MoE SmoothQuant mappings require model.config.layer_types "
-            "to identify full_attention layers."
-        )
-    return [
-        LayerMap(
-            balance_layers=[
-                "re:.*self_attn\\.q_proj",
-                "re:.*self_attn\\.k_proj",
-                "re:.*self_attn\\.v_proj",
-            ],
-            smooth_layers=smooth_pattern,
-        ),
-        LayerMap(
-            balance_layers=[
-                "re:.*mlp\\.shared_expert\\.gate_proj",
-                "re:.*mlp\\.shared_expert\\.up_proj",
-            ],
-            smooth_layers="re:.*post_attention_layernorm",
-        ),
-    ]
-
 
 COHERE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
@@ -146,7 +111,7 @@ AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 
 # Registry of layer mappings for different architectures
 #   Add more mappings here
-MAPPINGS_REGISTRY: dict[str, list[LayerMap] | Callable[..., list[LayerMap]]] = {
+MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
     "CohereForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,
@@ -170,17 +135,14 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap] | Callable[..., list[LayerMap]]] = {
     "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen2MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
     "Qwen3MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
-    "Qwen3_5MoeForConditionalGeneration": build_qwen3_5_moe_smoothquant_mappings,
     "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
     "AfmoeForCausalLM": AFMOE_SMOOTHQUANT_MAPPINGS,
 }
 
 
-def get_layer_mappings_from_architecture(architecture: str, model=None) -> list[LayerMap]:
+def get_layer_mappings_from_architecture(architecture: str) -> list[LayerMap]:
     """
     :param architecture: str: The architecture of the model
-    :param model: optional model instance, used by architectures whose mapping
-        is built dynamically from model config (e.g. Qwen3.5 MoE).
     :return: list: The layer mappings for the given architecture
     """
 
@@ -190,10 +152,7 @@ def get_layer_mappings_from_architecture(architecture: str, model=None) -> list[
             f"Using default mappings: {DEFAULT_SMOOTHQUANT_MAPPINGS}"
         )
 
-    entry = MAPPINGS_REGISTRY.get(architecture, DEFAULT_SMOOTHQUANT_MAPPINGS)
-    if callable(entry):
-        return entry(model)
-    return entry
+    return MAPPINGS_REGISTRY.get(architecture, DEFAULT_SMOOTHQUANT_MAPPINGS)
 
 def handle_mapping_resolution_errors(func):
     """
