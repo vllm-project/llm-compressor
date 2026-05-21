@@ -1,6 +1,6 @@
-# Qwen3.5
+# Qwen3.6
 
-Quantization examples for the Qwen3.5 family of models, including dense vision-language and sparse MoE variants.
+Quantization examples for the Qwen3.6-35B-A3B sparse MoE model.
 
 > **Note:** These examples require `transformers >= v5`, which can be installed with:
 > ```bash
@@ -8,5 +8,4 @@ Quantization examples for the Qwen3.5 family of models, including dense vision-l
 > ```
 > With this, the examples can run end-to-end.
 
-- [NVFP4A16 Vision-Language Example](nvfp4-vl-example.md)
 - [NVFP4 MoE Example](nvfp4-moe-example.md)

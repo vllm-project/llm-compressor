@@ -3,6 +3,7 @@ from llmcompressor import model_free_ptq
 MODEL_ID = "unsloth/Kimi-K2-Thinking-BF16"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16"
 
+# use `model_free_ptq` to apply NVFP4A16 quantization
 model_free_ptq(
     model_stub=MODEL_ID,
     save_directory=SAVE_DIR,
