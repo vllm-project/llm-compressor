@@ -5,7 +5,12 @@ Tests that compression algorithms work correctly with disk-offloaded models.
 import pytest
 import torch
 from compressed_tensors.offload import get_device_map, load_offloaded_model
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+    QuantizationType,
+)
 from compressed_tensors.utils import getattr_chain
 from datasets import Dataset
 from transformers import AutoModelForCausalLM
@@ -78,9 +83,20 @@ class TestDiskOffloadQuantization:
             model=offloaded_model,
             dataset=dataset,
             recipe=QuantizationModifier(
-                targets="Linear",
-                scheme="W8A16",
                 ignore=["lm_head"],
+                config_groups={
+                    "group_0": QuantizationScheme(
+                        targets=["Linear"],
+                        weights=QuantizationArgs(
+                            num_bits=8,
+                            type=QuantizationType.INT,
+                            strategy=QuantizationStrategy.GROUP,
+                            group_size=32,
+                            symmetric=True,
+                            dynamic=False,
+                        ),
+                    ),
+                },
             ),
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
@@ -155,9 +171,20 @@ class TestDiskOffloadTransforms:
         recipe = [
             AWQModifier(duo_scaling=False, n_grid=3),
             QuantizationModifier(
-                targets="Linear",
-                scheme="W8A16",
                 ignore=["lm_head"],
+                config_groups={
+                    "group_0": QuantizationScheme(
+                        targets=["Linear"],
+                        weights=QuantizationArgs(
+                            num_bits=8,
+                            type=QuantizationType.INT,
+                            strategy=QuantizationStrategy.GROUP,
+                            group_size=32,
+                            symmetric=True,
+                            dynamic=False,
+                        ),
+                    ),
+                },
             ),
         ]
 
@@ -180,9 +207,20 @@ class TestDiskOffloadTransforms:
         recipe = [
             SmoothQuantModifier(smoothing_strength=0.5),
             QuantizationModifier(
-                targets="Linear",
-                scheme="W8A16",
                 ignore=["lm_head"],
+                config_groups={
+                    "group_0": QuantizationScheme(
+                        targets=["Linear"],
+                        weights=QuantizationArgs(
+                            num_bits=8,
+                            type=QuantizationType.INT,
+                            strategy=QuantizationStrategy.GROUP,
+                            group_size=32,
+                            symmetric=True,
+                            dynamic=False,
+                        ),
+                    ),
+                },
             ),
         ]
 
@@ -213,9 +251,20 @@ class TestDiskOffloadSaveLoad:
             model=offloaded_model,
             dataset=dataset,
             recipe=QuantizationModifier(
-                targets="Linear",
-                scheme="W8A16",
                 ignore=["lm_head"],
+                config_groups={
+                    "group_0": QuantizationScheme(
+                        targets=["Linear"],
+                        weights=QuantizationArgs(
+                            num_bits=8,
+                            type=QuantizationType.INT,
+                            strategy=QuantizationStrategy.GROUP,
+                            group_size=32,
+                            symmetric=True,
+                            dynamic=False,
+                        ),
+                    ),
+                },
             ),
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
