@@ -37,6 +37,14 @@ The following models are among the most commonly used with LLM Compressor: Llama
 
       [:octicons-arrow-right-24: Kimi-K2.6](kimi-k26/index.md)
 
+  - **Gemma 4**
+
+      ---
+
+      Google's latest multimodal model.
+
+      [:octicons-arrow-right-24: Gemma 4](gemma4index.md)
+
   - **Llama 4**
 
       ---
