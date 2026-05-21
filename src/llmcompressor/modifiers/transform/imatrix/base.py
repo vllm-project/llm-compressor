@@ -1,5 +1,3 @@
-from typing import List, Union
-
 from compressed_tensors.quantization import QuantizationArgs
 from compressed_tensors.utils import match_named_modules
 from pydantic import Field
@@ -59,8 +57,8 @@ class IMatrixGatherer(Modifier):
         Must be ``"imatrix_mse"`` (default).
     """
 
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
-    ignore: List[str] = Field(default_factory=lambda: ["lm_head"])
+    targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
+    ignore: list[str] = Field(default_factory=lambda: ["lm_head"])
     weight_observer: str = "imatrix_mse"
 
     # ------------------------------------------------------------------ #
