@@ -12,6 +12,9 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     MAPPINGS_REGISTRY,
     LayerMap,
 )
+from llmcompressor.modifiers.utils.hybrid_attention import (
+    get_hybrid_attention_layer_types,
+)
 
 __all__ = ["SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY", "get_layer_mappings_from_model"]
 
@@ -49,7 +52,7 @@ def build_qwen3_5_moe_smoothquant_mappings(model: Module) -> list[LayerMap]:
     layernorm regex must be restricted to those layer indices. The shared expert MLP
     remains safe to smooth with the standard post-attention layernorm mapping.
     """
-    layer_types = _get_qwen3_5_layer_types(model)
+    layer_types = get_hybrid_attention_layer_types(model)
     if layer_types is None:
         raise ValueError(
             "Qwen3.5 MoE SmoothQuant mappings require model.config.text_config."
@@ -93,12 +96,3 @@ def build_qwen3_5_moe_smoothquant_mappings(model: Module) -> list[LayerMap]:
 SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[LayerMap]]] = {
     "Qwen3_5MoeForConditionalGeneration": build_qwen3_5_moe_smoothquant_mappings,
 }
-
-
-def _get_qwen3_5_layer_types(model: Module) -> list[str] | None:
-    config = getattr(model, "config", None)
-    if config is None:
-        return None
-
-    text_config = getattr(config, "text_config", config)
-    return getattr(text_config, "layer_types", None)
