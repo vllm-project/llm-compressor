@@ -8,6 +8,8 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 - [W8A8-INT8](#int8_w8a8)
 - [W4A16 and W8A16](#w4a16-and-w8a16)
 - [NVFP4](#nvfp4)
+- [MXFP4](#mxfp4)
+- [MXFP8](#mxfp8)
 
 ## PTQ Compression Schemes
 
@@ -57,9 +59,32 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 |---------------|----------------------------------------------------------------------------------------------|
 | NVFP4         | 4-bit floating point format introduced with NVIDIA Blackwell GPUs; maintains accuracy using high-precision scale encoding and two-level micro-block scaling |
 | Weights       | Compressed using global scale per tensor + local quantization scales per group of 16 elements |
-| Activations   | Quantized dynamically using per-group quantization (group_size=16)                                      |
-| Calibration   | Requires a calibration dataset to calibrate activation global scales                                                            |
-| Use case      | Supported on all NVIDIA Blackwell GPUs or later  
+| Activations   | Quantized dynamically using per-group quantization (group_size=16)                           |
+| Scales        | Stored in FP8 format (`torch.float8_e4m3fn`)                                                 |
+| Calibration   | Requires a calibration dataset to calibrate activation global scales                         |
+| Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later                                          |
+
+
+### MXFP4
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| MXFP4         | 4-bit Microscaling floating point format defined by the OCP MX specification                 |
+| Weights       | Compressed using per-group quantization (group_size=32)                                      |
+| Activations   | Quantized fully dynamically using per-group quantization (group_size=32)                     |
+| Scales        | Stored in E8M0 exponent format (`uint8`), extracting the power-of-2 exponent from each float scale value |
+| Calibration   | No calibration data required if using RTN                                                    |
+| Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later; cross-platform compatible via the OCP MX spec; can be used as an alternative to NVFP4 when calibration data is not available, though RTN accuracy may be lower |
+
+
+### MXFP8
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| MXFP8         | 8-bit Microscaling floating point format defined by the OCP MX specification; higher accuracy than MXFP4 at the cost of lower compression |
+| Weights       | Compressed using per-group quantization (group_size=32)                                      |
+| Activations   | Quantized fully dynamically using per-group quantization (group_size=32)                     |
+| Scales        | Stored in E8M0 exponent format (`uint8`), extracting the power-of-2 exponent from each float scale value |
+| Calibration   | No calibration data required if using RTN                                                    |
+| Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later; cross-platform compatible via the OCP MX spec |
 
 !!! warning
     Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.

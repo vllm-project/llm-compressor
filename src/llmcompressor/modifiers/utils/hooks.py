@@ -1,6 +1,7 @@
 import contextlib
+from collections.abc import Callable
 from functools import partial, wraps
-from typing import Any, Callable, ClassVar
+from typing import Any, ClassVar
 
 import torch
 from compressed_tensors.modeling import (
