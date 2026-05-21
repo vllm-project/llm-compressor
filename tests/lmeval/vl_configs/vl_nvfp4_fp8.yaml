@@ -7,15 +7,13 @@ dataset_config: LLM
 dataset_split: "train[:20]"
 num_calibration_samples: 20
 lmeval:
-  model: "hf-multimodal"
-  model_args:
-    dtype: bfloat16
-    convert_img_format: True
+  model: vllm-vlm
   task: chartqa
   apply_chat_template: True
+  add_bos_token: False
   num_fewshot: 0
-  limit: 500
+  max_model_len: 128000
   metrics:
-    exact_match,none: 0.596
-    relaxed_accuracy,none: 0.784
-    anywhere_accuracy,none: 0.810
+    exact_match,none: 0.53
+    relaxed_accuracy,none: 0.75
+    anywhere_accuracy,none: 0.79

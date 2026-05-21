@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from itertools import product
-from typing import Any, Iterable
+from typing import Any
 
 import torch
 from compressed_tensors.quantization import (

@@ -3,18 +3,13 @@ model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
 recipe: tests/e2e/recipes/FP8/recipe_fp8_dynamic.yaml
 lmeval:
-  model: "hf-multimodal"
-  model_args:
-    dtype: bfloat16
-    convert_img_format: True
+  model: vllm-vlm
   task: chartqa
   apply_chat_template: True
+  add_bos_token: False
   num_fewshot: 0
-  limit: 500
-  # dense model achieves exact_match accuracy of 0.576
-  # dense model achieves relaxed_accuracy of 0.780
-  # dense model achieves anywhere_accuracy of 0.806
+  max_model_len: 128000
   metrics:
-    exact_match,none: 0.596
-    relaxed_accuracy,none: 0.784
-    anywhere_accuracy,none: 0.810
+    exact_match,none: 0.53
+    relaxed_accuracy,none: 0.75
+    anywhere_accuracy,none: 0.80
