@@ -290,6 +290,14 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
+    layerwise_resume_from: int = field(
+        default=0,
+        metadata={
+            "help": "Subgraph index to resume layerwise quantization from. "
+            "Subgraphs before this index are skipped (forward-only replay to "
+            "rebuild intermediates). Useful for resuming after a crash. Default 0."
+        },
+    )
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None

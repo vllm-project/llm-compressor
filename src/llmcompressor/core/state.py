@@ -105,6 +105,7 @@ class State:
     loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
     sequential_prefetch: bool = False
+    pipeline_type: str = "basic"
 
     @property
     def compression_ready(self) -> bool:

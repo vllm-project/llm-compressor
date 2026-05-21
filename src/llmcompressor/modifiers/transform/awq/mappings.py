@@ -170,6 +170,79 @@ _deepseek_mappings = [
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
+# Glm4MoeLite (GLM-4.7-Flash) — MLA attention like DeepSeek, but
+# first_k_dense_replace=1 means layer 0 is a plain MLP with no router.
+# The router (mlp.gate) is excluded from post_attention_layernorm balance
+# so the mapping resolves uniformly across both dense and MoE layers.
+_glm4_moe_lite_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_a_proj$", "re:.*kv_a_proj_with_mqa$"],
+    ),
+    AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
+    AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
+# Qwen3.5 uses a hybrid attention architecture: some layers have standard
+# self_attn (q/k/v/o_proj) while others use linear_attn (GatedDeltaNet with
+# in_proj_qkv, in_proj_z, in_proj_a, in_proj_b, out_proj). Both patterns
+# must be included so AWQ smooths all layers.
+_qwen3_5_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            # self_attn layers
+            "re:.*self_attn.q_proj$",
+            "re:.*self_attn.k_proj$",
+            "re:.*self_attn.v_proj$",
+            # linear_attn (GatedDeltaNet) layers
+            "re:.*linear_attn.in_proj_qkv$",
+            "re:.*linear_attn.in_proj_z$",
+            "re:.*linear_attn.in_proj_a$",
+            "re:.*linear_attn.in_proj_b$",
+        ],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping("re:.*linear_attn.norm$", ["re:.*linear_attn.out_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
+_qwen3_5_moe_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            # self_attn layers
+            "re:.*self_attn.q_proj$",
+            "re:.*self_attn.k_proj$",
+            "re:.*self_attn.v_proj$",
+            # linear_attn (GatedDeltaNet) layers
+            "re:.*linear_attn.in_proj_qkv$",
+            "re:.*linear_attn.in_proj_z$",
+            "re:.*linear_attn.in_proj_a$",
+            "re:.*linear_attn.in_proj_b$",
+        ],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        [
+            "re:.*mlp.gate$",
+            "re:.*mlp.experts.*.gate_proj$",
+            "re:.*mlp.experts.*.up_proj$",
+        ],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
 _bloom_mappings = [
     AWQMapping("re:.*input_layernorm$", ["re:.*query_key_value$"]),
     AWQMapping("re:.*post_attention_layernorm$", ["re:.*dense_h_to_4h$"]),
@@ -251,6 +324,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
     "Glm4MoeForCausalLM": _moe_default_mappings,
+    "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": default_mappings,
     "Llama4ForConditionalGeneration": _llama4_default_mappings,
@@ -264,6 +338,8 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
+    "Qwen3_5ForCausalLM": _qwen3_5_mappings,
+    "Qwen3_5MoeForCausalLM": _qwen3_5_moe_mappings,
     "SeedOssForCausalLM": default_mappings,
     "Ernie4_5_MoeForCausalLM": default_mappings,
 }

@@ -10,6 +10,7 @@ workflows.
 import os
 from pathlib import PosixPath
 
+import torch
 from compressed_tensors.offload import from_accelerate, is_distributed
 from loguru import logger
 from transformers import (
@@ -87,6 +88,11 @@ def pre_process(
     # untie tie_word_embeddings weights
     if not model_args.tie_word_embeddings:
         untie_word_embeddings(model_args.model)
+
+    # Skip accelerate conversion and save_pretrained patching for layerwise mode
+    # (model is on meta device and has no real weights)
+    if getattr(model_args, "layerwise", False):
+        return
 
     # if the model was loaded with accelerate offloading, convert to CT offloading
     if hasattr(model_args.model, "hf_device_map"):
@@ -176,7 +182,32 @@ def initialize_model_from_path(
             run_compressed=False
         )
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+    if getattr(model_args, "layerwise", False):
+        # Layerwise mode: load model structure on meta device without weights.
+        # Weights will be loaded per-subgraph from safetensors during calibration.
+        from accelerate import init_empty_weights
+
+        logger.info(
+            "Layerwise mode enabled: loading model on meta device (no weights). "
+            "Weights will be loaded per-subgraph during calibration."
+        )
+        # Resolve dtype for from_config (can't use "auto")
+        dtype = parse_dtype(model_args.precision)
+        if dtype is None or dtype == "auto":
+            dtype = getattr(config, "torch_dtype", torch.bfloat16)
+
+        with init_empty_weights():
+            model = AutoModelForCausalLM.from_config(
+                config,
+                torch_dtype=dtype,
+                trust_remote_code=model_kwargs.get("trust_remote_code", False),
+            )
+        # Preserve the original model path for weight loading
+        model.name_or_path = str(model_path)
+        model.config._name_or_path = str(model_path)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+
     if "sequence_length" in model_kwargs:
         model.seqlen = model_kwargs["sequence_length"]
 

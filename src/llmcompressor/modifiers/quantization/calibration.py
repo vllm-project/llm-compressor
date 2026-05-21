@@ -154,7 +154,15 @@ def update_qparams(
             if not only_update_onload:  # update offload + onload
                 update_offload_parameter(module, full_param_name, param_val)
             else:  # only update onload
-                getattr(module, full_param_name).data = param_val
+                target = getattr(module, full_param_name)
+                if target.device.type == "meta":
+                    # In layerwise mode, qparams may still be on meta device.
+                    # Replace the parameter entirely instead of .data assignment.
+                    module._parameters[full_param_name] = torch.nn.Parameter(
+                        param_val, requires_grad=target.requires_grad
+                    )
+                else:
+                    target.data = param_val
 
 
 def calibrate_input_hook(module: Module, args: Any):

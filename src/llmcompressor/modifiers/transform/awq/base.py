@@ -536,6 +536,25 @@ class AWQModifier(Modifier):
                     del self._smooth_activation_stats[mapping.smooth_name]
                     continue
 
+                # Move fp16 reference outputs to CPU to free GPU memory
+                # during grid search (only for layerwise quantization where
+                # GPU memory is constrained by sequential onloading).
+                # Optimization: check available VRAM first — if enough headroom,
+                # keep on GPU to avoid repeated CPU↔GPU transfers during grid
+                # search (n_grid × n_batches transfers otherwise).
+                is_layerwise = active_session().state.pipeline_type == "layerwise"
+                if is_layerwise:
+                    fp16_bytes = sum(t.nbytes for t in fp16_outputs)
+                    try:
+                        device = get_execution_device(parent_module)
+                        free_vram, _ = torch.cuda.mem_get_info(device)
+                        # Keep on GPU if fp16_outputs fit within 50% of free VRAM
+                        if fp16_bytes >= free_vram * 0.5:
+                            fp16_outputs = [t.cpu() for t in fp16_outputs]
+                    except Exception:
+                        # Fallback: offload to be safe
+                        fp16_outputs = [t.cpu() for t in fp16_outputs]
+
                 orig_layer_weights = {
                     balance_layer: balance_layer.weight.clone()
                     for balance_layer in mapping.balance_layers
@@ -599,11 +618,58 @@ class AWQModifier(Modifier):
         use_prefetch = active_session().state.sequential_prefetch
         batch_iter = cache.iter_prefetch() if use_prefetch else cache
         outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
-        return [
+        results = [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
             for output in outputs
         ]
+        return results
+
+    @torch.no_grad()
+    def _run_samples_and_compute_loss(
+        self, module: Module, fp16_outputs: list[torch.Tensor]
+    ) -> float:
+        """Run samples through module and compute loss against fp16_outputs
+        in a streaming fashion to avoid holding all outputs in GPU memory."""
+        session = active_session()
+        loss_masks = session.state.loss_masks if session.state else None
+
+        cache = self._parent_args_cache[module]
+        use_prefetch = active_session().state.sequential_prefetch
+        batch_iter = cache.iter_prefetch() if use_prefetch else cache
+
+        device = get_execution_device(module)
+        loss = torch.tensor(0.0, device=device)
+        num_elements = torch.tensor(0, device=device)
+
+        for batch_idx, batch_kwargs in enumerate(batch_iter):
+            output = module(**batch_kwargs)
+            int_w_batch = output[0] if isinstance(output, tuple) else output
+
+            fp16_batch = fp16_outputs[batch_idx]
+            if fp16_batch.device != device:
+                fp16_batch = fp16_batch.to(device)
+
+            loss_mask = loss_masks[batch_idx] if loss_masks else None
+            if loss_mask is not None:
+                token_mask = loss_mask.to(device) == 1
+                fp16_masked = fp16_batch[token_mask]
+                int_w_masked = int_w_batch[token_mask]
+                loss += torch.nn.functional.mse_loss(
+                    fp16_masked.float(), int_w_masked.float(), reduction="sum"
+                )
+                num_elements += fp16_masked.numel()
+            else:
+                loss += torch.nn.functional.mse_loss(
+                    fp16_batch.float(),
+                    int_w_batch.float(),
+                    reduction="sum",
+                )
+                num_elements += fp16_batch.numel()
+
+            del output, int_w_batch, fp16_batch
+
+        return (loss / num_elements).item() if num_elements > 0 else 0.0
 
     def _compute_best_scale(
         self,
@@ -664,6 +730,21 @@ class AWQModifier(Modifier):
             ],
         ):
             fuse_weight_observers(mapping.parent)
+
+            # Pre-move fp16_outputs to GPU before grid search to avoid
+            # repeated CPU→GPU transfers (n_grid × n_batches otherwise).
+            # Only do this when outputs are on CPU and there's enough VRAM.
+            _fp16_premoved = False
+            if fp16_outputs and fp16_outputs[0].device.type == "cpu":
+                fp16_bytes = sum(t.nbytes for t in fp16_outputs)
+                try:
+                    free_vram, _ = torch.cuda.mem_get_info(device)
+                    if fp16_bytes < free_vram * 0.4:
+                        fp16_outputs = [t.to(device) for t in fp16_outputs]
+                        _fp16_premoved = True
+                except Exception:
+                    pass
+
             pbar = tqdm(
                 self._get_grid_search_params(),
                 desc=f"Grid search for {mapping.smooth_name}",
@@ -708,12 +789,16 @@ class AWQModifier(Modifier):
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
 
-                # W_q * X
-                int_w_outputs = self._run_samples(mapping.parent)
-
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                del int_w_outputs
+                # W_q * X (streaming loss computation — no bulk output storage)
+                is_layerwise = active_session().state.pipeline_type == "layerwise"
+                if is_layerwise:
+                    loss = self._run_samples_and_compute_loss(
+                        mapping.parent, fp16_outputs
+                    )
+                else:
+                    int_w_outputs = self._run_samples(mapping.parent)
+                    loss = self._compute_loss(fp16_outputs, int_w_outputs)
+                    del int_w_outputs
 
                 if initial_error is None:
                     initial_error = loss
@@ -727,6 +812,12 @@ class AWQModifier(Modifier):
                     best_scales = scales.clone()
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
+        # Free pre-moved fp16_outputs from GPU after grid search
+        if _fp16_premoved:
+            fp16_outputs = [t.cpu() for t in fp16_outputs]
+            del fp16_outputs
+            torch.cuda.empty_cache()
+
         if best_ratio == -1:
             logger.debug(history)
             raise Exception(
@@ -737,12 +828,6 @@ class AWQModifier(Modifier):
             )
 
         err_reduction = best_error / initial_error if initial_error > 0 else 1.0
-        logger.debug(
-            f"AWQ grid search for {mapping.smooth_name}: "
-            f"initial error = {initial_error:.3e}, "
-            f"best error = {best_error:.3e}, "
-            f"error reduction rate (best/initial) = {err_reduction * 100:.3f}%"
-        )
 
         # Store error metrics for this layer
         self._error_metrics.append(

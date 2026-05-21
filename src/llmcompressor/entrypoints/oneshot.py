@@ -9,11 +9,14 @@ with various pipeline configurations for efficient model optimization.
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from compressed_tensors import ModelCompressor
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
@@ -25,6 +28,13 @@ from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pytorch.model_load.helpers import (
+    copy_python_files_from_model_cache,
+)
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    modify_save_pretrained,
+    update_and_save_recipe,
+)
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -186,15 +196,128 @@ class Oneshot:
         calibration_dataloader = get_calibration_dataloader(
             self.dataset_args, self.processor
         )
+
+        # For layerwise compress-as-you-go: pass output_dir to the pipeline
+        # so it can save compressed shards incrementally.
+        # Account for recipe stage so shards, config, and tokenizer all land
+        # in the same directory.
+        if getattr(self.model_args, "layerwise", False) and self.output_dir:
+            layerwise_output_dir = self.output_dir
+            if (
+                self.recipe_args is not None
+                and getattr(self.recipe_args, "stage", None) is not None
+            ):
+                layerwise_output_dir = os.path.join(
+                    layerwise_output_dir, self.recipe_args.stage
+                )
+                os.makedirs(layerwise_output_dir, exist_ok=True)
+            self.dataset_args.output_dir = layerwise_output_dir
+
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
             recipe_stage=self.recipe_args.stage,
         )
-        post_process(
-            model_args=self.model_args,
-            recipe_args=self.recipe_args,
-            output_dir=self.output_dir,
+
+        # Check if compress-as-you-go already saved the shards
+        layerwise_saved = getattr(self.model_args, "layerwise", False) and (
+            getattr(self.dataset_args, "output_dir", None)
+            and os.path.exists(
+                os.path.join(
+                    self.dataset_args.output_dir, "model.safetensors.index.json"
+                )
+            )
         )
+
+        if layerwise_saved:
+            # Shards already compressed and saved by the pipeline.
+            # Just save config, tokenizer, and recipe.
+            output_dir = self.dataset_args.output_dir
+
+            # Save model config with quantization metadata.
+            # For VL/multimodal models, the CausalLM model's config is the
+            # text-only subconfig. Use the original config from model_path so
+            # the output can be loaded as the full VL model at inference.
+            from transformers import AutoConfig
+
+            try:
+                original_config = AutoConfig.from_pretrained(
+                    self.model.name_or_path,
+                    trust_remote_code=self.model_args.trust_remote_code_model,
+                )
+                original_config.save_pretrained(output_dir)
+            except (OSError, ValueError):
+                self.model.config.save_pretrained(output_dir)
+
+            # Update config with compression info
+            compressor = ModelCompressor.from_pretrained_model(self.model)
+            compressor.update_config(output_dir)
+
+            # Add passthrough module names to quantization config ignore
+            # list and fix status. Passthrough weights (visual encoder, MTP)
+            # are saved as regular float tensors. Without explicit ignore
+            # entries, serving frameworks treat them as quantized and fail.
+            config_path = os.path.join(output_dir, "config.json")
+            with open(config_path, encoding="utf-8") as f:
+                config_data = json.load(f)
+            if "quantization_config" in config_data:
+                qconfig = config_data["quantization_config"]
+
+                # Status must be "compressed" since layerwise saves
+                # pack-quantized weights directly to disk.
+                qconfig["quantization_status"] = "compressed"
+
+                # Add explicit module names for passthrough layers
+                passthrough_names = getattr(
+                    self.dataset_args, "passthrough_module_names", None
+                )
+                if passthrough_names:
+                    ignore = qconfig.get("ignore", [])
+                    for name in passthrough_names:
+                        if name not in ignore:
+                            ignore.append(name)
+                    qconfig["ignore"] = ignore
+                    logger.info(
+                        f"Added {len(passthrough_names)} passthrough "
+                        f"modules to ignore list"
+                    )
+
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(config_data, f, indent=2, sort_keys=True)
+
+            # Save tokenizer/processor
+            if self.model_args.processor is not None:
+                self.model_args.processor.save_pretrained(output_dir)
+
+            # Copy auxiliary processor configs that processor.save_pretrained
+            # doesn't write (e.g. preprocessor_config.json for VL models).
+            # These are needed by serving frameworks like vLLM to load the
+            # image/video processor.
+            model_path = self.model.name_or_path
+            for aux_file in (
+                "preprocessor_config.json",
+                "video_preprocessor_config.json",
+                "generation_config.json",
+            ):
+                src = os.path.join(model_path, aux_file)
+                dst = os.path.join(output_dir, aux_file)
+                if os.path.exists(src) and not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+
+            # Save recipe
+            update_and_save_recipe(self.model.name_or_path, output_dir)
+            copy_python_files_from_model_cache(self.model, output_dir)
+
+            logger.info(f"Layerwise compress-as-you-go: saved to {output_dir}")
+        else:
+            # Legacy path: wrap save_pretrained for compressed saving
+            if getattr(self.model_args, "layerwise", False):
+                modify_save_pretrained(self.model)
+
+            post_process(
+                model_args=self.model_args,
+                recipe_args=self.recipe_args,
+                output_dir=self.output_dir,
+            )
 
     def apply_recipe_modifiers(
         self,
@@ -234,6 +357,9 @@ class Oneshot:
             )
 
             user_pipeline = self.dataset_args.pipeline
+            # Auto-select layerwise pipeline when model is on meta device
+            if hasattr(self.model, "device") and self.model.device.type == "meta":
+                user_pipeline = "layerwise"
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
@@ -259,6 +385,7 @@ def oneshot(
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
+    layerwise: bool = False,
     # Recipe arguments
     recipe: str | list[str] | None = None,
     recipe_args: list[str] | None = None,
@@ -302,6 +429,7 @@ def oneshot(
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     sequential_prefetch: bool = False,
+    layerwise_resume_from: int = 0,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -331,6 +459,9 @@ def oneshot(
     :param save_compressed: Whether to compress sparse models during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
+    :param layerwise: Enable layerwise quantization mode. When True, the model is
+        loaded on meta device and weights are loaded per-subgraph from safetensors
+        during calibration. This allows quantizing models too large for memory.
 
     # Recipe arguments
     :param recipe: Path to a LLM Compressor recipe, or a list of paths
@@ -395,6 +526,9 @@ def oneshot(
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.
+    :param layerwise_resume_from: Subgraph index to resume layerwise quantization
+        from. Subgraphs before this index are skipped (forward-only replay to
+        rebuild intermediates). Useful for resuming after a crash. Default 0.
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.

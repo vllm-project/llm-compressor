@@ -13,6 +13,7 @@ from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.pipelines import (
     CalibrationPipeline,
     DataFreePipeline,
+    LayerwisePipeline,
     SequentialPipeline,
 )
 
@@ -40,3 +41,9 @@ from llmcompressor.pipelines import (
 def test_infer_pipeline(modifiers, exp_pipeline):
     pipeline = CalibrationPipeline.from_modifiers(modifiers)
     assert isinstance(pipeline, exp_pipeline)
+
+
+def test_layerwise_pipeline_registered():
+    """LayerwisePipeline should be loadable by name from the registry."""
+    pipeline = CalibrationPipeline.load_from_registry("layerwise")
+    assert isinstance(pipeline, LayerwisePipeline)

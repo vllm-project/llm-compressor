@@ -86,3 +86,13 @@ class ModelArguments:
             "(can be a branch name, tag name or commit id)"
         },
     )
+    layerwise: bool = field(
+        default=False,
+        metadata={
+            "help": "Enable layerwise quantization mode. When True, the model is "
+            "loaded on meta device (no memory) and weights are loaded from "
+            "safetensors files per-subgraph during calibration. This allows "
+            "quantizing models that are too large to fit in memory. "
+            "Requires the model to be saved in safetensors format."
+        },
+    )

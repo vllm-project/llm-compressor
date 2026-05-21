@@ -104,6 +104,14 @@ def moe_calibration_context(
         if _is_registered(class_name, MoECalibrationModule):
             modules_to_replace.append((name, class_name))
 
+    # Detect meta device (layerwise mode): create replacements on meta so
+    # expert weight copies are meta->meta (no-op) instead of meta->cpu (crash)
+    try:
+        is_meta = next(model.parameters()).device.type == "meta"
+    except StopIteration:
+        is_meta = False
+    device_ctx = torch.device("meta") if is_meta else contextlib.nullcontext()
+
     # Step 2: Replace modules with progress bar
     if modules_to_replace:
         logger.info(f"Found {len(modules_to_replace)} MoE modules to replace")
@@ -111,12 +119,13 @@ def moe_calibration_context(
             modules_to_replace, desc="Replacing MoE modules for calibration"
         ):
             module = model.get_submodule(name)
-            replacement = MoECalibrationModule.load_from_registry(
-                class_name,
-                original=module,
-                config=model.config,
-                calibrate_all_experts=calibrate_all_experts,
-            )
+            with device_ctx:
+                replacement = MoECalibrationModule.load_from_registry(
+                    class_name,
+                    original=module,
+                    config=model.config,
+                    calibrate_all_experts=calibrate_all_experts,
+                )
             # Apply the same offloading settings as the original module
             _apply_offloading_to_replacement(module, replacement)
 
