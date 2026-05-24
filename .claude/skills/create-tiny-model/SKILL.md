@@ -39,9 +39,13 @@ When this skill is invoked, the following steps will be completed:
 
 1. **Inspect config**: Use `inspect_config.py` to understand the model configuration fields. Specifically find which fields control the number of layers, layer types, and the number of parameters.
 
-2. **Create tiny model**: Make a copy of `save_tiny_model.py`. Modify the copy to create a tiny version of the given model which maintains the same architecture as the original model (at least one of each attention type in the original model, etc.) but with ~1b parameters. It's okay to create a slightly bigger model so long as the architecture is still represented. It's okay to have a smaller hidden_size, but try to reduce the number of layers to as few as possible first before modifying hidden sizes.
+2. **Create tiny model**: Make a copy of `save_tiny_model.py`. Modify the copy to create a tiny version of the given model which maintains the same architecture as the original model (at least one of each attention type in the original model, etc.) but with ~1b parameters. It's okay to create a slightly bigger model so long as the architecture is still represented.
 
-3. **Fine-tune**: Fine tune the model on a toy dataset using `finetune.py`. This validates that the model can actually learn. Note: vision-language models may require script modifications to load correctly. If the model is a vision-language model, do not worry about trying to fine tune on a vision dataset, only fine tune on the provided text dataset. Make sure the target perplexity is ~3.0, a model with a high perplexity with respect to the toy dataset is not considered valid.
+IMPORTANT: It's okay to have a smaller hidden_size, but try to reduce the number of layers to as few as possible first before modifying hidden sizes.
+
+3. **Fine-tune**: Fine tune the model on a toy dataset using `finetune.py`. This validates that the model can actually learn. Note: vision-language models may require script modifications to load correctly. Make sure the target perplexity is ~3.0, a model with a high perplexity with respect to the toy dataset is not considered valid.
+
+IMPORTANT: If the model is a vision-language model, do not worry about trying to fine tune on a vision dataset, only fine tune on the provided text dataset.
 
 4. **Validate checkpoint structure**: Make sure that the saved model checkpoint structure is analogous to the checkpoint structure of the original large model checkpoint. The `transformers` library can sometimes contain bugs where models are saved in invalid checkpoint structures. First, inspect the original checkpoint structure using the HuggingFace Hub API or by checking `https://huggingface.co/{model_id}/resolve/main/model.safetensors.index.json`. If this file does not exist, download the original checkpoint directly. Use `inspect_tensors.py` to inspect the checkpoint format of the saved model and/or the downloaded model. If the two structures do not match, create a converter script to convert our tiny saved checkpoint structure into a checkpoint structure which matches the original.
 
@@ -63,7 +67,7 @@ When this skill is invoked, the following steps will be completed:
    hf upload inference-optimization/{tiny-model-id} {path-to-model} --repo-type=model
    ```
 
-   The tiny model id should be something like "Qwen3-1.5B-1.1B-tiny". Make sure the tiny model id reflects the number of parameters in the tiny model, not the base model.
+   IMPORTANT: Make sure the tiny model id reflects the number of parameters in the tiny model, not the base model. For example, if the base model is `Qwen/Qwen3-30B-A3B`, then the tiny model should be something like `Qwen3-1B-A0.6B`
 
 8. **Copy to working directory**: Copy the final model to the project's working directory for easy access.
 
