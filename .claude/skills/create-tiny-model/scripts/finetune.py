@@ -87,7 +87,7 @@ def main():
         "--target_perplexity",
         type=float,
         default=3.0,
-        help="Target perplexity for early stopping (default: 5.0)"
+        help="Target perplexity for early stopping (default: 3.0)"
     )
     parser.add_argument(
         "--consecutive_steps",

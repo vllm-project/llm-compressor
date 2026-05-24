@@ -31,8 +31,8 @@ The following parameters were reduced from the original model:
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model = AutoModelForCausalLM.from_pretrained(args.model_id, device_map="auto")
-tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+model = AutoModelForCausalLM.from_pretrained("{model_name}", device_map="auto")
+tokenizer = AutoTokenizer.from_pretrained("{model_name}")
 
 input_ids = tokenizer("According to all known laws", return_tensors="pt").input_ids.to(model.device)
 output = model.generate(input_ids, max_new_tokens=20)
@@ -43,7 +43,7 @@ print(tokenizer.decode(output[0]))
 
 This model was created using the llm-compressor `create-tiny-model` claude skill.
 
-{Creation process}
+{creation process}
 
 ## Notes
 
