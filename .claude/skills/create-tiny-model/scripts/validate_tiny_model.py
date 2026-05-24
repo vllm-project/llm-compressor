@@ -33,8 +33,8 @@ def main():
     print("\n" + "="*50)
     print("Generating sample text:")
     outputs = model.generate(
-        input_ids=input_ids[:10],
-        max_length=100,
+        input_ids=input_ids[:, :10],
+        max_length=20,
         num_return_sequences=1,
         do_sample=False,
         pad_token_id=tokenizer.pad_token_id,

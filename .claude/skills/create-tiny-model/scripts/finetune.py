@@ -40,8 +40,9 @@ class CopypastaDataset(Dataset):
             self.encodings.append({
                 "input_ids": encoded["input_ids"].squeeze(),
                 "attention_mask": encoded["attention_mask"].squeeze(),
-                "labels": encoded["input_ids"].squeeze(),
+                "labels": encoded["input_ids"].squeeze().clone(),
             })
+            self.encodings[-1]["labels"][self.encodings[-1]["attention_mask"] == 0] = -100
 
     def __len__(self):
         return len(self.encodings)
@@ -176,7 +177,7 @@ def main():
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
-            max_length=100,
+            max_length=20,
             num_return_sequences=1,
             do_sample=False,
             pad_token_id=tokenizer.pad_token_id,
