@@ -6,24 +6,21 @@ import torch
 from compressed_tensors.utils import patch_attr
 from safetensors import safe_open
 from transformers import AutoModelForCausalLM
-from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
-    DeepseekV4PreTrainedModel, DeepseekV4Experts
-)
 from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
+from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
+    DeepseekV4Experts,
+    DeepseekV4PreTrainedModel,
+)
 from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
     Qwen3VLMoeTextConfig,
 )
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
 
-from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
-
 from llmcompressor.modeling.moe.context import (
     moe_calibration_context,
 )
-from llmcompressor.modeling.moe.linearize import (
-    load_quantizable_moe, linearize_moe
-)
-from llmcompressor.modeling.moe.helpers import get_moe_dims
+from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol, get_moe_dims
+from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
 from tests.testing_utils import requires_gpu
 
 
@@ -135,7 +132,9 @@ def test_linearize_moe(config_cls, experts_cls):
         num_tokens, num_experts, hidden_dim = (1, *get_moe_dims(config)[:2])
 
         hidden_states = torch.randn(1, num_tokens, hidden_dim, dtype=config.dtype)
-        top_k_index = torch.randint(0, num_experts, size=(num_tokens, num_experts), device="cuda")
+        top_k_index = torch.randint(
+            0, num_experts, size=(num_tokens, num_experts), device="cuda"
+        )
         top_k_weights = torch.randn(num_tokens, num_experts, dtype=config.dtype)
         true_outputs = experts(hidden_states, top_k_index, top_k_weights)
         outputs = mock_model(hidden_states, top_k_index, top_k_weights)

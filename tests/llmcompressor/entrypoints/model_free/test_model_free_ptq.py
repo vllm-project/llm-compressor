@@ -233,17 +233,6 @@ def _assert_config_equal(a_path: str, b_path: str):
 
     a_qconfig = config_a.pop("quantization_config")
     b_qconfig = config_b.pop("quantization_config")
-    config_a.pop("transformers_version", None)
-    config_b.pop("transformers_version", None)
-    config_a.pop("torch_dtype", None)
-    config_b.pop("torch_dtype", None)
-    config_a.pop("dtype", None)
-    config_b.pop("dtype", None)
-    config_a.pop("layer_types", None)
-    config_b.pop("layer_types", None)
-
-    assert config_a == config_b
-
     a_config_groups = a_qconfig.pop("config_groups")
     b_config_groups = b_qconfig.pop("config_groups")
     a_ignore = a_qconfig.pop("ignore")

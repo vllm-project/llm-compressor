@@ -9,7 +9,6 @@ with various pipeline configurations for efficient model optimization.
 
 from __future__ import annotations
 
-import contextlib
 import os
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +22,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
-from llmcompressor.modeling.moe.context import moe_calibration_context
+from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
@@ -218,13 +217,12 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        with contextlib.ExitStack() as stack:
-            # fix norm layers for gemma models
-            stack.enter_context(norm_calibration_context(self.model))
-            # linearize moe layers for moe models
-            calib_all_experts = self.dataset_args.moe_calibrate_all_experts
-            stack.enter_context(moe_calibration_context(self.model, calib_all_experts))
-
+        # (Helen INFERENG-661): validate recipe modifiers before initialization
+        # Apply calibration contexts for the entire calibration process
+        with norm_calibration_context(self.model), moe_calibration_context(
+            self.model,
+            calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
+        ):
             session.initialize(
                 model=self.model,
                 start=-1,
@@ -255,7 +253,6 @@ def oneshot(
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,
-    use_auth_token: bool = False,
     precision: str = "auto",
     tie_word_embeddings: bool = True,
     trust_remote_code_model: bool = False,
@@ -323,8 +320,6 @@ def oneshot(
         model_name.
     :param processor: Pretrained processor name or path if not the same as
         model_name.
-    :param use_auth_token: Whether to use Hugging Face auth token for private
-        models.
     :param precision: Precision to cast model weights to, default to auto.
     :param tie_word_embeddings: Whether the model's input and output word embeddings
         should be left tied if possible. False means always untie.
