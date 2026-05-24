@@ -31,7 +31,7 @@ class CopypastaDataset(Dataset):
 
         for text in texts:
             encoded = tokenizer(
-                text,
+                text + tokenizer.eos_token,
                 truncation=True,
                 max_length=max_length,
                 padding="max_length",
@@ -180,9 +180,11 @@ def main():
             num_return_sequences=1,
             do_sample=False,
             pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
         )
-        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=False)
         print(generated_text)
+        print(f"\nGenerated {len(outputs[0])} tokens")
         print("="*50)
 
 

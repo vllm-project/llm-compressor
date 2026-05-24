@@ -5,6 +5,7 @@ model_id = "Qwen/Qwen3-30B-A3B"
 
 with skip_weights_download(AutoModelForCausalLM):
     model = AutoModelForCausalLM.from_pretrained(model_id, num_hidden_layers=1)
+    model.init_weights()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 num_parameters = model.num_parameters()

@@ -39,9 +39,9 @@ When this skill is invoked, the following steps will be completed:
 
 1. **Inspect config**: Use `inspect_config.py` to understand the model configuration fields. Specifically find which fields control the number of layers, layer types, and the number of parameters.
 
-2. **Create tiny model**: Make a copy of `save_tiny_model.py`. Modify the copy to create a tiny version of the given model which maintains the same architecture as the original model (at least one of each attention type in the original model, etc.) but with ~1b parameters. It's okay to create a slightly bigger model so long as the architecture is still represented.
+2. **Create tiny model**: Make a copy of `save_tiny_model.py`. Modify the copy to create a tiny version of the given model which maintains the same architecture as the original model (at least one of each attention type in the original model, etc.) but with ~1B parameters. It's okay to create a slightly bigger model so long as the architecture is still represented.
 
-IMPORTANT: It's okay to have a smaller hidden_size, but try to reduce the number of layers to as few as possible first before modifying hidden sizes.
+IMPORTANT: Start by only modifing the number of layers in the model. If the model is significantly larger than 1B parameters, then consider reducing the hidden sizes and other configurations.
 
 3. **Fine-tune**: Fine tune the model on a toy dataset using `finetune.py`. This validates that the model can actually learn. Note: vision-language models may require script modifications to load correctly. Make sure the target perplexity is ~3.0, a model with a high perplexity with respect to the toy dataset is not considered valid.
 
