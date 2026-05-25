@@ -118,14 +118,14 @@ setup(
         (
             "requests>=2.32.2,<=2.32.5"
             if BUILD_TYPE == "release"
-            else "requests>=2.32.2"
+            else "requests>=2.32.2"u
         ),
         ("tqdm>=4.66.3,<=4.67.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.11.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=4.56.1,<=4.57.6"
+            "transformers>=5.9.0"
             if BUILD_TYPE == "release"
-            else "transformers>=4.56.1,<=4.57.6"
+            else "transformers>=5.9.0"
         ),
         ("datasets>=4.8.4,<=4.8.4" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
@@ -183,6 +183,7 @@ setup(
     entry_points={
         "console_scripts": [
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
+            # reindex_fused_weights is deprecated
             "llmcompressor.reindex_fused_weights=llmcompressor.entrypoints.model_free.reindex_fused_weights:main",
         ]
     },
