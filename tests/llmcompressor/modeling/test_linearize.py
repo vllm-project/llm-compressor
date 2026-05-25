@@ -6,6 +6,7 @@ import torch
 from compressed_tensors.utils import patch_attr
 from safetensors import safe_open
 from transformers import AutoModelForCausalLM
+from transformers import initialization as init
 from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4Experts,
@@ -19,9 +20,13 @@ from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTex
 from llmcompressor.modeling.moe.context import (
     moe_calibration_context,
 )
-from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol, get_moe_dims
+from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol, MoEConfig
 from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
 from tests.testing_utils import requires_gpu
+
+NUM_TEST_TOKENS = 64
+MODEL_MSE = 1e-2
+MODULE_MSE = 1e-10
 
 
 @pytest.fixture
@@ -58,21 +63,22 @@ def test_load_quantizable_moe(
     save_dir = tmp_path / "offload_dir"
     os.mkdir(save_dir)
 
-    input_ids = torch.randint(1024, size=(1, 64), device="cuda")
+    input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
     model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
-    assert torch.any(true_outputs != 0), "Bad source of truth, all zeros"
     del model
 
     with load_quantizable_moe():
         model2 = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
 
     select_exp_outputs = model2(input_ids=input_ids).logits
-    assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < 1e-2
 
     with moe_calibration_context():
         all_exp_outputs = model2(input_ids=input_ids).logits
-        assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < 1e-2
+
+    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
+    assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < MODEL_MSE
+    assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < MODEL_MSE
 
     model2.save_pretrained(save_dir)
     assert keys_exist(save_dir, exp_keys)
@@ -124,19 +130,29 @@ def test_linearize_moe(config_cls, experts_cls):
         config = config_cls()
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
+        init.normal_(experts.gate_up_proj, mean=0.0, std=config.initializer_range)
+        init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
 
         mock_model = DummyModel(experts, config)
-        mock_model.config = config
-        mock_model = linearize_moe(mock_model)
+        linearize_moe(mock_model)
 
-        num_tokens, num_experts, hidden_dim = (1, *get_moe_dims(config)[:2])
+        moe_config = MoEConfig.from_config(config)
 
-        hidden_states = torch.randn(1, num_tokens, hidden_dim, dtype=config.dtype)
-        top_k_index = torch.randint(
-            0, num_experts, size=(num_tokens, num_experts), device="cuda"
+        hidden_states = torch.randn(
+            NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
         )
-        top_k_weights = torch.randn(num_tokens, num_experts, dtype=config.dtype)
+        top_k_index = torch.randint(
+            0,
+            moe_config.num_experts,
+            size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
+            device="cuda",
+        )
+        top_k_weights = torch.randn(
+            NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
+        )
         true_outputs = experts(hidden_states, top_k_index, top_k_weights)
         outputs = mock_model(hidden_states, top_k_index, top_k_weights)
 
-        assert torch.nn.functional.mse_loss(outputs, true_outputs) < 1e-2
+        assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
+        print(torch.nn.functional.mse_loss(outputs, true_outputs))
+        assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE

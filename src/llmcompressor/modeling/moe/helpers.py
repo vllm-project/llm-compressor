@@ -1,5 +1,6 @@
 import ast
 import inspect
+from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
@@ -93,17 +94,34 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
     return None
 
 
-def get_moe_dims(config: PreTrainedConfig) -> tuple[int, int, int, bool, str, float]:
-    return (
-        _getattr_fallbacks(
-            config, ["num_local_experts", "moe_num_experts", "num_experts"]
-        ),
-        _getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
-        _getattr_fallbacks(config, ["moe_intermediate_size", "intermediate_size"]),
-        _getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
-        _getattr_fallbacks(config, ["hidden_act"]),
-        _getattr_fallbacks(config, ["swiglu_limit"], None),
-    )
+@dataclass
+class MoEConfig:
+    num_experts: int
+    num_experts_per_tok: int
+    hidden_dim: int
+    intermediate_size: int
+    use_bias: bool
+    hidden_act: str
+    limit: float
+    dtype: torch.dtype
+
+    @classmethod
+    def from_config(cls, config: PreTrainedConfig):
+        return cls(
+            num_experts=_getattr_fallbacks(
+                config, ["num_local_experts", "moe_num_experts", "num_experts"]
+            ),
+            num_experts_per_tok=_getattr_fallbacks(config, ["num_experts_per_tok"]),
+            hidden_dim=_getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
+            intermediate_size=_getattr_fallbacks(
+                config,
+                ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
+            ),
+            use_bias=_getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
+            hidden_act=_getattr_fallbacks(config, ["hidden_act"]),
+            limit=_getattr_fallbacks(config, ["swiglu_limit"], None),
+            dtype=_getattr_fallbacks(config, ["dtype"]),
+        )
 
 
 def _getattr_fallbacks(

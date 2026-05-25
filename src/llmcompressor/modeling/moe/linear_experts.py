@@ -13,7 +13,7 @@ from llmcompressor.utils.dev import skip_weights_initialize
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
     FusedExpertsProtocol,
-    get_moe_dims,
+    MoEConfig,
     get_use_experts_implementation_args,
 )
 
@@ -32,20 +32,20 @@ class ExpertMLPWithGate(ExpertMLP):
     def __init__(
         self,
         hidden_dim: int,
-        intermediate_dim: int,
+        intermediate_size: int,
         mlp_bias: bool,
         _apply_gate: Callable[[torch.Tensor], torch.Tensor],
         dtype: torch.dtype,
     ):
         super().__init__()
         self.up_proj = torch.nn.Linear(
-            hidden_dim, intermediate_dim, bias=mlp_bias, dtype=dtype
+            hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
         self.gate_proj = torch.nn.Linear(
-            hidden_dim, intermediate_dim, bias=mlp_bias, dtype=dtype
+            hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
         self.down_proj = torch.nn.Linear(
-            intermediate_dim, hidden_dim, bias=mlp_bias, dtype=dtype
+            intermediate_size, hidden_dim, bias=mlp_bias, dtype=dtype
         )
         self._apply_gate = _apply_gate
 
@@ -68,7 +68,7 @@ class ExpertMLPWithoutGate(ExpertMLP):
     def __init__(
         self,
         hidden_dim: int,
-        intermediate_dim: int,
+        intermediate_size: int,
         mlp_bias: bool,
         act_fn: torch.nn.Module | None,
         dtype: torch.dtype,
@@ -77,10 +77,10 @@ class ExpertMLPWithoutGate(ExpertMLP):
         assert act_fn is not None
 
         self.up_proj = torch.nn.Linear(
-            hidden_dim, intermediate_dim, bias=mlp_bias, dtype=dtype
+            hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
         self.down_proj = torch.nn.Linear(
-            intermediate_dim, hidden_dim, bias=mlp_bias, dtype=dtype
+            intermediate_size, hidden_dim, bias=mlp_bias, dtype=dtype
         )
         self.act_fn = act_fn
 
@@ -96,7 +96,7 @@ class LinearExperts2D(torch.nn.ModuleList):
     _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]]
 
     num_experts: int
-    intermediate_dim: int
+    intermediate_size: int
 
     @classmethod
     def create_linear_experts_cls(cls, experts_cls: type) -> type["LinearExperts2D"]:
@@ -131,8 +131,8 @@ class LinearExperts2D(torch.nn.ModuleList):
             expert: ExpertMLPWithGate = self[index]
 
             # load weights
-            gate_weight = experts.gate_up_proj[index, : self.intermediate_dim]
-            up_weight = experts.gate_up_proj[index, self.intermediate_dim :]
+            gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
+            up_weight = experts.gate_up_proj[index, self.intermediate_size :]
             down_weight = experts.down_proj[index]
 
             if experts.is_transposed:
@@ -146,8 +146,8 @@ class LinearExperts2D(torch.nn.ModuleList):
 
             # load biases
             if experts.has_bias:
-                gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_dim]
-                up_bias = experts.gate_up_proj_bias[index, self.intermediate_dim :]
+                gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
+                up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
                 down_bias = experts.down_proj_bias[index]
 
                 expert.gate_proj.bias.copy_(gate_bias)
@@ -157,40 +157,42 @@ class LinearExperts2D(torch.nn.ModuleList):
         return self
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
-        num_experts, hidden_dim, intermediate_dim, mlp_bias, hidden_act, limit = (
-            get_moe_dims(config)
-        )
+        moe_config = MoEConfig.from_config(config)
 
         # store num_experts before appending `act_fn` to module list
-        self.num_experts = num_experts
-        self.intermediate_dim = intermediate_dim
-        act_fn = ACT2FN[hidden_act]
+        self.num_experts = moe_config.num_experts
+        self.intermediate_size = moe_config.intermediate_size
+        act_fn = ACT2FN[moe_config.hidden_act]
 
         if self.has_gate:
             super().__init__(
                 [
                     ExpertMLPWithGate(
-                        hidden_dim,
-                        intermediate_dim,
-                        mlp_bias,
+                        moe_config.hidden_dim,
+                        moe_config.intermediate_size,
+                        moe_config.use_bias,
                         self._apply_gate,
-                        config.dtype,
+                        moe_config.dtype,
                     )
-                    for _ in range(num_experts)
+                    for _ in range(moe_config.num_experts)
                 ]
             )
         else:
             super().__init__(
                 [
                     ExpertMLPWithoutGate(
-                        hidden_dim, intermediate_dim, mlp_bias, act_fn, config.dtype
+                        moe_config.hidden_dim,
+                        moe_config.intermediate_size,
+                        moe_config.use_bias,
+                        act_fn,
+                        moe_config.dtype,
                     )
-                    for _ in range(num_experts)
+                    for _ in range(moe_config.num_experts)
                 ]
             )
 
         self.act_fn = act_fn
-        self.limit = limit
+        self.limit = moe_config.limit
 
     def forward(
         self,
@@ -198,7 +200,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         top_k_index: torch.Tensor,
         top_k_weights: torch.Tensor,
     ) -> torch.Tensor:
-        # Match the eager implementation from transformers exactly
         final_hidden_states = torch.zeros_like(hidden_states)
 
         # create tokens mask
