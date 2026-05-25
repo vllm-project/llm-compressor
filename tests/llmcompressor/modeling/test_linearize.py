@@ -145,7 +145,6 @@ def test_linearize_moe(config_cls, experts_cls):
             0,
             moe_config.num_experts,
             size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
-            device="cuda",
         )
         top_k_weights = torch.randn(
             NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
