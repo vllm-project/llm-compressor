@@ -116,7 +116,7 @@ def create_or_update_quant_config(
         # construct quantization config from scratch
         qconfig = QuantizationConfig.model_validate(
             {
-                "config_groups": {scheme_name: scheme},
+                "config_groups": {"config_group_0": scheme},
                 "ignore": ignore,
                 "quantization_status": QuantizationStatus.COMPRESSED,
                 "format": scheme.format,
@@ -124,11 +124,8 @@ def create_or_update_quant_config(
         )
     else:
         # update pre-existing quantization config
-        scheme_name = (
-            f"config_group_{len(qconfig.config_groups)}"
-            if scheme_name in qconfig.config_groups
-            else scheme_name
-        )
+        scheme_name = f"config_group_{len(qconfig.config_groups)}"
+
         qconfig.config_groups[scheme_name] = scheme
         unique_formats = set(scheme.format for scheme in qconfig.config_groups.values())
         qconfig.format = (

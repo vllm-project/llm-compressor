@@ -97,7 +97,7 @@ def process_file(
     tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
-        converter.process(tensors)
+        tensors = converter.process(tensors)
 
     for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
@@ -162,7 +162,7 @@ def process_file_microscale_scheme(
     tensors = split_fused_moe_experts(tensors)
 
     if converter is not None:
-        converter.process(tensors)
+        tensors = converter.process(tensors)
 
     # Get fused sets. Non-primary shards may have incomplete sets (k/v without q)
     # since only the primary-owning shard fetches partners — this is correct.
