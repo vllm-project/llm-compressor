@@ -15,7 +15,7 @@ nav:
     - key-models/index.md
     - DeepSeek V4:
       - key-models/deepseek-v4/index.md
-      - FP8 Example: key-models/deepseek-v4/fp8-nvfp4-example.md
+      - NVFP4 + FP8 Example: key-models/deepseek-v4/fp8-nvfp4-example.md
     - Kimi-K2.6:
       - key-models/kimi-k26/index.md
       - NVFP4 Example: key-models/kimi-k26/nvfp4-example.md
@@ -27,6 +27,11 @@ nav:
     - Qwen3.6:
       - key-models/qwen3.6/index.md
       - NVFP4 MoE Example: key-models/qwen3.6/nvfp4-moe-example.md
+    - Gemma 4:
+      - key-models/gemma4/index.md
+      - NVFP4 Example: key-models/gemma4/nvfp4-example.md
+      - FP8 Block Example: key-models/gemma4/fp8-block-example.md
+      - NVFP4 MoE Example: key-models/gemma4/nvfp4-moe-example.md
     - Llama 4:
       - key-models/llama4/index.md
       - FP8 Example: key-models/llama4/fp8-example.md
@@ -39,6 +44,7 @@ nav:
       - guides/entrypoints/index.md
       - oneshot: guides/entrypoints/oneshot.md
       - model-free-ptq: guides/entrypoints/model-free-ptq.md
+      - convert_checkpoint: guides/entrypoints/convert.md
     - Compression Schemes: guides/compression_schemes.md
     - Observers: guides/observers.md
     - Big Models and Distributed Support:
