@@ -2,6 +2,7 @@ import contextlib
 from functools import wraps
 from typing import Type
 
+import torch
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -38,8 +39,9 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # model is 3d (or otherwise doesn't have mappings)
         # fall back to post-load conversion
         if not _has_2d_mappings(model_type):
-            model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
-            return linearize_moe(model)
+            model = original_from_pretrained(*args, **kwargs)
+            linearize_moe(model)
+            return model
 
         # prepare to load linearized weights
         experts_cls, forward_mapping, backward_mapping = _get_2d_mappings(model_type)
@@ -71,7 +73,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                 )
 
 
-def linearize_moe(model: PreTrainedModel) -> PreTrainedModel:
+def linearize_moe(model: PreTrainedModel):
     non_linearized_moes = {
         name: module
         for name, module in model.named_modules()
@@ -89,4 +91,10 @@ def linearize_moe(model: PreTrainedModel) -> PreTrainedModel:
         linear_moe = linear_experts_cls.from_experts_module(module, model.config)
         model.set_submodule(name, linear_moe)
 
-    return model
+
+def requires_linearize_moe(model: torch.nn.Module):
+    for module in model.modules():
+        if isinstance(module, FusedExpertsProtocol):
+            return True
+
+    return False

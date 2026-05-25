@@ -54,7 +54,7 @@ def _get_tiny_block_quant():
         ("Qwen/Qwen3-0.6B", _get_tiny_block_quant()),
         ("Qwen/Qwen3-0.6B", "NVFP4A16"),
         # Also check an MoE model with 3D tensors
-        ("Qwen/Qwen3-30B-A3B", _get_tiny_w4a16_quant()),
+        ("inference-optimization/Qwen3-1.6B-A0.9B", _get_tiny_w4a16_quant()),
     ],
 )
 def test_model_free_ptq_matches_oneshot(model, scheme, tmp_path):
@@ -91,7 +91,7 @@ def test_model_free_ptq_matches_oneshot(model, scheme, tmp_path):
         oneshot_outdir,
     )
 
-    _assert_config_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
+    _assert_qconfig_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
 
 
 @requires_gpu
@@ -129,7 +129,6 @@ def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
 
     oneshot(
         model=model,
-        precision="auto",
         recipe=recipe,
         output_dir=oneshot_outdir,
     )
@@ -144,7 +143,7 @@ def test_stacked_model_free_ptq_matches_oneshot(schemes, tmp_path):
         oneshot_outdir,
     )
 
-    _assert_config_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
+    _assert_qconfig_equal(ptq_outdir / "config.json", oneshot_outdir / "config.json")
 
 
 def _get_safetensors_files(dir_path: str) -> list[str]:
@@ -224,7 +223,7 @@ def _assert_safetensors_equal(a_path: str, b_path: str) -> bool:
         assert value_equal and dtype_equal, (key, value_equal, dtype_equal)
 
 
-def _assert_config_equal(a_path: str, b_path: str):
+def _assert_qconfig_equal(a_path: str, b_path: str):
     with open(a_path, "r") as f:
         config_a: dict = json.load(f)
 

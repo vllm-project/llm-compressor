@@ -9,7 +9,8 @@ from tests.testing_utils import requires_gpu
 
 torch.manual_seed(0)
 
-_EXP_MSE = 3e-2
+_MODEL_DTYPE = torch.float32
+_EXP_MSE = 5e-3
 
 
 @requires_gpu
@@ -26,7 +27,9 @@ def test_quantization_with_automatic_untie():
 
     # Test 1: Apply quantization WITHOUT manually untieing first
     # (relies on automatic untieing in start_calibration)
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="cuda", dtype=_MODEL_DTYPE
+    )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -74,7 +77,9 @@ def test_quantization_untie_only_when_targeted():
     model_id = "Qwen/Qwen3-0.6B"
 
     # Test with targets that don't include embeddings
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="cuda", dtype=_MODEL_DTYPE
+    )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -122,7 +127,9 @@ def test_spinquant_with_tied_embeddings(rotations):
     model_id = "Qwen/Qwen3-0.6B"
 
     # Test with R1 rotation (should untie embeddings)
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="cuda", dtype=_MODEL_DTYPE
+    )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -176,7 +183,9 @@ def test_quip_with_tied_embeddings(rotations):
     model_id = "Qwen/Qwen3-0.6B"
 
     # Test with QuIP rotations
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="cuda", dtype=_MODEL_DTYPE
+    )
 
     # Reduce vocab size to avoid runtime for generating large quip matrices
     _reduce_vocab_size(model, 2048)
@@ -232,7 +241,9 @@ def test_quip_untie_only_when_targeted(rotations):
     model_id = "Qwen/Qwen3-0.6B"
 
     # Test with QuIP with default ignore (includes lm_head)
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="cuda", dtype=_MODEL_DTYPE
+    )
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()

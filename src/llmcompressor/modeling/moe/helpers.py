@@ -16,6 +16,8 @@ from llmcompressor.typing import TorchModuleProtocol
 
 
 class FusedExpertsProtocol(TorchModuleProtocol):
+    # TODO: fix, gate_up_proj might also not be present
+    # might have to better define, maybe use get_use_experts_implementation_args
     __required_parameters__: tuple[str, ...] = ("gate_up_proj", "down_proj")
     __required_modules__: tuple[str, ...] = ("act_fn",)
 
@@ -37,33 +39,6 @@ class FusedExpertsProtocol(TorchModuleProtocol):
     up_proj_bias: torch.nn.Parameter
     gate_up_proj_bias: torch.nn.Parameter
     down_proj_bias: torch.nn.Parameter
-
-
-def _is_moe_experts_module(module) -> bool:
-    """Detect modules whose class is decorated with
-    ``@use_experts_implementation`` by inspecting the class source AST."""
-    try:
-        source = inspect.getsource(type(module))
-        tree = ast.parse(source)
-    except (OSError, TypeError):
-        return False
-
-    for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        for decorator in node.decorator_list:
-            if isinstance(decorator, ast.Name):
-                name = decorator.id
-            elif isinstance(decorator, ast.Call) and isinstance(
-                decorator.func, ast.Name
-            ):
-                name = decorator.func.id
-            else:
-                continue
-            if name == "use_experts_implementation":
-                return True
-
-    return False
 
 
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
