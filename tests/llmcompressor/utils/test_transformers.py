@@ -25,7 +25,7 @@ def test_untie_word_embeddings(offload, dtype, tie_word_embeddings, device):
     Test whether model offloading breaks tied/untied embeddings
     """
     # load model
-    model_path = "nm-testing/tinysmokellama-3.2"
+    model_path = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(model_path, dtype=dtype)
     if offload:
         model = dispatch_model(model, {"": device}, force_hooks=True)
@@ -64,7 +64,7 @@ def test_untie_word_embeddings_gpu(offload, dtype, tie_word_embeddings, device):
 
 
 def test_targets_embeddings():
-    model_path = "nm-testing/tinysmokellama-3.2"
+    model_path = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(model_path)
 
     targets = {"embed_tokens": model.model.embed_tokens}.items()

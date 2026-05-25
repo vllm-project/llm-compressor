@@ -5,7 +5,6 @@ from transformers import AutoModelForCausalLM
 from llmcompressor.core import State
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
-from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_gpu
 
 torch.manual_seed(0)
@@ -268,4 +267,3 @@ def _reduce_vocab_size(model, new_vocab_size):
 
     model.lm_head.out_features = new_vocab_size
     model.model.embed_tokens.num_embeddings = new_vocab_size
-    
