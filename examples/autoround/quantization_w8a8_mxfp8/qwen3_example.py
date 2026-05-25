@@ -8,6 +8,8 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Select model and load it.
+# If you switch to `Qwen/Qwen3-32B`, set `batch_size=4` in AutoRoundModifier
+# below to reduce OOM risk during tuning.
 model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
@@ -31,6 +33,7 @@ recipe = AutoRoundModifier(
     scheme="MXFP8",
     ignore=["lm_head"],
     iters=200,
+    batch_size=8,
 )
 
 # Apply algorithms.
