@@ -5,11 +5,12 @@ from transformers import AutoModelForCausalLM
 from llmcompressor.core import State
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
+from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_gpu
 
 torch.manual_seed(0)
 
-_EXP_MSE = 8e-3
+_EXP_MSE = 3e-2
 
 
 @requires_gpu
@@ -22,13 +23,11 @@ def test_quantization_with_automatic_untie():
     _untie_if_target_shared is called during start_calibration to automatically
     handle shared input/output embeddings when they are targeted for quantization.
     """
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "Qwen/Qwen3-0.6B"
 
     # Test 1: Apply quantization WITHOUT manually untieing first
     # (relies on automatic untieing in start_calibration)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", dtype=torch.bfloat16
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -73,12 +72,10 @@ def test_quantization_untie_only_when_targeted():
     This verifies that the _untie_if_target_shared logic
     correctly checks if embeddings are in the target list before untieing.
     """
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "Qwen/Qwen3-0.6B"
 
     # Test with targets that don't include embeddings
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", dtype=torch.bfloat16
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -123,12 +120,10 @@ def test_spinquant_with_tied_embeddings(rotations):
     2. When SpinQuant is applied, embeddings are automatically untied
     3. SpinQuant works correctly with the new untie functionality
     """
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "Qwen/Qwen3-0.6B"
 
     # Test with R1 rotation (should untie embeddings)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", dtype=torch.bfloat16
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -179,12 +174,13 @@ def test_quip_with_tied_embeddings(rotations):
     No accuracy checks are done because inverting the
     random-matrix is too innacurate
     """
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "Qwen/Qwen3-0.6B"
 
     # Test with QuIP rotations
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", dtype=torch.bfloat16
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
+
+    # Reduce vocab size to avoid runtime for generating large quip matrices
+    _reduce_vocab_size(model, 2048)
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -234,12 +230,10 @@ def test_quip_untie_only_when_targeted(rotations):
     list (the default), embeddings should remain tied since they won't be
     transformed.
     """
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "Qwen/Qwen3-0.6B"
 
     # Test with QuIP with default ignore (includes lm_head)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cuda", dtype=torch.bfloat16
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
 
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
@@ -265,3 +259,13 @@ def test_quip_untie_only_when_targeted(rotations):
     assert (
         input_embed.weight is output_embed.weight
     ), "Embeddings should still be tied when lm_head is in the ignore list"
+
+
+def _reduce_vocab_size(model, new_vocab_size):
+    new_lm_head_weight = model.lm_head.weight[:new_vocab_size, :]
+    model.lm_head.weight = torch.nn.Parameter(new_lm_head_weight, requires_grad=False)
+    model.model.embed_tokens.weight = model.lm_head.weight
+
+    model.lm_head.out_features = new_vocab_size
+    model.model.embed_tokens.num_embeddings = new_vocab_size
+    

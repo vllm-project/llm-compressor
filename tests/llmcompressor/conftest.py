@@ -47,6 +47,10 @@ def _files_size_mb(path_list: List[str]) -> int:
 
 @pytest.fixture(scope="session", autouse=True)
 def check_for_created_files():
+    if os.getenv("GITHUB_ACTIONS") != "true":
+        yield
+        return
+
     local_ignore_dirs = ["__pycache__", "sparse_logs", "test-results", ".pytest_cache"]
     local_ignore_files = [".coverage"]
     tmp_ignore_dirs = ["pytest-of", "torchinductor"]

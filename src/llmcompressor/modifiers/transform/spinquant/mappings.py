@@ -62,12 +62,12 @@ _default_mappings = SpinQuantMapping(
 
 
 SPINQUANT_MAPPING_REGISTRY: dict[str, SpinQuantMapping] = {
-    "LlamaForCausalLM": _default_mappings,
+    "llama": _default_mappings,
 }
 
 
 def infer_mapping_from_model(model: PreTrainedModel) -> SpinQuantMapping:
-    architecture = model.__class__.__name__
+    architecture = model.config.model_type
     if architecture not in SPINQUANT_MAPPING_REGISTRY:
         logger.info(
             f"Unrecognized model architecture {architecture}. "
