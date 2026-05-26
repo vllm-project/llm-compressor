@@ -10,6 +10,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -87,14 +88,13 @@ def test_gptq_distributed_disk_offload():
 
     init_dist()
     with _disk_offloaded_model() as model:
-        # oneshot(
-        #     model=model,
-        #     dataset=_dataset(),
-        #     recipe=_recipe(),
-        #     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-        #     max_seq_length=MAX_SEQ_LENGTH,
-        # )
-        print("pretend oneshot")
+        oneshot(
+            model=model,
+            dataset=_dataset(),
+            recipe=_recipe(),
+            num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+            max_seq_length=MAX_SEQ_LENGTH,
+        )
 
         torch.distributed.barrier()
 
