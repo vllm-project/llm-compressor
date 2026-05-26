@@ -148,7 +148,7 @@ class BaseTestConfig(BaseModel):
             "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
         ),
     )
-    quant_type: Optional[Literal["GPTQ", "RTN"]] = Field(
+    quant_type: Literal["GPTQ", "RTN"] | None = Field(
         None,
         description=(
             "Modifier used when no recipe is provided.\n"
