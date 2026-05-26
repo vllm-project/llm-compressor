@@ -111,6 +111,7 @@ def run_oneshot_for_e2e_testing(
             "recipe": recipe,
             "save_dir": save_dir,
             "save_compressed": save_compressed,
+            "shuffle_calibration_samples": shuffle_calibration_samples,
         }
         _RUNNER = str(Path(__file__).parent / "run_oneshot_ddp.py")
         cmd = [
@@ -220,6 +221,9 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
         scheme=config.get("scheme"),
     )
 
+    oneshot_kwargs["shuffle_calibration_samples"] = config.get(
+        "shuffle_calibration_samples", True
+    )
     _run_oneshot(**oneshot_kwargs)
 
     if rank == 0:
