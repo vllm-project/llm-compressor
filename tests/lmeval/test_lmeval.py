@@ -101,7 +101,7 @@ class TestLMEval:
 
         self.config = TestConfig(**eval_config)
 
-        available_gpus = torch.cuda.device_count()
+        available_gpus = torch.accelerator.device_count()
         if available_gpus < self.config.num_gpus:
             pytest.skip(
                 f"Not enough GPUs: need {self.config.num_gpus}, got {available_gpus}"
