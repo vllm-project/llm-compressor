@@ -128,7 +128,7 @@ AutoRound defines a 3rd archetype of modifier as far as DDP support. Because the
 
 1. For each module, for some number of iterations, quantize the weight and then do a forward and a (modified) backward pass (using the recorded module inputs) to obtain gradients (SignSGD)
 2. synchronize gradients across ranks using `dist.all_reduce` (SUM)
-3. Each rank indepdently updates the weights and then repeats
+3. Each rank independently updates the weights and then repeats
 
 ![Diagram showing DDP Autoround](DDP_Autoround.png)
 
