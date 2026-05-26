@@ -2,7 +2,7 @@
 Thin DDP compression runner, invoked via torchrun for any DDP test.
 
 Usage:
-    torchrun --nproc_per_node N tests/run_oneshot_ddp.py <config_json>
+    torchrun --nproc_per_node N tests/e2e/run_oneshot_ddp.py <config_json>
 
 Arguments:
     config_json       JSON-serialized BaseTestConfig / TestConfig
@@ -16,7 +16,7 @@ import sys
 
 # Ensure the repo root is on sys.path so `tests` is importable when torchrun
 # spawns this script directly (it does not inherit the pytest sys.path).
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from compressed_tensors.offload import init_dist
 
