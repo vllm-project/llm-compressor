@@ -36,8 +36,22 @@ class AutoWrapper(ast.NodeTransformer):
         :param tree: module containing a definition to an original forward function
         :return: module with added wrapper function definitions and function calls
         """
+        # bp = ast.Module(
+        #     body=[
+        #         ast.Expr(
+        #             value=ast.Call(
+        #                 func=ast.Name(id="breakpoint", ctx=ast.Load()),
+        #                 args=[],
+        #                 keywords=[],
+        #             )
+        #         )
+        #     ],
+        #     type_ignores=[],
+        # )
+
         tree = self.visit(tree)
         for fn_def in self._wrapper_fn_defs:
+            # fn_def.body.insert(0, bp)
             tree.body.insert(0, fn_def)
 
         return ast.fix_missing_locations(tree)

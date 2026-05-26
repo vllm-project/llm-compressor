@@ -1,6 +1,6 @@
 import contextlib
 import inspect
-from collections import deque
+from collections import deque, UserDict
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
@@ -153,7 +153,9 @@ def trace_subgraphs(
     if len(subgraphs) != len(targets) + 1:
         logger.warning(
             f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
-            "This is likely due to having wrapped code which calls sequential targets"
+            "This is likely due to having wrapped code which calls sequential targets "
+            "or calibrating a multimodal/vision model. This may lead to slightly "
+            "higher memory utilization."
         )
 
     return subgraphs
@@ -179,6 +181,10 @@ class SequentialTracer(HFTracer):
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
+        
+        # special extension supports UserDicts as dicts; used for models like Gemma4
+        elif type(a) is UserDict:
+            return self.create_arg(dict(a))
 
         else:
             return super().create_arg(a)

@@ -82,6 +82,18 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
         filename,
     )
 
+    source_lines = linecache.getlines(filename)
+
+    # annotate failing line
+    source_lines = [
+        ("> " if i == 40 else "  ") + line
+        for i, line in enumerate(source_lines)
+    ]
+
+    message = f"--- {filename} ---\n"
+    message += "".join(source_lines)
+    print(message)
+
     # patch forward with autowrapped forward
     new_forward = namespace["forward"].__get__(module)
     with patch_attr(module, "forward", new_forward):
@@ -96,6 +108,7 @@ def append_autowrap_source_on_fail():
         _exc_type, _exc_value, exc_tb = sys.exc_info()
         tb_list = traceback.extract_tb(exc_tb)
 
+        breakpoint()
         for frame in reversed(tb_list):
             if "Autowrapped" in frame.filename:
                 source_lines = linecache.getlines(frame.filename)

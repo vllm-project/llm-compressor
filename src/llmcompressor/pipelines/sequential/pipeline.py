@@ -150,6 +150,7 @@ class SequentialPipeline(CalibrationPipeline):
                         sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
+                        breakpoint()
                         outputs = subgraph.forward(model, **inputs)
 
                         if not dataset_args.propagate_error:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import warnings
-from collections import defaultdict
+from collections import defaultdict, UserDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Generator
@@ -177,7 +177,7 @@ class IntermediatesCache:
                 case list() | tuple():
                     for v in value:
                         _size_helper(v)
-                case dict():
+                case dict() | UserDict():
                     for v in value.values():
                         _size_helper(v)
                 case _ if is_dataclass(value):
@@ -283,7 +283,7 @@ class IntermediatesCache:
                 return [cls._onload_value(v) for v in value]
             case tuple():
                 return tuple(cls._onload_value(v) for v in value)
-            case dict():
+            case dict() | UserDict():
                 return {k: cls._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
                 for field in fields(value):
@@ -345,7 +345,7 @@ class IntermediatesCache:
                     value=tuple(cls._offload_value(v, **kwargs) for v in value),
                     device=None,
                 )
-            case dict():
+            case dict() | UserDict():
                 return IntermediateValue(
                     value={
                         k: cls._offload_value(v, **kwargs) for k, v in value.items()

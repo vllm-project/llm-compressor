@@ -93,6 +93,7 @@ def moe_calibration_context(
                 model(**batch)
         # Model is now restored (unless permanent)
     """
+    yield; return
 
     replaced = {}
 
