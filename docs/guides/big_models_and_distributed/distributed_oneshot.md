@@ -180,7 +180,7 @@ The `QuantizationMixin.sync_obs_act_stats()` method (called at each sequential l
 
 ## DDP Support - General Framework
 
-In general we've design our DDP implementation to affect as few abstractions as possible to reduce complication and ease maintence. While modifiers have to be generally DDP-aware and observers provide an interface that modifiers can use to synchronize activation statistics, the rest of llm-compressor is largely DDP agnostic. Things like the sequential pipeline are entirely blind to whether or not DDP is being used. While a few areas like saving and data preparation include some DDP-awareness to avoid foot-guns, these instances are rare and the system will work without them.
+In general, the DDP implementation is designed to affect as few abstractions as possible to reduce complication and ease maintenance. While modifiers have to be generally DDP-aware and observers provide an interface that modifiers can use to synchronize activation statistics, the rest of llm-compressor is largely DDP agnostic. Things like the sequential pipeline are entirely blind to whether or not DDP is being used. While a few areas like saving and data preparation include some DDP-awareness to avoid foot-guns, these instances are rare and the system will work without them.
 
 ## Complete Example Scripts ##
 
