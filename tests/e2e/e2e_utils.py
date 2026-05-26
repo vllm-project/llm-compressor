@@ -180,9 +180,9 @@ def run_oneshot_single(
         recipe=recipe,
         quant_type=quant_type,
         scheme=scheme,
+        shuffle_calibration_samples=shuffle_calibration_samples,
     )
     oneshot_kwargs.setdefault("data_collator", data_collator)
-    oneshot_kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples
 
     logger.info(f"ONESHOT KWARGS: {oneshot_kwargs}")
     _run_oneshot(**oneshot_kwargs)
@@ -219,10 +219,7 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
         recipe=config.get("recipe"),
         quant_type=config.get("quant_type"),
         scheme=config.get("scheme"),
-    )
-
-    oneshot_kwargs["shuffle_calibration_samples"] = config.get(
-        "shuffle_calibration_samples", True
+        shuffle_calibration_samples=config.get("shuffle_calibration_samples", True),
     )
     _run_oneshot(**oneshot_kwargs)
 
@@ -245,6 +242,7 @@ def prepare_oneshot_kwargs(
     recipe,
     quant_type: str | None,
     scheme: str | None,
+    shuffle_calibration_samples: bool = True,
 ) -> tuple:
     from llmcompressor.datasets.utils import get_rank_partition
 
@@ -292,6 +290,7 @@ def prepare_oneshot_kwargs(
             kwargs["data_collator"] = data_collator
 
     kwargs["recipe"] = build_recipe(recipe, quant_type, scheme)
+    kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples
 
     return kwargs, loaded_model, processor
 
