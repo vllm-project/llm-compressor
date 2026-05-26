@@ -347,6 +347,7 @@ def torchrun(world_size: int = 1):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
+                    "--no-cov",
                 ]
 
                 proc = subprocess.run(cmd)
