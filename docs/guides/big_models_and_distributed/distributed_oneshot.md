@@ -148,7 +148,7 @@ See [smoothquant_ddp_example.py](https://github.com/vllm-project/llm-compressor/
 
 ### AWQModifier ###
 
-AWQ is similar to Autoround, since it uses the actual sharded activations during compression it uses a kind of synchronous data-parallel compression. During calibration it records activation sums for the portion of data seen by each rank. The modifier then:
+AWQ is similar to Autoround, since it uses the actual sharded activations during compression it uses a kind of synchronous data-parallel compression though unlike Autoround, it requires a GPTQ-esque initial sync of activation statistics. During calibration, the AWQModifier records activation sums for the portion of data seen by each rank. The modifier then:
 
 1. uses `dist.all_reduce` (SUM) to synchronize activation sums across all ranks. (sums are used to pick potential scales)
 2. For each module, for each potential scale, each rank calculates module output for its data partition and calulates a partial MSE against the output of the non quantized module. 
