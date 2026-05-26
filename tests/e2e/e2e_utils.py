@@ -127,14 +127,21 @@ def run_oneshot_for_e2e_testing(
             json.dumps(config),
         ]
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, env=os.environ.copy()
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=os.environ.copy(),
         )
-        if result.stdout:
-            logger.info(result.stdout)
-        if result.returncode != 0:
+        lines = []
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            lines.append(line)
+        proc.wait()
+        if proc.returncode != 0:
             raise RuntimeError(
-                f"DDP oneshot failed (exit {result.returncode}):\n{result.stderr}"
+                f"DDP oneshot failed (exit {proc.returncode}):\n{''.join(lines)}"
             )
 
 
