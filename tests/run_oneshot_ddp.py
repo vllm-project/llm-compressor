@@ -11,7 +11,12 @@ Arguments:
 """
 
 import json
+import os
 import sys
+
+# Ensure the repo root is on sys.path so `tests` is importable when torchrun
+# spawns this script directly (it does not inherit the pytest sys.path).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from compressed_tensors.offload import init_dist
 
