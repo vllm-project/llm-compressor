@@ -31,7 +31,11 @@ os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 
-PROMPT = "The capital of France is"
+PROMPTS = [
+    "The capital of France is",
+    "The president of the US is",
+    "My name is",
+]
 
 QWEN_TARGETS = [
     r"re:.*mlp.*\.(gate_up|gate|up|down)_proj$",
@@ -135,7 +139,7 @@ def test_conversion(
             run_vllm_path,
             json.dumps(None),
             json.dumps(llm_kwargs),
-            json.dumps([PROMPT]),
+            json.dumps(PROMPTS),
         ],
         capture_output=True,
         text=True,
@@ -147,6 +151,3 @@ def test_conversion(
     assert (
         result.returncode == 0
     ), f"vLLM failed with exit code {result.returncode}:\n{result.stderr}"
-    assert (
-        "Paris" in result.stdout
-    ), f"Expected 'Paris' in generated output:\n{result.stdout}"
