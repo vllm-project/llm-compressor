@@ -4,4 +4,5 @@ scheme: W4A16
 dataset_id: HuggingFaceH4/ultrachat_200k
 dataset_split: train_sft
 num_calibration_samples: 64
+# quant_type not set -> defaults to RTN (QuantizationModifier)
 num_gpus: 2
