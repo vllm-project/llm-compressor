@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-def run_oneshot_ddp(num_gpus: int, config: dict) -> None:
+def launch_ddp(num_gpus: int, config: dict) -> None:
     """Launch run_oneshot_ddp via torchrun, streaming output live."""
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -63,8 +63,8 @@ if __name__ == "__main__":
 
     from compressed_tensors.offload import init_dist
 
-    from tests.e2e.e2e_utils import run_oneshot_ddp_impl
+    from tests.e2e.e2e_utils import run_oneshot_ddp
 
     config = json.loads(sys.argv[1])
     init_dist()
-    run_oneshot_ddp_impl(config, save_compressed=config.get("save_compressed", False))
+    run_oneshot_ddp(config, save_compressed=config.get("save_compressed", False))
