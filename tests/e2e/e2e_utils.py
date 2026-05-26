@@ -91,7 +91,7 @@ def run_oneshot_for_e2e_testing(
             save_compressed=save_compressed,
         )
     else:
-        from tests.e2e.run_oneshot_ddp import launch_ddp
+        from tests.e2e.run_oneshot_ddp import run_oneshot_ddp
 
         config = {
             "model": model,
@@ -110,7 +110,7 @@ def run_oneshot_for_e2e_testing(
             "shuffle_calibration_samples": shuffle_calibration_samples,
         }
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
-        launch_ddp(num_gpus, config)
+        run_oneshot_ddp(num_gpus, config)
 
 
 def run_oneshot_single(
@@ -153,7 +153,7 @@ def run_oneshot_single(
     save_output(loaded_model, processor, save_dir, save_compressed, reset_session=True)
 
 
-def run_oneshot_ddp(config: dict, save_compressed: bool = False):
+def run_oneshot_ddp_impl(config: dict, save_compressed: bool = False):
     """
     DDP variant of run_oneshot_for_e2e_testing.
 
