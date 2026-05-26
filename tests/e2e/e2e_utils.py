@@ -127,12 +127,14 @@ def run_oneshot_for_e2e_testing(
             json.dumps(config),
         ]
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            env=os.environ.copy(),
+            env=env,
         )
         lines = []
         for line in proc.stdout:
