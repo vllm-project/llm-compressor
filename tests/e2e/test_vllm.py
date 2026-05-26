@@ -90,6 +90,7 @@ class TestvLLM:
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.config.model,
             model_class=self.config.model_class,
+            max_memory=self.config.max_memory,
             num_calibration_samples=self.config.num_calibration_samples,
             max_seq_length=2048,
             scheme=self.config.scheme,
@@ -189,8 +190,7 @@ class TestvLLM:
         else:
             os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
 
-        if self.config.gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
+        llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
 
         json_scheme = json.dumps(self.config.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)

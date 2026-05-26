@@ -15,7 +15,14 @@ from compressed_tensors.quantization.utils import (
 )
 from torch.nn import Module
 
-__all__ = ["flatten_for_calibration", "fuse_weight_observers", "FUSED_LAYER_NAMES"]
+__all__ = [
+    "flatten_for_calibration",
+    "fuse_weight_observers",
+    "FUSED_LAYER_NAMES",
+    "ACTIVATION_OBS",
+]
+
+ACTIVATION_OBS = ("input", "output", "q", "k", "v")
 
 
 def flatten_for_calibration(
