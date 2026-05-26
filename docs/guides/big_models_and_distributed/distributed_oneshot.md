@@ -98,7 +98,7 @@ In both cases, activation information is **all-reduced across ranks at sequentia
 
 ### GPTQModifier ###
 
-GPTQ, being a more expensive technique, can make further use of parallelization by doing weight-parallel compression. Once rank has accumulated a partial Hessian for every module during the forward pass on its data partition, the modifier then:
+GPTQ, being a more expensive technique, can make further use of parallelization by doing weight-parallel compression. Once each rank has accumulated a partial Hessian for every module during the forward pass on its data partition, the modifier then:
 
 1. Uses a greedy bin-packing algorithm to assign each module to exactly one "source" rank (balanced by Hessian size).
 2. For each module, all ranks send their partial Hessian to the owner rank via dist.reduce (SUM), giving the owner the full dataset's Hessian.
