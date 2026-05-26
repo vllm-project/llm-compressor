@@ -205,8 +205,6 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
     """
     rank = dist.get_rank()
 
-    num_calibration_samples = config.get("num_calibration_samples", 512)
-
     oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
         model_id=config["model"],
         model_class=config.get("model_class", "AutoModelForCausalLM"),
@@ -215,7 +213,7 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
         dataset_config=config.get("dataset_config"),
         dataset_split=config.get("dataset_split"),
         max_seq_length=config.get("max_seq_length", 2048),
-        num_calibration_samples=num_calibration_samples,
+        num_calibration_samples=config.get("num_calibration_samples", 512),
         recipe=config.get("recipe"),
         quant_type=config.get("quant_type"),
         scheme=config.get("scheme"),
