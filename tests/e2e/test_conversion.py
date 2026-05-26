@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from loguru import logger
 from compressed_tensors.entrypoints.convert import convert_checkpoint
 from compressed_tensors.entrypoints.convert.converters import (
     AutoAWQConverter,
@@ -24,6 +23,7 @@ from compressed_tensors.entrypoints.convert.converters import (
     ModelOptNvfp4Converter,
 )
 from compressed_tensors.quantization import QuantizationArgs, QuantizationType
+from loguru import logger
 
 from tests.testing_utils import requires_cadence, requires_gpu
 
