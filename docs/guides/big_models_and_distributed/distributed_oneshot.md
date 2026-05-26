@@ -92,7 +92,7 @@ dist.destroy_process_group()
 The following quantization modifiers are DDP-aware. Each section describes its synchronization strategy.
 
 ### QuantizationModifier ###
-Since weight information is the same across ranks we only have to syncrhonize activation information and activation information is only needed in 2 cases for the QuantizationModifier. Case 1: when doing non-dynamic activation quantization like FP8 (static activation quantization) and NVFP4 (local activation quantization) quantization schemes. Case 2: when using a weight observer that makes use of activation information like the iMatrixObserver.
+Since weight information is the same across ranks we only have to synchronize activation information and activation information is only needed in 2 cases for the QuantizationModifier. Case 1: when doing non-dynamic activation quantization like FP8 (static activation quantization) and NVFP4 (local activation quantization) quantization schemes. Case 2: when using a weight observer that makes use of activation information like the iMatrixObserver.
 
 In both cases, activation information is **all-reduced across ranks at sequential layer boundaries** — so all ranks share identical quantization parameters before moving to the next layer. The reduce operation varies by observer type (see [Observer DDP support](#observer-ddp-support) below). Thus while the calibration is parallelized, the actual compression happens identically across all ranks after any activation statistics have been synchrnized.
 
