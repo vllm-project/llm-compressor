@@ -41,7 +41,9 @@ def _disk_offloaded_model():
                 offload_folder=offload_dir[0],
             )
         yield model
+
     finally:
+        dist.barrier()
         if dist.get_rank() == 0:
             shutil.rmtree(offload_dir[0], ignore_errors=True)
         dist.barrier()
@@ -95,8 +97,6 @@ def test_gptq_distributed_disk_offload():
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
         )
-
-        torch.distributed.barrier()
 
         if dist.get_rank() == 0:
             ppl = _compute_perplexity(model, EVAL_TEXT)
