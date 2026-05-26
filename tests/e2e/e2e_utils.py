@@ -220,7 +220,8 @@ def prepare_oneshot_kwargs(
             split = get_rank_partition(dataset_split, num_calibration_samples)
 
         ds = load_dataset(dataset_id, name=dataset_config, split=split)
-        ds = ds.shuffle(seed=42)
+        if shuffle_calibration_samples:
+            ds = ds.shuffle(seed=42)
 
         if not dist.is_initialized():
             ds = ds.select(range(num_calibration_samples))
