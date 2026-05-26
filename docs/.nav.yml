@@ -44,6 +44,7 @@ nav:
       - guides/entrypoints/index.md
       - oneshot: guides/entrypoints/oneshot.md
       - model-free-ptq: guides/entrypoints/model-free-ptq.md
+      - convert_checkpoint: guides/entrypoints/convert.md
     - Compression Schemes: guides/compression_schemes.md
     - Observers: guides/observers.md
     - Big Models and Distributed Support:
