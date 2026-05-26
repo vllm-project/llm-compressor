@@ -34,8 +34,9 @@ def cleanup_offload_dir(func):
 
 def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | None):
     pretrained_model_class = getattr(transformers, model_class)
-    device_map = "auto_offload" if max_memory is not None else None
-    device_map = "auto_offload" if dist.is_initialized() else device_map
+    device_map = None
+    if max_memory is not None or dist.is_initialized():
+        device_map = "auto_offload"
 
     with load_offloaded_model(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
@@ -91,6 +92,8 @@ def run_oneshot_for_e2e_testing(
             save_compressed=save_compressed,
         )
     else:
+        # this just calls launch_ddp -> subprocess -> run_oneshot_ddp
+        # the goal is to call run_oneshot_ddp with the correct torchrun invocation
         from tests.e2e.run_oneshot_ddp import launch_ddp
 
         config = {
