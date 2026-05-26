@@ -1,10 +1,6 @@
-import json
 import os
 import shutil
-import subprocess
-import sys
 from functools import wraps
-from pathlib import Path
 from typing import Callable
 
 import torch
@@ -95,8 +91,8 @@ def run_oneshot_for_e2e_testing(
             save_compressed=save_compressed,
         )
     else:
-        # this invokes run_oneshot_ddp.py via torchrun
-        # which then just invokves run_oneshot_ddp below
+        from tests.e2e.run_oneshot_ddp import launch_ddp
+
         config = {
             "model": model,
             "model_class": model_class,
@@ -113,42 +109,8 @@ def run_oneshot_for_e2e_testing(
             "save_compressed": save_compressed,
             "shuffle_calibration_samples": shuffle_calibration_samples,
         }
-        _RUNNER = str(Path(__file__).parent / "run_oneshot_ddp.py")
-        cmd = [
-            sys.executable,
-            "-m",
-            "torch.distributed.run",
-            "--nproc_per_node",
-            str(num_gpus),
-            "--log-dir",
-            "/tmp/torchrun-logs",
-            "--tee",
-            "3",
-            _RUNNER,
-            json.dumps(config),
-        ]
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1" # continuously stream output from subprocess
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE, # creates a pipe for the output
-            stderr=subprocess.STDOUT, # send stderr to stdout so its all together
-            text=True,
-            env=env,
-        )
-
-        # print subprocess output from pipe as it arrives
-        lines = []
-        for line in proc.stdout:
-            print(line, end="", flush=True)
-            lines.append(line)
-
-        proc.wait() # populate returncode
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"DDP oneshot failed (exit {proc.returncode}):\n{''.join(lines)}"
-            )
+        launch_ddp(num_gpus, config)
 
 
 def run_oneshot_single(
