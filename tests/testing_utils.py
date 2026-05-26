@@ -349,7 +349,20 @@ def torchrun(world_size: int = 1):
                     "-sx",
                 ]
 
-                proc = subprocess.run(cmd)
+                # Strip --cov* flags from PYTEST_ADDOPTS to prevent pytest-cov
+                # from loading in workers (which would call combine() and race).
+                # Worker coverage is still collected via .coveragerc's
+                # patch = subprocess + parallel = True.
+                env = os.environ.copy()
+                pytest_addopts = env.get("PYTEST_ADDOPTS", "")
+                if "--cov" in pytest_addopts:
+                    import shlex
+
+                    tokens = shlex.split(pytest_addopts)
+                    tokens = [t for t in tokens if not t.startswith("--cov")]
+                    env["PYTEST_ADDOPTS"] = " ".join(tokens)
+
+                proc = subprocess.run(cmd, env=env)
                 assert proc.returncode == 0
 
         return wrapper
