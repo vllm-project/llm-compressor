@@ -22,7 +22,6 @@ from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 OFFLOAD_DIR = "./offload_folder"
-_RUNNER = str(Path(__file__).parent / "run_oneshot_ddp.py")
 
 
 def cleanup_offload_dir(func):
@@ -39,9 +38,8 @@ def cleanup_offload_dir(func):
 
 def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | None):
     pretrained_model_class = getattr(transformers, model_class)
-    # DDP workers always need auto_offload; single-GPU uses it only when max_memory
-    # is set (indicating the model is too large to fit on one device unassisted).
-    device_map = "auto_offload" if (max_memory is not None or dist.is_initialized()) else None
+    device_map = "auto_offload" if max_memory is not None else None
+    device_map = "auto_offload" if dist.is_initialized() else device_map
 
     with load_offloaded_model(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
@@ -52,6 +50,11 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
             dtype="auto",
         )
     return loaded_model
+
+
+@log_time
+def _run_oneshot(**oneshot_kwargs):
+    oneshot(**oneshot_kwargs)
 
 
 @cleanup_offload_dir
@@ -74,7 +77,7 @@ def run_oneshot_for_e2e_testing(
     save_compressed: bool = False,
 ):
     if num_gpus == 1:
-        _run_oneshot_single(
+        run_oneshot_single(
             model=model,
             model_class=model_class,
             max_memory=max_memory,
@@ -92,6 +95,8 @@ def run_oneshot_for_e2e_testing(
             save_compressed=save_compressed,
         )
     else:
+        # this invokes run_oneshot_ddp.py via torchrun
+        # which then just invokves run_oneshot_ddp below
         config = {
             "model": model,
             "model_class": model_class,
@@ -106,6 +111,7 @@ def run_oneshot_for_e2e_testing(
             "save_dir": save_dir,
             "save_compressed": save_compressed,
         }
+        _RUNNER = str(Path(__file__).parent / "run_oneshot_ddp.py")
         cmd = [
             sys.executable,
             "-m",
@@ -131,7 +137,7 @@ def run_oneshot_for_e2e_testing(
             )
 
 
-def _run_oneshot_single(
+def run_oneshot_single(
     model: str,
     model_class: str,
     max_memory: dict[int | str, int] | None,
@@ -148,12 +154,10 @@ def _run_oneshot_single(
     shuffle_calibration_samples: bool = True,
     data_collator: str | Callable = DefaultDataCollator(),
 ):
-    loaded_model = load_model(model, model_class, max_memory)
-    processor = AutoProcessor.from_pretrained(model)
-
-    oneshot_kwargs = _prepare_oneshot_kwargs(
-        model=loaded_model,
-        processor=processor,
+    oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
+        model_id=model,
+        model_class=model_class,
+        max_memory=max_memory,
         dataset_id=dataset_id,
         dataset_config=dataset_config,
         dataset_split=dataset_split,
@@ -170,10 +174,10 @@ def _run_oneshot_single(
     _run_oneshot(**oneshot_kwargs)
 
     logger.info("================= SAVING TO DISK ======================")
-    _save_output(loaded_model, processor, save_dir, save_compressed, reset_session=True)
+    save_output(loaded_model, processor, save_dir, save_compressed, reset_session=True)
 
 
-def run_oneshot_for_e2e_testing_ddp(config: dict, save_compressed: bool = False):
+def run_oneshot_ddp(config: dict, save_compressed: bool = False):
     """
     DDP variant of run_oneshot_for_e2e_testing.
 
@@ -187,18 +191,12 @@ def run_oneshot_for_e2e_testing_ddp(config: dict, save_compressed: bool = False)
     """
     rank = dist.get_rank()
 
-    loaded_model = load_model(
-        config["model"],
-        config.get("model_class", "AutoModelForCausalLM"),
-        config.get("max_memory"),
-    )
-    processor = AutoProcessor.from_pretrained(config["model"])
-
     num_calibration_samples = config.get("num_calibration_samples", 512)
 
-    oneshot_kwargs = _prepare_oneshot_kwargs(
-        model=loaded_model,
-        processor=processor,
+    oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
+        model_id=config["model"],
+        model_class=config.get("model_class", "AutoModelForCausalLM"),
+        max_memory=config.get("max_memory"),
         dataset_id=config.get("dataset_id"),
         dataset_config=config.get("dataset_config"),
         dataset_split=config.get("dataset_split"),
@@ -213,14 +211,15 @@ def run_oneshot_for_e2e_testing_ddp(config: dict, save_compressed: bool = False)
 
     if rank == 0:
         logger.info("================= SAVING TO DISK ======================")
-        _save_output(loaded_model, processor, config["save_dir"], save_compressed)
+        save_output(loaded_model, processor, config["save_dir"], save_compressed)
 
     dist.barrier()
 
 
-def _prepare_oneshot_kwargs(
-    model,
-    processor,
+def prepare_oneshot_kwargs(
+    model_id: str,
+    model_class: str,
+    max_memory: dict[int | str, int] | None,
     dataset_id: str | None,
     dataset_config: str | None,
     dataset_split: str | None,
@@ -229,10 +228,13 @@ def _prepare_oneshot_kwargs(
     recipe,
     quant_type: str | None,
     scheme: str | None,
-) -> dict:
+) -> tuple:
     from llmcompressor.datasets.utils import get_rank_partition
 
-    kwargs = {"model": model}
+    loaded_model = load_model(model_id, model_class, max_memory)
+    processor = AutoProcessor.from_pretrained(model_id)
+
+    kwargs = {"model": loaded_model}
 
     if dataset_id:
         split = dataset_split
@@ -272,12 +274,12 @@ def _prepare_oneshot_kwargs(
 
             kwargs["data_collator"] = data_collator
 
-    kwargs["recipe"] = _build_recipe(recipe, quant_type, scheme)
+    kwargs["recipe"] = build_recipe(recipe, quant_type, scheme)
 
-    return kwargs
+    return kwargs, loaded_model, processor
 
 
-def _build_recipe(recipe, quant_type, scheme):
+def build_recipe(recipe, quant_type, scheme):
     if recipe:
         return recipe
     if quant_type == "GPTQ":
@@ -294,12 +296,7 @@ def _build_recipe(recipe, quant_type, scheme):
     )
 
 
-@log_time
-def _run_oneshot(**oneshot_kwargs):
-    oneshot(**oneshot_kwargs)
-
-
-def _save_output(model, processor, save_dir, save_compressed, reset_session=False):
+def save_output(model, processor, save_dir, save_compressed, reset_session=False):
     model.save_pretrained(save_dir, save_compressed=save_compressed)
     processor.save_pretrained(save_dir)
     if save_compressed:

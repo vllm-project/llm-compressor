@@ -109,8 +109,7 @@ class TestvLLM:
             save_compressed=True,
         )
 
-    def save_compressed_model(self):
-        # Model, tokenizer, and recipe.yaml are on disk (written by compress_model)
+    def maybe_upload_to_hub(self):
         self._check_save_dir_has_expected_files()
 
         gc.collect()
@@ -139,7 +138,7 @@ class TestvLLM:
     def test_vllm(self, test_data_file: str):
         self.compress_model(test_data_file)
 
-        self.save_compressed_model()
+        self.maybe_upload_to_hub()
 
         # Run vLLM with saved model
         if IS_VLLM_IMAGE:
