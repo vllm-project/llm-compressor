@@ -70,11 +70,11 @@ def run_oneshot_for_e2e_testing(
     dataset_config: str,
     scheme: str,
     quant_type: str,
+    save_dir: str,
+    num_gpus: int = 1,
+    save_compressed: bool = False,
     shuffle_calibration_samples: bool = True,
     data_collator: str | Callable = DefaultDataCollator(),
-    num_gpus: int = 1,
-    save_dir: str | None = None,
-    save_compressed: bool = False,
 ):
     if num_gpus == 1:
         run_oneshot_single(
@@ -128,19 +128,22 @@ def run_oneshot_for_e2e_testing(
         ]
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
         env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONUNBUFFERED"] = "1" # continuously stream output from subprocess
         proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE, # creates a pipe for the output
+            stderr=subprocess.STDOUT, # send stderr to stdout so its all together
             text=True,
             env=env,
         )
+
+        # print subprocess output from pipe as it arrives
         lines = []
         for line in proc.stdout:
             print(line, end="", flush=True)
             lines.append(line)
-        proc.wait()
+
+        proc.wait() # populate returncode
         if proc.returncode != 0:
             raise RuntimeError(
                 f"DDP oneshot failed (exit {proc.returncode}):\n{''.join(lines)}"
