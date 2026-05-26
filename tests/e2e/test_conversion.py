@@ -3,6 +3,9 @@ Checkpoint conversion e2e smoke tests.
 
 Each parametrized case converts a checkpoint using a specific converter, then
 validates that vLLM can load the converted model and produce coherent output.
+
+TODO: refactor vLLM subprocess spawning shared with test_vllm.py into a common
+utility (see _run_vllm in test_vllm.py).
 """
 
 import json
