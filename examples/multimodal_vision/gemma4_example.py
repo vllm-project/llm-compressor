@@ -1,7 +1,7 @@
-# Gemma 4 requires transformers >= 5.5.0 (model_type: gemma4).
+# NOTE: Gemma4 requires `transformers==5.8.1`
 # If your llmcompressor pins an older version, install with:
 #   pip install --no-deps llmcompressor
-#   pip install git+https://github.com/huggingface/transformers.git
+#   pip install transformers==5.8.1
 
 # Checkpoint available at https://huggingface.co/RedHatAI/gemma-4-31B-it-NVFP4
 

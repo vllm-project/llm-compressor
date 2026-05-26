@@ -1,3 +1,8 @@
+# NOTE: Gemma4 requires `transformers==5.8.1`
+# If your llmcompressor pins an older version, install with:
+#   pip install --no-deps llmcompressor
+#   pip install transformers==5.8.1
+
 import torch
 from datasets import load_dataset
 from transformers import AutoProcessor, Gemma4ForConditionalGeneration
