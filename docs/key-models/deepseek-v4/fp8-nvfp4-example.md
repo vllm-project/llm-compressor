@@ -1,4 +1,4 @@
-## DeepSeekV4 ##
+## DeepSeekV4
 
 ## Quantizing DeepSeekV4 ##
 DeepSeekV4 is currently supported experimentally in LLM Compressor. You can quantize the model using the following steps:

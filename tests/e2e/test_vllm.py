@@ -90,6 +90,7 @@ class TestvLLM:
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.config.model,
             model_class=self.config.model_class,
+            max_memory=self.config.max_memory,
             num_calibration_samples=self.config.num_calibration_samples,
             max_seq_length=2048,
             scheme=self.config.scheme,

@@ -1,7 +1,11 @@
+import os
+import shutil
+from functools import wraps
 from typing import Callable
 
 import torch
 import transformers
+from compressed_tensors.offload import load_offloaded_model
 from datasets import load_dataset
 from loguru import logger
 from transformers import AutoProcessor, DefaultDataCollator
@@ -12,12 +16,33 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
+OFFLOAD_DIR = "./offload_folder"
 
-def load_model(model: str, model_class: str, device_map: str | None = None):
+
+def cleanup_offload_dir(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        finally:
+            if os.path.exists(OFFLOAD_DIR):
+                shutil.rmtree(OFFLOAD_DIR)
+
+    return wrapper
+
+
+def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | None):
     pretrained_model_class = getattr(transformers, model_class)
-    loaded_model = pretrained_model_class.from_pretrained(
-        model, dtype="auto", device_map=device_map
-    )
+    device_map = "auto_offload" if max_memory is not None else None
+
+    with load_offloaded_model(pretrained_model_class):
+        loaded_model = pretrained_model_class.from_pretrained(
+            model,
+            device_map=device_map,
+            max_memory=max_memory,
+            offload_folder=OFFLOAD_DIR,
+            dtype="auto",
+        )
     return loaded_model
 
 
@@ -26,9 +51,11 @@ def _run_oneshot(**oneshot_kwargs):
     oneshot(**oneshot_kwargs)
 
 
+@cleanup_offload_dir
 def run_oneshot_for_e2e_testing(
     model: str,
     model_class: str,
+    max_memory: dict[int | str, int] | None,
     num_calibration_samples: int,
     max_seq_length: int,
     dataset_id: str,
@@ -44,7 +71,7 @@ def run_oneshot_for_e2e_testing(
     oneshot_kwargs = {}
     oneshot_kwargs["data_collator"] = data_collator
 
-    loaded_model = load_model(model=model, model_class=model_class)
+    loaded_model = load_model(model, model_class, max_memory)
     processor = AutoProcessor.from_pretrained(model)
 
     if dataset_id:
