@@ -109,7 +109,7 @@ GPTQ, being a more expensive technique, can make further use of parallelization 
 
 This means compression itself is parallelized across ranks, not just calibration.
 
-See [llama3_ddp_example.py](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w4a16/llama3_ddp_example.py) for a complete W4A16 example.
+See [llama3_ddp_example.py](../../../examples/quantization_w4a16/llama3_ddp_example.py) for a complete W4A16 example.
 
 **Benchmark results** (as of LLM Compressor v0.10.0):
 
