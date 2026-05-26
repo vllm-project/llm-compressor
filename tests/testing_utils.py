@@ -63,10 +63,10 @@ class BaseTestConfig(BaseModel):
     model_class : str
         Transformers class used to load the model (default: "AutoModelForCausalLM").
         Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
-    quant_type : "GPTQ" | None
+    quant_type : "GPTQ" | "RTN" | None
         Modifier to use when no recipe is provided.
-          - None  → QuantizationModifier (default for most schemes)
-          - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
+          - None / "RTN" → QuantizationModifier (default for most schemes)
+          - "GPTQ"       → GPTQModifier (activation-order / GPTQ-style quantization)
     max_memory : dict[int | str, int] | None
         Max memory per device for model loading. Keys can be device indices (int)
         or device names (str like "cpu"). Example: {0: 40000, 1: 40000, "cpu": 10000}.
@@ -148,12 +148,12 @@ class BaseTestConfig(BaseModel):
             "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
         ),
     )
-    quant_type: Optional[Literal["GPTQ"]] = Field(
+    quant_type: Optional[Literal["GPTQ", "RTN"]] = Field(
         None,
         description=(
             "Modifier used when no recipe is provided.\n"
-            "  None   → QuantizationModifier (default)\n"
-            "  'GPTQ' → GPTQModifier"
+            "  None / 'RTN' → QuantizationModifier (default)\n"
+            "  'GPTQ'       → GPTQModifier"
         ),
     )
     max_memory: Optional[dict[int | str, int]] = Field(
