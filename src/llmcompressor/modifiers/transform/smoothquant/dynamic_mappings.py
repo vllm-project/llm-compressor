@@ -44,18 +44,21 @@ def get_layer_mappings_from_model(model: Module) -> list[LayerMap]:
     return DEFAULT_SMOOTHQUANT_MAPPINGS
 
 
-def build_qwen3_5_moe_smoothquant_mappings(model: Module) -> list[LayerMap]:
+def _build_qwen3_5_smoothquant_mappings(
+    model: Module, mlp_balance_layers: list[str]
+) -> list[LayerMap]:
     """
-    Build SmoothQuant mappings for Qwen3.5 MoE hybrid-attention models.
+    Shared SmoothQuant mapping builder for Qwen3.5 hybrid-attention models.
 
-    Only full-attention layers expose self_attn q/k/v projections, so the input
-    layernorm regex must be restricted to those layer indices. The shared expert MLP
-    remains safe to smooth with the standard post-attention layernorm mapping.
+    Restricts the attention input_layernorm regex to the indices of
+    full-attention layers (linear-attention layers do not expose q/k/v
+    projections), and uses the caller-provided MLP balance layers for the
+    post_attention_layernorm mapping.
     """
     layer_types = get_hybrid_attention_layer_types(model)
     if layer_types is None:
         raise ValueError(
-            "Qwen3.5 MoE SmoothQuant mappings require model.config.text_config."
+            "Qwen3.5 SmoothQuant mappings require model.config.text_config."
             "layer_types (or model.config.layer_types) to identify full_attention "
             "layers."
         )
@@ -67,7 +70,7 @@ def build_qwen3_5_moe_smoothquant_mappings(model: Module) -> list[LayerMap]:
     ]
     if not full_attn_indices:
         raise ValueError(
-            "Qwen3.5 MoE SmoothQuant mappings require at least one full_attention "
+            "Qwen3.5 SmoothQuant mappings require at least one full_attention "
             "layer in layer_types."
         )
 
@@ -84,15 +87,48 @@ def build_qwen3_5_moe_smoothquant_mappings(model: Module) -> list[LayerMap]:
             smooth_layers=smooth_pattern,
         ),
         LayerMap(
-            balance_layers=[
-                "re:.*mlp\\.shared_expert\\.gate_proj$",
-                "re:.*mlp\\.shared_expert\\.up_proj$",
-            ],
+            balance_layers=mlp_balance_layers,
             smooth_layers="re:.*post_attention_layernorm$",
         ),
     ]
 
 
+def build_qwen3_5_moe_smoothquant_mappings(model: Module) -> list[LayerMap]:
+    """
+    Build SmoothQuant mappings for Qwen3.5 MoE hybrid-attention models.
+
+    Only full-attention layers expose self_attn q/k/v projections, so the input
+    layernorm regex must be restricted to those layer indices. The shared expert MLP
+    remains safe to smooth with the standard post-attention layernorm mapping.
+    """
+    return _build_qwen3_5_smoothquant_mappings(
+        model,
+        mlp_balance_layers=[
+            "re:.*mlp\\.shared_expert\\.gate_proj$",
+            "re:.*mlp\\.shared_expert\\.up_proj$",
+        ],
+    )
+
+
+def build_qwen3_5_dense_smoothquant_mappings(model: Module) -> list[LayerMap]:
+    """
+    Build SmoothQuant mappings for dense Qwen3.5 hybrid-attention models.
+
+    Dense Qwen3.5 variants expose a regular ``mlp.gate_proj``/``mlp.up_proj``
+    pair instead of the MoE ``shared_expert`` submodule.
+    """
+    return _build_qwen3_5_smoothquant_mappings(
+        model,
+        mlp_balance_layers=[
+            "re:.*mlp\\.gate_proj$",
+            "re:.*mlp\\.up_proj$",
+        ],
+    )
+
+
 SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[LayerMap]]] = {
     "Qwen3_5MoeForConditionalGeneration": build_qwen3_5_moe_smoothquant_mappings,
+    "Qwen3_5MoeForCausalLM": build_qwen3_5_moe_smoothquant_mappings,
+    "Qwen3_5ForCausalLM": build_qwen3_5_dense_smoothquant_mappings,
+    "Qwen3_5ForConditionalGeneration": build_qwen3_5_dense_smoothquant_mappings,
 }

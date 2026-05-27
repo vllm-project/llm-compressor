@@ -5,6 +5,7 @@ import pytest
 
 from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
     SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY,
+    build_qwen3_5_dense_smoothquant_mappings,
     build_qwen3_5_moe_smoothquant_mappings,
     get_layer_mappings_from_model,
 )
@@ -117,6 +118,30 @@ def test_build_qwen3_5_moe_smoothquant_mappings_uses_text_config_layer_types():
 
 
 @pytest.mark.unit
+def test_build_qwen3_5_dense_smoothquant_mappings_uses_dense_mlp_layers():
+    model = type("Qwen3_5ForCausalLM", (), {})()
+    model.config = SimpleNamespace(
+        text_config=SimpleNamespace(
+            layer_types=[
+                "linear_attention",
+                "full_attention",
+                "linear_attention",
+                "full_attention",
+            ]
+        )
+    )
+
+    mappings = build_qwen3_5_dense_smoothquant_mappings(model)
+
+    assert mappings[0].smooth_layers == "re:.*layers\\.(1|3)\\.input_layernorm$"
+    assert mappings[1].smooth_layers == "re:.*post_attention_layernorm$"
+    assert mappings[1].balance_layers == [
+        "re:.*mlp\\.gate_proj$",
+        "re:.*mlp\\.up_proj$",
+    ]
+
+
+@pytest.mark.unit
 def test_build_qwen3_5_moe_smoothquant_mappings_requires_layer_types():
     model = type("Qwen3_5MoeForConditionalGeneration", (), {})()
     model.config = SimpleNamespace(text_config=SimpleNamespace(layer_types=None))
@@ -142,15 +167,35 @@ def test_get_layer_mappings_from_model_uses_dynamic_registry():
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "architecture",
+    ("architecture", "expected_balance_layers"),
     [
-        "Qwen3_5ForCausalLM",
-        "Qwen3_5ForConditionalGeneration",
-        "Qwen3_5MoeForCausalLM",
-        "Qwen3_5MoeForConditionalGeneration",
+        (
+            "Qwen3_5ForCausalLM",
+            ["re:.*mlp\\.gate_proj$", "re:.*mlp\\.up_proj$"],
+        ),
+        (
+            "Qwen3_5ForConditionalGeneration",
+            ["re:.*mlp\\.gate_proj$", "re:.*mlp\\.up_proj$"],
+        ),
+        (
+            "Qwen3_5MoeForCausalLM",
+            [
+                "re:.*mlp\\.shared_expert\\.gate_proj$",
+                "re:.*mlp\\.shared_expert\\.up_proj$",
+            ],
+        ),
+        (
+            "Qwen3_5MoeForConditionalGeneration",
+            [
+                "re:.*mlp\\.shared_expert\\.gate_proj$",
+                "re:.*mlp\\.shared_expert\\.up_proj$",
+            ],
+        ),
     ],
 )
-def test_qwen3_5_architectures_use_dynamic_registry(architecture):
+def test_qwen3_5_architectures_use_dynamic_registry(
+    architecture, expected_balance_layers
+):
     model = type(architecture, (), {})()
     model.config = SimpleNamespace(
         text_config=SimpleNamespace(layer_types=["linear_attention", "full_attention"])
@@ -160,6 +205,7 @@ def test_qwen3_5_architectures_use_dynamic_registry(architecture):
 
     assert architecture in SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY
     assert mappings[0].smooth_layers == "re:.*layers\\.(1)\\.input_layernorm$"
+    assert mappings[1].balance_layers == expected_balance_layers
 
 
 @pytest.mark.unit
