@@ -92,22 +92,41 @@ class TestvLLM:
 
     def compress_model(self, test_data_file: str):
         self.set_up(test_data_file)
-        run_oneshot_for_e2e_testing(
-            model=self.config.model,
-            model_class=self.config.model_class,
-            max_memory=self.config.max_memory,
-            num_calibration_samples=self.config.num_calibration_samples,
-            max_seq_length=2048,
-            scheme=self.config.scheme,
-            dataset_id=self.config.dataset_id,
-            dataset_config=self.config.dataset_config,
-            dataset_split=self.config.dataset_split,
-            recipe=self.config.recipe,
-            quant_type=self.config.quant_type,
-            num_gpus=self.config.num_gpus,
-            save_dir=self.config.save_dir,
-            save_compressed=True,
-        )
+        match self.config.entrypoint:
+            case "convert_checkpoint":
+                logger.info("============== RUNNING CONVERT CHECKPOINT ===============")
+                run_convert_checkpoint_for_e2e_testing(
+                    model_stub=self.config.model,
+                    save_directory=self.config.save_dir,
+                    recipe=self.config.recipe,
+                )
+
+            case "model_free_ptq":
+                logger.info("================ RUNNING MODEL FREE PTQ =================")
+                run_model_free_ptq_for_e2e_testing(
+                    model_stub=self.config.model,
+                    save_directory=self.config.save_dir,
+                    scheme=self.config.scheme,
+                )
+
+            case "oneshot":
+                logger.info("================ RUNNING ONESHOT ======================")
+                run_oneshot_for_e2e_testing(
+                    model=self.config.model,
+                    model_class=self.config.model_class,
+                    max_memory=self.config.max_memory,
+                    num_calibration_samples=self.config.num_calibration_samples,
+                    max_seq_length=2048,
+                    scheme=self.config.scheme,
+                    dataset_id=self.config.dataset_id,
+                    dataset_config=self.config.dataset_config,
+                    dataset_split=self.config.dataset_split,
+                    recipe=self.config.recipe,
+                    quant_type=self.config.quant_type,
+                    num_gpus=self.config.num_gpus,
+                    save_dir=self.config.save_dir,
+                    save_compressed=True,
+                )
 
     def maybe_upload_to_hub(self):
         self._check_save_dir_has_expected_files()
