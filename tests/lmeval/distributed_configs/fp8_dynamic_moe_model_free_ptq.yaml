@@ -16,8 +16,8 @@ ignore:
   - re:.*mlp.gate$
 lmeval:
   metrics:
-    #Dense model achieves .8970 exact, .8420 flexible
-    exact_match,flexible-extract: 0.845
-    exact_match,strict-match: 0.905
+    #Dense model achieves .8970 flexible, .8420 strict
+    exact_match,flexible-extract: 0.905
+    exact_match,strict-match: 0.845
 num_gpus: 2
 pipeline_parallel: true
