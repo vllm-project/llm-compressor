@@ -114,6 +114,7 @@ class BaseTestConfig(BaseModel):
         description=(
             "Path to a quantization recipe YAML file. "
             "Takes precedence over scheme when both are set."
+            "Used by `convert_checkpoint` to target specific pre-baked recipes."
         ),
     )
     ignore: Optional[list[str]] = Field(
@@ -122,11 +123,16 @@ class BaseTestConfig(BaseModel):
             "Set of layer names to ignore during model_free_ptq. Regexes allowed"
         ),
     )
-    entrypoint: Literal["oneshot", "model_free_ptq"] = Field(
+    entrypoint: Literal["oneshot", "model_free_ptq", "convert_checkpoint"] = Field(
         "oneshot",
         description=(
-            "Entrypoint to use to create model. If model_free_ptq is used, scheme"
-            "must be provided and calibration dataset args and recipe are ignored."
+            "Entrypoint to use to create model.\n"
+            "`oneshot`:\n"
+            "  default entrypoint, uses all fields when they are provided\n"
+            "`model_free_ptq`:\n"
+            "  requires `scheme`, all other quantization arguments are ignored\n"
+            "`convert_checkpoint`:\n"
+            "  requires `recipe`, all other quantization arguments are ignored\n"
         ),
     )
 
