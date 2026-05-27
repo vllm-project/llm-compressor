@@ -37,6 +37,8 @@ def main():
         f"max_model_len={lmeval_config['max_model_len']},"
         f"seed={seed},"
         f"gpu_memory_utilization={config['gpu_memory_utilization']},"
+        f"tensor_parallel_size={config.get('tensor_parallel_size', 1)},"
+        f"enable_expert_parallel={config.get('enable_expert_parallel', False)},"
     )
 
     results = lm_eval.simple_evaluate(
