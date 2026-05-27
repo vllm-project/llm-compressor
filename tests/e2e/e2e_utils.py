@@ -38,6 +38,12 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
     if max_memory is not None or dist.is_initialized():
         device_map = "auto_offload"
 
+    # passing None for max_memory causes accelerate
+    # to offload to various GPU devices if distributed
+    # which can cause problems so instead pick arbitrary large value.
+    if max_memory is None:
+        max_memory = {"cpu": "1000GB"}
+
     with load_offloaded_model(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
             model,
