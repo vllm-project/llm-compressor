@@ -1,5 +1,5 @@
-# NOTE: Gemma4 requires `transformers==5.8.1`
-# If your llmcompressor pins an older version, install with:
+# NOTE: LLM Compressor quantization with Gemma4 requires `transformers==5.8.1`
+# Please install using the following command:
 #   pip install -U transformers==5.8.1
 
 from compressed_tensors.offload import dispatch_model

@@ -1,5 +1,5 @@
-# NOTE: Gemma4 requires `transformers==5.8.1`
-# If your llmcompressor pins an older version, install with:
+# NOTE: LLM Compressor quantization with Gemma4 requires `transformers==5.8.1`
+# Please install using the following command:
 #   pip install -U transformers==5.8.1
 
 # Checkpoint available at https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic
