@@ -319,7 +319,7 @@ def run_model_free_ptq_for_e2e_testing(
         "max_workers": max_workers,
     }
     # Apply quantization.
-    logger.info("MODEL FREE PTQ KWARGS", model_free_ptq_kwargs)
+    logger.info(f"MODEL FREE PTQ KWARGS: {model_free_ptq_kwargs}")
 
     # Saves checkpoint to save_dir
     _run_model_free_ptq(**model_free_ptq_kwargs)
