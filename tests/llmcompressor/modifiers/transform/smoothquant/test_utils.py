@@ -141,6 +141,28 @@ def test_get_layer_mappings_from_model_uses_dynamic_registry():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture",
+    [
+        "Qwen3_5ForCausalLM",
+        "Qwen3_5ForConditionalGeneration",
+        "Qwen3_5MoeForCausalLM",
+        "Qwen3_5MoeForConditionalGeneration",
+    ],
+)
+def test_qwen3_5_architectures_use_dynamic_registry(architecture):
+    model = type(architecture, (), {})()
+    model.config = SimpleNamespace(
+        text_config=SimpleNamespace(layer_types=["linear_attention", "full_attention"])
+    )
+
+    mappings = get_layer_mappings_from_model(model)
+
+    assert architecture in SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY
+    assert mappings[0].smooth_layers == "re:.*layers\\.(1)\\.input_layernorm$"
+
+
+@pytest.mark.unit
 @patch(
     f"{smoothquant_dynamic_mappings}.MAPPINGS_REGISTRY",
     {"arch1": "mapping1", "arch2": "mapping2"},
