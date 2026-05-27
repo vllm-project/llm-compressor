@@ -10,7 +10,7 @@ import transformers
 from compressed_tensors.offload import load_offloaded_model
 from datasets import load_dataset
 from loguru import logger
-from transformers import AutoProcessor, DefaultDataCollator
+from transformers import AutoProcessor, DefaultDataCollator, PreTrainedModel
 
 from llmcompressor import oneshot, model_free_ptq
 from llmcompressor.modifiers.gptq import GPTQModifier
