@@ -308,12 +308,14 @@ def run_model_free_ptq_for_e2e_testing(
     model_stub: str,
     save_directory: str,
     scheme: str,
+    ignore: list[str],
     max_workers: int = 2,
 ) -> None:
     model_free_ptq_kwargs = {
         "model_stub": model_stub,
         "save_directory": save_directory,
         "scheme": scheme,
+        "ignore": ignore,
         "max_workers": max_workers,
     }
     # Apply quantization.

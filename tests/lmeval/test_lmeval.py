@@ -171,6 +171,7 @@ class TestLMEval:
                     model_stub=self.config.model,
                     save_directory=self.config.save_dir,
                     scheme=self.config.scheme,
+                    ignore=self.config.ignore or [],
                 )
             case "oneshot":
                 logger.info("================ RUNNING ONESHOT ======================")
@@ -254,9 +255,7 @@ class TestLMEval:
         logger.info("=" * 80)
 
         # Get default threshold from config schema
-        default_threshold = self.config.lmeval.model_fields[
-            "recovery_threshold"
-        ].default
+        default_threshold = LmEvalConfig.model_fields["recovery_threshold"].default
 
         failures = []
         # Iterate over compressed metrics (what we actually got)
