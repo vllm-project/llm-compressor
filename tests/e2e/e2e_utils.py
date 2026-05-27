@@ -5,8 +5,8 @@ from typing import Callable
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.distributed import is_source_process
 import transformers
+from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import load_offloaded_model
 from datasets import load_dataset
 from loguru import logger
@@ -175,7 +175,6 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
     :param save_compressed: if True, saves with save_compressed=True and writes
         recipe.yaml from the active session (needed for e2e vLLM tests)
     """
-    rank = dist.get_rank()
 
     oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
         model_id=config["model"],
