@@ -5,6 +5,7 @@ from typing import Callable
 
 import torch
 import torch.distributed as dist
+from compressed_tensors.distributed import is_source_process
 import transformers
 from compressed_tensors.offload import load_offloaded_model
 from datasets import load_dataset
@@ -192,9 +193,8 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
     )
     _run_oneshot(**oneshot_kwargs)
 
-    if rank == 0:
-        logger.info("================= SAVING TO DISK ======================")
-        save_output(loaded_model, processor, config["save_dir"], save_compressed)
+    logger.info("================= SAVING TO DISK ======================")
+    save_output(loaded_model, processor, config["save_dir"], save_compressed)
 
     dist.barrier()
 
@@ -284,6 +284,8 @@ def build_recipe(recipe, quant_type, scheme):
 
 def save_output(model, processor, save_dir, save_compressed, reset_session=False):
     model.save_pretrained(save_dir, save_compressed=save_compressed)
+    if not is_source_process():
+        return
     processor.save_pretrained(save_dir)
     if save_compressed:
         from llmcompressor.core import active_session
