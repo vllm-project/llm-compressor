@@ -12,7 +12,11 @@ import yaml
 from huggingface_hub import HfApi
 from loguru import logger
 
-from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
+from tests.e2e.e2e_utils import (
+    run_oneshot_for_e2e_testing,
+    run_model_free_ptq_for_e2e_testing,
+    run_convert_checkpoint_for_e2e_testing,
+)
 from tests.testing_utils import BaseTestConfig, requires_gpu
 
 HF_MODEL_HUB_NAME = "nm-testing"
@@ -127,10 +131,9 @@ class TestvLLM:
                     save_dir=self.config.save_dir,
                     save_compressed=True,
                 )
+                self._check_save_dir_has_expected_files()
 
     def maybe_upload_to_hub(self):
-        self._check_save_dir_has_expected_files()
-
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()

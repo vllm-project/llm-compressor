@@ -5,22 +5,22 @@ from typing import Callable
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.distributed import is_source_process
 import transformers
-from compressed_tensors.offload import load_offloaded_model
+from compressed_tensors.distributed import is_source_process
 from compressed_tensors.entrypoints.convert import convert_checkpoint
-from compressed_tensors.quantization import QuantizationArgs, QuantizationType
 from compressed_tensors.entrypoints.convert.converters import (
     AutoAWQConverter,
     CompressedTensorsDequantizer,
     FP8BlockDequantizer,
     ModelOptNvfp4Converter,
 )
+from compressed_tensors.offload import load_offloaded_model
+from compressed_tensors.quantization import QuantizationArgs, QuantizationType
 from datasets import load_dataset
 from loguru import logger
-from transformers import AutoProcessor, DefaultDataCollator, PreTrainedModel
+from transformers import AutoProcessor, DefaultDataCollator
 
-from llmcompressor import oneshot, model_free_ptq
+from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.test_timer.timer_utils import log_time
@@ -30,6 +30,7 @@ OFFLOAD_DIR = "./offload_folder"
 
 
 ### Oneshot: Loading ###
+
 
 def cleanup_offload_dir(func):
     @wraps(func)
@@ -65,7 +66,9 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
         )
     return loaded_model
 
+
 ### Oneshot ###
+
 
 @log_time
 def _run_oneshot(**oneshot_kwargs):
@@ -309,7 +312,9 @@ def save_output(model, processor, save_dir, save_compressed, reset_session=False
         if reset_session:
             session.reset()
 
+
 ### Model Free PTQ ###
+
 
 @log_time
 def _run_model_free_ptq(**model_free_ptq_kwargs):
@@ -342,6 +347,7 @@ def run_model_free_ptq_for_e2e_testing(
 
 
 ### Conversion ###
+
 
 @log_time
 def _run_convert_checkpoint(**kwargs):
