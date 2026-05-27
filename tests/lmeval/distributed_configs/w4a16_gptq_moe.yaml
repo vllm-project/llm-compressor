@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: "weekly"
 model: Qwen/Qwen3-30B-A3B
 scheme: W4A16
 dataset_id: HuggingFaceH4/ultrachat_200k
