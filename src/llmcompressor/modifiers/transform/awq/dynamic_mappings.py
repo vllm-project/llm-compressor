@@ -17,7 +17,7 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     AWQMapping,
     default_mappings,
 )
-from llmcompressor.modifiers.utils.hybrid_attention import (
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
     get_hybrid_attention_config,
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model

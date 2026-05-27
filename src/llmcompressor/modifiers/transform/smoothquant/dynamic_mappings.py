@@ -12,7 +12,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     MAPPINGS_REGISTRY,
     LayerMap,
 )
-from llmcompressor.modifiers.utils.hybrid_attention import (
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
     get_hybrid_attention_layer_types,
 )
 

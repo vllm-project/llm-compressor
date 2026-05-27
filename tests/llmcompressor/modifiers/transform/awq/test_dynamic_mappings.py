@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch.nn import Linear
 
-from llmcompressor.modifiers.utils.hybrid_attention import (
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
     get_hybrid_attention_config,
 )
 from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
