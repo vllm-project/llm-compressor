@@ -27,6 +27,18 @@ parser.add_argument(
     default=200,
     help="Number of iterations for AutoRound",
 )
+parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=8,
+    help="Batch size used by AutoRoundModifier",
+)
+parser.add_argument(
+    "--max_seq_length",
+    type=int,
+    default=2048,
+    help="Maximum sequence length used for calibration",
+)
 args = parser.parse_args()
 args.model = args.model or args.model_id
 
@@ -37,7 +49,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = args.max_seq_length
 # Get aligned calibration dataset.
 
 ds = get_dataset(
@@ -53,6 +65,7 @@ recipe = AutoRoundModifier(
     scheme="MXFP8",
     ignore=["lm_head"],
     iters=args.iters,
+    batch_size=args.batch_size,
 )
 
 # Apply algorithms.
