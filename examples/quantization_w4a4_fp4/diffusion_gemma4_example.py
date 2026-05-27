@@ -104,8 +104,8 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     data_collator=data_collator,
     sequential_targets=[
-        "DiffusionGemma4DecoderTextLayer",  # Decoder layers (30 layers) - CORRECT name
-        "DiffusionGemma4EncoderTextLayer",  # Encoder layers (30 layers) - CORRECT name
+        "DiffusionGemmaDecoderTextLayer",  # Decoder layers (30 layers) 
+        "DiffusionGemmaEncoderTextLayer",  # Encoder layers (30 layers) 
     ],
 )
 
@@ -130,6 +130,6 @@ print(processor.tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk in compressed-tensors format
-SAVE_DIR = "/raid/engine/dsikka/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-Debug"
+SAVE_DIR = "/raid/engine/dsikka/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-Works2"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
