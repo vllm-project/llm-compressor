@@ -126,7 +126,7 @@ class BaseTestConfig(BaseModel):
         "oneshot",
         description=(
             "Entrypoint to use to create model. If model_free_ptq is used, scheme"
-            "must be provided and calibration dataset args and recipe are ignored.",
+            "must be provided and calibration dataset args and recipe are ignored."
         ),
     )
 
