@@ -347,8 +347,14 @@ def torchrun(world_size: int = 1):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
-                    "--no-cov",
                 ]
+
+                # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
+                # pytest-cov from loading in workers by adding --no-cov.
+                # Worker coverage data is still collected via .coveragerc's
+                # patch = subprocess + parallel = True.
+                if "--cov" in os.environ.get("PYTEST_ADDOPTS", ""):
+                    cmd.append("--no-cov")
 
                 proc = subprocess.run(cmd)
                 assert proc.returncode == 0
