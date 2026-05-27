@@ -304,7 +304,6 @@ def _run_model_free_ptq(**model_free_ptq_kwargs):
     model_free_ptq(**model_free_ptq_kwargs)
 
 
-@cleanup_offload_dir
 def run_model_free_ptq_for_e2e_testing(
     model_stub: str,
     save_directory: str,
