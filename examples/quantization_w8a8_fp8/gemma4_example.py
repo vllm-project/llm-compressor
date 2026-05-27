@@ -1,7 +1,8 @@
 # NOTE: Gemma4 requires `transformers==5.8.1`
 # If your llmcompressor pins an older version, install with:
-#   pip install --no-deps llmcompressor
-#   pip install transformers==5.8.1
+#   pip install -U transformers==5.8.1
+
+# Checkpoint available at https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic
 
 from transformers import AutoProcessor, Gemma4ForConditionalGeneration
 
