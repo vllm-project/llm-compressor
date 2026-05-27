@@ -116,6 +116,13 @@ class BaseTestConfig(BaseModel):
             "Takes precedence over scheme when both are set."
         ),
     )
+    entrypoint: Literal["oneshot", "model_free_ptq"] = Field(
+        "oneshot",
+        description=(
+            "Entrypoint to use to create model. If model_free_ptq is used, scheme"
+            "must be provided and calibration dataset args and recipe are ignored.",
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # Calibration dataset (all optional — omit to skip calibration)
@@ -364,7 +371,6 @@ def torchrun(world_size: int = 1):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
-                    "--no-cov",
                 ]
 
                 proc = subprocess.run(cmd)

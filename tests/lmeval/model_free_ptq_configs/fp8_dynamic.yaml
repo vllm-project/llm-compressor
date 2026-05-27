@@ -1,0 +1,10 @@
+cadence: "weekly"
+entrypoint: model_free_ptq
+model: google/gemma-4-26B-A4B-it
+scheme: FP8_DYNAMIC
+lmeval:
+  metrics:
+    exact_match,flexible-extract: 0.75
+    exact_match,strict-match: 0.75
+num_gpus: 2
+pipeline_parallel: true
