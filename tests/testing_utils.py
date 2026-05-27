@@ -86,10 +86,9 @@ class BaseTestConfig(BaseModel):
     ----------
     gpu_memory_utilization : float | None
         Fraction of GPU memory for vLLM to use (e.g. 0.8). Omit to use vLLM default.
-    tensor_parallel_size : int
-        tensor_parallel_size for vLLM serving (default: 1).
-    enable_expert_parallel : bool
-        Enable expert parallelism for MoE models in vLLM serving (default: False).
+    pipeline_parallel : bool
+        Enable pipeline parallelism for vLLM serving. When True,
+        pipeline_parallel_size is set to num_gpus (default: False).
     test_group : str | None
         Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
     """
@@ -192,13 +191,12 @@ class BaseTestConfig(BaseModel):
             "Tests are skipped if fewer are available.",
         ),
     )
-    tensor_parallel_size: int = Field(
-        1,
-        description="tensor_parallel_size for vLLM serving (default: 1).",
-    )
-    enable_expert_parallel: bool = Field(
+    pipeline_parallel: bool = Field(
         False,
-        description="Enable expert parallelism for MoE models in vLLM serving.",
+        description=(
+            "Enable pipeline parallelism for vLLM serving. "
+            "When True, pipeline_parallel_size is set to num_gpus."
+        ),
     )
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"

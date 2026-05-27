@@ -13,5 +13,4 @@ lmeval:
     exact_match,flexible-extract: 0.70
     exact_match,strict-match: 0.70
 num_gpus: 2
-tensor_parallel_size: 2
-enable_expert_parallel: true
+pipeline_parallel: true

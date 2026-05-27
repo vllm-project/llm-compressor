@@ -38,7 +38,8 @@ def main():
         f"seed={seed},"
         f"gpu_memory_utilization={config['gpu_memory_utilization']},"
         f"tensor_parallel_size={config.get('tensor_parallel_size', 1)},"
-        f"enable_expert_parallel={config.get('enable_expert_parallel', False)},"
+        f"pipeline_parallel_size="
+        f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
     )
 
     results = lm_eval.simple_evaluate(
