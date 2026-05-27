@@ -28,7 +28,6 @@ These input arguments can be overloaded into the function signature and will be 
 * ModelArguments
 * DatasetArguments
 * RecipeArguments
-* TrainingArguments
 
 
 ## ModelArguments
