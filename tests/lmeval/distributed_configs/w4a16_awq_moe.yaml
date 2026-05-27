@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: "weekly"
 model: Qwen/Qwen3-30B-A3B
 recipe: tests/e2e/recipes/WNA16/recipe_w4a16_awq_sym.yaml
 dataset_id: HuggingFaceH4/ultrachat_200k
