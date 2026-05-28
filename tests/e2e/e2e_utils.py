@@ -12,7 +12,7 @@ from datasets import load_dataset
 from loguru import logger
 from transformers import AutoProcessor, DefaultDataCollator
 
-from llmcompressor import oneshot, model_free_ptq
+from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.test_timer.timer_utils import log_time
