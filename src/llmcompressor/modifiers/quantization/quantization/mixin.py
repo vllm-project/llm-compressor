@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from typing import Any
-from itertools import product
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
