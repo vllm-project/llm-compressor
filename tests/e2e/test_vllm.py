@@ -111,6 +111,7 @@ class TestvLLM:
                     model_stub=self.config.model,
                     save_directory=self.config.save_dir,
                     scheme=self.config.scheme,
+                    ignore=self.config.ignore or [],
                 )
 
             case "oneshot":

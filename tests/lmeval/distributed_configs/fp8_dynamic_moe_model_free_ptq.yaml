@@ -1,4 +1,3 @@
-
 cadence: "weekly"
 entrypoint: model_free_ptq
 # TODO Qwen3.5 requires transformers==5.3.0
