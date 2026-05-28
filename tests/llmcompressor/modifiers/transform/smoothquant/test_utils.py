@@ -159,9 +159,7 @@ def test_get_layer_mappings_from_model_uses_dynamic_registry():
 
     mappings = get_layer_mappings_from_model(model)
 
-    assert (
-        model.__class__.__name__ in SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY
-    )
+    assert model.__class__.__name__ in SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY
     assert mappings[0].smooth_layers == "re:.*layers\\.(0)\\.input_layernorm$"
 
 
@@ -213,7 +211,9 @@ def test_qwen3_5_architectures_use_dynamic_registry(
     f"{smoothquant_dynamic_mappings}.MAPPINGS_REGISTRY",
     {"arch1": "mapping1", "arch2": "mapping2"},
 )
-@patch(f"{smoothquant_dynamic_mappings}.DEFAULT_SMOOTHQUANT_MAPPINGS", "default_mapping")
+@patch(
+    f"{smoothquant_dynamic_mappings}.DEFAULT_SMOOTHQUANT_MAPPINGS", "default_mapping"
+)
 @patch(f"{smoothquant_dynamic_mappings}.SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY", {})
 def test_get_layer_mappings_from_model_falls_back_to_static_and_default():
     arch1 = type("arch1", (), {})()

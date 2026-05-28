@@ -152,6 +152,8 @@ AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | No
     "Qwen3_5MoeForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5MoeForConditionalGeneration": build_hybrid_attention_mappings,
 }
+
+
 def _detect_linear_attn_projections(model: Module) -> list[str]:
     """
     Detect the linear attention projection names by inspecting the first

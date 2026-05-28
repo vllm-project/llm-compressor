@@ -2,14 +2,14 @@ import pytest
 import torch
 from torch.nn import Linear
 
-from llmcompressor.modifiers.transform.utils.hybrid_attention import (
-    get_hybrid_attention_config,
-)
 from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     AWQ_DYNAMIC_MAPPING_REGISTRY,
     _detect_linear_attn_projections,
     build_hybrid_attention_mappings,
     get_layer_mappings_from_model,
+)
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
+    get_hybrid_attention_config,
 )
 
 

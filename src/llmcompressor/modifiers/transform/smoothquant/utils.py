@@ -154,6 +154,7 @@ def get_layer_mappings_from_architecture(architecture: str) -> list[LayerMap]:
 
     return MAPPINGS_REGISTRY.get(architecture, DEFAULT_SMOOTHQUANT_MAPPINGS)
 
+
 def handle_mapping_resolution_errors(func):
     """
     Decorator to catch any errors that occur when resolving mappings and provide a
