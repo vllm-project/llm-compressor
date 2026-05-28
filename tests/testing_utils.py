@@ -63,10 +63,10 @@ class BaseTestConfig(BaseModel):
     model_class : str
         Transformers class used to load the model (default: "AutoModelForCausalLM").
         Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
-    quant_type : "GPTQ" | None
+    quant_type : "GPTQ" | "RTN" | None
         Modifier to use when no recipe is provided.
-          - None  → QuantizationModifier (default for most schemes)
-          - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
+          - None / "RTN" → QuantizationModifier (default for most schemes)
+          - "GPTQ"       → GPTQModifier (activation-order / GPTQ-style quantization)
     max_memory : dict[int | str, int] | None
         Max memory per device for model loading. Keys can be device indices (int)
         or device names (str like "cpu"). Example: {0: 40000, 1: 40000, "cpu": 10000}.
@@ -86,6 +86,9 @@ class BaseTestConfig(BaseModel):
     ----------
     gpu_memory_utilization : float | None
         Fraction of GPU memory for vLLM to use (e.g. 0.8). Omit to use vLLM default.
+    pipeline_parallel : bool
+        Enable pipeline parallelism for vLLM serving. When True,
+        pipeline_parallel_size is set to num_gpus (default: False).
     test_group : str | None
         Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
     """
@@ -111,6 +114,19 @@ class BaseTestConfig(BaseModel):
         description=(
             "Path to a quantization recipe YAML file. "
             "Takes precedence over scheme when both are set."
+        ),
+    )
+    ignore: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Set of layer names to ignore during model_free_ptq. Regexes allowed"
+        ),
+    )
+    entrypoint: Literal["oneshot", "model_free_ptq"] = Field(
+        "oneshot",
+        description=(
+            "Entrypoint to use to create model. If model_free_ptq is used, scheme"
+            "must be provided and calibration dataset args and recipe are ignored."
         ),
     )
 
@@ -148,12 +164,12 @@ class BaseTestConfig(BaseModel):
             "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
         ),
     )
-    quant_type: Optional[Literal["GPTQ"]] = Field(
+    quant_type: Literal["GPTQ", "RTN"] | None = Field(
         None,
         description=(
             "Modifier used when no recipe is provided.\n"
-            "  None   → QuantizationModifier (default)\n"
-            "  'GPTQ' → GPTQModifier"
+            "  None / 'RTN' → QuantizationModifier (default)\n"
+            "  'GPTQ'       → GPTQModifier"
         ),
     )
     max_memory: Optional[dict[int | str, int]] = Field(
@@ -180,6 +196,20 @@ class BaseTestConfig(BaseModel):
     gpu_memory_utilization: Optional[float] = Field(
         0.70,
         description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
+    )
+    num_gpus: int = Field(
+        1,
+        description=(
+            "Number of GPUs required for this test. "
+            "Tests are skipped if fewer are available.",
+        ),
+    )
+    pipeline_parallel: bool = Field(
+        False,
+        description=(
+            "Enable pipeline parallelism for vLLM serving. "
+            "When True, pipeline_parallel_size is set to num_gpus."
+        ),
     )
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
@@ -347,8 +377,14 @@ def torchrun(world_size: int = 1):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
-                    "--no-cov",
                 ]
+
+                # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
+                # pytest-cov from loading in workers by adding --no-cov.
+                # Worker coverage data is still collected via .coveragerc's
+                # patch = subprocess + parallel = True.
+                if "--cov" in os.environ.get("PYTEST_ADDOPTS", ""):
+                    cmd.append("--no-cov")
 
                 proc = subprocess.run(cmd)
                 assert proc.returncode == 0

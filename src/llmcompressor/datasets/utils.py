@@ -412,7 +412,8 @@ class LengthAwareSampler(Sampler[int]):
 
 def get_rank_partition(split: str, num_samples: int) -> str:
     """
-    Utility for splitting data in a distributed setting
+    Utility for splitting data in a distributed setting and
+    also works in non-distributed setting
 
     :param split: the split string to partition, e.g. "train"
     :param num_samples: the total number of samples in the dataset to partition
@@ -438,7 +439,8 @@ def get_rank_partition(split: str, num_samples: int) -> str:
         "[" not in split
     ), "Split string should not already contain partitioning brackets"
 
-    start, end = _get_partition_start_end(
-        num_samples, dist.get_rank(), dist.get_world_size()
-    )
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+
+    start, end = _get_partition_start_end(num_samples, rank, world_size)
     return f"{split}[{start}:{end}]"
