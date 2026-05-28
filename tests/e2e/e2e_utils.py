@@ -160,7 +160,7 @@ def run_oneshot_single(
     _run_oneshot(**oneshot_kwargs)
 
     logger.info("================= SAVING TO DISK ======================")
-    save_output(loaded_model, processor, save_dir, save_compressed, reset_session=True)
+    save_model_and_processor(loaded_model, processor, save_dir, save_compressed, reset_session=True)
 
 
 def run_oneshot_ddp(config: dict, save_compressed: bool = False):
@@ -193,7 +193,7 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
     _run_oneshot(**oneshot_kwargs)
 
     logger.info("================= SAVING TO DISK ======================")
-    save_output(loaded_model, processor, config["save_dir"], save_compressed)
+    save_model_and_processor(loaded_model, processor, config["save_dir"], save_compressed)
 
     dist.barrier()
 
@@ -220,16 +220,11 @@ def prepare_oneshot_kwargs(
     kwargs = {"model": loaded_model}
 
     if dataset_id:
-        split = dataset_split
-        if dist.is_initialized():
-            split = get_rank_partition(dataset_split, num_calibration_samples)
+        split = get_rank_partition(dataset_split, num_calibration_samples)
 
         ds = load_dataset(dataset_id, name=dataset_config, split=split)
         if shuffle_calibration_samples:
             ds = ds.shuffle(seed=42)
-
-        if not dist.is_initialized():
-            ds = ds.select(range(num_calibration_samples))
 
         ds = process_dataset(ds, processor, max_seq_length)
         kwargs["dataset"] = ds
@@ -281,7 +276,7 @@ def build_recipe(recipe, quant_type, scheme):
     )
 
 
-def save_output(model, processor, save_dir, save_compressed, reset_session=False):
+def save_model_and_processor(model, processor, save_dir, save_compressed, reset_session=False):
     model.save_pretrained(save_dir, save_compressed=save_compressed)
     if not is_source_process():
         return

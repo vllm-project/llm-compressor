@@ -284,7 +284,7 @@ class QuantizationMixin(HooksMixin):
             return
 
         pending_comms = []
-        synced_obs = {None}
+        synced_obs = {None} # ignore None observers
         for module in modules:
             for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)

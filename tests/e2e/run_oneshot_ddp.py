@@ -9,6 +9,7 @@ Arguments:
 """
 
 import json
+import torch.distributed as dist
 import os
 import subprocess
 import sys
@@ -68,3 +69,4 @@ if __name__ == "__main__":
     config = json.loads(sys.argv[1])
     init_dist()
     run_oneshot_ddp(config, save_compressed=config.get("save_compressed", False))
+    dist.destroy_process_group()
