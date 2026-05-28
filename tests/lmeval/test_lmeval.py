@@ -16,7 +16,6 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from tests.e2e.e2e_utils import (
-    run_oneshot_for_e2e_testing,
     run_model_free_ptq_for_e2e_testing,
     run_oneshot_for_e2e_testing,
 )

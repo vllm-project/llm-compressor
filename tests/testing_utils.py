@@ -141,13 +141,6 @@ class BaseTestConfig(BaseModel):
             "Set of layer names to ignore during model_free_ptq. Regexes allowed"
         ),
     )
-    entrypoint: Literal["oneshot", "model_free_ptq"] = Field(
-        "oneshot",
-        description=(
-            "Entrypoint to use to create model. If model_free_ptq is used, scheme"
-            "must be provided and calibration dataset args and recipe are ignored."
-        ),
-    )
 
     # -------------------------------------------------------------------------
     # Calibration dataset (all optional — omit to skip calibration)
