@@ -9,11 +9,12 @@ Arguments:
 """
 
 import json
-import torch.distributed as dist
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import torch.distributed as dist
 
 
 def launch_ddp(num_gpus: int, config: dict) -> None:

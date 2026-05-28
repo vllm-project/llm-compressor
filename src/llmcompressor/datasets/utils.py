@@ -442,7 +442,5 @@ def get_rank_partition(split: str, num_samples: int) -> str:
     rank = dist.get_rank() if dist.is_initialized() else 0
     world_size = dist.get_world_size() if dist.is_initialized() else 1
 
-    start, end = _get_partition_start_end(
-        num_samples, rank, world_size
-    )
+    start, end = _get_partition_start_end(num_samples, rank, world_size)
     return f"{split}[{start}:{end}]"

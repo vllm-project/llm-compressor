@@ -160,7 +160,9 @@ def run_oneshot_single(
     _run_oneshot(**oneshot_kwargs)
 
     logger.info("================= SAVING TO DISK ======================")
-    save_model_and_processor(loaded_model, processor, save_dir, save_compressed, reset_session=True)
+    save_model_and_processor(
+        loaded_model, processor, save_dir, save_compressed, reset_session=True
+    )
 
 
 def run_oneshot_ddp(config: dict, save_compressed: bool = False):
@@ -193,7 +195,9 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
     _run_oneshot(**oneshot_kwargs)
 
     logger.info("================= SAVING TO DISK ======================")
-    save_model_and_processor(loaded_model, processor, config["save_dir"], save_compressed)
+    save_model_and_processor(
+        loaded_model, processor, config["save_dir"], save_compressed
+    )
 
     dist.barrier()
 
@@ -276,7 +280,9 @@ def build_recipe(recipe, quant_type, scheme):
     )
 
 
-def save_model_and_processor(model, processor, save_dir, save_compressed, reset_session=False):
+def save_model_and_processor(
+    model, processor, save_dir, save_compressed, reset_session=False
+):
     model.save_pretrained(save_dir, save_compressed=save_compressed)
     if not is_source_process():
         return
