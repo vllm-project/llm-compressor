@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import torch.distributed as dist
+
 
 def launch_ddp(num_gpus: int, config: dict) -> None:
     """Launch run_oneshot_ddp via torchrun, streaming output live."""
@@ -68,3 +70,4 @@ if __name__ == "__main__":
     config = json.loads(sys.argv[1])
     init_dist()
     run_oneshot_ddp(config, save_compressed=config.get("save_compressed", False))
+    dist.destroy_process_group()

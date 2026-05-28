@@ -135,6 +135,19 @@ class BaseTestConfig(BaseModel):
             "  requires `recipe`, all other quantization arguments are ignored\n"
         ),
     )
+    ignore: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Set of layer names to ignore during model_free_ptq. Regexes allowed"
+        ),
+    )
+    entrypoint: Literal["oneshot", "model_free_ptq"] = Field(
+        "oneshot",
+        description=(
+            "Entrypoint to use to create model. If model_free_ptq is used, scheme"
+            "must be provided and calibration dataset args and recipe are ignored."
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # Calibration dataset (all optional — omit to skip calibration)
@@ -384,6 +397,13 @@ def torchrun(world_size: int = 1):
                     f"{file_path}::{func_name}",
                     "-sx",
                 ]
+
+                # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
+                # pytest-cov from loading in workers by adding --no-cov.
+                # Worker coverage data is still collected via .coveragerc's
+                # patch = subprocess + parallel = True.
+                if "--cov" in os.environ.get("PYTEST_ADDOPTS", ""):
+                    cmd.append("--no-cov")
 
                 proc = subprocess.run(cmd)
                 assert proc.returncode == 0
