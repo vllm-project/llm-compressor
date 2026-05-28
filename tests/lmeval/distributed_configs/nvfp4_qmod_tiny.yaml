@@ -1,0 +1,16 @@
+cadence: "weekly"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+scheme: NVFP4
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+num_calibration_samples: 64
+lmeval:
+  task: gsm8k
+  num_fewshot: 5
+  limit: 250
+  recovery_threshold: 0.0
+  metrics:
+    exact_match,flexible-extract: 0.0
+    exact_match,strict-match: 0.0
+num_gpus: 2
+pipeline_parallel: true
