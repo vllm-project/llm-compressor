@@ -116,6 +116,19 @@ class BaseTestConfig(BaseModel):
             "Takes precedence over scheme when both are set."
         ),
     )
+    ignore: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Set of layer names to ignore during model_free_ptq. Regexes allowed"
+        ),
+    )
+    entrypoint: Literal["oneshot", "model_free_ptq"] = Field(
+        "oneshot",
+        description=(
+            "Entrypoint to use to create model. If model_free_ptq is used, scheme"
+            "must be provided and calibration dataset args and recipe are ignored."
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # Calibration dataset (all optional — omit to skip calibration)
