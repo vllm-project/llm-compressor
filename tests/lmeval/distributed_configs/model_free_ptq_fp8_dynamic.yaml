@@ -2,7 +2,7 @@
 cadence: "weekly"
 entrypoint: model_free_ptq
 # TODO Qwen3.5 requires transformers==5.3.0
-# https://redhat-internal.slack.com/archives/D0899TUAM54/p1779913204352869
+# https://github.com/vllm-project/llm-compressor/issues/2707#issuecomment-4442697849
 # model: Qwen/Qwen3.5-35B-A3B
 model: Qwen/Qwen3-30B-A3B
 scheme: FP8_DYNAMIC
