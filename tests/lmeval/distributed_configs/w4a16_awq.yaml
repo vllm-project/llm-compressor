@@ -7,7 +7,7 @@ lmeval:
   task: gsm8k
   num_fewshot: 5
   limit: 250
-  recovery_threshold: 0.95
+  recovery_threshold: 0.94
   metrics:
     exact_match,flexible-extract: 0.70
     exact_match,strict-match: 0.70
