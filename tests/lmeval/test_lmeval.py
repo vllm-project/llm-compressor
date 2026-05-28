@@ -101,6 +101,12 @@ class TestLMEval:
 
         self.config = TestConfig(**eval_config)
 
+        available_gpus = torch.accelerator.device_count()
+        if available_gpus < self.config.num_gpus:
+            pytest.skip(
+                f"Not enough GPUs: need {self.config.num_gpus}, got {available_gpus}"
+            )
+
         # Derive save_dir from the config filename so there is no dependency on scheme
         if not self.config.save_dir:
             self.config.save_dir = Path(test_data_file).stem
@@ -150,7 +156,7 @@ class TestLMEval:
         # Give GPU time to fully release memory
         time.sleep(2)
 
-        oneshot_model, processor = run_oneshot_for_e2e_testing(
+        run_oneshot_for_e2e_testing(
             model=self.config.model,
             model_class=self.config.model_class,
             max_memory=self.config.max_memory,
@@ -162,10 +168,10 @@ class TestLMEval:
             dataset_split=self.config.dataset_split,
             recipe=self.config.recipe,
             quant_type=self.config.quant_type,
+            num_gpus=self.config.num_gpus,
+            save_dir=self.config.save_dir,
+            save_compressed=True,
         )
-
-        logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(oneshot_model, processor)
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
 
@@ -222,10 +228,6 @@ class TestLMEval:
         assert result.returncode == 0, error_msg
 
         return json.loads(stdout.strip().splitlines()[-1])
-
-    def _save_compressed_model(self, oneshot_model, processor):
-        oneshot_model.save_pretrained(self.config.save_dir)
-        processor.save_pretrained(self.config.save_dir)
 
     def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""

@@ -284,12 +284,13 @@ class QuantizationMixin(HooksMixin):
             return
 
         pending_comms = []
-        for module in set(modules):
+        synced_obs = {None}  # ignore None observers
+        for module in modules:
             for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)
-                if observer is None:
-                    continue
-                pending_comms.extend(observer.sync_activation_stats())
+                if observer not in synced_obs:
+                    synced_obs.add(observer)
+                    pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
 
     def has_config(self) -> bool:
