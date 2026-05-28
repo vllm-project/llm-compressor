@@ -61,10 +61,16 @@ if __name__ == "__main__":
         0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     )
 
+    import torch.distributed as dist
     from compressed_tensors.offload import init_dist
 
     from tests.e2e.e2e_utils import run_oneshot_ddp
 
-    config = json.loads(sys.argv[1])
-    init_dist()
-    run_oneshot_ddp(config, save_compressed=config.get("save_compressed", False))
+    try: 
+        config = json.loads(sys.argv[1])
+        init_dist()
+        run_oneshot_ddp(config, save_compressed=config.get("save_compressed", False))
+    finally:
+        if dist.is_initialized():
+            print("destroy_process_group")
+            dist.destroy_process_group()
