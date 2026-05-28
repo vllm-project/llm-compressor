@@ -1,4 +1,4 @@
 cadence: nightly
 entrypoint: convert_checkpoint
-model: nvidia/Qwen3-8B-NVFP4
+model: nm-testing/tinyllama-w4a16-compressed
 recipe: CompressedTensorsDequantizer
