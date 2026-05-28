@@ -12,7 +12,7 @@ from datasets import load_dataset
 from loguru import logger
 from transformers import AutoProcessor, DefaultDataCollator
 
-from llmcompressor import oneshot
+from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.test_timer.timer_utils import log_time
@@ -297,3 +297,33 @@ def save_model_and_processor(
             f.write(recipe_yaml_str)
         if reset_session:
             session.reset()
+
+
+@log_time
+def _run_model_free_ptq(**model_free_ptq_kwargs):
+    model_free_ptq(**model_free_ptq_kwargs)
+
+
+def run_model_free_ptq_for_e2e_testing(
+    model_stub: str,
+    save_directory: str,
+    scheme: str,
+    ignore: list[str],
+    max_workers: int = 2,
+) -> None:
+    model_free_ptq_kwargs = {
+        "model_stub": model_stub,
+        "save_directory": save_directory,
+        "scheme": scheme,
+        "ignore": ignore,
+        "max_workers": max_workers,
+    }
+    # Apply quantization.
+    logger.info(f"MODEL FREE PTQ KWARGS: {model_free_ptq_kwargs}")
+
+    # Saves checkpoint to save_dir
+    _run_model_free_ptq(**model_free_ptq_kwargs)
+
+    # Also save processor
+    processor = AutoProcessor.from_pretrained(model_stub)
+    processor.save_pretrained(save_directory)
