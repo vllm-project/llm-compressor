@@ -284,6 +284,10 @@ class BaseTestConfig(BaseModel):
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
     )
+    skip_sanity_check: bool = Field(
+        False,
+        description="Skip the sanity check that verifies vLLM generates coherent text",
+    )
 
     @model_validator(mode="after")
     def require_scheme_or_recipe(self) -> "BaseTestConfig":
