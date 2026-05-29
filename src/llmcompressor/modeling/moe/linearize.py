@@ -77,19 +77,27 @@ def linearize_moe(model: PreTrainedModel):
     non_linearized_moes = {
         name: module
         for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
+        #if isinstance(module, FusedExpertsProtocol)
+        if module.__class__.__name__ == "GraniteMoeParallelExperts"
     }
 
     if len(non_linearized_moes) <= 0:
         logger.warning("TODO could not find experts to replace")
         return model
 
-    logger.warning("TODO")
-    original_experts_cls = next(iter(non_linearized_moes.values())).__class__
-    linear_experts_cls = LinearExperts2D.create_linear_experts_cls(original_experts_cls)
+    # logger.warning("TODO")
+    # original_experts_cls = next(iter(non_linearized_moes.values())).__class__
+    # linear_experts_cls = LinearExperts2D.create_linear_experts_cls(original_experts_cls)
+    # for name, module in non_linearized_moes.items():
+    #     linear_moe = linear_experts_cls.from_experts_module(module, model.config)
+    #     model.set_submodule(name, linear_moe)
+
     for name, module in non_linearized_moes.items():
-        linear_moe = linear_experts_cls.from_experts_module(module, model.config)
-        model.set_submodule(name, linear_moe)
+        linearized = GraniteMoeLinearExperts.from_3d(module)
+        model.set_submodule(name, linearized)
+
+    return model
+        
 
 
 def requires_linearize_moe(model: torch.nn.Module):
@@ -98,3 +106,62 @@ def requires_linearize_moe(model: torch.nn.Module):
             return True
 
     return False
+
+
+class GraniteMoeLinearExperts(torch.nn.ModuleList):
+    @classmethod
+    @torch.no_grad()
+    def from_3d(cls, original: "GraniteMoeParallelExperts"):
+        self = cls(original.num_experts, original.input_size, original.output_size)
+
+        for i in range(original.num_experts):
+            self[i].weight.copy_(original.weight[i])
+
+        return self
+
+    def __init__(self, num_experts: int, input_size: int, output_size: int) -> None:
+        """
+        Initialize the GraniteMoeParallelExperts module.
+        The experts weights are stored in [num_experts, output_size, input_size] format. Such that it's compatible with
+        many MoE libraries, such as [Megablock](https://github.com/databricks/megablocks) and
+        [ScatterMoE](https://github.com/shawntan/scattermoe), as well as the
+        [MoE kernel](https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/fused_moe/fused_moe.py)
+        used in vllm.
+
+        Args:
+            num_experts (int):
+                Number of experts.
+            input_size (int):
+                Size of the input.
+            output_size (int):
+                Size of the output.
+        """
+
+        super().__init__([
+            torch.nn.Linear(input_size, output_size, bias=False, dtype=torch.bfloat16) for _ in range(num_experts)
+        ])
+        self.num_experts = num_experts
+        self.input_size = input_size
+        self.output_size = output_size
+
+    def forward(self, inputs, expert_size):
+        """
+        Forward pass of the GraniteMoeParallelExperts module.
+
+        Args:
+            inputs (Tensor):
+                Input tensor.
+            expert_size:
+                Expert size information.
+
+        Returns:
+            Tensor: Output tensor.
+        """
+        input_list = inputs.split(expert_size, dim=0)  # [num_experts, num_tokens_selected, D]
+        output_list = []
+
+        for i in range(self.num_experts):
+            expert_out = self[i](input_list[i].unsqueeze(0))[0]
+            output_list.append(expert_out)
+        results = torch.cat(output_list, dim=0)
+        return results
