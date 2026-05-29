@@ -132,7 +132,7 @@ class BaseTestConfig(BaseModel):
         model: meta-llama/Meta-Llama-3-8B-Instruct
         scheme: FP8_DYNAMIC
         dataset_id: HuggingFaceH4/ultrachat_200k
-        dataset_split: train[:512]
+        dataset_split: train_sft
         num_calibration_samples: 512
         ```
 
@@ -218,7 +218,8 @@ class BaseTestConfig(BaseModel):
         description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
     )
     dataset_split: Optional[str] = Field(
-        None, description="Dataset split (e.g. 'train_sft', 'train[:512]')"
+        None,
+        description="Dataset split (e.g. 'train_sft', 'train').",
     )
     num_calibration_samples: int = Field(
         512, description="Number of calibration samples"
