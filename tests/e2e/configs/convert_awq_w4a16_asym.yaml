@@ -1,0 +1,4 @@
+cadence: nightly
+entrypoint: convert_checkpoint
+model: Qwen/Qwen2.5-0.5B-Instruct-AWQ
+recipe: "AutoAWQConverter"

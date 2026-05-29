@@ -1,5 +1,4 @@
 import contextlib
-from typing import Dict, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
@@ -29,7 +28,11 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
+from llmcompressor.modifiers.quantization.calibration import (
+    get_modules,
+    observe,
+    update_qparams,
+)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
@@ -118,15 +121,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # gptq modifier arguments
     block_size: int = 128
-    dampening_frac: Optional[float] = 0.01
+    dampening_frac: float | None = 0.01
     # TODO: this does not serialize / will be incorrectly written
-    actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
+    actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
     offload_hessians: bool = False
 
     # private variables
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _num_samples: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+    _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
 
@@ -238,7 +241,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = self._num_samples.keys()
+            parents = kwargs.get("modules", [])
+            modules = get_modules(parents)
             observe(modules, base_name="weight")
             self.sync_obs_act_stats(modules)
             update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
@@ -251,7 +255,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         """

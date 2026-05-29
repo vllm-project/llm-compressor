@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -65,6 +64,8 @@ def suspend_offloading(model: nn.Module):
     """
     offloading_info = dict()
     for name, module in model.named_modules():
+        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+            continue
         offloading_info[name] = (
             get_execution_device(module),
             get_offloaded_device(module),
@@ -74,6 +75,8 @@ def suspend_offloading(model: nn.Module):
     yield
 
     for name, module in model.named_modules():
+        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+            continue
         offload_module(module, *offloading_info[name])
 
 
@@ -144,12 +147,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     iters: int = 200
     enable_torch_compile: bool = True
     batch_size: int = 8
-    lr: Optional[float] = None
-    device_ids: Optional[str] = None
+    lr: float | None = None
+    device_ids: str | None = None
+    disable_opt_rtn: bool = False
 
     # private variables
-    _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
-    _q_input: Optional[torch.Tensor] = PrivateAttr(default=None)
+    _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
+    _q_input: torch.Tensor | None = PrivateAttr(default=None)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -267,6 +271,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "batch_size": self.batch_size,
             "device_map": self.device_ids,
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
+            "disable_opt_rtn": self.disable_opt_rtn,
         }
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
@@ -334,7 +339,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> List[str]:
+    def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
 
         for name, module in wrapped_model.named_modules():

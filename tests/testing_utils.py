@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 import os
@@ -27,54 +26,80 @@ LMEVAL_CACHE_DIR = Path(os.environ.get("LMEVAL_CACHE_DIR", ".lmeval_cache"))
 LMEVAL_CACHE_FILE = LMEVAL_CACHE_DIR / "cache.csv"
 
 
-def _sha256_hash(text: str, length: Optional[int] = None) -> str:
-    hash_result = hashlib.sha256(text.encode()).hexdigest()
-    return hash_result[:length] if length else hash_result
-
-
 class BaseTestConfig(BaseModel):
     """
     Shared configuration for lm-eval and e2e test cases, loaded from a YAML config file.
+
+    This configuration class serves as the foundation for defining test scenarios across
+    different quantization workflows. It provides a unified interface for model,
+    quantization schemes, calibration datasets, and test infrastructure requirements.
 
     Required fields
     ---------------
     cadence : str
         When this test runs. One of: "commit", "nightly", "weekly".
+        Determines the CI cadence for this test configuration.
     model : str
         HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
-    scheme OR recipe : str
-        At least one must be provided.
-        - scheme  : preset quantization scheme passed directly to the modifier
-                    (e.g. "FP8", "FP8_DYNAMIC", "W4A16", "INT8_dyn_per_token", "NVFP4").
-        - recipe  : path to a YAML recipe file. When both are supplied, recipe wins.
+        Must be a valid model identifier on HuggingFace Hub or a local path.
+
+    Quantization source (at least one required)
+    -------------------------------------------
+    scheme : str | None
+        Preset quantization scheme passed directly to the modifier
+        (e.g. "FP8", "FP8_DYNAMIC", "W4A16", "INT8_dyn_per_token", "NVFP4").
+        Used when no recipe is provided. Ignored when entrypoint is "convert_checkpoint"
+    recipe : str | None
+        Path to a YAML recipe file. When both scheme and recipe are used, recipe wins.
+        Required when entrypoint is "convert_checkpoint". Can be a relative path from
+        the config file location or an absolute path.
+    entrypoint : "oneshot" | "model_free_ptq" | "convert_checkpoint"
+        Determines which quantization pathway to use (default: "oneshot"):
+          - "oneshot"             : Standard quantization using all available fields
+          - "model_free_ptq"      : Model-free PTQ (requires scheme)
+          - "convert_checkpoint"  : Convert using pre-baked recipe (requires recipe)
+    ignore : list[str] | None
+        Set of layer names to ignore during model_free_ptq. Supports regex patterns.
+        Only applicable when entrypoint is "model_free_ptq".
 
     Optional calibration dataset fields
     ------------------------------------
     dataset_id : str | None
         HuggingFace dataset ID for calibration. Leave unset to skip calibration.
-        Datasets with data-collator handling in run_oneshot_for_e2e_testing:
+        Datasets with special data-collator handling in run_oneshot_for_e2e_testing:
           - "HuggingFaceH4/ultrachat_200k"  → text, DefaultDataCollator
           - "neuralmagic/calibration"        → multimodal; set dataset_config="LLM"
           - any ID containing "flickr30k"   → multimodal, flickr30k collator
         Any other dataset ID uses DefaultDataCollator.
     dataset_config : str | None
         Dataset config/subset name (e.g. "LLM" for "neuralmagic/calibration").
+        Required for datasets with multiple configurations.
     dataset_split : str | None
         Dataset split string (e.g. "train_sft", "train[:512]").
+        Supports HuggingFace slice notation for limiting dataset size.
     num_calibration_samples : int
         How many samples to use for calibration (default: 512).
+        Actual samples used may be less if dataset is smaller.
 
     Optional quantization overrides
     --------------------------------
     model_class : str
         Transformers class used to load the model (default: "AutoModelForCausalLM").
         Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
-    quant_type : "GPTQ" | None
+        Must be a valid class from the transformers library.
+    quant_type : "GPTQ" | "RTN" | None
         Modifier to use when no recipe is provided.
-          - None  → QuantizationModifier (default for most schemes)
-          - "GPTQ" → GPTQModifier (activation-order / GPTQ-style quantization)
+          - None / "RTN" → QuantizationModifier (default for most schemes)
+          - "GPTQ"       → GPTQModifier (activation-order / GPTQ-style quantization)
+        Ignored when a recipe is provided.
+    max_memory : dict[int | str, int] | None
+        Max memory per device for model loading. Keys can be device indices (int)
+        or device names (str like "cpu"). Values are in MB.
+        Example: {0: 40000, 1: 40000, "cpu": 10000}.
+        Passed to from_pretrained's max_memory parameter, used for disk offloading.
     seed : int
         Random seed for reproducibility (default: 42).
+        Affects dataset shuffling and quantization randomness.
 
     Save / output
     -------------
@@ -82,14 +107,54 @@ class BaseTestConfig(BaseModel):
         Where to write the compressed model. Defaults to the config file's stem
         (e.g. "fp8_dynamic_per_token" for fp8_dynamic_per_token.yaml) so that
         each config always produces a unique, predictable directory without
-        depending on the scheme name.
+        depending on the scheme name. Can be a relative or absolute path.
 
-    Test infra
-    ----------
+    Test infrastructure
+    -------------------
     gpu_memory_utilization : float | None
-        Fraction of GPU memory for vLLM to use (e.g. 0.8). Omit to use vLLM default.
+        Fraction of GPU memory for vLLM to use (default: 0.70).
+        Valid range is typically 0.0-1.0. Lower values leave memory for other processes.
+    num_gpus : int
+        Number of GPUs required for this test (default: 1).
+    pipeline_parallel : bool
+        Enable pipeline parallelism for vLLM serving (default: False).
+        When True, pipeline_parallel_size is set to num_gpus.
+        Useful for large models that don't fit on a single GPU.
     test_group : str | None
         Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
+        Allows selective test execution based on environment or requirements.
+
+    Example YAML configurations
+    ----------------------------
+    Basic FP8 quantization with calibration:
+        ```yaml
+        cadence: commit
+        model: meta-llama/Meta-Llama-3-8B-Instruct
+        scheme: FP8_DYNAMIC
+        dataset_id: HuggingFaceH4/ultrachat_200k
+        dataset_split: train[:512]
+        num_calibration_samples: 512
+        ```
+
+    Model-free PTQ with layer ignoring:
+        ```yaml
+        cadence: nightly
+        model: meta-llama/Meta-Llama-3-8B
+        scheme: W4A16
+        entrypoint: model_free_ptq
+        ignore: ["lm_head", "model.embed_tokens"]
+        num_gpus: 2
+        ```
+
+    Recipe-based conversion:
+        ```yaml
+        cadence: weekly
+        model: Qwen/Qwen2-VL-7B-Instruct
+        recipe: recipes/qwen2_vl_fp8.yaml
+        entrypoint: convert_checkpoint
+        model_class: Qwen3VLForConditionalGeneration
+        test_group: vision
+        ```
     """
 
     # -------------------------------------------------------------------------
@@ -113,6 +178,25 @@ class BaseTestConfig(BaseModel):
         description=(
             "Path to a quantization recipe YAML file. "
             "Takes precedence over scheme when both are set."
+            "Used by `convert_checkpoint` to target specific pre-baked recipes."
+        ),
+    )
+    entrypoint: Literal["oneshot", "model_free_ptq", "convert_checkpoint"] = Field(
+        "oneshot",
+        description=(
+            "Entrypoint to use to create model.\n"
+            "`oneshot`:\n"
+            "  default entrypoint, uses all fields when they are provided\n"
+            "`model_free_ptq`:\n"
+            "  requires `scheme`, all other quantization arguments are ignored\n"
+            "`convert_checkpoint`:\n"
+            "  requires `recipe`, all other quantization arguments are ignored\n"
+        ),
+    )
+    ignore: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Set of layer names to ignore during model_free_ptq. Regexes allowed"
         ),
     )
 
@@ -150,13 +234,17 @@ class BaseTestConfig(BaseModel):
             "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
         ),
     )
-    quant_type: Optional[Literal["GPTQ"]] = Field(
+    quant_type: Literal["GPTQ", "RTN"] | None = Field(
         None,
         description=(
             "Modifier used when no recipe is provided.\n"
-            "  None   → QuantizationModifier (default)\n"
-            "  'GPTQ' → GPTQModifier"
+            "  None / 'RTN' → QuantizationModifier (default)\n"
+            "  'GPTQ'       → GPTQModifier"
         ),
+    )
+    max_memory: Optional[dict[int | str, int]] = Field(
+        None,
+        description="Max memory for model loading. Used to induce disk offloading",
     )
     seed: int = Field(42, description="Random seed for reproducibility")
 
@@ -176,8 +264,22 @@ class BaseTestConfig(BaseModel):
     # Test infra
     # -------------------------------------------------------------------------
     gpu_memory_utilization: Optional[float] = Field(
-        None,
+        0.70,
         description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
+    )
+    num_gpus: int = Field(
+        1,
+        description=(
+            "Number of GPUs required for this test. "
+            "Tests are skipped if fewer are available.",
+        ),
+    )
+    pipeline_parallel: bool = Field(
+        False,
+        description=(
+            "Enable pipeline parallelism for vLLM serving. "
+            "When True, pipeline_parallel_size is set to num_gpus."
+        ),
     )
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
@@ -346,6 +448,13 @@ def torchrun(world_size: int = 1):
                     f"{file_path}::{func_name}",
                     "-sx",
                 ]
+
+                # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
+                # pytest-cov from loading in workers by adding --no-cov.
+                # Worker coverage data is still collected via .coveragerc's
+                # patch = subprocess + parallel = True.
+                if "--cov" in os.environ.get("PYTEST_ADDOPTS", ""):
+                    cmd.append("--no-cov")
 
                 proc = subprocess.run(cmd)
                 assert proc.returncode == 0
@@ -571,8 +680,11 @@ class LMEvalCacheKey:
     task: str
     num_fewshot: int
     limit: int
-    batch_size: int
-    model_args_hash: str
+    apply_chat_template: bool
+    fewshot_as_multiturn: bool
+    dtype: str
+    add_bos_token: bool
+    trust_remote_code: bool
     lmeval_version: str
     seed: Optional[int]
 
@@ -587,7 +699,6 @@ class LMEvalCacheKey:
             lmeval_version = "unknown"
 
         lmeval = test_instance.config.lmeval
-        model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
         seed = test_instance.config.seed
 
         return cls(
@@ -595,8 +706,11 @@ class LMEvalCacheKey:
             task=lmeval.task,
             num_fewshot=lmeval.num_fewshot,
             limit=lmeval.limit,
-            batch_size=lmeval.batch_size,
-            model_args_hash=_sha256_hash(model_args_json, 16),
+            apply_chat_template=lmeval.apply_chat_template,
+            fewshot_as_multiturn=lmeval.fewshot_as_multiturn,
+            dtype=lmeval.dtype,
+            add_bos_token=lmeval.add_bos_token,
+            trust_remote_code=lmeval.trust_remote_code,
             lmeval_version=lmeval_version,
             seed=seed,
         )
@@ -612,8 +726,11 @@ class LMEvalCacheKey:
             and row["task"] == self.task
             and row["num_fewshot"] == self.num_fewshot
             and row["limit"] == self.limit
-            and row["batch_size"] == self.batch_size
-            and row["model_args_hash"] == self.model_args_hash
+            and row["apply_chat_template"] == self.apply_chat_template
+            and row["fewshot_as_multiturn"] == self.fewshot_as_multiturn
+            and row["dtype"] == self.dtype
+            and row["add_bos_token"] == self.add_bos_token
+            and row["trust_remote_code"] == self.trust_remote_code
             and row["lmeval_version"] == self.lmeval_version
             and seed_matches
         )
@@ -646,8 +763,11 @@ class LMEvalCacheKey:
                 "task": self.task,
                 "num_fewshot": self.num_fewshot,
                 "limit": self.limit,
-                "batch_size": self.batch_size,
-                "model_args_hash": self.model_args_hash,
+                "apply_chat_template": self.apply_chat_template,
+                "fewshot_as_multiturn": self.fewshot_as_multiturn,
+                "dtype": self.dtype,
+                "add_bos_token": self.add_bos_token,
+                "trust_remote_code": self.trust_remote_code,
                 "lmeval_version": self.lmeval_version,
                 "seed": self.seed,
                 "result": json.dumps(result, default=str),
