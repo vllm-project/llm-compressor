@@ -4,19 +4,32 @@ from functools import wraps
 from typing import Callable
 
 import torch
+import torch.distributed as dist
 import transformers
+from compressed_tensors.distributed import is_source_process
+from compressed_tensors.entrypoints.convert import convert_checkpoint
+from compressed_tensors.entrypoints.convert.converters import (
+    AutoAWQConverter,
+    CompressedTensorsDequantizer,
+    FP8BlockDequantizer,
+    ModelOptNvfp4Converter,
+)
 from compressed_tensors.offload import load_offloaded_model
+from compressed_tensors.quantization import QuantizationArgs, QuantizationType
 from datasets import load_dataset
 from loguru import logger
 from transformers import AutoProcessor, DefaultDataCollator
 
-from llmcompressor import oneshot
+from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 OFFLOAD_DIR = "./offload_folder"
+
+
+### Oneshot: Loading ###
 
 
 def cleanup_offload_dir(func):
@@ -33,7 +46,15 @@ def cleanup_offload_dir(func):
 
 def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | None):
     pretrained_model_class = getattr(transformers, model_class)
-    device_map = "auto_offload" if max_memory is not None else None
+    device_map = None
+    if max_memory is not None or dist.is_initialized():
+        device_map = "auto_offload"
+
+    # passing None for max_memory causes accelerate
+    # to offload to various GPU devices if distributed
+    # which can cause problems so instead pick arbitrary large value.
+    if max_memory is None:
+        max_memory = {"cpu": "1000GB"}
 
     with load_offloaded_model(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
@@ -44,6 +65,9 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
             dtype="auto",
         )
     return loaded_model
+
+
+### Oneshot ###
 
 
 @log_time
@@ -64,33 +88,174 @@ def run_oneshot_for_e2e_testing(
     dataset_config: str,
     scheme: str,
     quant_type: str,
+    save_dir: str,
+    num_gpus: int = 1,
+    save_compressed: bool = False,
     shuffle_calibration_samples: bool = True,
     data_collator: str | Callable = DefaultDataCollator(),
 ):
-    # Load model.
-    oneshot_kwargs = {}
-    oneshot_kwargs["data_collator"] = data_collator
+    if num_gpus == 1:
+        run_oneshot_single(
+            model=model,
+            model_class=model_class,
+            max_memory=max_memory,
+            num_calibration_samples=num_calibration_samples,
+            max_seq_length=max_seq_length,
+            dataset_id=dataset_id,
+            recipe=recipe,
+            dataset_split=dataset_split,
+            dataset_config=dataset_config,
+            scheme=scheme,
+            quant_type=quant_type,
+            shuffle_calibration_samples=shuffle_calibration_samples,
+            data_collator=data_collator,
+            save_dir=save_dir,
+            save_compressed=save_compressed,
+        )
+    else:
+        # this just calls launch_ddp -> subprocess -> run_oneshot_ddp
+        # the goal is to call run_oneshot_ddp with the correct torchrun invocation
+        from tests.e2e.run_oneshot_ddp import launch_ddp
 
-    loaded_model = load_model(model, model_class, max_memory)
-    processor = AutoProcessor.from_pretrained(model)
+        config = {
+            "model": model,
+            "model_class": model_class,
+            "max_memory": max_memory,
+            "num_calibration_samples": num_calibration_samples,
+            "max_seq_length": max_seq_length,
+            "dataset_id": dataset_id,
+            "dataset_split": dataset_split,
+            "dataset_config": dataset_config,
+            "scheme": scheme,
+            "quant_type": quant_type,
+            "recipe": recipe,
+            "save_dir": save_dir,
+            "save_compressed": save_compressed,
+            "shuffle_calibration_samples": shuffle_calibration_samples,
+        }
+        logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
+        launch_ddp(num_gpus, config)
+
+
+def run_oneshot_single(
+    model: str,
+    model_class: str,
+    max_memory: dict[int | str, int] | None,
+    num_calibration_samples: int,
+    max_seq_length: int,
+    dataset_id: str,
+    recipe: str,
+    dataset_split: str,
+    dataset_config: str,
+    scheme: str,
+    quant_type: str,
+    save_dir: str,
+    save_compressed: bool = False,
+    shuffle_calibration_samples: bool = True,
+    data_collator: str | Callable = DefaultDataCollator(),
+):
+    oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
+        model_id=model,
+        model_class=model_class,
+        max_memory=max_memory,
+        dataset_id=dataset_id,
+        dataset_config=dataset_config,
+        dataset_split=dataset_split,
+        max_seq_length=max_seq_length,
+        num_calibration_samples=num_calibration_samples,
+        recipe=recipe,
+        quant_type=quant_type,
+        scheme=scheme,
+        shuffle_calibration_samples=shuffle_calibration_samples,
+    )
+    oneshot_kwargs.setdefault("data_collator", data_collator)
+
+    logger.info(f"ONESHOT KWARGS: {oneshot_kwargs}")
+    _run_oneshot(**oneshot_kwargs)
+
+    logger.info("================= SAVING TO DISK ======================")
+    save_model_and_processor(
+        loaded_model, processor, save_dir, save_compressed, reset_session=True
+    )
+
+
+def run_oneshot_ddp(config: dict, save_compressed: bool = False):
+    """
+    DDP variant of run_oneshot_for_e2e_testing.
+
+    Assumes init_dist() has already been called. Loads the model with
+    device_map="auto_offload", partitions calibration data across ranks, runs
+    oneshot, and saves the result from rank 0.
+
+    :param config: dict matching BaseTestConfig / TestConfig fields
+    :param save_compressed: if True, saves with save_compressed=True and writes
+        recipe.yaml from the active session (needed for e2e vLLM tests)
+    """
+
+    oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
+        model_id=config["model"],
+        model_class=config.get("model_class", "AutoModelForCausalLM"),
+        max_memory=config.get("max_memory"),
+        dataset_id=config.get("dataset_id"),
+        dataset_config=config.get("dataset_config"),
+        dataset_split=config.get("dataset_split"),
+        max_seq_length=config.get("max_seq_length", 2048),
+        num_calibration_samples=config.get("num_calibration_samples", 512),
+        recipe=config.get("recipe"),
+        quant_type=config.get("quant_type"),
+        scheme=config.get("scheme"),
+        shuffle_calibration_samples=config.get("shuffle_calibration_samples", True),
+    )
+    _run_oneshot(**oneshot_kwargs)
+
+    logger.info("================= SAVING TO DISK ======================")
+    save_model_and_processor(
+        loaded_model, processor, config["save_dir"], save_compressed
+    )
+
+    dist.barrier()
+
+
+def prepare_oneshot_kwargs(
+    model_id: str,
+    model_class: str,
+    max_memory: dict[int | str, int] | None,
+    dataset_id: str | None,
+    dataset_config: str | None,
+    dataset_split: str | None,
+    max_seq_length: int,
+    num_calibration_samples: int,
+    recipe,
+    quant_type: str | None,
+    scheme: str | None,
+    shuffle_calibration_samples: bool = True,
+) -> tuple:
+    from llmcompressor.datasets.utils import get_rank_partition
+
+    loaded_model = load_model(model_id, model_class, max_memory)
+    processor = AutoProcessor.from_pretrained(model_id)
+
+    kwargs = {"model": loaded_model}
 
     if dataset_id:
-        ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
-        ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
-        ds = process_dataset(ds, processor, max_seq_length)
-        oneshot_kwargs["dataset"] = ds
-        oneshot_kwargs["max_seq_length"] = max_seq_length
-        oneshot_kwargs["num_calibration_samples"] = num_calibration_samples
+        split = get_rank_partition(dataset_split, num_calibration_samples)
 
-        # Define a data collator for multimodal inputs.
+        ds = load_dataset(dataset_id, name=dataset_config, split=split)
+        if shuffle_calibration_samples:
+            ds = ds.shuffle(seed=42)
+
+        ds = process_dataset(ds, processor, max_seq_length)
+        kwargs["dataset"] = ds
+        kwargs["max_seq_length"] = max_seq_length
+        kwargs["num_calibration_samples"] = num_calibration_samples
+
         if "flickr30k" in dataset_id:
 
             def data_collator(batch):
                 assert len(batch) == 1
                 return {key: torch.tensor(value) for key, value in batch[0].items()}
 
-            oneshot_kwargs["data_collator"] = data_collator
-
+            kwargs["data_collator"] = data_collator
         elif "calibration" in dataset_id:
 
             def data_collator(batch):
@@ -104,31 +269,130 @@ def run_oneshot_for_e2e_testing(
                     for key, value in batch[0].items()
                 }
 
-            oneshot_kwargs["data_collator"] = data_collator
+            kwargs["data_collator"] = data_collator
 
-    oneshot_kwargs["model"] = loaded_model
-    oneshot_kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples
+    kwargs["recipe"] = build_recipe(recipe, quant_type, scheme)
+    kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples
+
+    return kwargs, loaded_model, processor
+
+
+def build_recipe(recipe, quant_type, scheme):
     if recipe:
-        oneshot_kwargs["recipe"] = recipe
-    else:
-        # Test assumes that if a recipe was not provided, using
-        # a compatible preset sceme
-        if quant_type == "GPTQ":
-            oneshot_kwargs["recipe"] = GPTQModifier(
-                targets="Linear",
-                scheme=scheme,
-                actorder=None,  # added for consistency with past testing configs
-                ignore=["lm_head", "re:.*mlp.gate[.].*"],
-            )
-        else:
-            oneshot_kwargs["recipe"] = QuantizationModifier(
-                targets="Linear",
-                scheme=scheme,
-                ignore=["lm_head", "re:.*mlp.gate[.].*"],
-            )
+        return recipe
+    if quant_type == "GPTQ":
+        return GPTQModifier(
+            targets="Linear",
+            scheme=scheme,
+            actorder=None,
+            ignore=["lm_head", "re:.*mlp.gate[.].*"],
+        )
+    return QuantizationModifier(
+        targets="Linear",
+        scheme=scheme,
+        ignore=["lm_head", "re:.*mlp.gate[.].*"],
+    )
 
+
+def save_model_and_processor(
+    model, processor, save_dir, save_compressed, reset_session=False
+):
+    model.save_pretrained(save_dir, save_compressed=save_compressed)
+    if not is_source_process():
+        return
+    processor.save_pretrained(save_dir)
+    if save_compressed:
+        from llmcompressor.core import active_session
+
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        assert recipe_yaml_str is not None, "Session contains no recipe after oneshot"
+        with open(os.path.join(save_dir, "recipe.yaml"), "w") as f:
+            f.write(recipe_yaml_str)
+        if reset_session:
+            session.reset()
+
+
+### Model Free PTQ ###
+
+
+@log_time
+def _run_model_free_ptq(**model_free_ptq_kwargs):
+    model_free_ptq(**model_free_ptq_kwargs)
+
+
+def run_model_free_ptq_for_e2e_testing(
+    model_stub: str,
+    save_directory: str,
+    scheme: str,
+    ignore: list[str],
+    max_workers: int = 2,
+) -> None:
+    model_free_ptq_kwargs = {
+        "model_stub": model_stub,
+        "save_directory": save_directory,
+        "scheme": scheme,
+        "ignore": ignore,
+        "max_workers": max_workers,
+    }
     # Apply quantization.
-    logger.info("ONESHOT KWARGS", oneshot_kwargs)
-    _run_oneshot(**oneshot_kwargs)
+    logger.info(f"MODEL FREE PTQ KWARGS: {model_free_ptq_kwargs}")
 
-    return oneshot_kwargs["model"], processor
+    # Saves checkpoint to save_dir
+    _run_model_free_ptq(**model_free_ptq_kwargs)
+
+    # Also save processor
+    processor = AutoProcessor.from_pretrained(model_stub)
+    processor.save_pretrained(save_directory)
+
+
+### Conversion ###
+
+
+@log_time
+def _run_convert_checkpoint(**kwargs):
+    convert_checkpoint(**kwargs)
+
+
+@cleanup_offload_dir
+def run_convert_checkpoint_for_e2e_testing(
+    model_stub: str,
+    save_directory: str,
+    recipe: str,
+) -> None:
+    # hard coded conversion recipes
+    # this is required because conversion does not yet have a valid yaml serialization
+    QWEN_TARGETS = [
+        r"re:.*mlp.*\.(gate_up|gate|up|down)_proj$",
+        r"re:.*self_attn.*\.(q|k|v|o)_proj$",
+    ]
+
+    match recipe:
+        case "AutoAWQConverter":
+            converter = AutoAWQConverter.from_pretrained(model_stub)
+        case "ModelOptNvfp4Converter":
+            converter = ModelOptNvfp4Converter(
+                targets=QWEN_TARGETS,
+                kv_cache_scheme=QuantizationArgs(
+                    num_bits=8, dynamic=False, type=QuantizationType.FLOAT
+                ),
+            )
+        case "FP8BlockDequantizer":
+            converter = FP8BlockDequantizer(
+                targets=QWEN_TARGETS,
+                weight_block_size=(128, 128),
+            )
+        case "CompressedTensorsDequantizer":
+            converter = CompressedTensorsDequantizer(
+                model_stub=model_stub, ignore=["lm_head", "re:.*embed_tokens$"]
+            )
+        case _:
+            raise ValueError(f"Could not find a pre-baked recipe for `{recipe}`")
+
+    logger.info("convert_checkpoint converter: {}", converter)
+
+    _run_convert_checkpoint(
+        model_stub=model_stub,
+        save_directory=save_directory,
+        converter=converter,
+    )

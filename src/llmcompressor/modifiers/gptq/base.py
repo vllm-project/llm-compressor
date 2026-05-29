@@ -28,7 +28,11 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
+from llmcompressor.modifiers.quantization.calibration import (
+    get_modules,
+    observe,
+    update_qparams,
+)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
@@ -238,7 +242,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             parents = kwargs.get("modules", [])
-            modules = {m for parent in parents for m in parent.modules()}
+            modules = get_modules(parents)
             observe(modules, base_name="weight")
             self.sync_obs_act_stats(modules)
             update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
