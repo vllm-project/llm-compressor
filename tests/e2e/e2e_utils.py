@@ -7,7 +7,15 @@ import torch
 import torch.distributed as dist
 import transformers
 from compressed_tensors.distributed import is_source_process
+from compressed_tensors.entrypoints.convert import convert_checkpoint
+from compressed_tensors.entrypoints.convert.converters import (
+    AutoAWQConverter,
+    CompressedTensorsDequantizer,
+    FP8BlockDequantizer,
+    ModelOptNvfp4Converter,
+)
 from compressed_tensors.offload import load_offloaded_model
+from compressed_tensors.quantization import QuantizationArgs, QuantizationType
 from datasets import load_dataset
 from loguru import logger
 from transformers import AutoProcessor, DefaultDataCollator
@@ -19,6 +27,9 @@ from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 OFFLOAD_DIR = "./offload_folder"
+
+
+### Oneshot: Loading ###
 
 
 def cleanup_offload_dir(func):
@@ -54,6 +65,9 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
             dtype="auto",
         )
     return loaded_model
+
+
+### Oneshot ###
 
 
 @log_time
@@ -299,6 +313,9 @@ def save_model_and_processor(
             session.reset()
 
 
+### Model Free PTQ ###
+
+
 @log_time
 def _run_model_free_ptq(**model_free_ptq_kwargs):
     model_free_ptq(**model_free_ptq_kwargs)
@@ -327,3 +344,55 @@ def run_model_free_ptq_for_e2e_testing(
     # Also save processor
     processor = AutoProcessor.from_pretrained(model_stub)
     processor.save_pretrained(save_directory)
+
+
+### Conversion ###
+
+
+@log_time
+def _run_convert_checkpoint(**kwargs):
+    convert_checkpoint(**kwargs)
+
+
+@cleanup_offload_dir
+def run_convert_checkpoint_for_e2e_testing(
+    model_stub: str,
+    save_directory: str,
+    recipe: str,
+) -> None:
+    # hard coded conversion recipes
+    # this is required because conversion does not yet have a valid yaml serialization
+    QWEN_TARGETS = [
+        r"re:.*mlp.*\.(gate_up|gate|up|down)_proj$",
+        r"re:.*self_attn.*\.(q|k|v|o)_proj$",
+    ]
+
+    match recipe:
+        case "AutoAWQConverter":
+            converter = AutoAWQConverter.from_pretrained(model_stub)
+        case "ModelOptNvfp4Converter":
+            converter = ModelOptNvfp4Converter(
+                targets=QWEN_TARGETS,
+                kv_cache_scheme=QuantizationArgs(
+                    num_bits=8, dynamic=False, type=QuantizationType.FLOAT
+                ),
+            )
+        case "FP8BlockDequantizer":
+            converter = FP8BlockDequantizer(
+                targets=QWEN_TARGETS,
+                weight_block_size=(128, 128),
+            )
+        case "CompressedTensorsDequantizer":
+            converter = CompressedTensorsDequantizer(
+                model_stub=model_stub, ignore=["lm_head", "re:.*embed_tokens$"]
+            )
+        case _:
+            raise ValueError(f"Could not find a pre-baked recipe for `{recipe}`")
+
+    logger.info("convert_checkpoint converter: {}", converter)
+
+    _run_convert_checkpoint(
+        model_stub=model_stub,
+        save_directory=save_directory,
+        converter=converter,
+    )
