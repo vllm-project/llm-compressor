@@ -21,6 +21,8 @@ from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from .conversion_mappings import _get_2d_mappings, _has_2d_mappings
 from .linear_experts import LinearExperts2D
 
+from llmcompressor.utils.dev import skip_weights_initialize
+
 
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
@@ -112,7 +114,8 @@ class GraniteMoeLinearExperts(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_3d(cls, original: "GraniteMoeParallelExperts"):
-        self = cls(original.num_experts, original.input_size, original.output_size)
+        with skip_weights_initialize():
+            self = cls(original.num_experts, original.input_size, original.output_size)
 
         for i in range(original.num_experts):
             self[i].weight.copy_(original.weight[i])
@@ -136,7 +139,6 @@ class GraniteMoeLinearExperts(torch.nn.ModuleList):
             output_size (int):
                 Size of the output.
         """
-
         super().__init__([
             torch.nn.Linear(input_size, output_size, bias=False, dtype=torch.bfloat16) for _ in range(num_experts)
         ])
