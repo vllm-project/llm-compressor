@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 from auto_round.calib_dataset import get_dataset
@@ -7,15 +8,48 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 
-# Select model and load it.
-model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+parser = argparse.ArgumentParser(description="AutoRound W8A8-MXFP8 Quantization")
+parser.add_argument(
+    "model_id",
+    nargs="?",
+    default="Qwen/Qwen3-8B",
+    help="Model name or path (positional)",
+)
+parser.add_argument(
+    "--model",
+    type=str,
+    default=None,
+    help="Model name or path (overrides positional argument)",
+)
+parser.add_argument(
+    "--iters",
+    type=int,
+    default=200,
+    help="Number of iterations for AutoRound",
+)
+parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=8,
+    help="Batch size used by AutoRoundModifier",
+)
+parser.add_argument(
+    "--max_seq_length",
+    type=int,
+    default=2048,
+    help="Maximum sequence length used for calibration",
+)
+args = parser.parse_args()
+args.model = args.model or args.model_id
 
+# Select model and load it.
+model_id = args.model
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 1024
+MAX_SEQUENCE_LENGTH = args.max_seq_length
 # Get aligned calibration dataset.
 
 ds = get_dataset(
@@ -30,7 +64,8 @@ recipe = AutoRoundModifier(
     targets="Linear",
     scheme="MXFP8",
     ignore=["lm_head"],
-    iters=200,
+    iters=args.iters,
+    batch_size=args.batch_size,
 )
 
 # Apply algorithms.
@@ -42,10 +77,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
-    # For this recipe (128 samples, 200 iters), expert routing coverage is
-    # sufficient in practice. Enabling all experts can OOM on a single 80GB GPU,
-    # so keep this False for the single-GPU example path.
-    moe_calibrate_all_experts=False,
 )
 
 # Confirm generations of the quantized model look sane.

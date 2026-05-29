@@ -1,0 +1,4 @@
+cadence: nightly
+entrypoint: convert_checkpoint
+model: qwen-community/Qwen3-4B-FP8
+recipe: FP8BlockDequantizer

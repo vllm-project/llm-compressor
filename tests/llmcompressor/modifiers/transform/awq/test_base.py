@@ -656,8 +656,19 @@ def test_awq_with_kv_cache_quantization():
     recipe = [
         AWQModifier(),
         QuantizationModifier(
-            targets="Linear",
-            scheme="W8A16",
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=8,
+                        type=QuantizationType.INT,
+                        strategy=QuantizationStrategy.GROUP,
+                        group_size=32,
+                        symmetric=True,
+                        dynamic=False,
+                    ),
+                )
+            },
             kv_cache_scheme=QuantizationArgs(
                 num_bits=8,
                 type=QuantizationType.FLOAT,
@@ -705,7 +716,21 @@ def test_awq_raises_on_non_finite_identity_grid_loss():
     handle = self_attn.register_forward_hook(corrupt_weights_after_baseline)
     recipe = [
         AWQModifier(n_grid=3),
-        QuantizationModifier(targets="Linear", scheme="W8A16"),
+        QuantizationModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=8,
+                        type=QuantizationType.INT,
+                        strategy=QuantizationStrategy.GROUP,
+                        group_size=32,
+                        symmetric=True,
+                        dynamic=False,
+                    ),
+                )
+            },
+        ),
     ]
 
     try:
