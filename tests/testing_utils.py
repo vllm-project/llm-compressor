@@ -218,7 +218,8 @@ class BaseTestConfig(BaseModel):
         description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
     )
     dataset_split: Optional[str] = Field(
-        None, description="Dataset split (e.g. 'train_sft', 'train'). Use num_calibration_samples to control sample count."
+        None,
+        description="Dataset split (e.g. 'train_sft', 'train').",
     )
     num_calibration_samples: int = Field(
         512, description="Number of calibration samples"
