@@ -18,9 +18,6 @@ from compressed_tensors.utils.safetensors_load import (
 )
 from loguru import logger
 
-from llmcompressor.entrypoints.model_free.helpers import (
-    gpu_if_available,
-)
 from llmcompressor.entrypoints.model_free.microscale import (
     build_microscale_inverse_weight_maps,
     is_microscale_scheme,
@@ -47,7 +44,7 @@ def model_free_ptq(
     scheme: QuantizationScheme | str,
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
-    device: Optional[torch.device | str] = None,
+    device: Optional[str | torch.device | list[str | torch.device]] = None,
     converter: Converter | None = None,
 ):
     """
@@ -67,7 +64,7 @@ def model_free_ptq(
     :param ignore: modules to ignore. Modules ending with "norm" are
         automatically ignored
     :param max_workers: number of worker threads to process files with
-    :param device: gpu device to accelerate quantization with
+    :param device: gpu devices to accelerate quantization with.
     :param converter: optional converter to apply to the checkpoint to convert
         it to compressed-tensors format before running model-free PTQ
     """
@@ -75,7 +72,7 @@ def model_free_ptq(
     model_files = get_checkpoint_files(model_stub)
 
     scheme_name, scheme = validate_scheme(scheme)
-    device = gpu_if_available(device)
+    resolved_devices = _resolve_devices(device)
     validate_safetensors_index(model_files, scheme)
 
     # copy non-safetensors files (configs, tokenizers, etc.)
@@ -89,7 +86,9 @@ def model_free_ptq(
             shutil.copyfile(resolved_path, save_path)
 
     # build quantization jobs
-    jobs = _build_jobs(model_files, save_directory, scheme, ignore, device, converter)
+    jobs = _build_jobs(
+        model_files, save_directory, scheme, ignore, resolved_devices, converter
+    )
 
     # 1. validate quantizable tensors — fail fast before long-running quantization
     validate_jobs = [(validate_file, *job[1:]) for job in jobs]
@@ -110,12 +109,34 @@ def model_free_ptq(
     update_safetensors_index(save_directory, total_size, weight_map)
 
 
+def _resolve_devices(
+    device: Optional[str | torch.device | list[str | torch.device]],
+) -> list[torch.device]:
+    if device is None:
+        count = torch.cuda.device_count()
+        if count > 0:
+            devices = [torch.device(f"cuda:{i}") for i in range(count)]
+            logger.info(
+                f"Auto-detected {count} CUDA device(s): "
+                f"{', '.join(str(d) for d in devices)}"
+            )
+            return devices
+
+        logger.warning("No accelerator available! Compressing model on CPU instead")
+        return [torch.device("cpu")]
+
+    if isinstance(device, list):
+        return [torch.device(d) for d in device]
+
+    return [torch.device(device)]
+
+
 def _build_jobs(
     model_files: dict[str, str],
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
-    device: torch.device,
+    devices: list[torch.device],
     converter: Converter | None,
 ) -> list[tuple]:
     """
@@ -128,6 +149,7 @@ def _build_jobs(
 
     :returns: list of jobs tuples
         (job_fn, inverse_weight_map, save_path, scheme, ignore, device, converter)
+        Shards are distributed round-robin across the given devices.
     """
     weight_map = get_weight_map(model_files)
 
@@ -144,17 +166,22 @@ def _build_jobs(
         converters=[converter] if converter is not None else [],
     )
 
-    jobs = []
-    for shard_name in model_files.keys():
-        save_path = Path(save_directory) / shard_name
+    shard_names = [name for name in model_files if name.endswith("safetensors")]
+    logger.info(
+        f"Distributing {len(shard_names)} shard(s) across {len(devices)} "
+        f"device(s): {', '.join(str(d) for d in devices)}"
+    )
 
-        if not shard_name.endswith("safetensors"):
-            continue
+    jobs = []
+    for i, shard_name in enumerate(shard_names):
+        save_path = Path(save_directory) / shard_name
 
         if shard_name not in inverse_weight_maps:
             raise ValueError(
                 f"Could not find inverse_weight_map for shard {shard_name}"
             )
+
+        device = devices[i % len(devices)]
 
         jobs.append(
             (

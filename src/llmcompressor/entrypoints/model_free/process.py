@@ -60,6 +60,11 @@ def validate_file(
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
     """
+    print(device)
+    # device = torch.device(device)
+    # if device.type == "cuda":
+    #     torch.cuda.set_device(device.index)
+
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:
@@ -91,6 +96,11 @@ def process_file(
         e.g. conversion of some layers from some format to compressed-tensors
     """
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
+
+    # device = torch.device(device)
+    # if device.type == "cuda":
+    #     torch.cuda.set_device(device.index)
+    print(device)
 
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
@@ -156,6 +166,11 @@ def process_file_microscale_scheme(
         e.g. conversion of some layers from some format to compressed-tensors
     """
     assert is_microscale_scheme(scheme), "Use `process_file` for non-microscale scheme"
+
+    # device = torch.device(device)
+    # if device.type == "cuda":
+    #     torch.cuda.set_device(device.index)
+    print(device)
 
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
