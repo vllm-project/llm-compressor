@@ -126,6 +126,8 @@ def _resolve_devices(
         return [torch.device("cpu")]
 
     if isinstance(device, list):
+        if not device:
+            raise ValueError("The device list cannot be empty.")
         return [torch.device(d) for d in device]
 
     return [torch.device(device)]
