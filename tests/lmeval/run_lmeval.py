@@ -62,7 +62,7 @@ def main():
         metrics = {metric: task_results[metric] for metric in lmeval_config["metrics"]}
         print(json.dumps(metrics))
     else:
-        print(task_results)
+        print(json.dumps(task_results))
 
 
 if __name__ == "__main__":

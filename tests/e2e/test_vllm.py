@@ -207,7 +207,6 @@ class TestvLLM:
         json_llm_kwargs = json.dumps(llm_kwargs)
         prompts = [sp.prompt for sp in SANITY_PROMPTS]
         json_prompts = json.dumps(prompts)
-        # Default to temperature=0.0 for deterministic output
         json_sampling_params = json.dumps(self.config.sampling_params)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
