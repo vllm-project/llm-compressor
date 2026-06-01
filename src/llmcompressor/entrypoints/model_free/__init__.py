@@ -171,7 +171,7 @@ def _build_jobs(
     shard_names = [name for name in model_files if name.endswith("safetensors")]
     logger.info(
         f"Distributing {len(shard_names)} shard(s) across {len(devices)} "
-        f"device(s): {', '.join(str(d) for d in devices)}"
+        f"device(s): {", ".join(str(d) for d in devices)}"
     )
 
     jobs = []
