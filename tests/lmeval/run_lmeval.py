@@ -58,8 +58,11 @@ def main():
 
     task = lmeval_config["task"]
     task_results = results["results"][task]
-    metrics = {metric: task_results[metric] for metric in lmeval_config["metrics"]}
-    print(json.dumps(metrics))
+    if len(lmeval_config["metrics"]) > 0:
+        metrics = {metric: task_results[metric] for metric in lmeval_config["metrics"]}
+        print(json.dumps(metrics))
+    else:
+        print(task_results)
 
 
 if __name__ == "__main__":

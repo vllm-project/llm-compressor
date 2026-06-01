@@ -35,7 +35,7 @@ class LmEvalConfig(BaseModel):
     # Default threshold is 0.95 (retain ≥95% of base), can be overridden
     recovery_threshold: Union[float, dict] = 0.95
     # Optional absolute metrics for warnings (not failures)
-    metrics: dict = None
+    metrics: dict = Field(default_factory=dict)
     trust_remote_code: bool = False
     max_model_len: int = 2048
     higher_is_better: bool = True
