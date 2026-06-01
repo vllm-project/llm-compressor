@@ -302,7 +302,7 @@ def _enough_gpus(num_required_gpus):
     try:
         import torch  # noqa: F401
 
-        return torch.cuda.device_count() >= num_required_gpus
+        return torch.accelerator.device_count() >= num_required_gpus
     except ImportError:
         return False
 
@@ -350,8 +350,8 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     """
 
     vram_bytes = sum(
-        torch.cuda.mem_get_info(device_id)[1]
-        for device_id in range(torch.cuda.device_count())
+        torch.accelerator.mem_get_info(device_id)[1]
+        for device_id in range(torch.accelerator.device_count())
     )
     actual_vram = vram_bytes / 1024**3
     reason = (
@@ -373,10 +373,10 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     :param major: required major compute capability version
     :param minor: required minor compute capability version (default 0)
     """
-    if not torch.cuda.is_available():
+    if not torch.accelerator.is_available():
         return pytest.mark.skip(reason="CUDA not available")
 
-    device_capability = torch.cuda.get_device_capability(0)
+    device_capability = torch.accelerator.get_device_capability(0)
     has_capability = device_capability[0] > major or (
         device_capability[0] == major and device_capability[1] >= minor
     )
