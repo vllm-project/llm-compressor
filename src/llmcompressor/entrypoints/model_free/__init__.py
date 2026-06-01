@@ -113,7 +113,7 @@ def _resolve_devices(
     device: Optional[str | torch.device | list[str | torch.device]],
 ) -> list[torch.device]:
     if device is None:
-        count = torch.cuda.device_count()
+        count = torch.accelerator.device_count()
         if count > 0:
             devices = [torch.device(f"cuda:{i}") for i in range(count)]
             logger.info(
