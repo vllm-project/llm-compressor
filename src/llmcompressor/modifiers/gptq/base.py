@@ -1,5 +1,3 @@
-from typing import Dict, Optional, Tuple, Union
-
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed

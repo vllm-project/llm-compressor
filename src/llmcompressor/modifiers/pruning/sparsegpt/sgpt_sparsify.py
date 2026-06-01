@@ -1,5 +1,4 @@
 import math
-from typing import Optional, Tuple
 
 import torch
 import transformers
@@ -53,7 +52,7 @@ def sparsify_weight(
     block_size: int,
     dampening_frac: float,
     preserve_sparsity_mask: bool,
-) -> Tuple[float, torch.Tensor]:
+) -> tuple[float, torch.Tensor]:
     """
     Run pruning on the layer up to the target sparsity value.
 
