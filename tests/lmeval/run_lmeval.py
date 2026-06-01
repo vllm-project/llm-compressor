@@ -41,9 +41,13 @@ def main():
         f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
     )
 
+    sampling_params = lmeval_config["sampling_params"]
+    gen_kwargs = ",".join([f"{k}={v}" for k, v in sampling_params.items()])
+
     results = lm_eval.simple_evaluate(
         model=lmeval_config["model"],
         model_args=model_args,
+        gen_kwargs=gen_kwargs,
         tasks=[lmeval_config["task"]],
         num_fewshot=lmeval_config["num_fewshot"],
         limit=lmeval_config["limit"],

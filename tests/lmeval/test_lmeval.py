@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import numpy
 import pytest
@@ -39,7 +39,6 @@ class LmEvalConfig(BaseModel):
     trust_remote_code: bool = False
     max_model_len: int = 2048
     higher_is_better: bool = True
-
 
 class TestConfig(BaseTestConfig):
     """
