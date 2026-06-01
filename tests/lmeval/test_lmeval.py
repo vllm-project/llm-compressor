@@ -227,6 +227,7 @@ class TestLMEval:
         env = os.environ.copy()
         venv_bin = os.path.dirname(VLLM_PYTHON_ENV)
         env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+        env["VLLM_BATCH_INVARIANT"] = "1"
         result = subprocess.Popen(
             [
                 VLLM_PYTHON_ENV,

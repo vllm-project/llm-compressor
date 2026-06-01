@@ -232,6 +232,7 @@ class TestvLLM:
                     f"""#!/bin/bash
                     export HF_HUB_OFFLINE=0
                     export VLLM_NO_USAGE_STATS=1
+                    export VLLM_BATCH_INVARIANT=1
                     {vllm_cmd}
                     """
                 )
@@ -262,6 +263,7 @@ class TestvLLM:
             env = os.environ.copy()
             venv_bin = os.path.dirname(self.vllm_env)
             env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+            env["VLLM_BATCH_INVARIANT"] = "1"
             result = subprocess.Popen(
                 [
                     self.vllm_env,
