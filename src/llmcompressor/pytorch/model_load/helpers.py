@@ -1,5 +1,3 @@
-from typing import Optional, Union
-
 import torch
 from loguru import logger
 from torch.nn import Module
@@ -13,7 +11,7 @@ __all__ = [
 ]
 
 
-def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
+def parse_dtype(dtype_arg: str | torch.dtype) -> torch.dtype:
     """
     :param dtype_arg: dtype or string to parse
     :return: torch.dtype parsed from input string
@@ -30,7 +28,7 @@ def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
     return dtype
 
 
-def get_session_model() -> Optional[Module]:
+def get_session_model() -> Module | None:
     """
     :return: pytorch module stored by the active CompressionSession,
         or None if no session is active
