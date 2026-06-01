@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Dict, Iterable, List, Optional, Tuple, TypedDict
+from typing import Iterable, TypedDict
 from weakref import ref
 
 import torch
@@ -16,7 +16,7 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
 
-MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
+MinMaxTuple = tuple[torch.Tensor, torch.Tensor]
 
 
 class QParamsDict(TypedDict, total=False):
@@ -24,7 +24,7 @@ class QParamsDict(TypedDict, total=False):
 
     scale: torch.Tensor
     zero_point: torch.Tensor
-    global_scale: Optional[torch.Tensor]
+    global_scale: torch.Tensor | None
 
 
 _msg = "Fused module has been garbage collected before its weight was observed"
@@ -41,7 +41,7 @@ class Observer(InternalModule, RegistryMixin):
     """
 
     # Dict of statistic attribute names to reduce operations for DDP synchronization
-    _act_sync_dict: Dict[str, dist.ReduceOp] = {}
+    _act_sync_dict: dict[str, dist.ReduceOp] = {}
 
     def __init__(
         self,
@@ -82,9 +82,9 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        assert (
-            self.has_statistics
-        ), "No statistics available. Call observer(value) first."
+        assert self.has_statistics, (
+            "No statistics available. Call observer(value) first."
+        )
 
         global_scale = None
 
@@ -139,7 +139,7 @@ class Observer(InternalModule, RegistryMixin):
                 if fuse_obs is not obs:
                     obs._fusions[fuse_obs] = ref(fuse_mod)
 
-    def sync_activation_stats(self) -> List[dist.Work]:
+    def sync_activation_stats(self) -> list[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.
 
             note: weight statistics don't need to be synced since weights
