@@ -4,7 +4,8 @@ model_class: Qwen3VLForConditionalGeneration
 recipe: tests/e2e/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
 dataset_id: neuralmagic/calibration
 dataset_config: LLM
-dataset_split: "train[:512]"
+dataset_split: "train"
+num_calibration_samples: 512
 lmeval:
   model: vllm-vlm
   task: chartqa
