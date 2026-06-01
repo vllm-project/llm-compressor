@@ -28,7 +28,7 @@ class LmEvalConfig(BaseModel):
     dtype: str = "bfloat16"
     task: str = "gsm8k"
     num_fewshot: int = 5
-    limit: int = 100
+    limit: int = 1000
     fewshot_as_multiturn: bool = False
     apply_chat_template: bool = False
     # Recovery testing (default): compare against base model performance
