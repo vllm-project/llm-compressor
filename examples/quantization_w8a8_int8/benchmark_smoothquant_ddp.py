@@ -115,7 +115,7 @@ def main(num_gpus: int):
     # ------------------------------------------------------------------
     # Benchmark
     # ------------------------------------------------------------------
-    torch.cuda.reset_peak_memory_stats()
+    torch.accelerator.reset_peak_memory_stats()
     start_time = time.time()
 
     oneshot(
@@ -127,7 +127,7 @@ def main(num_gpus: int):
     )
 
     elapsed = time.time() - start_time
-    peak_mem_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    peak_mem_gb = torch.accelerator.max_memory_allocated() / (1024**3)
 
     if rank == 0:
         logger.info("=" * 60)

@@ -45,8 +45,8 @@ def decompressed_linear_uncompressed_linear_models(request):
     del tokenizer
 
     gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
+    torch.accelerator.empty_cache()
+    torch.accelerator.synchronize()
 
 
 @requires_gpu

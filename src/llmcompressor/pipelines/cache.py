@@ -220,14 +220,16 @@ class IntermediatesCache:
         # separate stream from the main thread's compute stream. Without this,
         # both threads default to the null stream (stream 0) which serializes
         # all operations and prevents any overlap.
-        h2d_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+        h2d_stream = (
+            torch.accelerator.Stream() if torch.accelerator.is_available() else None
+        )
 
         def _fetch_and_record(batch_index):
             event = None
             if h2d_stream is not None:
-                with torch.cuda.stream(h2d_stream):
+                with torch.accelerator.stream(h2d_stream):
                     data = self.fetch(batch_index, input_names)
-                event = torch.cuda.Event()
+                event = torch.accelerator.Event()
                 event.record(h2d_stream)
             else:
                 data = self.fetch(batch_index, input_names)
@@ -247,7 +249,7 @@ class IntermediatesCache:
                 # Make the main CUDA stream wait for the background H2D copy
                 # before any GPU kernel consumes the prefetched tensors
                 if event is not None:
-                    torch.cuda.current_stream().wait_event(event)
+                    torch.accelerator.current_stream().wait_event(event)
                 yield current
 
     def __iter__(self) -> Generator[Any, None, None]:
