@@ -6,7 +6,7 @@ from vllm import LLM, SamplingParams
 
 def parse_args():
     """Parse JSON arguments passed via command line."""
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 5:
         msg = (
             "Usage: python script.py '<scheme>' '<llm_kwargs_json>' "
             "'<prompts_json>' '<sampling_params_json>'"
