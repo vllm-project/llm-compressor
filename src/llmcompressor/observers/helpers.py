@@ -189,7 +189,7 @@ def fuse_weight_observers(model: Module):
             if not all(hasattr(submodule, name) for name in fusion_name_group):
                 continue
             layers_to_fuse = [getattr(submodule, name) for name in fusion_name_group]
-            
+
             only_obs = True
             only_tensor_group = True
             observers_and_modules = []
@@ -204,7 +204,7 @@ def fuse_weight_observers(model: Module):
                 observers_and_modules.append((obs, layer))
             if len(observers_and_modules) == 0:
                 continue
-            
+
             start = f"Some layers in fused group: {fusion_name_group} have"
             end = ", need all fused layers to have same quantization"
             assert only_obs, f"{start} no weight observer{end}"
