@@ -21,7 +21,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 from torch import distributed as dist
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     accumulate_hessian,
@@ -206,21 +206,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
 
         # register gptq hooks
         added_hook = False
-
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-
-        for _, module in named_modules:
+        for _, module in match_named_modules(
+            state.model, self.resolved_targets, self.ignore
+        ):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
@@ -235,22 +230,20 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        parents = kwargs.get("modules", [])
+        modules = get_modules(parents)
+        observe(modules, base_name="weight")
+        self.sync_obs_act_stats(modules)
+        update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+        self.compress_modules()
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            parents = kwargs.get("modules", [])
-            modules = get_modules(parents)
-            observe(modules, base_name="weight")
-            self.sync_obs_act_stats(modules)
-            update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
-            self.compress_modules()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+        """
+        Finish calibrating by removing observers and calibration hooks
+        """
+        QuantizationMixin.end_calibration(self, state.model)
+        self.remove_hooks()  # remove gptq hooks
 
     def calibrate_module(
         self,
@@ -384,14 +377,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                         )
                     )
         wait_for_comms(pending_comms)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        """
-        Finish calibrating by removing observers and calibration hooks
-        """
-        self.ended_ = True
-        QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove gptq hooks
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

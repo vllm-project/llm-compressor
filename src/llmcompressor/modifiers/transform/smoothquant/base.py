@@ -13,7 +13,7 @@ from pydantic import ConfigDict, Field
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.transform.smoothquant.utils import (
     get_layer_mappings_from_architecture,
@@ -142,25 +142,14 @@ class SmoothQuantModifier(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         self._setup_scale_hooks()
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        self._apply_smoothing(state.model)
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self._apply_smoothing(state.model)
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-        self.remove_hooks()  # remove hooks
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+        self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

@@ -10,7 +10,7 @@ from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -25,7 +25,7 @@ class SparsityModifierBase(Modifier):
     """
 
     # modifier arguments
-    sparsity: float | list[float] | None
+    sparsity: dict | float | list[float] | None
     sparsity_profile: str | None = None
     mask_structure: str = "0:0"
     owl_m: int | None = None
@@ -139,9 +139,7 @@ class SparsityModifierBase(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
             match self.sparsity:
@@ -175,20 +173,10 @@ class SparsityModifierBase(Modifier):
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        self.compress_modules()
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.compress_modules()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
 
     def _infer_owl_layer_sparsity(

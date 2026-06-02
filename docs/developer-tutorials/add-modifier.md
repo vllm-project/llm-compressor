@@ -170,24 +170,8 @@ class WeightClampModifier(Modifier):
             )
         return True
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, event)
-
-        elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            # Clamp all target modules at the end of calibration
-            self._clamp_modules(state)
-            if not self.ended_:
-                self.on_end(state, event)
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-
-    def _clamp_modules(self, state: State):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+        # Clamp all target modules at the end of calibration
         for name, module in match_named_modules(
             state.model, self.targets, self.ignore
         ):

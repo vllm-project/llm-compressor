@@ -19,7 +19,7 @@ from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
@@ -197,9 +197,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
@@ -210,19 +208,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = kwargs.pop("modules", None)
-            self.apply_autoround(state, modules)
-            self.post_autoround_cleanup()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        modules = kwargs.pop("modules", None)
+        self.apply_autoround(state, modules)
+        self.post_autoround_cleanup()
 
     def apply_autoround(self, state, modules):
         """
