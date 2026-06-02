@@ -77,7 +77,6 @@ class Subgraph:
                     if submodule not in seen:
                         modules.append(submodule)
                         seen.add(submodule)
-            modules = set(m for module in modules for m in module.modules())
 
         return modules
 
