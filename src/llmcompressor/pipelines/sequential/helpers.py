@@ -63,10 +63,20 @@ class Subgraph:
         with append_autowrap_source_on_fail():
             return forward_fn(*args, **kwargs)
 
-    def submodules(self, model: Module, recurse: bool = False) -> set[Module]:
+    def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
         nodes = self.graph.find_nodes(op="call_module")
-        modules = set(model.get_submodule(node.target) for node in nodes)
+        modules = [model.get_submodule(node.target) for node in nodes]
+
+        # collect all modules while preserving order
+        # deterministic module order is required for downstream ddp
         if recurse:
+            direct_modules, modules = modules, []
+            seen = set()
+            for direct_module in direct_modules:
+                for submodule in direct_module.modules():
+                    if submodule not in seen:
+                        modules.append(submodule)
+                        seen.add(submodule)
             modules = set(m for module in modules for m in module.modules())
 
         return modules
