@@ -25,7 +25,7 @@ class SparsityModifierBase(Modifier):
     """
 
     # modifier arguments
-    sparsity: dict | float | list[float] | None
+    sparsity: float | list[float] | None
     sparsity_profile: str | None = None
     mask_structure: str = "0:0"
     owl_m: int | None = None
