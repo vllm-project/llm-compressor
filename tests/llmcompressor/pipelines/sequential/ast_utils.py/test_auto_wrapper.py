@@ -215,7 +215,7 @@ def test_walrus():
 
 
 def test_dynamic_ifexp():
-    """Checks that non-resolvable if expressions statements are wrapped"""
+    """Checks that non-resolvable if expressions are wrapped"""
 
     source = """
     def forward():

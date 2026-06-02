@@ -105,7 +105,7 @@ class AutoWrapper(ast.NodeTransformer):
         statement
 
         :param node: `if` statement which may be wrapped
-        :return: if the `if` statement cannot be statically evaluated, return the
+        :return: if the `if` statement can be statically evaluated, return the
             `if` statement with the condition replaced by `True` or `False`.
             Otherwise, return a wrapper function call + assignment
         """
@@ -126,10 +126,10 @@ class AutoWrapper(ast.NodeTransformer):
 
     def visit_IfExp(self, node: ast.IfExp) -> ast.IfExp | ast.Call:
         """
-        `if else` expressions are treated the same as `if` statements.
+        `if else` expressions are treated the same as `if` statements. See `visit_If`.
 
         :param node: `if else` expression which may be wrapped
-        :return: if the `if else` expression cannot be statically evaluated, return the
+        :return: if the `if else` expression can be statically evaluated, return the
             `if else` expression with the condition replaced by `True` or `False`.
             Otherwise, return a wrapper function call
         """
