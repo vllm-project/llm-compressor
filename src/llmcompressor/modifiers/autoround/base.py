@@ -116,7 +116,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
-    - on_finalize
+    - on_calibration_epoch_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -307,26 +307,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
 
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        """
-        disable the quantization observers used by the AutoRound algorithm
-
-        :param state: session state storing input model and calibration data
-        """
-        if not self.ended_:
-            self.on_end(state, None)
-
-        return True
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []

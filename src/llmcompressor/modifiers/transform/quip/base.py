@@ -44,9 +44,9 @@ class QuIPModifier(Modifier):
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
-    - on sequential epoch end
-    - on_end
-    - on_finalize
+    - on_sequential_epoch_end
+        - untie word embeddings
+        - apply transforms to model
 
     :param rotations: which rotation schemes to apply to the model. Including `"v"` will
         rotate the input side of weights, and including `"u"` will rotate the output

@@ -81,8 +81,8 @@ class SmoothQuantModifier(Modifier):
        ignore: ["model.decoder.final_layer_norm"]
      ```
 
-     :param smoothing_strength: alpha, intensity of smoothing to perform (0-1 range)
-     :param mappings: list activation layers to smooth, and which layers to
+    :param smoothing_strength: alpha, intensity of smoothing to perform (0-1 range)
+    :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
         entry is a list of layers who share the same input activation (the one to be
@@ -90,12 +90,12 @@ class SmoothQuantModifier(Modifier):
         achieve the smoothing. If regex is used, it matches layers with the largest
         overlap in module name.  If not supplied the argument will be inferred from the
         model architecture.
-     :param ignore: list of layers to ignore during smoothing.
+    :param ignore: list of layers to ignore during smoothing.
         Mappings are only skipped if all layers in the mapping are ignored.
         It should match the name of layers whose outputs are scaled to
         achieve smoothing (the second entry of the mappings list).
-     :param num_calibration_steps: number of samples to use for calibration, or None to
-     use the whole dataset
+    :param num_calibration_steps: number of samples to use for calibration, or None to
+        use the whole dataset
     :param calibration_function: optional function to use for the forward pass, or None
     to use the default tensor_module_forward
     """

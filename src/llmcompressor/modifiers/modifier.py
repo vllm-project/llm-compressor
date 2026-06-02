@@ -129,8 +129,8 @@ class Modifier(ModifierInterface, HooksMixin):
         ## calibration lifecycle ##
 
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            self.started_ = True
             self.on_calibration_epoch_start(state, event, **kwargs)
+            self.started_ = True
             return
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -138,8 +138,8 @@ class Modifier(ModifierInterface, HooksMixin):
             return
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self.ended_ = True
             self.on_calibration_epoch_end(state, event, **kwargs)
+            self.ended_ = True
             return
 
         ## training lifecycle ##
