@@ -24,6 +24,7 @@ nav:
       - key-models/qwen3.5/index.md
       - NVFP4A16 VL Example: key-models/qwen3.5/nvfp4-vl-example.md
       - NVFP4 MoE Example: key-models/qwen3.5/nvfp4-moe-example.md
+      - W8A8 MoE Example: key-models/qwen3.5/w8a8-moe-example.md
     - Qwen3.6:
       - key-models/qwen3.6/index.md
       - NVFP4 MoE Example: key-models/qwen3.6/nvfp4-moe-example.md
