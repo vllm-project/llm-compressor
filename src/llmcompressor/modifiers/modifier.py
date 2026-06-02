@@ -188,6 +188,8 @@ class Modifier(ModifierInterface, HooksMixin):
 
         return self.end is not None and current >= self.end
 
+    ## Required events ##
+
     @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -212,6 +214,18 @@ class Modifier(ModifierInterface, HooksMixin):
             False otherwise
         """
         return True
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        """
+        on_event is called whenever an event is triggered
+
+        :param state: The current state of the model
+        :param event: The event that triggered the update
+        :param kwargs: Additional arguments for updating the model
+        """
+        pass
+
+    ## Training lifecycle events ##
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
@@ -247,15 +261,7 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        """
-        on_event is called whenever an event is triggered
-
-        :param state: The current state of the model
-        :param event: The event that triggered the update
-        :param kwargs: Additional arguments for updating the model
-        """
-        pass
+    ## Calibration lifecycle events ##
 
     def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         """
