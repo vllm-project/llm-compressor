@@ -263,37 +263,6 @@ class Modifier(ModifierInterface, HooksMixin):
 
     ## Calibration lifecycle events ##
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        """
-        on_calibration_start is called at the start of a calibration epoch.
-
-        :param state: The current state of the model
-        :param event: The event that triggered the calibration epoch start
-        :param kwargs: Additional arguments for the calibration epoch start
-        """
-        pass
-
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """
-        on_sequential_epoch_end is called at the end of a sequential layer
-        calibration/training epoch.
-
-        :param state: The current state of the model
-        :param event: The event that triggered the sequential epoch end
-        :param kwargs: Additional arguments for the sequential epoch end
-        """
-        pass
-
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
-        """
-        on_calibration_end is called at the end of a calibration epoch.
-
-        :param state: The current state of the model
-        :param event: The event that triggered the calibration epoch end
-        :param kwargs: Additional arguments for the calibration epoch end
-        """
-        pass
-
     def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         """
         on_calibration_epoch_start is called at the start of a calibration epoch.
