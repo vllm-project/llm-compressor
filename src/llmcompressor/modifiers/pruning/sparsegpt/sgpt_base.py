@@ -25,7 +25,7 @@ class SparsityModifierBase(Modifier):
     """
 
     # modifier arguments
-    sparsity: dict | float | list[float] | None
+    sparsity: float | list[float] | None
     sparsity_profile: str | None = None
     mask_structure: str = "0:0"
     owl_m: int | None = None
@@ -143,8 +143,6 @@ class SparsityModifierBase(Modifier):
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
             match self.sparsity:
-                case dict():
-                    layer_sparsity = self.sparsity[layer_name]
                 case list():
                     layer_sparsity = self.sparsity[index]
                 case _:
