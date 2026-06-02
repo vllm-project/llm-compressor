@@ -1,5 +1,10 @@
 import torch
-from compressed_tensors.offload.dist_utils import is_source_process as is_src
+import torch.distributed as dist
+from compressed_tensors.distributed import (
+    greedy_bin_packing,
+    is_distributed,
+    wait_for_comms,
+)
 from compressed_tensors.quantization.utils import is_module_quantized
 
 from llmcompressor.core import Event, State
@@ -12,6 +17,8 @@ from llmcompressor.modifiers.quantization.quantization.mixin import Quantization
 from llmcompressor.observers import ACTIVATION_OBS
 
 __all__ = ["QuantizationModifier"]
+
+_WEIGHT_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point"]
 
 
 class QuantizationModifier(Modifier, QuantizationMixin):
@@ -78,11 +85,43 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     ):
         modules = [module for module in modules if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)
-        observe(modules, "weight")
-        update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
+        update_qparams(modules, ACTIVATION_OBS)
+
+        ### Not Distributed
+        if not is_distributed():
+            observe(modules, "weight")
+            update_qparams(modules, "weight")  # update offload and onload
+            return
+
+        ### Distributed
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+
+        module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
+            modules,
+            world_size,
+            item_weight_fn=lambda mod: mod.weight.numel(),
+        )
+
+        observe(rank_to_modules[rank], "weight")
+        update_qparams(rank_to_modules[rank], "weight")  # update offload and onload
+        self._broadcast_qparam_onloads(module_list, module_to_rank)
 
     def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
         QuantizationMixin.end_calibration(self, state.model)
+
+    def _broadcast_qparam_onloads(
+        self,
+        module_list: list[torch.nn.Module],
+        module_to_rank: dict[torch.nn.Module, int],
+    ):
+        pending_comms = []
+        for module in module_list:
+            for qparam_name in _WEIGHT_Q_PARAMS:
+                if (qparam := getattr(module, qparam_name, None)) is not None:
+                    dist.broadcast(qparam, src=module_to_rank[module])
+
+        wait_for_comms(pending_comms)
