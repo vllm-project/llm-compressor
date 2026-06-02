@@ -130,10 +130,10 @@ class Observer(InternalModule, RegistryMixin):
         :param observers_and_modules: list of (observer, module) tuples
         """
         pairs = list(observers_and_modules)
-        for obs, _module in pairs:
+        for obs, _ in pairs:
             for fuse_obs, fuse_mod in pairs:
-                obs._fusions[fuse_obs] = ref(fuse_mod)
-                del obs._fusions[obs] # don't fuse with itself
+                if fuse_obs is not obs:
+                    obs._fusions[fuse_obs] = ref(fuse_mod)
 
     def sync_activation_stats(self) -> List[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.
