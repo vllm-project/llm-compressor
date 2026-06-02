@@ -126,13 +126,6 @@ def post_process(
         if model_args.processor is not None:
             model_args.processor.save_pretrained(output_dir)
 
-    else:
-        logger.warning(
-            "Optimized model is not saved. To save, please provide"
-            "`output_dir` as input arg."
-            "Ex. `oneshot(..., output_dir=...)`"
-        )
-
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
         reset_session()
