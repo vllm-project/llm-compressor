@@ -82,7 +82,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         - add gptq weight calibration hooks
     - on_sequential_epoch_end
         - quantize_weight
-    - on_calibration_end
+    - on_calibration_epoch_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 

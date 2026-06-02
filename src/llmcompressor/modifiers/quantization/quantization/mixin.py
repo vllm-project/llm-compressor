@@ -63,11 +63,11 @@ class QuantizationMixin(HooksMixin):
         - Attach schemes to modules
         - Attach observers to modules
         - Disable quantization until calibration starts/finishes
-    - on_calibration_start: QuantizationMixin.start_calibration
+    - on_calibration_epoch_start: QuantizationMixin.start_calibration
         - Attach calibration hooks
         - Apply calibration status
         - Enable quantization during calibration
-    - on_calibration_end: QuantizationMixin.end_calibration
+    - on_calibration_epoch_end: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
         - Keep quantization enabled for future steps

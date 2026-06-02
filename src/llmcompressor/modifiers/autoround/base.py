@@ -131,7 +131,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
-    - on_calibration_end
+    - on_calibration_epoch_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -324,7 +324,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """

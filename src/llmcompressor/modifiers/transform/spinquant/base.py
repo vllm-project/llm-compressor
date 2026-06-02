@@ -52,7 +52,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_calibration_start
+    - on_calibration_epoch_start
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig

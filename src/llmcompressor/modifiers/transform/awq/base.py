@@ -93,7 +93,7 @@ class AWQModifier(Modifier):
     - (quantization config applied by subsequent QuantizationMixin's on_initialize)
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - on_calibration_start
+    - on_calibration_epoch_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
@@ -105,7 +105,7 @@ class AWQModifier(Modifier):
             - find best smoothing scale for each smoothing layer via grid search
             - apply best scales to model weights
             - raise error if any unused activations remain
-    - on_calibration_end
+    - on_calibration_epoch_end
         - re-run logic of sequential epoch end (in case of basic pipeline)
         - remove activation hooks
     - on_finalize
