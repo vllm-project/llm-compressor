@@ -5,6 +5,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import torch
@@ -31,6 +32,19 @@ IS_VLLM_IMAGE = False
 if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
     IS_VLLM_IMAGE = True
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+
+
+class SanityPrompt(NamedTuple):
+    prompt: str
+    expected: str
+
+
+SANITY_PROMPTS = [
+    SanityPrompt("The capital of France is", "paris"),
+    SanityPrompt("The creator of the theory of relativity was Albert", "einstein"),
+    SanityPrompt("The classic game is called rock, paper,", "scissors"),
+]
+
 EXPECTED_SAVED_FILES = [
     "config.json",
     r"^model(?:-\d{5}-of-\d{5})?\.safetensors$",
@@ -87,11 +101,6 @@ class TestvLLM:
         logger.info("========== RUNNING ==============")
         logger.info(self.config.save_dir)
 
-        self.prompts = [
-            "The capital of France is",
-            "The president of the US is",
-            "My name is",
-        ]
         self.api = HfApi()
 
     def compress_model(self, test_data_file: str):
@@ -196,7 +205,8 @@ class TestvLLM:
 
         json_scheme = json.dumps(self.config.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)
-        json_prompts = json.dumps(self.prompts)
+        prompts = [sp.prompt for sp in SANITY_PROMPTS]
+        json_prompts = json.dumps(prompts)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -271,6 +281,16 @@ class TestvLLM:
 
         error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
         assert result.returncode == 0, error_msg
+
+        if self.config.skip_sanity_check:
+            logger.info("Skipping sanity check (skip_sanity_check=true)")
+            return
+
+        stdout_lower = stdout.lower()
+        for sp in SANITY_PROMPTS:
+            assert (
+                sp.expected in stdout_lower
+            ), f"Expected '{sp.expected}' in generated output:\n{stdout}"
 
     def _check_save_dir_has_expected_files(self):
         files = os.listdir(self.config.save_dir)
