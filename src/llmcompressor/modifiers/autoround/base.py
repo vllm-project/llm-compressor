@@ -15,6 +15,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     enable_quantization,
 )
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
@@ -208,8 +209,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        modules = kwargs.pop("modules", None)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        modules = [module for module in modules if is_module_quantized(module)]
         self.apply_autoround(state, modules)
         self.post_autoround_cleanup()
 
