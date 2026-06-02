@@ -148,7 +148,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     @torch.no_grad()
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
         # untie embeddings to avoid unintended effects of `_center_embeddings`

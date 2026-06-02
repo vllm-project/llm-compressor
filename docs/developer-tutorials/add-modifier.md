@@ -200,7 +200,7 @@ class WeightClampModifier(Modifier):
             )
         return True
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         # Clamp all target modules at the end of calibration
         for name, module in match_named_modules(
             state.model, self.targets, self.ignore

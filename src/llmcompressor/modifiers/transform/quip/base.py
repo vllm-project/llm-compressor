@@ -105,7 +105,7 @@ class QuIPModifier(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
         # Untie embeddings if they will be targeted by transforms

@@ -25,7 +25,7 @@ class SparsityModifierBase(Modifier):
     """
 
     # modifier arguments
-    sparsity: float | list[float] | None
+    sparsity: dict | float | list[float] | None
     sparsity_profile: str | None = None
     mask_structure: str = "0:0"
     owl_m: int | None = None
@@ -139,7 +139,7 @@ class SparsityModifierBase(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
             match self.sparsity:
@@ -174,7 +174,7 @@ class SparsityModifierBase(Modifier):
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         self.compress_modules()
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
 
     def _infer_owl_layer_sparsity(

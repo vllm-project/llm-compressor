@@ -193,7 +193,7 @@ class AWQModifier(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         """
         Start AWQ on the given state. This runs after quantization mixin has been
         initialized (i.e. after quantization config has been applied)
@@ -247,7 +247,7 @@ class AWQModifier(Modifier):
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         self._apply_smoothing(state.model)
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks.
         No qparams are updated since this is just a transform.

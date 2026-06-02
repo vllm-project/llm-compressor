@@ -45,14 +45,14 @@ def _run_gatherer(
 
     state = _State(model)
     gatherer.on_initialize(state)
-    gatherer.on_calibration_start(state, event=None)
+    gatherer.on_calibration_epoch_start(state, event=None)
 
     model.eval()
     with torch.no_grad():
         for x in inputs:
             model(x)
 
-    gatherer.on_calibration_end(state, event=None)
+    gatherer.on_calibration_epoch_end(state, event=None)
 
 
 def _get_importance(module: nn.Module) -> torch.Tensor:

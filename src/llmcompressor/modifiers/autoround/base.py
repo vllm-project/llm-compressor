@@ -212,7 +212,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)

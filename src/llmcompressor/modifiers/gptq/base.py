@@ -205,7 +205,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
@@ -237,7 +237,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
         self.compress_modules()
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
