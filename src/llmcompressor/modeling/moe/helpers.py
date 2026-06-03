@@ -47,7 +47,6 @@ class FusedExpertsProtocol(TorchModuleProtocol):
         )
 
 
-
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
     default_args = {
         "is_concatenated": True,

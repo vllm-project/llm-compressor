@@ -3,12 +3,13 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
-
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
+with load_quantizable_moe():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
