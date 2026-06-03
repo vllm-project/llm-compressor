@@ -1,4 +1,5 @@
 import torch
+from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
 from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
 
@@ -29,6 +30,11 @@ class GraniteMoeLinearExperts(LinearExperts2D):
         # TODO: experiment with copying views, not values
         for i in range(experts.num_experts):
             self[i].weight.copy_(experts.weight[i])
+
+        # copy offloading from original
+        offload_kwargs = get_cache_init_kwargs(experts)
+        for module in self.modules():
+            offload_module(module, **offload_kwargs)
 
         return self
 

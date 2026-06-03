@@ -2,6 +2,7 @@ from abc import ABC
 from typing import Any, Callable, ClassVar
 
 import torch
+from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers import (
     PreTrainedConfig,
 )
@@ -184,6 +185,11 @@ class LinearExperts2D(torch.nn.ModuleList):
                 expert.gate_proj.bias.copy_(gate_bias)
                 expert.up_proj.bias.copy_(up_bias)
                 expert.down_proj.bias.copy_(down_bias)
+
+        # copy offloading from original
+        offload_kwargs = get_cache_init_kwargs(experts)
+        for module in self.modules():
+            offload_module(module, **offload_kwargs)
 
         return self
 
