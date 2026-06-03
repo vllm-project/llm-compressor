@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.quant_args import ActivationOrdering
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -29,7 +30,6 @@ from llmcompressor.modifiers.gptq.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.calibration import (
-    get_modules,
     observe,
     update_qparams,
 )
@@ -230,9 +230,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        parents = kwargs.get("modules", [])
-        modules = get_modules(parents)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        modules = [module for module in modules if is_module_quantized(module)]
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
