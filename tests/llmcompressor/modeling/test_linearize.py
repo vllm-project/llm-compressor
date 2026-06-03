@@ -12,6 +12,8 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4Experts,
     DeepseekV4PreTrainedModel,
 )
+from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
     Qwen3VLMoeTextConfig,
 )
@@ -54,7 +56,15 @@ def patch_deepseek_fp32_modules():
                 "model.layers.1.mlp.experts.0.gate_proj.weight",
                 "model.layers.2.mlp.experts.1.down_proj.weight",
             ],
-        )
+        ),
+        (
+            "inference-optimization/Qwen3-1.6B-A0.9B",
+            [
+                "model.layers.0.mlp.experts.2.up_proj.weight",
+                "model.layers.1.mlp.experts.0.gate_proj.weight",
+                "model.layers.2.mlp.experts.1.down_proj.weight",
+            ],
+        ),
     ],
 )
 def test_load_quantizable_moe(
@@ -123,6 +133,7 @@ class DummyModel(torch.nn.Module):
     [
         (DeepseekV4Config, DeepseekV4Experts),
         (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts),
+        (Qwen3MoeConfig, Qwen3MoeExperts),
     ],
 )
 def test_linearize_moe(config_cls, experts_cls):

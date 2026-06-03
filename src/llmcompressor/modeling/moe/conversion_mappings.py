@@ -1,6 +1,7 @@
 import torch
 from loguru import logger
 from transformers.conversion_mapping import (
+    _MODEL_TO_CONVERSION_PATTERN,
     get_checkpoint_conversion_mapping,
 )
 from transformers.core_model_loading import (
@@ -9,9 +10,13 @@ from transformers.core_model_loading import (
     WeightTransform,
 )
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 # TODO: in the future, we can potentially grep the source code for this
-ARCH_TO_EXPERTS_MODULE_CLS = {"deepseek_v4": DeepseekV4Experts}
+ARCH_TO_EXPERTS_MODULE_CLS = {
+    "deepseek_v4": DeepseekV4Experts,
+    "qwen2_moe": Qwen3MoeExperts,
+}
 
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
@@ -30,18 +35,36 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
         ],
-    )
+    ),
+    "qwen2_moe": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.gate_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+            ),
+        ],
+    ),
 }
 
 
 def _has_2d_mappings(model_type: str) -> bool:
+    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     return model_type in ARCH_TO_2D_MAPPINGS
 
 
 def _get_2d_mappings(
     model_type: str,
 ) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
-    # TODO: early exit if not moe model
+    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
