@@ -100,6 +100,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
+    clean_offload_dir: bool = True,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -108,6 +109,9 @@ def post_process(
     If the `output_dir` is not the default directory, the method resets lifecycle
     actions. The model is saved in a compressed format if specified in `model_args`.
     Additionally, the tokenizer or processor, if available, is also saved.
+
+    :param clean_offload_dir: Whether to clean up intermediate offload files after
+        saving. Defaults to True.
 
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
@@ -132,6 +136,19 @@ def post_process(
             "`output_dir` as input arg."
             "Ex. `oneshot(..., output_dir=...)`"
         )
+
+    # Clean up disk offload files if requested
+    if clean_offload_dir:
+        try:
+            from compressed_tensors.offload.cache import DiskCache
+
+            files_cleaned = DiskCache.clean_offload_dir()
+            if files_cleaned > 0:
+                logger.debug(f"Removed {files_cleaned} intermediate offload files")
+        except Exception as e:
+            logger.warning(
+                f"An error occurred when attempting to clean offload directory: {e}"
+            )
 
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
