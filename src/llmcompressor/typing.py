@@ -26,39 +26,48 @@ NamedModules = Iterable[tuple[str, torch.nn.Module]]
 
 
 class TorchModuleProtocolMeta(_ProtocolMeta):
-    def __instancecheck__(cls, obj: object) -> bool:
-        # Custom PyTorch-aware validation
-        if not isinstance(obj, torch.nn.Module):
-            return False
+    """
+    Metaclass that implements custom isinstance checks for torch.nn.Module protocols.
 
-        # Example: require registered params/modules by name
-        required_parameters = getattr(cls, "__required_parameters__", tuple())
-        required_modules = getattr(cls, "__required_modules__", tuple())
-        required_buffers = getattr(cls, "__required_buffers__", tuple())
-        validate = getattr(cls, "__validate__", lambda obj: True)
+    Subclasses must implement a __validate__ classmethod that checks if an object
+    satisfies the protocol's requirements.
+    """
 
-        return (
-            all(
-                name in obj._parameters and obj._parameters[name] is not None
-                for name in required_parameters
-            )
-            and all(
-                name in obj._modules and obj._modules[name] is not None
-                for name in required_modules
-            )
-            and all(
-                name in obj._buffers and obj._buffers[name] is not None
-                for name in required_buffers
-            )
-            and validate(obj)
-        )
+    def __instancecheck__(cls: "TorchModuleProtocol", obj: object) -> bool:
+        return isinstance(obj, torch.nn.Module) and cls.__validate__(obj)
 
 
 class TorchModuleProtocol(Protocol, metaclass=TorchModuleProtocolMeta):
     """
-    Base class for torch.nn.Module protocols with custom isinstance behavior.
+    Base protocol class for torch.nn.Module subclasses with custom isinstance behavior.
+
+    Subclasses should implement a __validate__ classmethod to define custom validation
+    logic that will be checked during isinstance() calls.
+
+    Example:
+        ```
+        class MyModuleProtocol(TorchModuleProtocol):
+            weight: torch.nn.Parameter
+
+            @classmethod
+            def __validate__(cls, obj: object) -> bool:
+                return isinstance(getattr(obj, "weight", None), torch.nn.Parameter)
+        ```
+
+    Note: While protocols cannot be recognized as torch.nn.Module subclasses at the
+    type level (they use structural typing), instances validated with isinstance()
+    are guaranteed to be torch.nn.Module instances.
     """
 
-    __required_parameters__: tuple[str, ...] = ()
-    __required_modules__: tuple[str, ...] = ()
-    __required_buffers__: tuple[str, ...] = ()
+    @classmethod
+    def __validate__(cls, obj: object) -> bool:
+        """
+        Validate that an object satisfies this protocol's requirements.
+
+        Args:
+            obj: The object to validate
+
+        Returns:
+            True if the object satisfies the protocol, False otherwise
+        """
+        return True

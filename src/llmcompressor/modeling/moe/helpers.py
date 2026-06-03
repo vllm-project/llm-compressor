@@ -34,8 +34,8 @@ class FusedExpertsProtocol(TorchModuleProtocol):
     gate_up_proj_bias: torch.nn.Parameter
     down_proj_bias: torch.nn.Parameter
 
-    @staticmethod
-    def __validate__(object: object):
+    @classmethod
+    def __validate__(cls, object: object) -> bool:
         return (
             isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
             and isinstance(getattr(object, "act_fn", None), torch.nn.Module)

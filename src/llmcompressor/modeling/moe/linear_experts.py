@@ -201,32 +201,19 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.intermediate_size = moe_config.intermediate_size
         act_fn = ACT2FN[moe_config.hidden_act]
 
-        if self.has_gate:
-            super().__init__(
-                [
-                    ExpertMLPWithGate(
-                        moe_config.hidden_dim,
-                        moe_config.intermediate_size,
-                        moe_config.use_bias,
-                        self._apply_gate,
-                        moe_config.dtype,
-                    )
-                    for _ in range(moe_config.num_experts)
-                ]
-            )
-        else:
-            super().__init__(
-                [
-                    ExpertMLPWithoutGate(
-                        moe_config.hidden_dim,
-                        moe_config.intermediate_size,
-                        moe_config.use_bias,
-                        act_fn,
-                        moe_config.dtype,
-                    )
-                    for _ in range(moe_config.num_experts)
-                ]
-            )
+        expert_cls = ExpertMLPWithGate if self.has_gate else ExpertMLPWithoutGate
+        super().__init__(
+            [
+                expert_cls(
+                    moe_config.hidden_dim,
+                    moe_config.intermediate_size,
+                    moe_config.use_bias,
+                    self._apply_gate,
+                    moe_config.dtype,
+                )
+                for _ in range(moe_config.num_experts)
+            ]
+        )
 
         self.act_fn = act_fn
         self.limit = moe_config.limit

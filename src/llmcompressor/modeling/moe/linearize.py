@@ -25,19 +25,22 @@ from .linear_experts import LinearExperts2D
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
-    with load_quantizable_moe():
-        model = AutoModelForCausalLM.from_pretrained(...)
+    Context manager for loading MoE models with linearized experts for
+    efficient calibration and quantization.
 
-    with load_compat():  # less explicitness, maybe better UX?
-        model = AutoModelForCausalLM.from_pretrained(...)
+    This context manager patches the `from_pretrained` method of the given model class
+    to automatically linearize MoE (Mixture-of-Experts) layers during model loading.
+    Linearization converts 3D expert weight tensors into 2D format, enabling more
+    efficient calibration and quantization of individual experts.
 
-    def load_compat():
-        stack = ...
-        if is_moe:
-            stack.enter_context(load_quantizable_moe)
+    Two loading pathways are supported:
+    1. Direct loading: If the model checkpoint contains 2D weights and conversion
+        mappings areregistered for the model type, weights are loaded directly in
+        linearized format.
+    2. Post-load conversion: If no conversion mappings exist, the model is loaded
+        normally and then linearized via `linearize_moe`.
 
-
-
+    :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
     original_from_pretrained = model_cls.from_pretrained
     patched_fn_called = False
@@ -89,6 +92,17 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
 
 def linearize_moe(model: PreTrainedModel):
+    """
+    Linearize a mixture-of-experts model after it has been loaded. For more
+    runtime-efficient loading, please see `load_quantizable_moe`.
+
+    Experts modules will be replaced by either two pathways:
+    1. The expert module has a registered replacement. This is required for
+    2. The expert module conforms to the standard transformers MoE format
+    (as designated by the `use_experts_implementation` decorator)
+
+    :param model: model containing MoE layers to linearize
+    """
     non_linearized_moes = get_non_linearized_moes(model)
 
     if len(non_linearized_moes) <= 0:
@@ -114,6 +128,14 @@ def linearize_moe(model: PreTrainedModel):
 def get_non_linearized_moes(
     model: torch.nn.Module,
 ) -> list[tuple[str, torch.nn.Module]]:
+    """
+    Return all modules which are recognized to be experts layers. A module is recognized
+    as an experts layer if it conforms to the `FusedExpertsProtocol` or is registered by
+    `LinearExperts2D`.
+
+    :param model: model with modules to check for experts
+    :return: list of named modules which are recognized as experts layers
+    """
     return [
         (name, module)
         for name, module in model.named_modules()
