@@ -89,37 +89,34 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
 
 def linearize_moe(model: PreTrainedModel):
-    # trigger registration
-    # TODO: cleanup
-    from .granitemoe import GraniteMoeLinearExperts  # noqa
-
-    non_linearized_moes = {
-        name: module
-        for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
-        or module.__class__ in LinearExperts2D._registry
-    }
+    non_linearized_moes = get_non_linearized_moes(model)
 
     if len(non_linearized_moes) <= 0:
-        logger.warning("TODO could not find experts to replace")
+        logger.warning(
+            "Could not find experts to linearize. If your model is an MoE model, "
+            "consider registering a linearized class"  # TODO: add docs
+        )
         return model
 
     logger.warning(
         "MoE is being linearized after loading in order to support efficient "
         "calibration of experts. However, this may be inefficient if the model "
         "checkpoint is already linearized (2D -> 3D -> 2D). If your checkpoint has 2D "
-        "experts, consider registering your own mappings. See TODO docs"
+        "experts, consider registering a load converter."  # TODO: add docs
     )
-    original_experts_cls = next(iter(non_linearized_moes.values())).__class__
-    linear_experts_cls = LinearExperts2D.create_linear_experts_cls(original_experts_cls)
-    for name, module in non_linearized_moes.items():
+
+    for name, module in non_linearized_moes:
+        linear_experts_cls = LinearExperts2D.create_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, model.config)
         model.set_submodule(name, linear_moe)
 
 
-def requires_linearize_moe(model: torch.nn.Module):
-    for module in model.modules():
-        if isinstance(module, FusedExpertsProtocol):
-            return True
-
-    return False
+def get_non_linearized_moes(
+    model: torch.nn.Module,
+) -> list[tuple[str, torch.nn.Module]]:
+    return [
+        (name, module)
+        for name, module in model.named_modules()
+        if isinstance(module, FusedExpertsProtocol)
+        or LinearExperts2D.get_registration(module.__class__) is not None
+    ]

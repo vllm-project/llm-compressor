@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 import torch
 from transformers import (
@@ -106,14 +106,22 @@ class LinearExperts2D(torch.nn.ModuleList):
     intermediate_size: int
 
     # custom model definitions
-    _registry: ClassVar[dict[type[torch.nn.Module]]] = dict()
+    _registry: ClassVar[dict[type[torch.nn.Module], type["LinearExperts2D"]]] = dict()
+
+    @classmethod
+    def get_registration(
+        cls, key: type[torch.nn.Module], default: Any = None
+    ) -> type["LinearExperts2D"]:
+        from .granitemoe import GraniteMoeLinearExperts  # noqa: F401
+
+        return cls._registry.get(key, default)
 
     @classmethod
     def create_linear_experts_cls(
         cls, experts_cls: type[FusedExpertsProtocol]
     ) -> type["LinearExperts2D"]:
-        if experts_cls in cls._registry:
-            return cls._registry[experts_cls]
+        if linear_experts_cls := cls.get_registration(experts_cls):
+            return linear_experts_cls
 
         experts_cls_args = get_use_experts_implementation_args(experts_cls)
         if experts_cls_args is None:
@@ -127,7 +135,11 @@ class LinearExperts2D(torch.nn.ModuleList):
             if experts_cls_args["has_gate"]
             else _default_apply_gate
         )
-        return type("LinearExperts2D", (cls,), experts_cls_args)
+
+        # reuse existing classes to avoid creating excessive types
+        linear_experts_cls = type("LinearExperts2D", (cls,), experts_cls_args)
+        cls._registry[experts_cls] = linear_experts_cls
+        return linear_experts_cls
 
     @classmethod
     @torch.no_grad()
