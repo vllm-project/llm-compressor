@@ -96,16 +96,18 @@ class AutoWrapper(ast.NodeTransformer):
 
         return ret
 
-    def visit_If(self, node: ast.If) -> ast.If | ast.Assign:
+    def visit_If(
+        self, node: ast.If | ast.IfExp
+    ) -> ast.If | ast.IfExp | ast.Assign | ast.Call:
         """
         Attempt to statically evaluate the condition of the `if` statement. If the
         condition can not be statically evaluated (1), then attmept to wrap the `if`
         statement
 
         :param node: `if` statement which may be wrapped
-        :return: if the `if` statement cannot be statically evaluated, return the
+        :return: if the `if` statement can be statically evaluated, return the
             `if` statement with the condition replaced by `True` or `False`.
-            Otherwise, return a wrapper function call
+            Otherwise, return a wrapper function call + assignment
         """
         try:
             value = bool(self._eval_expr(node.test))
@@ -121,6 +123,17 @@ class AutoWrapper(ast.NodeTransformer):
         else:
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
+
+    def visit_IfExp(self, node: ast.IfExp) -> ast.IfExp | ast.Call:
+        """
+        `if else` expressions are treated the same as `if` statements. See `visit_If`.
+
+        :param node: `if else` expression which may be wrapped
+        :return: if the `if else` expression can be statically evaluated, return the
+            `if else` expression with the condition replaced by `True` or `False`.
+            Otherwise, return a wrapper function call
+        """
+        return self.visit_If(node)
 
     def visit_Tuple(self, node: ast.Tuple) -> ast.Tuple | ast.Call:
         """

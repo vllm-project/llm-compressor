@@ -15,7 +15,10 @@ import yaml
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
+from tests.e2e.e2e_utils import (
+    run_model_free_ptq_for_e2e_testing,
+    run_oneshot_for_e2e_testing,
+)
 from tests.testing_utils import BaseTestConfig, cached_lm_eval_run, requires_gpu
 
 
@@ -101,9 +104,20 @@ class TestLMEval:
 
         self.config = TestConfig(**eval_config)
 
+        available_gpus = torch.accelerator.device_count()
+        if available_gpus < self.config.num_gpus:
+            pytest.skip(
+                f"Not enough GPUs: need {self.config.num_gpus}, got {available_gpus}"
+            )
+
         # Derive save_dir from the config filename so there is no dependency on scheme
         if not self.config.save_dir:
             self.config.save_dir = Path(test_data_file).stem
+
+        if self.config.entrypoint == "model_free_ptq" and self.config.scheme is None:
+            raise ValueError(
+                "Scheme must be provided when using model_free_ptq pathway"
+            )
 
         random.seed(self.config.seed)
         numpy.random.seed(self.config.seed)
@@ -150,22 +164,33 @@ class TestLMEval:
         # Give GPU time to fully release memory
         time.sleep(2)
 
-        oneshot_model, processor = run_oneshot_for_e2e_testing(
-            model=self.config.model,
-            model_class=self.config.model_class,
-            max_memory=self.config.max_memory,
-            num_calibration_samples=self.config.num_calibration_samples,
-            max_seq_length=2048,
-            scheme=self.config.scheme,
-            dataset_id=self.config.dataset_id,
-            dataset_config=self.config.dataset_config,
-            dataset_split=self.config.dataset_split,
-            recipe=self.config.recipe,
-            quant_type=self.config.quant_type,
-        )
-
-        logger.info("================= SAVING TO DISK ======================")
-        self._save_compressed_model(oneshot_model, processor)
+        match self.config.entrypoint:
+            case "model_free_ptq":
+                logger.info("================ RUNNING MODEL FREE PTQ =================")
+                run_model_free_ptq_for_e2e_testing(
+                    model_stub=self.config.model,
+                    save_directory=self.config.save_dir,
+                    scheme=self.config.scheme,
+                    ignore=self.config.ignore or [],
+                )
+            case "oneshot":
+                logger.info("================ RUNNING ONESHOT ======================")
+                run_oneshot_for_e2e_testing(
+                    model=self.config.model,
+                    model_class=self.config.model_class,
+                    max_memory=self.config.max_memory,
+                    num_calibration_samples=self.config.num_calibration_samples,
+                    max_seq_length=2048,
+                    scheme=self.config.scheme,
+                    dataset_id=self.config.dataset_id,
+                    dataset_config=self.config.dataset_config,
+                    dataset_split=self.config.dataset_split,
+                    recipe=self.config.recipe,
+                    quant_type=self.config.quant_type,
+                    num_gpus=self.config.num_gpus,
+                    save_dir=self.config.save_dir,
+                    save_compressed=True,
+                )
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
 
@@ -223,10 +248,6 @@ class TestLMEval:
 
         return json.loads(stdout.strip().splitlines()[-1])
 
-    def _save_compressed_model(self, oneshot_model, processor):
-        oneshot_model.save_pretrained(self.config.save_dir)
-        processor.save_pretrained(self.config.save_dir)
-
     def _validate_recovery(self, base_results, compressed_results):
         """Validate using recovery testing - compare against base model."""
         logger.info("=" * 80)
@@ -234,9 +255,7 @@ class TestLMEval:
         logger.info("=" * 80)
 
         # Get default threshold from config schema
-        default_threshold = self.config.lmeval.model_fields[
-            "recovery_threshold"
-        ].default
+        default_threshold = LmEvalConfig.model_fields["recovery_threshold"].default
 
         failures = []
         # Iterate over compressed metrics (what we actually got)
