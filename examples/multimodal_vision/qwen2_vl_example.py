@@ -15,8 +15,8 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, dtype="auto")
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+model = Qwen2VLForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
@@ -94,7 +94,6 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
     data_collator=data_collator,
     sequential_targets=["Qwen2VLDecoderLayer"],
 )

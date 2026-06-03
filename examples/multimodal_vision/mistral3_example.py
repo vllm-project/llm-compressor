@@ -16,8 +16,8 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
-model = Mistral3ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+model = Mistral3ForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Use a custom calibration chat template, rather than the overly-verbose default
 file_path = os.path.join(os.path.dirname(__file__), "mistral3_chat_template.json")
@@ -58,7 +58,6 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
     data_collator=data_collator,
     sequential_targets=["MistralDecoderLayer"],
 )

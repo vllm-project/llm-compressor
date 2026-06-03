@@ -7,11 +7,9 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "arcee-ai/Trinity-Large-Thinking"
 
-# Load model with trust_remote_code since afmoe is not in transformers 4.x
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, dtype="auto", trust_remote_code=True
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+# Load model
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # MoE calibration is now handled automatically by the pipeline.
 # The `CalibrationAfmoeMoE` module (from `llmcompressor.modeling.afmoe`)

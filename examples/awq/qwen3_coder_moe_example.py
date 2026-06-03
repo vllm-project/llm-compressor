@@ -10,12 +10,14 @@ MODEL_ID = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-W4A16-awq"
 
 # Configure the quantization algorithm to run.
+# NOTE: qwen3 moe gate is not a `Linear` layer, so the `mlp.gate` ignore
+# is technically not necessary, but is included in this example for clarity
 recipe = [
     AWQModifier(duo_scaling=False),
     QuantizationModifier(
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
+        ignore=["lm_head", "re:.*mlp.gate$"],
     ),
 ]
 
@@ -52,7 +54,7 @@ def get_calib_dataset(tokenizer):
 
 
 if __name__ == "__main__":
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
     ###

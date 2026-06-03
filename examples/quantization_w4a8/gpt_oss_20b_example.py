@@ -1,4 +1,3 @@
-import torch
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
@@ -20,11 +19,9 @@ def main():
     print(f"[GPT-OSS] Loading model: {MODEL_ID}")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=torch.bfloat16,
         device_map="auto",
-        trust_remote_code=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
     # ---- GPT-OSS MoE → linear experts conversion ----
     print("[GPT-OSS] Converting fused MoE experts to LinearExperts for quantization...")
@@ -70,7 +67,6 @@ def main():
         recipe=recipe,
         tokenizer=tokenizer,
         output_dir=OUTPUT_DIR,
-        trust_remote_code_model=True,
     )
     print(f"[GPT-OSS] Quantization finished. Quantized model written to: {OUTPUT_DIR}")
 

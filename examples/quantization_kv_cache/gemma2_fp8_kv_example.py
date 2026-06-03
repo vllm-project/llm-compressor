@@ -6,7 +6,7 @@ from llmcompressor import oneshot
 
 # Select model and load it.
 MODEL_ID = "google/gemma-2-9b-it"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.

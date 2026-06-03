@@ -2,13 +2,14 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.glm_moe_dsa import CalibrationGlmMoeDsaMoE  # noqa: F401
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Load the model
-model_id = "ZhipuAI/GLM-5"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+model_id = "zai-org/GLM-5.1"
+with load_quantizable_moe():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
 # The `CalibrationGlmMoeDsaMoE` modules (from `llmcompressor.modeling.glm_moe_dsa`)
@@ -57,9 +58,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 moe_ignores = [
     # Layers 0-2: Dense layers - ignore entire layers
-    "model.layers.0.*",
-    "model.layers.1.*",
-    "model.layers.2.*",
+    "re:model.layers.0.*",
+    "re:model.layers.1.*",
+    "re:model.layers.2.*",
     # Ignore the output head
     "lm_head",
 ]
