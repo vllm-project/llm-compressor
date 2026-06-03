@@ -15,6 +15,7 @@ from .deepseek_v3 import CalibrationDeepseekV3MoE  # noqa: F401
 from .glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 from .glm4_moe_lite import CalibrationGlm4MoeLiteMoE  # noqa: F401
 from .glm_moe_dsa import CalibrationGlmMoeDsaMoE  # noqa: F401
+from .hy_v3 import CalibrationHYV3MoE  # noqa: F401
 from .llama4 import SequentialLlama4TextMoe  # noqa: F401
 from .qwen3_moe import CalibrationQwen3MoeSparseMoeBlock  # noqa: F401
 from .qwen3_5_moe import CalibrationQwen3_5MoeSparseMoeBlock
