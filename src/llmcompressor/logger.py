@@ -33,6 +33,7 @@ to configure via environment variables or direct function calls.
     logger.info("This is an info message")
 """
 
+import inspect
 import os
 import sys
 from dataclasses import dataclass
@@ -40,8 +41,9 @@ from typing import Any, Dict, Optional
 
 import torch.distributed as dist
 from loguru import logger
+from tqdm import tqdm as tqdm_std
 
-__all__ = ["LoggerConfig", "configure_logger", "logger", "configure_distributed_logger"]
+__all__ = ["LoggerConfig", "configure_logger", "logger", "configure_distributed_logger", "logger_tqdm"]
 
 
 # used by `support_log_once``
@@ -161,3 +163,42 @@ def configure_distributed_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
 # invoke logger setup on import with default values enabling console logging with INFO
 # and disabling file logging
 configure_logger()
+
+
+class logger_tqdm(tqdm_std):
+    """
+    tqdm subclass that redirects all output through logger.info instead of
+    writing directly to the console.
+
+    This ensures tqdm progress bars are captured by the logging system and
+    properly integrated with log files and other logging outputs.
+    """
+
+    def display(self, msg=None, pos=None):
+        """
+        Override display method to pass all messages through logger.info.
+
+        :param msg: Message to display (auto-generated if None)
+        :param pos: Position for the progress bar (unused when logging)
+        """
+        if not self.disable:
+            if msg is None:
+                msg = self.__str__()
+
+            # Find the first frame that's neither from tqdm nor this logger module
+            depth = 0
+            this_file = __file__
+            for frame_info in inspect.stack():
+                depth += 1
+                filename = frame_info.filename
+                # Skip frames from tqdm package and this logger.py file
+                if 'tqdm' in filename or filename == this_file:
+                    continue
+                # Found user code frame
+                depth -= 1
+                break
+            else:
+                # Fallback if we can't find a good frame
+                depth = 3
+
+            logger.opt(depth=max(1, depth)).info(msg)
