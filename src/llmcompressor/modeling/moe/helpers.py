@@ -118,7 +118,13 @@ class MoEConfig:
     def from_config(cls, config: PreTrainedConfig):
         ret = cls(
             num_experts=_getattr_fallbacks(
-                config, ["num_local_experts", "moe_num_experts", "num_experts"]
+                config,
+                [
+                    "num_local_experts",
+                    "moe_num_experts",
+                    "num_experts",
+                    "n_routed_experts",
+                ],
             ),
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
@@ -129,7 +135,9 @@ class MoEConfig:
                 ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
             ),
             use_bias=_getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
-            hidden_act=_getattr_fallbacks(config, ["hidden_act", "hidden_activation"]),
+            hidden_act=_getattr_fallbacks(
+                config, ["hidden_act", "hidden_activation", "mlp_hidden_act"]
+            ),
             limit=_getattr_fallbacks(config, ["swiglu_limit"], None),
             alpha=None,
             dtype=_getattr_fallbacks(config, ["dtype"]),

@@ -13,10 +13,10 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 
 class Llama4LinearExperts(LinearExperts2D):
-    is_concatenated: False
-    is_transposed: False
-    has_bias: False
-    has_gate: True
+    is_concatenated = False
+    is_transposed = True
+    has_bias = False
+    has_gate = True
 
     def _apply_gate(self, gate_up: torch.Tensor) -> torch.Tensor:
         """Apply gated activation: act_fn(gate) * up"""
@@ -28,6 +28,10 @@ class Llama4LinearExperts(LinearExperts2D):
     def from_experts_module(cls, experts: "Llama4TextExperts", config: Llama4Config):
         config: Llama4TextConfig = config.text_config
         assert experts.num_experts == config.num_local_experts
+        experts.is_concatenated = cls.is_concatenated
+        experts.is_transposed = cls.is_transposed
+        experts.has_bias = cls.has_bias
+        experts.has_gate = cls.has_gate
 
         with skip_weights_initialize():
             self = cls(
@@ -39,15 +43,9 @@ class Llama4LinearExperts(LinearExperts2D):
             self.num_experts = experts.num_experts
 
         # Extract individual expert weights from the batched parameters
-        for i in range(experts.num_experts):
-            gate_up = experts.gate_up_proj[i]
-            gate_weight = gate_up[:, : experts.expert_dim].T
-            up_weight = gate_up[:, experts.expert_dim :].T
-            down_weight = experts.down_proj[i].T
-
-            self[i].gate_proj.weight.copy_(gate_weight)
-            self[i].up_proj.weight.copy_(up_weight)
-            self[i].down_proj.weight.copy_(down_weight)
+        for index in range(experts.num_experts):
+            expert: ExpertMLPWithGate = self[index]
+            expert.copy_from_experts_module(experts, index)
 
         # copy offloading from original
         offload_kwargs = get_cache_init_kwargs(experts)

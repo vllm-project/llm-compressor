@@ -37,6 +37,8 @@ from transformers.models.llama4.configuration_llama4 import (
     Llama4TextConfig,
 )
 from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
+from transformers.models.nemotron_h.configuration_nemotron_h import NemotronHConfig
+from transformers.models.nemotron_h.modeling_nemotron_h import NemotronHExperts
 from transformers.models.qwen3_5_moe.configuration_qwen3_5_moe import (
     Qwen3_5MoeTextConfig,
 )
@@ -53,7 +55,11 @@ from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTex
 from llmcompressor.modeling.moe.context import (
     moe_calibration_context,
 )
-from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol, MoEConfig
+from llmcompressor.modeling.moe.helpers import (
+    FusedExpertsProtocol,
+    MoEConfig,
+    _getattr_fallbacks,
+)
 from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
 from tests.testing_utils import requires_gpu
 
@@ -182,6 +188,11 @@ class DummyModel(torch.nn.Module):
         (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts, {}),
         (GptOssConfig, GptOssExperts, {}),
         (HYV3Config, HYV3Experts, {}),
+        (
+            NemotronHConfig,
+            NemotronHExperts,
+            {"hidden_size": 32, "moe_intermediate_size": 64},
+        ),
     ],
 )
 def test_linearize_moe(config_cls, experts_cls, kwargs):
@@ -189,7 +200,8 @@ def test_linearize_moe(config_cls, experts_cls, kwargs):
         config = config_cls(**kwargs)
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
-        init.normal_(experts.gate_up_proj, mean=0.0, std=config.initializer_range)
+        up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
+        init.normal_(up_proj, mean=0.0, std=config.initializer_range)
         init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
 
         mock_model = DummyModel(experts, config)

@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
@@ -20,7 +20,9 @@ from .helpers import (
 
 
 class ExpertMLP(torch.nn.Module, ABC):
-    pass
+    @abstractmethod
+    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        raise NotImplementedError()
 
 
 class ExpertMLPWithGate(ExpertMLP):
@@ -38,6 +40,7 @@ class ExpertMLPWithGate(ExpertMLP):
         dtype: torch.dtype,
     ):
         super().__init__()
+        self.intermediate_size = intermediate_size
         self.up_proj = torch.nn.Linear(
             hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
@@ -49,8 +52,33 @@ class ExpertMLPWithGate(ExpertMLP):
         )
         self._apply_gate = _apply_gate
 
+    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        # load weights
+        if not experts.is_transposed:
+            gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
+            up_weight = experts.gate_up_proj[index, self.intermediate_size :]
+            down_weight = experts.down_proj[index]
+
+        else:
+            gate_weight = experts.gate_up_proj[index, :, : self.intermediate_size].T
+            up_weight = experts.gate_up_proj[index, :, self.intermediate_size :].T
+            down_weight = experts.down_proj[index].T
+
+        self.gate_proj.weight.copy_(gate_weight)
+        self.up_proj.weight.copy_(up_weight)
+        self.down_proj.weight.copy_(down_weight)
+
+        # load biases
+        if experts.has_bias:
+            gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
+            up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
+            down_bias = experts.down_proj_bias[index]
+
+            self.gate_proj.bias.copy_(gate_bias)
+            self.up_proj.bias.copy_(up_bias)
+            self.down_proj.bias.copy_(down_bias)
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # TODO: handle is_transposed
         return self.down_proj(
             self._apply_gate(
                 torch.cat(
@@ -70,12 +98,11 @@ class ExpertMLPWithoutGate(ExpertMLP):
         hidden_dim: int,
         intermediate_size: int,
         mlp_bias: bool,
-        act_fn: torch.nn.Module | None,
+        act_fn: torch.nn.Module,
         dtype: torch.dtype,
     ):
         super().__init__()
-        assert act_fn is not None
-
+        self.intermediate_size = intermediate_size
         self.up_proj = torch.nn.Linear(
             hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
@@ -83,6 +110,27 @@ class ExpertMLPWithoutGate(ExpertMLP):
             intermediate_size, hidden_dim, bias=mlp_bias, dtype=dtype
         )
         self.act_fn = act_fn
+
+    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        # load weights
+        if not experts.is_transposed:
+            up_weight = experts.up_proj[index]
+            down_weight = experts.down_proj[index]
+
+        else:
+            up_weight = experts.up_proj[index].T
+            down_weight = experts.down_proj[index].T
+
+        self.up_proj.weight.copy_(up_weight)
+        self.down_proj.weight.copy_(down_weight)
+
+        # load biases
+        if experts.has_bias:
+            up_bias = experts.up_proj_bias[index]
+            down_bias = experts.down_proj_bias[index]
+
+            self.up_proj.bias.copy_(up_bias)
+            self.down_proj.bias.copy_(down_bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
@@ -119,7 +167,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         return cls._registry.get(key, default)
 
     @classmethod
-    def create_linear_experts_cls(
+    def get_linear_experts_cls(
         cls, experts_cls: type[FusedExpertsProtocol]
     ) -> type["LinearExperts2D"]:
         if linear_experts_cls := cls.get_registration(experts_cls):
@@ -132,10 +180,8 @@ class LinearExperts2D(torch.nn.ModuleList):
                 "the `use_experts_implementation` argument. "
             )
 
-        experts_cls_args["_apply_gate"] = (
-            experts_cls._apply_gate
-            if experts_cls_args["has_gate"]
-            else _default_apply_gate
+        experts_cls_args["_apply_gate"] = getattr(
+            experts_cls, "_apply_gate", _default_apply_gate
         )
 
         # reuse existing classes to avoid creating excessive types
@@ -148,44 +194,12 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
-        if not cls.has_gate:
-            # assume that if a `_apply_gate` is implemented, then the weight
-            # is not valid for quantization (for example, might be interleaved)
-            raise NotImplementedError(
-                f"Linearization for {experts.__class__.__name__} "
-                "has not been implemented yet"
-            )
-
         with skip_weights_initialize():
             self = cls(config)
 
         for index in range(self.num_experts):
-            expert: ExpertMLPWithGate = self[index]
-
-            # load weights
-            if not experts.is_transposed:
-                gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
-                up_weight = experts.gate_up_proj[index, self.intermediate_size :]
-                down_weight = experts.down_proj[index]
-
-            else:
-                gate_weight = experts.gate_up_proj[index, :, : self.intermediate_size].T
-                up_weight = experts.gate_up_proj[index, :, self.intermediate_size :].T
-                down_weight = experts.down_proj[index].T
-
-            expert.gate_proj.weight.copy_(gate_weight)
-            expert.up_proj.weight.copy_(up_weight)
-            expert.down_proj.weight.copy_(down_weight)
-
-            # load biases
-            if experts.has_bias:
-                gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
-                up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
-                down_bias = experts.down_proj_bias[index]
-
-                expert.gate_proj.bias.copy_(gate_bias)
-                expert.up_proj.bias.copy_(up_bias)
-                expert.down_proj.bias.copy_(down_bias)
+            expert: ExpertMLP = self[index]
+            expert.copy_from_experts_module(experts, index)
 
         # copy offloading from original
         offload_kwargs = get_cache_init_kwargs(experts)
@@ -200,16 +214,17 @@ class LinearExperts2D(torch.nn.ModuleList):
         # store num_experts before appending `act_fn` to module list
         self.num_experts = moe_config.num_experts
         self.intermediate_size = moe_config.intermediate_size
-        act_fn = ACT2FN[moe_config.hidden_act]
+        act_fn: torch.nn.Module = ACT2FN[moe_config.hidden_act]
 
         expert_cls = ExpertMLPWithGate if self.has_gate else ExpertMLPWithoutGate
+        post_up_fn = self._apply_gate if self.has_gate else act_fn.forward
         super().__init__(
             [
                 expert_cls(
                     moe_config.hidden_dim,
                     moe_config.intermediate_size,
                     moe_config.use_bias,
-                    self._apply_gate,
+                    post_up_fn,
                     moe_config.dtype,
                 )
                 for _ in range(moe_config.num_experts)

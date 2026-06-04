@@ -67,7 +67,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         # prepare to load linearized weights
         experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
-        linear_experts_2d_cls = LinearExperts2D.create_linear_experts_cls(experts_cls)
+        linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
         register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
         register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
 
@@ -123,7 +123,7 @@ def linearize_moe(model: PreTrainedModel):
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
         config = getattr(module, "config", model.config)
-        linear_experts_cls = LinearExperts2D.create_linear_experts_cls(module.__class__)
+        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
 
