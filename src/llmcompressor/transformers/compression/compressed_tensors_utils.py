@@ -74,6 +74,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
+            # Offload conversion splits tied weights (e.g. lm_head) into separate
+            # parameters; re-tie so the duplicate isn't written on save.
+            _retie_offloaded_weights(model)
+
             if is_source_process():
                 # save model structure
                 original_save_fn.__get__(model, model_class)(save_directory, **kwargs)
@@ -99,6 +103,18 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+
+
+def _retie_offloaded_weights(model: PreTrainedModel):
+    """Re-tie weights split by offload conversion so the tied head isn't saved twice.
+
+    Offloading gives the input embeddings and a tied head (e.g. ``lm_head``)
+    separate parameters, defeating transformers' save-time de-duplication.
+    ``tie_weights`` restores the shared parameter and is a no-op for untied models.
+    """
+    tie_weights = getattr(model, "tie_weights", None)
+    if callable(tie_weights):
+        tie_weights()
 
 
 @deprecated("ModelCompressor.from_pretrained_model")
