@@ -30,6 +30,8 @@ from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
 from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
 from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
 from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
+from transformers.models.hy_v3.configuration_hy_v3 import HYV3Config
+from transformers.models.hy_v3.modeling_hy_v3 import HYV3Experts
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
     Llama4TextConfig,
@@ -179,6 +181,7 @@ class DummyModel(torch.nn.Module):
         (Qwen3NextConfig, Qwen3NextExperts, {}),
         (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts, {}),
         (GptOssConfig, GptOssExperts, {}),
+        (HYV3Config, HYV3Experts, {}),
     ],
 )
 def test_linearize_moe(config_cls, experts_cls, kwargs):
