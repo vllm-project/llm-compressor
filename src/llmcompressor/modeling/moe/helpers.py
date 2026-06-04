@@ -48,6 +48,13 @@ class FusedExpertsProtocol(TorchModuleProtocol):
 
 
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
+    """
+    Get the keyword arguments to the `@use_experts_implementation` decorator which
+    wraps the class. See `transformers.integrations.moe::use_experts_implementation`.
+
+    :param experts_cls: module class which is decorated by `@use_experts_implementation`
+    :return: keyword arguments to decorator, None if the class is not decorated
+    """
     default_args = {
         "is_concatenated": True,
         "is_transposed": False,
@@ -82,17 +89,14 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
                     # Extract keyword arguments
                     for keyword in decorator.keywords:
                         if keyword.arg in args:
-                            # Evaluate the constant value
                             if isinstance(keyword.value, ast.Constant):
                                 args[keyword.arg] = keyword.value.value
-                            elif isinstance(keyword.value, (ast.Constant, ast.Name)):
-                                # Handle True/False/None
-                                if isinstance(keyword.value, ast.Constant):
-                                    args[keyword.arg] = keyword.value.value
-                                elif hasattr(keyword.value, "id"):
-                                    # Try to evaluate simple names like True, False
-                                    if keyword.value.id in ("True", "False"):
-                                        args[keyword.arg] = keyword.value.id == "True"
+                            elif isinstance(keyword.value, ast.Name):
+                                # Handle True/False as Name nodes (older Python AST)
+                                if keyword.value.id in ("True", "False"):
+                                    args[keyword.arg] = keyword.value.id == "True"
+                            else:
+                                raise ValueError(f"Invalid keyword {keyword.value}")
 
                     return args
 
