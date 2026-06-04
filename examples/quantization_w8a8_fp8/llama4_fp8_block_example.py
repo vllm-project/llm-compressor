@@ -2,19 +2,15 @@ from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
+# Load model
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-
-# Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
+with load_quantizable_moe(AutoModelForCausalLM):
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-# MoE calibration is now handled automatically by the pipeline.
-# The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)
-# will be applied during calibration to enable
-# proper expert calibration and vLLM compatibility.
-# These replace the original `Llama4TextMoe` class from
-# `transformers.models.llama4.modeling_llama4`.
+
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp8 with block size 128 via ptq

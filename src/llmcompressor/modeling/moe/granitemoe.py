@@ -3,6 +3,7 @@ from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
 from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
 
+from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -68,14 +69,16 @@ class GraniteMoeLinearExperts(LinearExperts2D):
         Returns:
             Tensor: Output tensor.
         """
-        input_list = inputs.split(expert_size, dim=0)  # [num_experts, num_tokens, D]
         output_list = []
 
         for i in range(self.num_experts):
-            expert_out = self[i](input_list[i].unsqueeze(0))[0]
+            if get_calibrate_all_experts_flag():
+                expert_out = self[i](inputs).split(expert_size, dim=0)[i]
+            else:
+                expert_out = self[i](inputs.split(expert_size, dim=0)[i])
             output_list.append(expert_out)
-        results = torch.cat(output_list, dim=0)
-        return results
+
+        return torch.cat(output_list, dim=0)
 
 
 # register in registry

@@ -7,13 +7,42 @@ from compressed_tensors.utils import patch_attr
 from safetensors import safe_open
 from transformers import AutoModelForCausalLM
 from transformers import initialization as init
+from transformers.models.afmoe.configuration_afmoe import AfmoeConfig
+from transformers.models.afmoe.modeling_afmoe import AfmoeExperts
+from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3NaiveMoe
 from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4Experts,
     DeepseekV4PreTrainedModel,
 )
+from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
+from transformers.models.gemma4.modeling_gemma4 import Gemma4TextExperts
+from transformers.models.glm4_moe.configuration_glm4_moe import Glm4MoeConfig
+from transformers.models.glm4_moe.modeling_glm4_moe import Glm4MoeNaiveMoe
+from transformers.models.glm4_moe_lite.configuration_glm4_moe_lite import (
+    Glm4MoeLiteConfig,
+)
+from transformers.models.glm4_moe_lite.modeling_glm4_moe_lite import Glm4MoeLiteNaiveMoe
+from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import GlmMoeDsaConfig
+from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaNaiveMoe
+from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
+from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
+from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
+from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
+from transformers.models.llama4.configuration_llama4 import (
+    Llama4Config,
+    Llama4TextConfig,
+)
+from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
+from transformers.models.qwen3_5_moe.configuration_qwen3_5_moe import (
+    Qwen3_5MoeTextConfig,
+)
+from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeExperts
 from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
+from transformers.models.qwen3_next.configuration_qwen3_next import Qwen3NextConfig
+from transformers.models.qwen3_next.modeling_qwen3_next import Qwen3NextExperts
 from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
     Qwen3VLMoeTextConfig,
 )
@@ -70,9 +99,6 @@ def patch_deepseek_fp32_modules():
 def test_load_quantizable_moe(
     model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
 ):
-    save_dir = tmp_path / "offload_dir"
-    os.mkdir(save_dir)
-
     input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
     model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
@@ -90,6 +116,8 @@ def test_load_quantizable_moe(
     assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < MODEL_MSE
     assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < MODEL_MSE
 
+    save_dir = tmp_path / "save_path"
+    os.mkdir(save_dir)
     model2.save_pretrained(save_dir)
     assert keys_exist(save_dir, exp_keys)
 
@@ -129,16 +157,33 @@ class DummyModel(torch.nn.Module):
 @torch.no_grad()
 @requires_gpu
 @pytest.mark.parametrize(
-    "config_cls,experts_cls",
+    "config_cls,experts_cls,kwargs",
     [
-        (DeepseekV4Config, DeepseekV4Experts),
-        (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts),
-        (Qwen3MoeConfig, Qwen3MoeExperts),
+        (AfmoeConfig, AfmoeExperts, {}),
+        (
+            DeepseekV3Config,
+            DeepseekV3NaiveMoe,
+            {"hidden_size": 512, "moe_intermediate_size": 1024},
+        ),
+        (DeepseekV4Config, DeepseekV4Experts, {}),
+        (
+            Gemma4TextConfig,
+            Gemma4TextExperts,
+            {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
+        ),
+        (Glm4MoeConfig, Glm4MoeNaiveMoe, {}),
+        (Glm4MoeLiteConfig, Glm4MoeLiteNaiveMoe, {}),
+        (GlmMoeDsaConfig, GlmMoeDsaNaiveMoe, {"hidden_size": 512}),
+        (Qwen3_5MoeTextConfig, Qwen3_5MoeExperts, {}),
+        (Qwen3MoeConfig, Qwen3MoeExperts, {}),
+        (Qwen3NextConfig, Qwen3NextExperts, {}),
+        (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts, {}),
+        (GptOssConfig, GptOssExperts, {}),
     ],
 )
-def test_linearize_moe(config_cls, experts_cls):
+def test_linearize_moe(config_cls, experts_cls, kwargs):
     with torch.device("cuda"):
-        config = config_cls()
+        config = config_cls(**kwargs)
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
         init.normal_(experts.gate_up_proj, mean=0.0, std=config.initializer_range)
@@ -146,9 +191,9 @@ def test_linearize_moe(config_cls, experts_cls):
 
         mock_model = DummyModel(experts, config)
         linearize_moe(mock_model)
+        assert mock_model.module is not experts
 
         moe_config = MoEConfig.from_config(config)
-
         hidden_states = torch.randn(
             NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
         )
@@ -162,7 +207,61 @@ def test_linearize_moe(config_cls, experts_cls):
         )
         true_outputs = experts(hidden_states, top_k_index, top_k_weights)
         outputs = mock_model(hidden_states, top_k_index, top_k_weights)
+        with moe_calibration_context():
+            calib_outputs = mock_model(hidden_states, top_k_index, top_k_weights)
 
         assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
-        print(torch.nn.functional.mse_loss(outputs, true_outputs))
         assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
+        assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
+
+
+def test_linearize_moe_granite():
+    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
+    experts = GraniteMoeParallelExperts(
+        config.num_local_experts, config.hidden_size, config.intermediate_size
+    )
+    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
+
+    mock_model = DummyModel(experts, config)
+    linearize_moe(mock_model)
+    assert mock_model.module is not experts
+
+    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
+    expert_size = [
+        (NUM_TEST_TOKENS // config.num_local_experts)
+        for _ in range(config.num_local_experts)
+    ]
+    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
+    true_outputs = experts(hidden_states, expert_size)
+    outputs = mock_model(hidden_states, expert_size)
+    with moe_calibration_context():
+        calib_outputs = mock_model(hidden_states, expert_size)
+
+    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
+    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
+    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
+
+
+def test_linearize_moe_llama4():
+    text_config = Llama4TextConfig(hidden_size=512, intermediate_size=1024)
+    config = Llama4Config(text_config=text_config)
+    experts = Llama4TextExperts(config.text_config)
+    init.normal_(experts.gate_up_proj, mean=0.0, std=text_config.initializer_range)
+    init.normal_(experts.down_proj, mean=0.0, std=text_config.initializer_range)
+
+    mock_model = DummyModel(experts, config)
+    linearize_moe(mock_model)
+    assert mock_model.module is not experts
+
+    moe_config = MoEConfig.from_config(text_config)
+    hidden_states = torch.randn(
+        NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
+    )
+    true_outputs = experts(hidden_states)
+    outputs = mock_model(hidden_states)
+    with moe_calibration_context():
+        calib_outputs = mock_model(hidden_states)
+
+    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
+    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
+    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE

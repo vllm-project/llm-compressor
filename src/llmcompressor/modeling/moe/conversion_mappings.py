@@ -1,5 +1,6 @@
 import torch
 from loguru import logger
+from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
     _MODEL_TO_CONVERSION_PATTERN,
     get_checkpoint_conversion_mapping,
@@ -11,6 +12,12 @@ from transformers.core_model_loading import (
 )
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
+
+__all__ = [
+    "has_linearize_load_mappings",
+    "get_linearize_load_mappings",
+    "set_save_conversion_mapping",
+]
 
 # TODO: in the future, we can potentially grep the source code for this
 ARCH_TO_EXPERTS_MODULE_CLS = {
@@ -56,14 +63,15 @@ ARCH_TO_2D_MAPPINGS = {
 }
 
 
-def _has_2d_mappings(model_type: str) -> bool:
+def has_linearize_load_mappings(model_type: str) -> bool:
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     return model_type in ARCH_TO_2D_MAPPINGS
 
 
-def _get_2d_mappings(
+def get_linearize_load_mappings(
     model_type: str,
 ) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
+    """ """
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
 
@@ -72,25 +80,39 @@ def _get_2d_mappings(
 
     # forwards has conversion mappings
     # backwards has no mappings (stay 2d)
-    backward_mappings = [
+    save_mappings = [
         converter
         for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    forward_mappings = backward_mappings + new_mappings
+    load_mappings = save_mappings + new_mappings
 
     # validate that no transforms occur during loading/saving
-    for converter in forward_mappings:
+    for converter in load_mappings:
         if isinstance(converter, WeightConverter):
             logger.warning(
                 "Linearized model performs a weight conversion during loading. This "
                 f"may lead to longer load times\n{converter}"
             )
-    for converter in backward_mappings:
+    for converter in save_mappings:
         if isinstance(converter, WeightConverter):
             logger.warning(
                 "Linearized model performs a weight conversion during saving. This "
                 f"may lead to longer save times\n{converter}"
             )
 
-    return experts_cls, forward_mappings, backward_mappings
+    return experts_cls, load_mappings, save_mappings
+
+
+def set_save_conversion_mapping(
+    model: PreTrainedModel, save_mappings: list[WeightTransform]
+):
+    """
+    Set the conversion mappings used when saving the model. The inverse of these
+    mappings will be applied to the model during saving via
+    `transformers.core_model_loading.py::revert_weight_conversion`.
+
+    :param model: model to override conversion mapping of
+    :param save_mappings: mappings to override with
+    """
+    model._weight_conversions = save_mappings

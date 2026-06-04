@@ -7,7 +7,7 @@ from compressed_tensors.quantization.quant_args import (
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.gpt_oss import convert_model_for_quantization_gptoss
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 
@@ -17,16 +17,12 @@ def main():
     OUTPUT_DIR = f"{BASE_NAME}-w4a8-channelwise"
 
     print(f"[GPT-OSS] Loading model: {MODEL_ID}")
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        device_map="auto",
-    )
+    with load_quantizable_moe():
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            device_map="auto",
+        )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-    # ---- GPT-OSS MoE → linear experts conversion ----
-    print("[GPT-OSS] Converting fused MoE experts to LinearExperts for quantization...")
-    convert_model_for_quantization_gptoss(model)
-    print("[GPT-OSS] Conversion completed.")
 
     # ---- Quantization config: W4A8 (int4 weights, int8 activations) ----
 

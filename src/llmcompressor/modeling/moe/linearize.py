@@ -3,13 +3,13 @@ from functools import wraps
 from typing import Type
 
 import torch
+import tqdm
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     PreTrainedModel,
-    conversion_mapping,
 )
 from transformers.conversion_mapping import (
     register_checkpoint_conversion_mapping,
@@ -18,7 +18,11 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
-from .conversion_mappings import _get_2d_mappings, _has_2d_mappings
+from .conversion_mappings import (
+    get_linearize_load_mappings,
+    has_linearize_load_mappings,
+    set_save_conversion_mapping,
+)
 from .linear_experts import LinearExperts2D
 
 
@@ -56,26 +60,24 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         # model is 3d (or otherwise doesn't have mappings)
         # fall back to post-load conversion
-        if not _has_2d_mappings(model_type):
+        if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
             linearize_moe(model)
             return model
 
         # prepare to load linearized weights
-        experts_cls, forward_mapping, backward_mapping = _get_2d_mappings(model_type)
+        experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
         linear_experts_2d_cls = LinearExperts2D.create_linear_experts_cls(experts_cls)
         register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-        register_checkpoint_conversion_mapping(
-            model_type, forward_mapping, overwrite=True
-        )
+        register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
 
         # load model
         model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
 
         # prepare for saving to be called later
         clear_patch_mapping()
-        model._conversion_mapping = backward_mapping
-        conversion_mapping._checkpoint_conversion_mapping_cache = None
+        set_save_conversion_mapping(model, save_map)
+        register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
 
         return model
 
@@ -115,13 +117,14 @@ def linearize_moe(model: PreTrainedModel):
     logger.warning(
         "MoE is being linearized after loading in order to support efficient "
         "calibration of experts. However, this may be inefficient if the model "
-        "checkpoint is already linearized (2D -> 3D -> 2D). If your checkpoint has 2D "
-        "experts, consider registering a load converter."  # TODO: add docs
+        "checkpoint is already linearized (2D -> 3D -> 2D). Consider registering "
+        "a load converter for faster load times."  # TODO: add docs
     )
 
-    for name, module in non_linearized_moes:
+    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
+        config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.create_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, model.config)
+        linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
 
 

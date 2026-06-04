@@ -38,7 +38,6 @@ class FusedExpertsProtocol(TorchModuleProtocol):
     def __validate__(cls, object: object) -> bool:
         return (
             isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
-            and isinstance(getattr(object, "act_fn", None), torch.nn.Module)
             and (
                 isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
                 or isinstance(getattr(object, "gate_up_proj", None), torch.nn.Parameter)
@@ -112,25 +111,37 @@ class MoEConfig:
     use_bias: bool
     hidden_act: str
     limit: float
+    alpha: float | None
     dtype: torch.dtype
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
-        return cls(
+        ret = cls(
             num_experts=_getattr_fallbacks(
                 config, ["num_local_experts", "moe_num_experts", "num_experts"]
             ),
-            num_experts_per_tok=_getattr_fallbacks(config, ["num_experts_per_tok"]),
+            num_experts_per_tok=_getattr_fallbacks(
+                config, ["top_k_experts", "num_experts_per_tok"]
+            ),
             hidden_dim=_getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
             intermediate_size=_getattr_fallbacks(
                 config,
                 ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
             ),
             use_bias=_getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
-            hidden_act=_getattr_fallbacks(config, ["hidden_act"]),
+            hidden_act=_getattr_fallbacks(config, ["hidden_act", "hidden_activation"]),
             limit=_getattr_fallbacks(config, ["swiglu_limit"], None),
+            alpha=None,
             dtype=_getattr_fallbacks(config, ["dtype"]),
         )
+
+        # special case: GptOssConfig has some parameters which are not marked in config
+        if config.model_type == "gpt_oss":
+            ret.use_bias = True
+            ret.limit = 7.0
+            ret.alpha = 1.702
+
+        return ret
 
 
 def _getattr_fallbacks(

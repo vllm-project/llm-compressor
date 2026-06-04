@@ -114,6 +114,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls, key: type[torch.nn.Module], default: Any = None
     ) -> type["LinearExperts2D"]:
         from .granitemoe import GraniteMoeLinearExperts  # noqa: F401
+        from .llama4 import Llama4LinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
 
@@ -158,19 +159,19 @@ class LinearExperts2D(torch.nn.ModuleList):
         with skip_weights_initialize():
             self = cls(config)
 
-        # TODO: experiment with copying views rather than data
         for index in range(self.num_experts):
             expert: ExpertMLPWithGate = self[index]
 
             # load weights
-            gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
-            up_weight = experts.gate_up_proj[index, self.intermediate_size :]
-            down_weight = experts.down_proj[index]
+            if not experts.is_transposed:
+                gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
+                up_weight = experts.gate_up_proj[index, self.intermediate_size :]
+                down_weight = experts.down_proj[index]
 
-            if experts.is_transposed:
-                gate_weight = gate_weight.T
-                up_weight = up_weight.T
-                down_weight = down_weight.T
+            else:
+                gate_weight = experts.gate_up_proj[index, :, : self.intermediate_size].T
+                up_weight = experts.gate_up_proj[index, :, self.intermediate_size :].T
+                down_weight = experts.down_proj[index].T
 
             expert.gate_proj.weight.copy_(gate_weight)
             expert.up_proj.weight.copy_(up_weight)
@@ -216,6 +217,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         )
 
         self.act_fn = act_fn
+        self.alpha = moe_config.alpha
         self.limit = moe_config.limit
 
     def forward(
