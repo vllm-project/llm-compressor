@@ -122,7 +122,11 @@ setup(
         ),
         ("tqdm>=4.66.3,<=4.67.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.11.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
-        ("transformers>=5.9.0" if BUILD_TYPE == "release" else "transformers>=5.9.0"),
+        (
+            "transformers>=5.9.0<=5.10.1"
+            if BUILD_TYPE == "release"
+            else "transformers>=5.9.0"
+        ),
         ("datasets>=4.8.4,<=4.8.5" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
             "auto-round>=0.10.2,<=0.12.3"
