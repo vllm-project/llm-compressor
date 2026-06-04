@@ -14,6 +14,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     DEFAULT_SMOOTHQUANT_MAPPINGS,
     MAPPINGS_REGISTRY,
+    MIXTRAL_SMOOTHQUANT_MAPPINGS,
     PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
@@ -274,3 +275,22 @@ def test_granite_default_mapping_regex_matches_real_module_tree():
                 f"GraniteForCausalLM: balance pattern {balance_pat!r} matched "
                 f"no modules; sample names: {module_names[:20]}"
             )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture",
+    [
+        "GptOssForCausalLM",
+        "GraniteMoeForCausalLM",
+        "GraniteMoeSharedForCausalLM",
+        "PhiMoEForCausalLM",
+    ],
+)
+def test_mixtral_style_moe_architectures_resolve(architecture):
+    """Mixtral-style MoE architectures use attention-only smoothing
+    (matches the existing MixtralForCausalLM / Qwen2-3 MoE convention)."""
+    assert architecture in MAPPINGS_REGISTRY
+    resolved = get_layer_mappings_from_architecture(architecture)
+    assert resolved is MIXTRAL_SMOOTHQUANT_MAPPINGS
+    assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS
