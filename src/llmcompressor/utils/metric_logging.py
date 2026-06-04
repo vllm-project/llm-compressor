@@ -6,7 +6,7 @@ during module compression (optimization). Supports both NVIDIA and AMD GPU monit
 """
 
 import time
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 import torch
 from compressed_tensors.offload import is_distributed
@@ -29,8 +29,8 @@ class CompressionLogger:
 
     def set_results(
         self,
-        name: Optional[str] = None,
-        loss: Optional[float] = None,
+        name: str | None = None,
+        loss: float | None = None,
     ):
         self._name = name
         self._loss = loss
