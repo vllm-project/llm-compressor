@@ -111,6 +111,7 @@ AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 # Registry of layer mappings for different architectures
 #   Add more mappings here
 MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
+    "ArceeForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
     "CohereForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,

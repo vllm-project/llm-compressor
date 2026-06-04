@@ -241,6 +241,7 @@ _example_parallel_transformer_block_mappings = [
 
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "AfmoeForCausalLM": _afmoe_mappings,
+    "ArceeForCausalLM": default_mappings,
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
