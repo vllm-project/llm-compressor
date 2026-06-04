@@ -14,6 +14,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     DEFAULT_SMOOTHQUANT_MAPPINGS,
     MAPPINGS_REGISTRY,
+    MIXTRAL_SMOOTHQUANT_MAPPINGS,
     PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
@@ -221,3 +222,22 @@ def test_get_layer_mappings_from_model_falls_back_to_static_and_default():
 
     assert get_layer_mappings_from_model(arch1) == "mapping1"
     assert get_layer_mappings_from_model(arch3) == "default_mapping"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture",
+    [
+        "GptOssForCausalLM",
+        "GraniteMoeForCausalLM",
+        "GraniteMoeSharedForCausalLM",
+        "PhiMoEForCausalLM",
+    ],
+)
+def test_mixtral_style_moe_architectures_resolve(architecture):
+    """Mixtral-style MoE architectures use attention-only smoothing
+    (matches the existing MixtralForCausalLM / Qwen2-3 MoE convention)."""
+    assert architecture in MAPPINGS_REGISTRY
+    resolved = get_layer_mappings_from_architecture(architecture)
+    assert resolved is MIXTRAL_SMOOTHQUANT_MAPPINGS
+    assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS
