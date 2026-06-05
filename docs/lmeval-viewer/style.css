@@ -1,0 +1,140 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  min-height: 100vh;
+}
+
+header {
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+header .subtitle {
+  font-size: 13px;
+  color: #8b949e;
+}
+
+.tabs {
+  display: flex;
+  padding: 0 24px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+
+.tab-btn {
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #8b949e;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-btn:hover { color: #e6edf3; }
+
+.tab-btn.active {
+  color: #58a6ff;
+  border-bottom-color: #58a6ff;
+}
+
+main {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+#status-bar {
+  font-size: 13px;
+  color: #8b949e;
+  margin-bottom: 20px;
+  min-height: 20px;
+}
+
+#summary-table-wrap {
+  margin-bottom: 32px;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th {
+  background: #161b22;
+  color: #8b949e;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid #30363d;
+  font-weight: 500;
+}
+
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #21262d;
+  color: #e6edf3;
+}
+
+tr:hover td { background: #161b22; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-pass { background: #1a4731; color: #3fb950; }
+.badge-fail { background: #4d1c1c; color: #f85149; }
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+  gap: 24px;
+}
+
+.chart-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.chart-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #f0f6fc;
+}
+
+.chart-card .chart-meta {
+  font-size: 12px;
+  color: #8b949e;
+  margin-bottom: 16px;
+}
+
+.chart-card canvas { width: 100% !important; }
+
+.empty-msg {
+  text-align: center;
+  color: #8b949e;
+  padding: 60px 0;
+  font-size: 14px;
+}

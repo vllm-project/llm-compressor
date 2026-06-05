@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LM-Eval Dashboard — llm-compressor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+  </svg>
+  <div>
+    <h1>LM-Eval Dashboard</h1>
+    <span class="subtitle">Recovery scores over time — llm-compressor nightly</span>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="configs">Text (configs)</button>
+  <button class="tab-btn" data-tab="vl_configs">Vision-Language (vl_configs)</button>
+</div>
+
+<main>
+  <div id="status-bar"></div>
+  <div id="summary-table-wrap"></div>
+  <div id="charts-grid" class="charts-grid"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
