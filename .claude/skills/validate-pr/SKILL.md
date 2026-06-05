@@ -46,23 +46,12 @@ huggingface-cli whoami
 uv --version
 ```
 
-### Step 2: Create workspace
+### Step 2: Clone and check out the PR
 
-Create a temporary workspace at `/tmp/validate-pr-<pr_number>` and `cd` into it. All subsequent work happens inside this directory.
-
-### Step 3: Copy the trusted AWQ template
-
-Before cloning the PR, copy the AWQ example from the **current repository** (the one this skill is defined in) into the workspace so the PR cannot tamper with it:
+Clone into a subdirectory of the current working directory:
 ```bash
-cp <current_repo_root>/examples/awq/llama_example.py /tmp/validate-pr-<pr_number>/llama_template.py
-```
-`<current_repo_root>` is the root of the repository that contains this skill (the directory that holds `.claude/skills/validate-pr/`).
-
-### Step 4: Clone and check out the PR
-
-```bash
-gh repo clone vllm-project/llm-compressor ./pr-repo
-cd ./pr-repo
+gh repo clone vllm-project/llm-compressor ./validate-pr-<pr_number>
+cd ./validate-pr-<pr_number>
 gh pr checkout <pr_number>
 ```
 
@@ -72,23 +61,21 @@ git diff main...HEAD --stat
 git diff main...HEAD
 ```
 
-### Step 5: Identify new AWQ mappings
+### Step 3: Identify new AWQ mappings
 
-Inspect the diff from step 4. Look for new or modified AWQ mapping files (typically under `src/llmcompressor/modifiers/transform/awq/`). If the PR contains **no new AWQ mappings**, skip to step 10 and post a comment noting that no AWQ validation was needed.
+Inspect the diff from step 2. Look for new or modified AWQ mapping files (typically under `src/llmcompressor/modifiers/transform/awq/`). If the PR contains **no new AWQ mappings**, skip to step 8 and post a comment noting that no AWQ validation was needed.
 
-### Step 6: Create test scripts
+### Step 4: Determine model IDs
 
-For each new mapping, create a test script in the workspace based on `llama_template.py` (copied in step 3). Adapt each script so that:
-- `MODEL_ID` matches the architecture the mapping targets (choose a small variant of that architecture to keep runtime reasonable).
-- The script name reflects the mapping being tested (e.g., `test_awq_<arch>.py`).
+For each new mapping, choose a model ID whose architecture matches the mapping's target architecture. Prefer small variants to keep runtime reasonable.
 
-### Step 7: Set up the virtual environment
+### Step 5: Set up the virtual environment
 
-From the workspace root (`/tmp/validate-pr-<pr_number>`), install the PR's version of llm-compressor:
+From inside `./validate-pr-<pr_number>/`:
 ```bash
 uv venv .venv
 source .venv/bin/activate
-uv pip install -e ./pr-repo
+uv pip install -e .
 ```
 
 If `ct_ref` was provided, also install that ref of compressed-tensors:
@@ -96,23 +83,24 @@ If `ct_ref` was provided, also install that ref of compressed-tensors:
 uv pip install "compressed-tensors @ git+https://github.com/vllm-project/compressed-tensors.git@<ct_ref>"
 ```
 
-### Step 8: Run test scripts on GPU
+### Step 6: Run AWQ template on GPU for each mapping
 
-Run each script using `chg` to reserve a GPU and avoid collisions:
+Copy the trusted template from this skill into the workspace, then run it once per mapping with the appropriate model ID:
 ```bash
-chg run -- .venv/bin/python ./test_awq_<arch>.py
+cp .claude/skills/validate-pr/scripts/awq_template.py ./validate-pr-<pr_number>/awq_template.py
+chg run -- .venv/bin/python ./awq_template.py --model-id <model_id>
 ```
 
-Run scripts **sequentially** (each needs a GPU). If a script fails, capture the error output and continue to the next script.
+Run each invocation **sequentially** (each needs a GPU). If a run fails, capture the error output and continue to the next mapping.
 
-### Step 9: Analyze results
+### Step 7: Analyze results
 
 For each script that completed:
 1. Parse stdout for `best_error` values reported per mapping.
 2. Track whether `best_error` improved (decreased) relative to the first iteration's value.
 3. A mapping **passes** if `best_error` improved over the first iteration.
 
-### Step 10: Post report to PR
+### Step 8: Post report to PR
 
 Build a markdown report and post it as a PR comment:
 
@@ -125,9 +113,9 @@ The report should include:
 - **Per-script results table**: script name, status (success/error), number of mappings tested, number that improved, first and final `best_error` values.
 - **Error details**: for any script that failed, include the last 50 lines of output.
 
-### Step 11: Clean up
+### Step 9: Clean up
 
 ```bash
-cd /tmp
-rm -rf /tmp/validate-pr-<pr_number>
+cd ..
+rm -rf ./validate-pr-<pr_number>
 ```
