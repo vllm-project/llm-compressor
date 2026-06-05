@@ -20,7 +20,7 @@ def main():
 
     DATASET_ID = "HuggingFaceH4/ultrachat_200k"
     DATASET_SPLIT = "train_sft"
-    NUM_CALIBRATION_SAMPLES = 128
+    NUM_CALIBRATION_SAMPLES = 8
     MAX_SEQUENCE_LENGTH = 512
 
     ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
@@ -51,6 +51,7 @@ def main():
         recipe=recipe,
         max_seq_length=MAX_SEQUENCE_LENGTH,
         num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        batch_size=8,
     )
 
     print("\n\n")
