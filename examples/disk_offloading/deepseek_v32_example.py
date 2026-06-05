@@ -1,6 +1,5 @@
 import json
 
-import torch
 from compressed_tensors.entrypoints.convert import (
     FP8BlockDequantizer,
     convert_checkpoint,
@@ -57,7 +56,7 @@ with open(f"{BFLOAT16_SAVE_DIR}/config.json", "w") as f:
 
 
 # 3) Apply oneshot to bfloat16 model
-with load_offloaded_model(), torch.no_grad():
+with load_offloaded_model():
     model = DeepseekV32ForCausalLM.from_pretrained(
         BFLOAT16_SAVE_DIR,
         dtype="auto",
