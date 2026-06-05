@@ -220,3 +220,89 @@ def test_mixtral_moe_mapping_resolves_on_real_module_tree(
                 f"{architecture}: balance pattern {balance_pat!r} matched no "
                 f"modules; sample names: {module_names[:20]}"
             )
+
+
+# Heavier end-to-end validation: load a real HF checkpoint per architecture
+# via `skip_weights_download` (config + metadata only, no weight bytes), then
+# resolve the mapping through `SmoothQuantModifier._resolve_mappings` exactly
+# as production would. Verifies the architecture string we registered matches
+# what the real checkpoint declares in `config.architectures`, and that the
+# resolver attaches a SmoothQuantMapping per decoder layer. Marked weekly so
+# CI doesn't pay the structure-allocation cost on every commit; matches the
+# `tests/llmcompressor/modeling/test_calib_*.py` precedent for MoE coverage.
+_MIXTRAL_STYLE_MOE_REAL_CHECKPOINTS = [
+    ("PhiMoEForCausalLM", "microsoft/Phi-3.5-MoE-instruct"),
+    ("GraniteMoeForCausalLM", "ibm-granite/granite-3.0-1b-a400m-base"),
+    (
+        "GraniteMoeSharedForCausalLM",
+        "ibm-research/moe-7b-1b-active-shared-experts",
+    ),
+    ("GptOssForCausalLM", "openai/gpt-oss-20b"),
+]
+
+try:
+    from tests.testing_utils import requires_cadence
+except Exception:  # pragma: no cover - import-only guard for the parametrize id
+    requires_cadence = None
+
+
+if requires_cadence is not None:
+
+    @requires_cadence("weekly")
+    @pytest.mark.parametrize(
+        "architecture,model_stub", _MIXTRAL_STYLE_MOE_REAL_CHECKPOINTS
+    )
+    def test_mixtral_moe_mapping_resolves_on_real_checkpoint(architecture, model_stub):
+        """End-to-end weekly validation: load each real checkpoint via
+        skip_weights_download (no weight bytes), confirm the HF config's
+        declared architecture matches the registry key we added, and assert
+        SmoothQuantModifier._resolve_mappings finds at least one mapping
+        per decoder layer using MIXTRAL_SMOOTHQUANT_MAPPINGS."""
+        from transformers import AutoModelForCausalLM
+
+        from llmcompressor.modifiers.transform.smoothquant import (
+            SmoothQuantModifier,
+        )
+        from llmcompressor.utils.dev import skip_weights_download
+
+        with skip_weights_download():
+            model = AutoModelForCausalLM.from_pretrained(
+                model_stub, trust_remote_code=True
+            )
+
+        # 1. The arch string we added to the registry must be the one the
+        #    real checkpoint declares.
+        declared = model.config.architectures or [model.__class__.__name__]
+        assert architecture in declared, (
+            f"registered arch {architecture!r} not in checkpoint "
+            f"{model_stub!r} config.architectures={declared!r}"
+        )
+
+        # 2. End-to-end resolution: SmoothQuantModifier walks the model and
+        #    builds a SmoothQuantMapping per matched layer. Use the public
+        #    inference path (mappings=None -> registry lookup by class name).
+        modifier = SmoothQuantModifier(mappings=None)
+        modifier.mappings = modifier._infer_mappings_from_model(model)
+        modifier.ignore = []
+        resolved = modifier._resolve_mappings(model)
+
+        # Should attach at least one SmoothQuantMapping per decoder layer.
+        n_layers = model.config.num_hidden_layers
+        assert len(resolved) >= n_layers, (
+            f"{architecture}: expected >= {n_layers} resolved mappings "
+            f"(one per decoder layer), got {len(resolved)}"
+        )
+
+        # Every resolved entry must reference the input_layernorm as smooth
+        # and the attention q/k/v_proj as balance — that's MIXTRAL_-
+        # SMOOTHQUANT_MAPPINGS' contract.
+        for m in resolved:
+            assert "input_layernorm" in m.smooth_name, (
+                f"{architecture}: resolved smooth_name {m.smooth_name!r} is "
+                "not an input_layernorm"
+            )
+            balance_set = {b.__class__.__name__ for b in m.balance_layers}
+            assert len(m.balance_layers) >= 3, (
+                f"{architecture}: expected >= 3 balance layers (q/k/v_proj), "
+                f"got {len(m.balance_layers)} ({balance_set})"
+            )
