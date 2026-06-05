@@ -63,12 +63,14 @@ class CalibrationPipeline(ABC, RegistryMixin):
                 "GPTQModifier",
                 "AWQModifier",
                 "AutoRoundModifier",
-                "IMatrixGatherer",
             ):
                 return True
             elif isinstance(modifier, QuantizationModifier):
                 config = modifier.resolve_quantization_config()
-                return config.requires_calibration_data()
+                return (
+                    config.requires_calibration_data()
+                    or modifier.requires_weight_observer_calibration_data()
+                )
             else:
                 return False
 
