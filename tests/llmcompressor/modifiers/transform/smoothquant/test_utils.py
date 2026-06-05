@@ -294,3 +294,127 @@ def test_mixtral_style_moe_architectures_resolve(architecture):
     resolved = get_layer_mappings_from_architecture(architecture)
     assert resolved is MIXTRAL_SMOOTHQUANT_MAPPINGS
     assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS
+
+
+# Per-architecture (config_cls, model_cls, tiny_config_kwargs) for the four
+# new Mixtral-style MoE entries. Tiny configs keep the meta-device model
+# small enough for a unit-test budget but preserve the layer-name shape we
+# care about (q/k/v_proj + input_layernorm + post_attention_layernorm).
+_MIXTRAL_STYLE_MOE_MODEL_SPECS = [
+    (
+        "PhiMoEForCausalLM",
+        "transformers.PhimoeConfig",
+        "transformers.PhimoeForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_experts_per_tok=2,
+            num_local_experts=4,
+            vocab_size=100,
+        ),
+    ),
+    (
+        "GraniteMoeForCausalLM",
+        "transformers.GraniteMoeConfig",
+        "transformers.GraniteMoeForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_local_experts=4,
+            num_experts_per_tok=2,
+            vocab_size=100,
+        ),
+    ),
+    (
+        "GraniteMoeSharedForCausalLM",
+        "transformers.GraniteMoeSharedConfig",
+        "transformers.GraniteMoeSharedForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_local_experts=4,
+            num_experts_per_tok=2,
+            shared_intermediate_size=64,
+            vocab_size=100,
+        ),
+    ),
+    (
+        "GptOssForCausalLM",
+        "transformers.GptOssConfig",
+        "transformers.GptOssForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_local_experts=4,
+            num_experts_per_tok=2,
+            vocab_size=100,
+        ),
+    ),
+]
+
+
+def _import_cls(dotted: str):
+    """Resolve 'transformers.Foo' to the actual class."""
+    import importlib
+
+    module_path, _, cls_name = dotted.rpartition(".")
+    return getattr(importlib.import_module(module_path), cls_name)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture,config_dotted,model_dotted,tiny_kwargs",
+    _MIXTRAL_STYLE_MOE_MODEL_SPECS,
+)
+def test_mixtral_moe_mapping_resolves_on_real_module_tree(
+    architecture, config_dotted, model_dotted, tiny_kwargs
+):
+    """Construct each MoE architecture on the meta device with a tiny
+    config and assert MIXTRAL_SMOOTHQUANT_MAPPINGS' attention regex
+    (q/k/v_proj + input_layernorm) matches at least one module per
+    decoder layer. No HF Hub downloads, no weight allocation."""
+    import re
+
+    import torch
+
+    ConfigCls = _import_cls(config_dotted)
+    ModelCls = _import_cls(model_dotted)
+
+    config = ConfigCls(**tiny_kwargs)
+    with torch.device("meta"):
+        model = ModelCls(config)
+
+    module_names = [name for name, _ in model.named_modules()]
+
+    # Each entry in MIXTRAL_SMOOTHQUANT_MAPPINGS is a (balance_layers,
+    # smooth_layers) LayerMap with `re:`-prefixed patterns. Stripping the
+    # `re:` prefix gives a regex usable directly with re.search.
+    for layer_map in MIXTRAL_SMOOTHQUANT_MAPPINGS:
+        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
+        smooth_re = re.compile(smooth_pat)
+        smooth_hits = [n for n in module_names if smooth_re.search(n)]
+        assert smooth_hits, (
+            f"{architecture}: smooth pattern {smooth_pat!r} matched no modules; "
+            f"sample names: {module_names[:20]}"
+        )
+
+        for balance_pat_raw in layer_map.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_re = re.compile(balance_pat)
+            balance_hits = [n for n in module_names if balance_re.search(n)]
+            assert balance_hits, (
+                f"{architecture}: balance pattern {balance_pat!r} matched no "
+                f"modules; sample names: {module_names[:20]}"
+            )
