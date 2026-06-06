@@ -255,6 +255,11 @@ _step3p5_mappings = [
         [
             "re:.*mlp.gate_proj$",
             "re:.*mlp.up_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        [
             "re:.*moe.gate$",
             "re:.*moe.gate_proj$",
             "re:.*moe.up_proj$",
