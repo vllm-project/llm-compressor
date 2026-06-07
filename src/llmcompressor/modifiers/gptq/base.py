@@ -174,15 +174,22 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
+                # Activation ordering is only meaningful for grouped strategies;
+                # non-grouped strategies must fall back to actorder=None so the
+                # serialized config reloads cleanly (e.g. in vLLM). This applies
+                # to every ordering value, not just GROUP -- the default STATIC
+                # (alias of WEIGHT) would otherwise be written for channel/tensor
+                # schemes and rejected on reload.
                 if (
-                    scheme.weights.actorder == ActivationOrdering.GROUP
+                    scheme.weights.actorder is not None
                     and strategy not in grouped_strategies
                 ):
-                    logger.warning(
-                        f"ActivationOrdering.GROUP is not compatible with "
-                        f"strategy={strategy}; falling back to actorder=None "
-                        f"for this scheme."
-                    )
+                    if scheme.weights.actorder == ActivationOrdering.GROUP:
+                        logger.warning(
+                            f"ActivationOrdering.GROUP is not compatible with "
+                            f"strategy={strategy}; falling back to actorder=None "
+                            f"for this scheme."
+                        )
                     scheme.weights.actorder = None
         return config
 
