@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import os
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,7 @@ from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from auto_round.utils import check_to_quantized
 from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.offload import get_execution_device, get_offloaded_device
+from compressed_tensors.offload.cache.base import OffloadCache
 from compressed_tensors.offload.module import offload_module, remove_module_offload
 from compressed_tensors.quantization import (
     QuantizationMetadata,
@@ -27,6 +29,15 @@ from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["AutoRoundModifier"]
+
+
+def _get_local_gpu_group_size() -> int:
+    return int(
+        os.environ.get(
+            "GPUS_PER_GROUP",
+            os.environ.get("GPUS_PER_RANK", "1"),
+        )
+    )
 
 
 class _LLModelWrapper(torch.nn.Module):
@@ -64,7 +75,7 @@ def suspend_offloading(model: nn.Module):
     """
     offloading_info = dict()
     for name, module in model.named_modules():
-        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+        if not isinstance(module._parameters, OffloadCache):
             continue
         offloading_info[name] = (
             get_execution_device(module),
@@ -75,7 +86,7 @@ def suspend_offloading(model: nn.Module):
     yield
 
     for name, module in model.named_modules():
-        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+        if name not in offloading_info:
             continue
         offload_module(module, *offloading_info[name])
 
@@ -273,6 +284,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
             "disable_opt_rtn": self.disable_opt_rtn,
         }
+        if torch.distributed.is_initialized():
+            gpus_per_group = _get_local_gpu_group_size()
+            if gpus_per_group > 1 and kwargs["enable_torch_compile"]:
+                logger.warning(
+                    "Disabling torch.compile for AutoRound multi-GPU group DDP "
+                    "because compiled block execution does not support "
+                    "cross-device sharding."
+                )
+                kwargs["enable_torch_compile"] = False
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
         with (
@@ -292,11 +312,23 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             decoding_layer.tuning_device = device
-            # Leave offload for LLMC to handle if `device_ids` is not set
+            # Enable auto_offload when device_ids is explicitly set OR when
+            # GPUS_PER_GROUP > 1 (set by launch_multi_gpu.sh).
+            # This lets AutoRound load-balance the block's submodules
+            # across multiple GPUs within the rank.
             auto_offload = False
-            if self.device_ids is not None:
-                # When device_ids is set, we move decoding layer to CPU first,
-                # then the submodules will be re-dispatched by AutoRound.
+            needs_multi_gpu = (
+                self.device_ids is not None or _get_local_gpu_group_size() > 1
+            )
+            if needs_multi_gpu:
+                # Let AutoRound own placement within the rank-local GPU group.
+                # The incoming block may already be split across local devices,
+                # so anchoring to first_param.device can place residual modules
+                # (e.g. norms) on local cuda:1 while hidden states begin on
+                # local cuda:0, causing cross-device forward failures.
+                device = torch.device("cuda:0")
+                # Move decoding layer to CPU first, then the submodules
+                # will be re-dispatched by AutoRound.
                 decoding_layer.to("cpu")
                 auto_offload = True
 
@@ -352,12 +384,22 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def _update_device_map_for_dp(self, ar_kwargs):
         if torch.distributed.is_initialized():
-            rank = torch.distributed.get_rank()
-            ar_kwargs["device_map"] = (
-                f"{torch.accelerator.current_accelerator().type}:{rank}"
-                if torch.accelerator.is_available()
-                else "cpu"
-            )
+            if self.device_ids is not None:
+                return  # user explicitly set device_ids, respect it
+            gpus_per_group = _get_local_gpu_group_size()
+            if gpus_per_group > 1:
+                # Multi-GPU per group: pass comma-separated local GPU indices
+                # so AutoRound can load-balance submodules across GPUs.
+                # The group size is set by the launch_multi_gpu.sh wrapper.
+                ar_kwargs["device_map"] = ",".join(
+                    str(i) for i in range(gpus_per_group)
+                )
+            else:
+                ar_kwargs["device_map"] = (
+                    f"{torch.accelerator.current_accelerator().type}:0"
+                    if torch.accelerator.is_available()
+                    else "cpu"
+                )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized

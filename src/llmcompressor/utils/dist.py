@@ -1,11 +1,17 @@
 from typing import Hashable, TypeVar
 
-from compressed_tensors.distributed import (
-    greedy_bin_packing as _greedy_bin_packing,
-)
-from compressed_tensors.distributed import (
-    wait_for_comms as _wait_for_comms,
-)
+try:
+    from compressed_tensors.distributed import (
+        greedy_bin_packing as _greedy_bin_packing,
+    )
+    from compressed_tensors.distributed import (
+        wait_for_comms as _wait_for_comms,
+    )
+except ImportError:
+    # compressed_tensors<0.16 does not have the distributed submodule
+    _greedy_bin_packing = None
+    _wait_for_comms = None
+
 from compressed_tensors.utils.helpers import deprecated
 
 T = TypeVar("T", bound=Hashable)
@@ -29,6 +35,11 @@ def greedy_bin_packing(*args, **kwargs) -> tuple[list[T], list[list[T]], dict[T,
           the list of items assigned to that bin.
         - item_to_bin: mapping from each item to its assigned bin index.
     """
+    if _greedy_bin_packing is None:
+        raise ImportError(
+            "greedy_bin_packing requires compressed-tensors>=0.16 "
+            "(distributed submodule not found)"
+        )
     return _greedy_bin_packing(*args, **kwargs)
 
 
@@ -44,4 +55,9 @@ def wait_for_comms(*args, **kwargs) -> None:
         ``async_op=True``). The list is cleared after all operations
         have completed.
     """
+    if _wait_for_comms is None:
+        raise ImportError(
+            "wait_for_comms requires compressed-tensors>=0.16 "
+            "(distributed submodule not found)"
+        )
     return _wait_for_comms(*args, **kwargs)
