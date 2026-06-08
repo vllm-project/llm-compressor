@@ -54,7 +54,7 @@ def localversion_func(version: ScmVersion) -> str:
     print(
         f"computing local version for {BUILD_TYPE} build with "
         f"{'dirty' if version.dirty else 'clean'} local repository"
-        "f{' and exact version from tag' if version.exact else ''}",
+        f"{' and exact version from tag' if version.exact else ''}",
         file=sys.stderr,
     )
 

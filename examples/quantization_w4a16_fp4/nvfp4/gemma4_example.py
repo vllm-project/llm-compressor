@@ -1,6 +1,6 @@
-# NOTE: LLM Compressor quantization with Gemma4 requires `transformers==5.8.1`
+# NOTE: LLM Compressor quantization with Gemma4 requires `transformers>=5.5.0`
 # Please install using the following command:
-#   pip install -U transformers==5.8.1
+#   pip install -U transformers>=5.5.0
 
 from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForImageTextToText, AutoProcessor
