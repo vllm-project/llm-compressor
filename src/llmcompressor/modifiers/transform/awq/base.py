@@ -1,5 +1,6 @@
 import inspect
-from typing import Iterator, Literal
+from collections.abc import Iterator
+from typing import Literal
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -153,7 +154,7 @@ class AWQModifier(Modifier):
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
-    # Dict[smooth layer name, [activation sums, activation counts]]
+    # dict[smooth layer name, [activation sums, activation counts]]
     _smooth_activation_stats: dict[str, list[torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
@@ -688,12 +689,15 @@ class AWQModifier(Modifier):
                         orig_layer_weights[balance_layer].to(_scalesview.device)
                         * _scalesview
                     )
-                    observe(balance_layer, "weight")
-                    # observe all scaled weights first to get correct global_scale
+
+                # calculate qparams
+                observe(balance_layers_to_patch, "weight")
+                update_qparams(
+                    balance_layers_to_patch, "weight", only_update_onload=True
+                )
 
                 # Q(W * s)
                 for balance_layer in balance_layers_to_patch:
-                    update_qparams(balance_layer, "weight", only_update_onload=True)
                     balance_layer.weight.data = (
                         forward_quantize(
                             balance_layer,
@@ -704,7 +708,7 @@ class AWQModifier(Modifier):
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
 
-                # W * X
+                # W_q * X
                 int_w_outputs = self._run_samples(mapping.parent)
 
                 # compute mean squared error (L2 norm)

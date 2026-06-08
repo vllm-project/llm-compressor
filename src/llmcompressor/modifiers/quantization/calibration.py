@@ -1,4 +1,6 @@
-from typing import Any, Iterable
+from collections.abc import Iterable
+from itertools import product
+from typing import Any
 
 import torch
 from compressed_tensors.quantization import (
@@ -28,7 +30,30 @@ __all__ = [
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
+    "get_modules",
 ]
+
+
+def get_modules(parents: Iterable[Module]) -> list[Module]:
+    """
+    Extract all modules from parent modules and return a deduplicated list
+    preserving iteration order.
+
+    This is critical for DDP: all ranks must process modules in the same order
+    to avoid NCCL deadlocks when collective operations (e.g., all_reduce) are
+    called during observer synchronization.
+
+    :param parents: iterable of parent modules
+    :return: deduplicated list of all modules in iteration order
+    """
+    seen = set()
+    result = []
+    for parent in parents:
+        for module in parent.modules():
+            if module not in seen:
+                seen.add(module)
+                result.append(module)
+    return result
 
 
 def initialize_observer(
@@ -93,7 +118,7 @@ def observe(
     :param base_name: substring used to fetch the observer and value to observe
     """
     if isinstance(module, Iterable):
-        for m in set(module):
+        for m in module:
             observe(m, base_name)
         return
 
@@ -106,7 +131,7 @@ def observe(
 
 def update_qparams(
     module: Module | Iterable[Module],
-    base_name: str,
+    base_name: str | Iterable[str],
     only_update_onload: bool = False,
 ):
     """
@@ -117,15 +142,18 @@ def update_qparams(
     is None and naturally skipped.
 
     :param module: torch.nn.Module with attached observer (or iterable of modules)
-    :param base_name: substring used to fetch the observer, scales, and zp
+    :param base_name: substring used to fetch the observer, scales, and zp.
+        Can be a string or iterable of strings.
     :only_update_onload: option to only update the onloaded value, useful
         when we want to do a temporary update or in DDP situations where
         we want only want one rank to update the offload+onload to avoid
         multiple writes to the offload (rest just update onload)
     """
-    if isinstance(module, Iterable):
-        for m in set(module):
-            update_qparams(m, base_name, only_update_onload)
+    if isinstance(module, Iterable) or not isinstance(base_name, str):
+        modules = [module] if not isinstance(module, Iterable) else module
+        base_names = [base_name] if isinstance(base_name, str) else base_name
+        for m, b in product(modules, base_names):
+            update_qparams(m, b, only_update_onload=only_update_onload)
         return
 
     observer = getattr(module, f"{base_name}_observer", None)

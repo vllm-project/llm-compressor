@@ -1,6 +1,7 @@
 aliveStatusCodes:
   - 0
   - 200
+  - 429 #include 429 in case we are being rate-limited
 
 ignorePatterns:
   - pattern: '.*localhost.*'

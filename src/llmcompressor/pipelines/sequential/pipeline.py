@@ -86,6 +86,13 @@ class SequentialPipeline(CalibrationPipeline):
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
 
+        # AutoRoundModifier optimizes each layer independently using its own
+        # forward passes, so quantization error should not be propagated between
+        # layers during the calibration stage
+        modifiers = session.lifecycle.recipe.modifiers
+        if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
+            dataset_args.propagate_error = False
+
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
             model, dataset_args.sequential_targets

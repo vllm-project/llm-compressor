@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from collections.abc import Iterator
+from typing import Any
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -8,9 +9,6 @@ from compressed_tensors.modeling import (
 )
 from compressed_tensors.offload.dist_utils import (
     is_distributed,
-)
-from compressed_tensors.offload.dist_utils import (
-    is_source_process as is_src,
 )
 from compressed_tensors.quantization import (
     DynamicType,
@@ -40,13 +38,12 @@ from llmcompressor.modifiers.quantization.calibration import (
     freeze_module_quantization,
     initialize_observer,
     reset_quantization_status,
-    update_qparams,
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.observers.helpers import fuse_weight_observers
+from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -126,26 +123,26 @@ class QuantizationMixin(HooksMixin):
         (e.g. vLLM) supports non-divisible dimensions. Defaults to False.
     """
 
-    config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    config_groups: dict[str, QuantizationScheme] | None = None
     # NOTE: targets is not the sole source of truth for finding all matching target
     # layers in a model. Additional information can be stored in `config_groups`
     # Use self.resolved_targets as source of truth.
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
-    ignore: List[str] = Field(default_factory=list)
-    scheme: Optional[Union[str, Dict[str, Any]]] = None
-    kv_cache_scheme: Optional[QuantizationArgs] = None
+    targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
+    ignore: list[str] = Field(default_factory=list)
+    scheme: str | dict[str, Any] | None = None
+    kv_cache_scheme: QuantizationArgs | None = None
     # Observer parameters for easy specification
-    weight_observer: Optional[str] = None
-    input_observer: Optional[str] = None
-    output_observer: Optional[str] = None
-    observer: Optional[Dict[str, str]] = None
+    weight_observer: str | None = None
+    input_observer: str | None = None
+    output_observer: str | None = None
+    observer: dict[str, str] | None = None
     bypass_divisibility_checks: bool = False
 
-    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
-    _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
+    _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _resolved_config: QuantizationConfig | None = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
-    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+    def validate_targets(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return [value]
 
@@ -153,25 +150,25 @@ class QuantizationMixin(HooksMixin):
 
     @field_validator("scheme", mode="before")
     def validate_scheme(
-        cls, value: Optional[Union[str, Dict[str, Any]]]
-    ) -> Optional[Union[str, Dict[str, Any]]]:
-        if isinstance(value, str) and not is_preset_scheme(value):
-            raise ValueError(
-                "`scheme` must either be a preset scheme name or a dictionary "
-                "of preset scheme names"
-            )
+        cls, value: str | dict[str, Any] | None
+    ) -> str | dict[str, Any] | None:
+        match value:
+            case str() if not is_preset_scheme(value):
+                raise ValueError(
+                    "`scheme` must either be a preset scheme name or a dictionary "
+                    "of preset scheme names"
+                )
+            case dict():
+                for scheme_name in value.keys():
+                    cls.validate_scheme(scheme_name)
 
-        if isinstance(value, dict):
-            for scheme_name in value.keys():
-                cls.validate_scheme(scheme_name)
-
-            for key, target in value.items():
-                value[key] = cls.validate_targets(target)
+                for key, target in value.items():
+                    value[key] = cls.validate_targets(target)
 
         return value
 
     @field_validator("observer", mode="before")
-    def validate_observer(cls, value: Any) -> Optional[Dict[str, str]]:
+    def validate_observer(cls, value: Any) -> dict[str, str] | None:
         """
         Validate observer dictionary format. Accepts keys: 'weights', 'input', 'output'
         """
@@ -203,7 +200,7 @@ class QuantizationMixin(HooksMixin):
         return self._resolved_config
 
     @property
-    def resolved_targets(self) -> Set[str]:
+    def resolved_targets(self) -> set[str]:
         """
         Set of all resolved targets, i.e. all unique targets listed
         in resolved quantization config.
@@ -272,18 +269,7 @@ class QuantizationMixin(HooksMixin):
 
         model.apply(enable_quantization)  # keep quantization enabled
 
-    def update_activation_qparams(self, model: torch.nn.Module):
-        """
-        Compute and store quantization parameters for all activation observers
-        (input, output, q, k, v) from accumulated statistics.
-
-        :param model: model containing quantized modules
-        """
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            for base_name in ("input", "output", "q", "k", "v"):
-                update_qparams(module, base_name, only_update_onload=not is_src())
-
-    def sync_obs_act_stats(self, model: torch.nn.Module):
+    def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
         Synchronize the activation statistics for observers
         across DDP ranks. Iterates all observers
@@ -292,18 +278,19 @@ class QuantizationMixin(HooksMixin):
         most weight observers don't have activation
         statistics and thus are no-ops as well.
 
-        :param model: model containing quantized modules
+        :param modules: iterable of modules to sync (e.g., from a sequential chunk)
         """
         if not is_distributed():
             return
 
         pending_comms = []
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            for base_name in ("weight", "input", "output", "q", "k", "v"):
+        synced_obs = {None}  # ignore None observers
+        for module in modules:
+            for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)
-                if observer is None:
-                    continue
-                pending_comms.extend(observer.sync_activation_stats())
+                if observer not in synced_obs:
+                    synced_obs.add(observer)
+                    pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
 
     def has_config(self) -> bool:
@@ -453,7 +440,7 @@ class QuantizationMixin(HooksMixin):
         if output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
+    def _initialize_hooks(self, module: torch.nn.Module) -> set[RemovableHandle]:
         hooks = set()
         if not hasattr(module, "quantization_scheme"):
             return hooks
