@@ -14,11 +14,23 @@ from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
 
 try:
-    # Transformers < v5 support
     from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
 except ImportError:
-    # Transformers v5 support
-    from transformers.initialization import TORCH_INIT_FUNCTIONS
+    try:
+        from transformers.initialization import TORCH_INIT_FUNCTIONS
+    except ImportError:
+        # Transformers >= 5.x removed TORCH_INIT_FUNCTIONS entirely.
+        # Rebuild from torch.nn.init — these are the init functions that
+        # skip_weights_initialize() needs to patch to no-ops.
+        import torch
+
+        TORCH_INIT_FUNCTIONS = {
+            name: getattr(torch.nn.init, name)
+            for name in dir(torch.nn.init)
+            if callable(getattr(torch.nn.init, name))
+            and name.endswith("_")
+            and not name.startswith("__")
+        }
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 
 __all__ = [
