@@ -140,7 +140,14 @@ class DatasetArguments(CustomDatasetArguments):
     )
     splits: None | str | list[str] | dict[str, str] = field(
         default=None,
-        metadata={"help": "Optional percentages of each split to download"},
+        metadata={
+            "help": (
+                "Optional dataset split selector. Passing a string like 'train' or "
+                "'train[:50%]' is strongly recommended. Legacy dict input is "
+                "deprecated and only supported for calibration compatibility "
+                "(for example: {'calibration': 'train[:50%]'})."
+            )
+        },
     )
     num_calibration_samples: int | None = field(
         default=512,
