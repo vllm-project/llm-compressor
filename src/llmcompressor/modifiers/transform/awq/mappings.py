@@ -191,6 +191,25 @@ _exaone4_mappings = [
     ),
 ]
 
+# Arcee uses an un-gated MLP: down_proj(act_fn(up_proj(x))) — no gate_proj.
+# Drop the gate_proj target from the post_attention_layernorm mapping;
+# otherwise identical to default_mappings.
+_arcee_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 # AFMOE uses dual normalization: pre_mlp_layernorm feeds the MLP
 # (not post_attention_layernorm) and attention has its own gate_proj
 # for gating mechanism
@@ -241,7 +260,7 @@ _example_parallel_transformer_block_mappings = [
 
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "AfmoeForCausalLM": _afmoe_mappings,
-    "ArceeForCausalLM": default_mappings,
+    "ArceeForCausalLM": _arcee_mappings,
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
