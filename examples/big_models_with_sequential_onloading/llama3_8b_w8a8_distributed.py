@@ -5,13 +5,14 @@
 #############################################################################
 
 import torch
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import hf_load_context
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
@@ -23,7 +24,7 @@ MAX_SEQUENCE_LENGTH = 2048
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with load_offloaded_model():
+with hf_load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
 ##################################
 
