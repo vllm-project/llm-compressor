@@ -26,6 +26,7 @@ quality:
 	@echo "Running python quality checks";
 	ruff check $(CHECKDIRS);
 	ruff format --check $(CHECKDIRS);
+	python tools/lint_cuda.py $(CHECKDIRS);
 
 # style the code according to accepted standards for the repo
 # Note: We run `ruff format` twice. Once to fix long lines before lint check
@@ -35,6 +36,7 @@ style:
 	ruff format $(CHECKDIRS); 
 	ruff check --fix $(CHECKDIRS);
 	ruff format --silent $(CHECKDIRS); 
+	python tools/lint_cuda.py $(CHECKDIRS) --fix
 
 # run tests for the repo
 test:

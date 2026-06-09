@@ -10,7 +10,7 @@ from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
 @pytest.fixture
 def model():
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = "cuda:0" if torch.accelerator.is_available() else "cpu"
     return AutoModelForCausalLM.from_pretrained(
         "nm-testing/tinysmokellama-3.2", device_map=device
     )
@@ -42,7 +42,7 @@ def test_lm_head(extra_targets, expected, model, dataloader):
         ]
         + extra_targets,
     }
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = "cuda:0" if torch.accelerator.is_available() else "cpu"
 
     modifier = SparseGPTModifier(**kwargs)
 

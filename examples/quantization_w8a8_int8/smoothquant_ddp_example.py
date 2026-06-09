@@ -93,7 +93,7 @@ recipe = [
 # ---------------------------------------------------------------------------
 # Run oneshot
 # ---------------------------------------------------------------------------
-torch.cuda.reset_peak_memory_stats()
+torch.accelerator.reset_peak_memory_stats()
 start_time = time.time()
 
 oneshot(
@@ -105,7 +105,7 @@ oneshot(
 )
 
 elapsed = time.time() - start_time
-peak_mem_gb = torch.cuda.max_memory_allocated() / (1024**3)
+peak_mem_gb = torch.accelerator.max_memory_allocated() / (1024**3)
 
 rank = dist.get_rank()
 logger.info(
