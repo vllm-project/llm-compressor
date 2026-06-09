@@ -27,7 +27,7 @@ def setup_model_and_config(tmp_path):
         "model": model,
         "dataset": "ultrachat-200k",
         "output_dir": str(tmp_path / "compressed_output"),
-        "splits": {"calibration": "train_gen[:10]"},
+        "splits": "train_gen[:10]",
         "max_seq_length": 2048,
         "pad_to_max_length": False,
         "num_calibration_samples": 8,
