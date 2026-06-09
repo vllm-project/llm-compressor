@@ -23,7 +23,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 MODEL_ID = "Qwen/Qwen3.5-27B"
-model = Qwen3_5ForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+model = Qwen3_5ForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 ```
 

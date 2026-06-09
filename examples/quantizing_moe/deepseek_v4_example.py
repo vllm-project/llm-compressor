@@ -22,10 +22,7 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 
 with load_quantizable_moe():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        device_map="cpu",
-    )
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="cpu")
 
 # kluge for the way I saved the decompressed checkpoint
 # mds = model.model.layers[-1].self_attn.wq_a._hf_hook.weights_map.dataset.index

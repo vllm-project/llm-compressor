@@ -9,11 +9,10 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 
 class GraniteMoeLinearExperts(LinearExperts2D):
-    is_concatenated: False
-    is_transposed: False
-    has_bias: False
-    has_gate: False
-    _apply_gate: lambda x: x
+    is_concatenated = False
+    is_transposed = False
+    has_bias = False
+    has_gate = False
 
     @classmethod
     @torch.no_grad()
