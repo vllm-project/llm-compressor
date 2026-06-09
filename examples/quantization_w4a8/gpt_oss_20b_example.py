@@ -7,8 +7,8 @@ from compressed_tensors.quantization.quant_args import (
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import hf_load_context
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     OUTPUT_DIR = f"{BASE_NAME}-w4a8-channelwise"
 
     print(f"[GPT-OSS] Loading model: {MODEL_ID}")
-    with load_quantizable_moe():
+    with hf_load_context():
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             device_map="auto",

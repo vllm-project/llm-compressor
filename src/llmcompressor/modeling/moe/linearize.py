@@ -108,10 +108,6 @@ def linearize_moe(model: PreTrainedModel):
     non_linearized_moes = get_non_linearized_moes(model)
 
     if len(non_linearized_moes) <= 0:
-        logger.warning(
-            "Could not find experts to linearize. If your model is an MoE model, "
-            "consider registering a linearized class"  # TODO: add docs
-        )
         return model
 
     logger.warning(

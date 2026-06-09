@@ -3,13 +3,13 @@
 from transformers import AutoProcessor, Gemma4ForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import hf_load_context
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
 
 # Load model.
-with load_quantizable_moe(Gemma4ForConditionalGeneration):
+with hf_load_context(Gemma4ForConditionalGeneration):
     model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 

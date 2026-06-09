@@ -3,12 +3,12 @@ from compressed_tensors.offload import dispatch_model
 from transformers import AutoProcessor, Llama4ForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.autoround import AutoRoundModifier
+from llmcompressor.utils.dev import hf_load_context
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-with load_quantizable_moe(Llama4ForConditionalGeneration):
+with hf_load_context(Llama4ForConditionalGeneration):
     model = Llama4ForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 

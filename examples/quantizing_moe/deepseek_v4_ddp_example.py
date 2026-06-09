@@ -1,3 +1,4 @@
+import torch
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
@@ -10,6 +11,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils.dev import hf_load_context
 
@@ -19,10 +21,19 @@ from llmcompressor.utils.dev import hf_load_context
 DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 
 # Select model and load it.
-MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
+MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/DeepSeek-V4-Pro-BF16"
+# MODEL_ID = "deepseek-ai/DeepSeek-V4-Pro"
 
+# init_dist()
 with hf_load_context():
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="cpu")
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        device_map="auto_offload",
+        max_memory={"cpu": 10e10},  # remove this line to use as much cpu as possible
+        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder",
+    )
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+print("Loaded model")
 
 # kluge for the way I saved the decompressed checkpoint
 # mds = model.model.layers[-1].self_attn.wq_a._hf_hook.weights_map.dataset.index
@@ -30,7 +41,6 @@ with hf_load_context():
 # mds["model.hc_head.fn"] = mds['model.hc_head.hc_fn']
 # mds["model.hc_head.scale"] = mds['model.hc_head.hc_scale']
 
-tokenizer = AutoTokenizer.from_pretrained("RedHatAI/DeepSeek-V4-Flash-BF16")
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -42,9 +52,12 @@ NUM_CALIBRATION_SAMPLES = 64  # 1024
 MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
+# ds = load_dataset(
+#     DATASET_ID,
+#     split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
+# )
 ds = load_dataset(
-    DATASET_ID,
-    split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
+    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
 )
 ds = ds.shuffle(seed=42)
 
@@ -99,7 +112,6 @@ recipe = QuantizationModifier(
         "attention": QuantizationScheme(
             targets=[
                 r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
-                r"re:.*attn\.compressor\.indexer\.q_b_proj$",
             ],
             **FP8_BLOCK,
         ),
@@ -133,3 +145,5 @@ oneshot(
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
+
+torch.distributed.destroy_process_group()
