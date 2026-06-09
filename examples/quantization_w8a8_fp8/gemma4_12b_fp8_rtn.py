@@ -63,7 +63,8 @@ ds = ds.map(preprocess_function, batched=False, remove_columns=ds.column_names)
 
 
 def data_collator(batch):
-    assert len(batch) == 1
+    if len(batch) != 1:
+        raise ValueError(f"Expected batch size 1, got {len(batch)}")
     return {
         key: (
             torch.tensor(value)
