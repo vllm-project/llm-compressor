@@ -123,6 +123,10 @@ class BaseTestConfig(BaseModel):
     test_group : str | None
         Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
         Allows selective test execution based on environment or requirements.
+    sampling_params : dict | None
+        vLLM sampling parameters (e.g., temperature, top_p, top_k, max_tokens).
+        Defaults to {'temperature': 0.0} for deterministic output if not specified.
+        See https://docs.vllm.ai/en/v0.4.1/dev/sampling_params.html
 
     Example YAML configurations
     ----------------------------
@@ -288,6 +292,14 @@ class BaseTestConfig(BaseModel):
     skip_sanity_check: bool = Field(
         False,
         description="Skip the sanity check that verifies vLLM generates coherent text",
+    )
+    sampling_params: dict = Field(
+        default_factory=lambda: {"temperature": 0.0},
+        description=(
+            "vLLM sampling parameters (e.g., temperature, top_p, top_k, max_tokens). "
+            "Defaults to {'temperature': 0.0} for deterministic output. "
+            "See https://docs.vllm.ai/en/v0.4.1/dev/sampling_params.html"
+        ),
     )
 
     @model_validator(mode="after")
