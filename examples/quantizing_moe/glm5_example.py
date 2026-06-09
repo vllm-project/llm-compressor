@@ -4,11 +4,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 # Load the model
 model_id = "zai-org/GLM-5.1"
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.

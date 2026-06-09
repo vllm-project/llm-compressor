@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 MODEL_ID = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-W4A16-awq"
@@ -55,7 +55,7 @@ def get_calib_dataset(tokenizer):
 
 
 if __name__ == "__main__":
-    with hf_load_context():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

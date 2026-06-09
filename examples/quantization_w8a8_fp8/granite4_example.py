@@ -3,13 +3,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 """Please see details in `README_granite4.md`."""
 
 # Load model.
 model_id = "ibm-granite/granite-4.0-tiny-preview"
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 

@@ -11,7 +11,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 # Upstream BUG: norms should be loaded in float32, but usually aren't due to the base
 # model having a quant_config which overrides this. Loading in float32 actually
@@ -21,7 +21,7 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 # Select model and load it.
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="cpu")
 
 # kluge for the way I saved the decompressed checkpoint

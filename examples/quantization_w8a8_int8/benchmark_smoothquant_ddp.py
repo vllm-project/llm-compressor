@@ -25,7 +25,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 # ---------------------------------------------------------------------------
 # Config
@@ -57,7 +57,7 @@ def main(num_gpus: int):
     # ------------------------------------------------------------------
     if is_distributed:
         init_dist()
-        with hf_load_context():
+        with load_context():
             model = AutoModelForCausalLM.from_pretrained(
                 MODEL_ID,
                 device_map="auto_offload",

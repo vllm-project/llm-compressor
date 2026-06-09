@@ -8,12 +8,12 @@ from transformers import AutoProcessor, Gemma4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
 
 # Load model.
-with hf_load_context(Gemma4ForConditionalGeneration):
+with load_context(Gemma4ForConditionalGeneration):
     model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 

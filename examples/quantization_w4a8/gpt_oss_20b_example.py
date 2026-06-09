@@ -8,7 +8,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     OUTPUT_DIR = f"{BASE_NAME}-w4a8-channelwise"
 
     print(f"[GPT-OSS] Loading model: {MODEL_ID}")
-    with hf_load_context():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             device_map="auto",

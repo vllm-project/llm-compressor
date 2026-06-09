@@ -6,12 +6,12 @@ from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
 # Load model.
-with hf_load_context(Qwen3VLMoeForConditionalGeneration):
+with load_context(Qwen3VLMoeForConditionalGeneration):
     model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
         MODEL_ID, dtype=torch.bfloat16, device_map=None
     )

@@ -3,10 +3,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
-# Select model and load it in the `hf_load_context` context
-with hf_load_context():
+# Select model and load it in the `load_context` context
+with load_context():
     model_id = "unsloth/Kimi-K2-Instruct-0905-BF16"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,

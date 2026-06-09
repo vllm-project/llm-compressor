@@ -22,7 +22,7 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 
 def fix_everything(seed=42):
@@ -79,7 +79,7 @@ model_id = args.model
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################
 

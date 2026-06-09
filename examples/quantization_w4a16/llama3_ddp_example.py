@@ -15,13 +15,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################
 

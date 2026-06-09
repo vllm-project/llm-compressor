@@ -3,11 +3,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 # Load model
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-with hf_load_context(AutoModelForCausalLM):
+with load_context(AutoModelForCausalLM):
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

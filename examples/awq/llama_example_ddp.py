@@ -16,13 +16,13 @@ from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 init_dist()
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

@@ -5,14 +5,14 @@ from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 # NOTE: This example requires transformers >= v5
 
 MODEL_ID = "Qwen/Qwen3.6-35B-A3B"
 
 # Load model.
-with hf_load_context(Qwen3_5MoeForConditionalGeneration):
+with load_context(Qwen3_5MoeForConditionalGeneration):
     model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 

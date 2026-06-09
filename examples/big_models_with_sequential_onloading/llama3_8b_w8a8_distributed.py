@@ -12,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import hf_load_context
+from llmcompressor.utils.dev import load_context
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
@@ -24,7 +24,7 @@ MAX_SEQUENCE_LENGTH = 2048
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with hf_load_context():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
 ##################################
 

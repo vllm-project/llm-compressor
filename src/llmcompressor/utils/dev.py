@@ -27,12 +27,12 @@ __all__ = [
     "get_main_device",
     "get_high_precision",
     "dispatch_for_generation",
-    "hf_load_context",
+    "load_context",
 ]
 
 
 @contextlib.contextmanager
-def hf_load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
     Context manager for loading HuggingFace models with both offloading and
     MoE linearization support.
