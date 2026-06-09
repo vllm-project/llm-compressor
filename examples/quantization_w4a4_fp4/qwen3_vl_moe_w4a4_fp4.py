@@ -3,14 +3,14 @@ from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import hf_load_context
 
 MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 
 
 # Load model.
-with load_quantizable_moe(Qwen3VLMoeForConditionalGeneration):
+with hf_load_context(Qwen3VLMoeForConditionalGeneration):
     model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 

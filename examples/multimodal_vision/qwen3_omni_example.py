@@ -9,16 +9,16 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modeling.patch.qwen3_omni_patch import fast_pos_embed_interpolate
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
+from llmcompressor.utils.dev import hf_load_context
 
 # Load model.
 model_id = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
-with load_quantizable_moe(Qwen3OmniMoeForConditionalGeneration):
+with hf_load_context(Qwen3OmniMoeForConditionalGeneration):
     model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
