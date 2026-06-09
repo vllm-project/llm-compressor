@@ -20,7 +20,6 @@ def setup_model_and_config(tmp_path):
     """
     model = AutoModelForCausalLM.from_pretrained(
         "nm-testing/tinysmokellama-3.2",
-        dtype="auto",
     )
 
     return {

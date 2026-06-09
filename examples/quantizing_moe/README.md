@@ -31,7 +31,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
 
 model_id = "zai-org/GLM-4.7"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 ```
 

@@ -7,7 +7,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 # Load model.
-model = MllamaForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+model = MllamaForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.

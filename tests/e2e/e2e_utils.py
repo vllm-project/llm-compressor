@@ -62,7 +62,6 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
             device_map=device_map,
             max_memory=max_memory,
             offload_folder=OFFLOAD_DIR,
-            dtype="auto",
         )
     return loaded_model
 

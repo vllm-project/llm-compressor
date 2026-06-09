@@ -25,7 +25,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
 
-model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 ```
 

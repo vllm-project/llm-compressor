@@ -20,10 +20,7 @@ In order to prevent separate processes from loading the model multiple times and
 
 Before:
 ```python
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(model_id)
 ```
 
 After:
@@ -31,11 +28,7 @@ After:
 from compressed_tensors.offload import load_offloaded_model
 
 with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        dtype="auto",
-        device_map="auto_offload",
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ```
 
 ### 3. Modify Dataset Loading ###

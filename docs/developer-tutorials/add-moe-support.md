@@ -216,7 +216,7 @@ from llmcompressor.modeling.your_model import SequentialYourModelMoE  # noqa: F4
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 model_id = "your-org/your-moe-model"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 oneshot(

@@ -77,7 +77,7 @@ def test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path):
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
-    reloaded = AutoModelForCausalLM.from_pretrained(save_path, dtype="auto")
+    reloaded = AutoModelForCausalLM.from_pretrained(save_path)
 
     model_dict = get_state_dict_offloaded_model(model)
     reloaded_dict = get_state_dict_offloaded_model(reloaded)

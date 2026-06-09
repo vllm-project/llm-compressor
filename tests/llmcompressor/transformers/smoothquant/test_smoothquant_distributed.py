@@ -179,9 +179,7 @@ def _run_single_gpu_smoothquant(
     model_id: str, num_samples: int, device: str = "cuda:0"
 ):
     """Run SmoothQuant on a single GPU and return smoothed weights."""
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.float32, device_map=device
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map=device)
     ds = _prepare_dataset(model_id, num_samples)
 
     oneshot(

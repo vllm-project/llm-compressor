@@ -14,7 +14,7 @@ from llmcompressor.modifiers.transform import QuIPModifier
 # NOTE: because the datafree pipeline is being used in this
 # example, you can use additional GPUs to support larger models
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm to run.

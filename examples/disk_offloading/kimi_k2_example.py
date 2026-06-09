@@ -9,12 +9,10 @@ with load_offloaded_model():
     model_id = "unsloth/Kimi-K2-Instruct-0905-BF16"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        trust_remote_code=True,
         offload_folder="./offload_folder",
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Confirm that model is dispatched correctly
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}

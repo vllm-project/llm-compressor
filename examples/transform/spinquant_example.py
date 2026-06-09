@@ -8,7 +8,7 @@ from llmcompressor.modifiers.transform import SpinQuantModifier
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # NOTE: currently only rotations R1, R2, and R4 are available
