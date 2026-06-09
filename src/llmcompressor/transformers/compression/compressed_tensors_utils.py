@@ -56,10 +56,9 @@ def _map_to_checkpoint_names(
     result = []
     for name in ignore_list:
         for rev in inverted:
-            src, tgt = rev.source_patterns[0], rev.target_patterns[0]
-            idx = name.find(src)
-            if idx >= 0:
-                name = name[:idx] + tgt + name[idx + len(src) :]
+            renamed, matched = rev.rename_source_key(name)
+            if matched is not None:
+                name = renamed
         result.append(name)
 
     return result
