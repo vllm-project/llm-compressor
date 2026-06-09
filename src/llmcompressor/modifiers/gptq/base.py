@@ -122,7 +122,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     # gptq modifier arguments
     block_size: int = 128
     dampening_frac: float | None = 0.01
-    # TODO: this does not serialize / will be incorrectly written
     actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
     offload_hessians: bool = False
 
