@@ -15,6 +15,7 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
+
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 
 
@@ -25,6 +26,7 @@ class QParamsDict(TypedDict, total=False):
     zero_point: torch.Tensor
     global_scale: Optional[torch.Tensor]
 
+_msg = "Fused module has been garbage collected before its weight was observed"
 
 class Observer(InternalModule, RegistryMixin):
     """
@@ -83,13 +85,13 @@ class Observer(InternalModule, RegistryMixin):
         ), "No statistics available. Call observer(value) first."
 
         global_scale = None
-        msg = "Fused module has been garbage collected before its weight was observed"
+        
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
             global_absmax = torch.max(-self.min_vals.min(), self.max_vals.max())
             for fused_obs in self._fusions.keys():
                 if not fused_obs.has_statistics:
                     fused_mod = self._fusions[fused_obs]()
-                    assert fused_mod is not None, msg
+                    assert fused_mod is not None, _msg
                     fused_obs(fused_mod.weight)
                 global_absmax = torch.max(global_absmax, -fused_obs.min_vals.min())
                 global_absmax = torch.max(global_absmax, fused_obs.max_vals.max())
