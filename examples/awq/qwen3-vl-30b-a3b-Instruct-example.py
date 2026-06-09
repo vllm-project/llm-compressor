@@ -4,15 +4,17 @@ from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
 # Load model.
-model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-    MODEL_ID, dtype=torch.bfloat16, device_map=None
-)
+with load_quantizable_moe(Qwen3VLMoeForConditionalGeneration):
+    model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
+        MODEL_ID, dtype=torch.bfloat16, device_map=None
+    )
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 DATASET_ID = "neuralmagic/calibration"

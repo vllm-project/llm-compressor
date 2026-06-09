@@ -3,12 +3,14 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
+with load_quantizable_moe():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 

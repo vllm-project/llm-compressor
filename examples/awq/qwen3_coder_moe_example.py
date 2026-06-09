@@ -3,6 +3,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
@@ -54,7 +55,8 @@ def get_calib_dataset(tokenizer):
 
 
 if __name__ == "__main__":
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
+    with load_quantizable_moe():
+        model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
     ###
