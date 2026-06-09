@@ -322,13 +322,6 @@ class IntermediatesCache:
                         # move to offload if no hit
                         offloaded = value.to(device=offload_device)
                         if offloaded is not value:  # avoid circular ref
-                            # pin CPU tensors so onload can use non_blocking DMA
-                            if (
-                                torch.device(offload_device).type == "cpu"
-                                and torch.accelerator.is_available()
-                                and not offloaded.is_pinned()
-                            ):
-                                offloaded = offloaded.pin_memory()
                             cls.offload_values[value] = offloaded
 
                 return IntermediateValue(
