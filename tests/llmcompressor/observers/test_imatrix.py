@@ -334,11 +334,13 @@ class TestValidation:
 
 
 class TestHookDisabling:
-    """The iMatrix hook must not accumulate when HooksMixin.disable_hooks() is active."""
+    """
+    The iMatrix hook must not accumulate when HooksMixin.disable_hooks() is active.
+    """
 
     def test_hook_skipped_under_disable_hooks(self):
         module = torch.nn.Linear(8, 4)
-        observer = _make_observer(module, strategy="channel")
+        _make_observer(module, strategy="channel")
 
         x = torch.randn(2, 8)
         module(x)
