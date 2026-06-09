@@ -2,7 +2,7 @@ from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # NOTE: Requires a minimum of transformers 4.57.0
 

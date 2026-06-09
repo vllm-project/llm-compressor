@@ -6,7 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # Select model and load it in the `load_context` context
 # In this example, we emulate large model quantization with disk offloading by

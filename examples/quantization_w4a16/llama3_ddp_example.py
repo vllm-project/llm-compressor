@@ -15,7 +15,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 

@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # Load the model
 model_id = "zai-org/GLM-5.1"

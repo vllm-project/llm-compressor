@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # moonshotai/Kimi-K2.6 checkpoint is published in W4A16 compressed-tensors format.
 # This script will first upconvert to bfloat16 so that the model can be compressed

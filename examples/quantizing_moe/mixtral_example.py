@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"

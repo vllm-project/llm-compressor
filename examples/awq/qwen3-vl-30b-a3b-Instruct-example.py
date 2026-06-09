@@ -6,7 +6,7 @@ from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 

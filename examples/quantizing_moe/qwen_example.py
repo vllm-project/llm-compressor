@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"

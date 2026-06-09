@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # select a Mixture of Experts model for quantization
 model_id = "ibm-research/PowerMoE-3b"

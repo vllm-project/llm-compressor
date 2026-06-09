@@ -15,7 +15,7 @@ from transformers import AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # This script first dequantizes the original DeepSeek-V3.2 checkpoint to bfloat16,
 # then quantizes attention layers to FP8_BLOCK and mlp layers to NVFP4.

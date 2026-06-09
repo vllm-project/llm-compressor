@@ -11,7 +11,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # Upstream BUG: norms should be loaded in float32, but usually aren't due to the base
 # model having a quant_config which overrides this. Loading in float32 actually

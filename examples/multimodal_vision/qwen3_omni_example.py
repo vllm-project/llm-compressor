@@ -14,7 +14,7 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # Load model.
 model_id = "Qwen/Qwen3-Omni-30B-A3B-Instruct"

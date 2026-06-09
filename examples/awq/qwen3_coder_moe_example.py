@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 MODEL_ID = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-W4A16-awq"

@@ -4,7 +4,7 @@ from transformers import AutoProcessor, Llama4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"

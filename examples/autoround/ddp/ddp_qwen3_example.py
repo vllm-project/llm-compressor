@@ -22,7 +22,7 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 
 def fix_everything(seed=42):

@@ -5,7 +5,7 @@ from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import load_context
+from llmcompressor.utils import load_context
 
 # NOTE: This example requires transformers >= v5
 
