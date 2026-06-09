@@ -22,10 +22,8 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 init_dist()
 with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, dtype="auto", device_map="auto_offload"
-    )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"

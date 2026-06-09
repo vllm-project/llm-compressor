@@ -59,13 +59,11 @@ def main(num_gpus: int):
         with load_offloaded_model():
             model = AutoModelForCausalLM.from_pretrained(
                 MODEL_ID,
-                dtype="auto",
                 device_map="auto_offload",
             )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
-            dtype="auto",
             device_map="auto",
         )
 

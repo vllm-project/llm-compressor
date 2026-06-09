@@ -4,6 +4,7 @@ from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # NOTE: This example requires transformers >= v5
@@ -11,7 +12,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "Qwen/Qwen3.5-122B-A10B"
 
 # Load model.
-model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+with load_quantizable_moe(Qwen3_5MoeForConditionalGeneration):
+    model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # No need to include mtp layers as they are not loaded

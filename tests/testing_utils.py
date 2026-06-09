@@ -10,7 +10,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union
 import pandas as pd
 import pytest
 import torch
-import transformers as _transformers
 import yaml
 from datasets import Dataset
 from loguru import logger
@@ -472,19 +471,6 @@ def torchrun(world_size: int = 1):
 requires_hf_token: callable = pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tests requiring gated model access",
-)
-
-
-_TRANSFORMERS_MAJOR = int(_transformers.__version__.split(".")[0])
-
-requires_transformers_v5: pytest.MarkDecorator = pytest.mark.skipif(
-    _TRANSFORMERS_MAJOR < 5,
-    reason="Requires transformers v5+",
-)
-
-requires_transformers_v4: pytest.MarkDecorator = pytest.mark.skipif(
-    _TRANSFORMERS_MAJOR >= 5,
-    reason="Requires transformers v4 (not compatible with v5+)",
 )
 
 
