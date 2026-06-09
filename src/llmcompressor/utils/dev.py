@@ -21,8 +21,6 @@ except ImportError:
     from transformers.initialization import TORCH_INIT_FUNCTIONS
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
-
 __all__ = [
     "skip_weights_download",
     "patch_transformers_logger_level",
@@ -45,6 +43,8 @@ def hf_load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
+    from llmcompressor.modeling.moe.linearize import load_quantizable_moe
+
     with contextlib.ExitStack() as stack:
         stack.enter_context(load_offloaded_model(model_cls))
         stack.enter_context(load_quantizable_moe(model_cls))
