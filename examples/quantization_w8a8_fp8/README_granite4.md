@@ -74,12 +74,12 @@ from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import hf_load_context
 
 # Load model.
 model_id = "ibm-granite/granite-4.0-tiny-preview"
-with load_quantizable_moe():
+with hf_load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
