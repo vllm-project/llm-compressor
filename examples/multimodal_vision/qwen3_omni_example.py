@@ -9,6 +9,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modeling.patch.qwen3_omni_patch import fast_pos_embed_interpolate
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
@@ -17,10 +18,9 @@ from llmcompressor.transformers.compression.compressed_tensors_utils import (
 
 # Load model.
 model_id = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
-model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
-    model_id, torch_dtype="auto"
-)
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+with load_quantizable_moe(Qwen3OmniMoeForConditionalGeneration):
+    model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Apply patch to fix accelerate offloading, can be removed after #2148
 model.thinker.visual.fast_pos_embed_interpolate = fast_pos_embed_interpolate.__get__(

@@ -112,8 +112,8 @@ def test_topological_partition_invalid():
 def test_trace_subgraphs(targets_per_subgraph):
     target = "Qwen3DecoderLayer"
 
-    with skip_weights_download(AutoModelForCausalLM):
-        model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", dtype="auto")
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B")
 
     subgraphs = trace_subgraphs(
         model,

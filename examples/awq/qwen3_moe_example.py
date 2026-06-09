@@ -3,14 +3,15 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
-
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+with load_quantizable_moe():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -51,12 +52,14 @@ def tokenize(sample):
 
 # Configure the quantization algorithm to run.
 # NOTE: vllm currently does not support asym MoE, using symmetric here
+# NOTE: qwen3 moe gate is not a `Linear` layer, so the `mlp.gate` ignore
+# is technically not necessary, but is included in this example for clarity
 recipe = [
     AWQModifier(),
     QuantizationModifier(
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
+        ignore=["lm_head", "re:.*mlp.gate$"],
     ),
 ]
 

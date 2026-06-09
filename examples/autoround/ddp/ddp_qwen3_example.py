@@ -79,9 +79,7 @@ model_id = args.model
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
 with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype="auto", device_map="auto_offload"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
