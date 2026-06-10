@@ -24,7 +24,7 @@ This example demonstrates quantizing the `zai-org/GLM-4.7` MoE model using AWQ (
 
 ### Step 1: Load the Model and Tokenizer
 
-First, load the GLM-4.7 model and its tokenizer from the Hugging Face Hub. The `load_context` context is responsible for ensuring that the model moe modules in a way such that they can be calibrated properly. For more information on supporting new MoE architectures, see [MoE Support Guide](../../docs/developer-tutorials/add-moe-support.md).
+First, load the GLM-4.7 model and its tokenizer from the Hugging Face Hub. The `load_context` context is responsible for ensuring that moe modules load in a way such that they can be calibrated properly. For more information on supporting new MoE architectures, see [MoE Support Guide](../../docs/developer-tutorials/add-moe-support.md).
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
