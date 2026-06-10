@@ -52,7 +52,9 @@ class ModifierFactory:
                 current_path_list, prefix
             ):
                 # Skip if this module path starts with any deprecated prefix
-                if any(name.startswith(dep_prefix) for dep_prefix in deprecated_prefixes):
+                if any(
+                    name.startswith(dep_prefix) for dep_prefix in deprecated_prefixes
+                ):
                     continue
 
                 yield name, is_pkg
