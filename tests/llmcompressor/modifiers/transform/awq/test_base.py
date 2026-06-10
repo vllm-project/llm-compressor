@@ -20,6 +20,7 @@ from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.transform.awq.base import (
+    _compress_scales_for_gqa,
     get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.utils import get_high_precision
@@ -160,6 +161,115 @@ def test_set_resolved_mappings():
             "z is compatible"
         )
     assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_gqa_mapping_accepted():
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
+    )
+    # num_kv_heads=2, num_attention_heads=4, head_dim=2
+    # v_proj.out_features = 2*2 = 4, o_proj.in_features = 4*2 = 8
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(8, 4),
+                            "o_proj": Linear(8, 8),
+                        }
+                    )
+                }
+            )
+        }
+    )
+    model.config = type(
+        "Config", (), {"head_dim": 2, "num_attention_heads": 4, "hidden_size": 8}
+    )()
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
+    assert mapping.gqa_head_dim == 2
+    assert "o_proj" in mapping.balance_names[0]
+
+
+@pytest.mark.unit
+def test_gqa_no_config_falls_back_to_skip():
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(8, 4),
+                            "o_proj": Linear(8, 8),
+                        }
+                    )
+                }
+            )
+        }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+    assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_fused_qkv_gqa_still_rejected():
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*qkv_proj", ["re:.*o_proj"])],
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": torch.nn.ModuleDict(
+                        {
+                            "qkv_proj": Linear(8, 16),
+                            "o_proj": Linear(8, 8),
+                        }
+                    )
+                }
+            )
+        }
+    )
+    model.config = type(
+        "Config", (), {"head_dim": 2, "num_attention_heads": 4, "hidden_size": 8}
+    )()
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+    assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_compress_scales_for_gqa():
+    # num_kv_heads=2, num_repeats=2, head_dim=3
+    # hidden_dim = 2 * 2 * 3 = 12, kv_dim = 2 * 3 = 6
+    # Layout after repeat_kv: [kvh0_r0(3), kvh0_r1(3), kvh1_r0(3), kvh1_r1(3)]
+    scales = torch.arange(12, dtype=torch.float)
+    compressed = _compress_scales_for_gqa(scales, target_dim=6, head_dim=3)
+    assert compressed.shape == (6,)
+
+    # kvh0_r0 = [0, 1, 2], kvh0_r1 = [3, 4, 5]
+    # averaged kvh0 = [1.5, 2.5, 3.5]
+    assert_close(compressed[:3], torch.tensor([1.5, 2.5, 3.5]))
+    # kvh1_r0 = [6, 7, 8], kvh1_r1 = [9, 10, 11]
+    # averaged kvh1 = [7.5, 8.5, 9.5]
+    assert_close(compressed[3:], torch.tensor([7.5, 8.5, 9.5]))
 
 
 @pytest.mark.unit
