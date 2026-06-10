@@ -44,7 +44,7 @@ args.model = args.model or args.model_id
 
 # Select model and load it.
 model_id = args.model
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.

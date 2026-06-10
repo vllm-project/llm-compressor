@@ -121,8 +121,10 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
     restore_log_level = transformers_logger.getEffectiveLevel()
 
     transformers_logger.setLevel(level=level)
-    yield
-    transformers_logger.setLevel(level=restore_log_level)
+    try:
+        yield
+    finally:
+        transformers_logger.setLevel(level=restore_log_level)
 
 
 def get_main_device() -> torch.device:

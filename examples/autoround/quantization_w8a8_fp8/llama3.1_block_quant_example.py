@@ -7,7 +7,7 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.

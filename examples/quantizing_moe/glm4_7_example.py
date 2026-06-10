@@ -2,19 +2,15 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
+from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Load the model
 model_id = "zai-org/GLM-4.7"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+with load_quantizable_moe():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-# MoE calibration is now handled automatically by the pipeline.
-# The `CalibrationGlm4MoeMoE` modules (from `llmcompressor.modeling.glm4_moe`)
-# will be applied during calibration to enable proper expert calibration.
-# These replace the original `Glm4MoeMoE` class from
-# `transformers.models.glm4_moe.modeling_glm4_moe`.
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -56,10 +52,10 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 moe_ignores = [
-    # Layers 0-2: Dense layer - ignore entire layers
-    "model.layers.0.*",
-    "model.layers.1.*",
-    "model.layers.2.*",
+    # Layers 0-2: Dense layers - ignore entire layers
+    "re:model.layers.0.*",
+    "re:model.layers.1.*",
+    "re:model.layers.2.*",
     # Ignore the output head
     "lm_head",
 ]

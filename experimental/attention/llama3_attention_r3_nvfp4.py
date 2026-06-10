@@ -10,7 +10,7 @@ from llmcompressor.modifiers.transform import SpinQuantModifier
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.

@@ -51,7 +51,7 @@ def oneshot_fixture():
         oneshot_args = dict(
             recipe=recipe,
             dataset="open_platypus",
-            splits={"calibration": f"train[:{NUM_CALIBRATION_SAMPLES}]"},
+            splits=f"train[:{NUM_CALIBRATION_SAMPLES}]",
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             max_seq_length=MAX_SEQUENCE_LENGTH,
         )

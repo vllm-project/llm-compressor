@@ -15,7 +15,6 @@ with load_offloaded_model():
     model_id = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
         max_memory={"cpu": 6e8},  # remove this line to use as much cpu as possible
         offload_folder="./offload_folder",
@@ -43,7 +42,7 @@ recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head
 oneshot(
     model=model,
     dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    splits=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

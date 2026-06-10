@@ -155,6 +155,7 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         targets,
         modality=modality,
         trust_remote_code=False,
+        device_map="meta",
         skip_weights=True,
     )
 

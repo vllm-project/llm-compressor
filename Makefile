@@ -32,9 +32,9 @@ quality:
 # and again to fix any formatting issues introduced by ruff check --fix
 style:
 	@echo "Running python styling";
-	ruff format $(CHECKDIRS); 
+	ruff format $(CHECKDIRS);
 	ruff check --fix $(CHECKDIRS);
-	ruff format --silent $(CHECKDIRS); 
+	ruff format --silent $(CHECKDIRS);
 
 # run tests for the repo
 test:

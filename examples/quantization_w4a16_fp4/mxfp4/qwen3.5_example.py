@@ -7,10 +7,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 MODEL_ID = "Qwen/Qwen3.5-27B"
-model = Qwen3_5ForConditionalGeneration.from_pretrained(
-    MODEL_ID, dtype="auto", trust_remote_code=True
-)
-processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+model = Qwen3_5ForConditionalGeneration.from_pretrained(MODEL_ID)
+processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:

@@ -24,9 +24,7 @@ MAX_SEQUENCE_LENGTH = 2048
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
 with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, dtype="auto", device_map="auto_offload"
-    )
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
 ##################################
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)

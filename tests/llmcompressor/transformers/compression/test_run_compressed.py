@@ -23,7 +23,6 @@ def decompressed_linear_uncompressed_linear_models(request):
     # Linear foward
     decompressed_model = AutoModelForCausalLM.from_pretrained(
         config["compressed_model_stub"],
-        dtype="auto",
         device_map="auto",
         quantization_config=quantization_config,
     )

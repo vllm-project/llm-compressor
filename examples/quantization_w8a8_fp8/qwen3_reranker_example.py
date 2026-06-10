@@ -9,7 +9,6 @@ MODEL_ID = "Qwen/Qwen3-Reranker-8B"
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

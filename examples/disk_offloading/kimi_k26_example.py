@@ -42,7 +42,6 @@ convert_checkpoint(
 with load_offloaded_model():
     model = AutoModelForCausalLM.from_pretrained(
         DEQUANTIZED_SAVE_DIR,
-        dtype="auto",
         device_map="auto_offload",
         max_memory={"cpu": 500e9},
         trust_remote_code=True,

@@ -68,7 +68,6 @@ def trace(
         model = model_class.from_pretrained(
             model_id,
             device_map=device_map,
-            dtype="auto",
             trust_remote_code=trust_remote_code,
         )
     processor = AutoProcessor.from_pretrained(
@@ -81,7 +80,7 @@ def trace(
     dataset = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split=dataset_args.splits["calibration"],
+        split=dataset_args.splits,
         processor=processor,
     )(add_labels=False)
     sample = next(iter(dataset))
@@ -121,17 +120,17 @@ def get_dataset_kwargs(modality: str, ignore: list[str]) -> dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
-            "splits": {"calibration": "test_sft[:1]"},
+            "splits": "test_sft[:1]",
             "max_seq_length": 4096,
         },
         "vision": {
             "dataset": "flickr",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
         "audio": {
             "dataset": "peoples_speech",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
     }
