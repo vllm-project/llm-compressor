@@ -110,7 +110,8 @@ def linearize_moe(model: PreTrainedModel):
     if len(non_linearized_moes) <= 0:
         logger.warning(
             "Could not find experts to linearize. If your model is an MoE model, "
-            "consider registering a linearized class"  # TODO: add docs
+            "consider registering a linearized class. See "
+            "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
         )
         return model
 
@@ -118,7 +119,8 @@ def linearize_moe(model: PreTrainedModel):
         "MoE is being linearized after loading in order to support efficient "
         "calibration of experts. However, this may be inefficient if the model "
         "checkpoint is already linearized (2D -> 3D -> 2D). Consider registering "
-        "a load converter for faster load times."  # TODO: add docs
+        "a load converter for faster load times. See "
+        "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
