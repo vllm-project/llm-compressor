@@ -276,6 +276,21 @@ class AWQModifier(Modifier):
 
         return True
 
+    @staticmethod
+    def _get_head_dim(model: Module) -> int | None:
+        config = getattr(model, "config", None)
+        if config is None: # fallback incase model.config doesn't exist
+            return None
+        # match dynamic_mappings.py for text config
+        text_config = getattr(config, "text_config", config)
+        head_dim = getattr(text_config, "head_dim", None)
+        if head_dim is None:
+            num_heads = getattr(text_config, "num_attention_heads", None)
+            hidden = getattr(text_config, "hidden_size", None)
+            if num_heads and hidden:
+                head_dim = hidden // num_heads
+        return head_dim
+
     def _set_resolved_mappings(self, model: Module) -> None:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -290,6 +305,7 @@ class AWQModifier(Modifier):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+        head_dim = self._get_head_dim(model)
 
         num_incompatible = 0
         for mapping in self.mappings:
@@ -321,12 +337,13 @@ class AWQModifier(Modifier):
                     ]
                 )
 
-                all_compatible = _check_layers_are_compatible(
-                    smooth_layer, smooth_name, balance_layers, balance_names
+                compatible, gqa_head_dim = _check_layers_are_compatible(
+                    smooth_layer, smooth_name, balance_layers, balance_names,
+                    head_dim=head_dim,
                 )
 
                 # Incompatibility occurs frequently depending on model size
-                if not all_compatible:
+                if not compatible:
                     num_incompatible += 1
                     logger.debug(
                         f"Skipping {smooth_name} for mapping {mapping} because "
@@ -364,6 +381,16 @@ class AWQModifier(Modifier):
                             f" not found on parent module '{ancestor_name}'"
                         )
 
+                if gqa_head_dim is not None:
+                    num_repeats = (
+                        balance_layers[0].in_features
+                        // smooth_layer.out_features
+                    )
+                    logger.info(
+                        f"GQA detected for {smooth_name}: "
+                        f"num_repeats={num_repeats}, head_dim={gqa_head_dim}"
+                    )
+
                 resolved_mappings.append(
                     ResolvedMapping(
                         smooth_name,
@@ -373,6 +400,7 @@ class AWQModifier(Modifier):
                         parent=ancestor,
                         parent_name=ancestor_name,
                         activation_hook_target=activation_hook_target,
+                        gqa_head_dim=gqa_head_dim,
                     )
                 )
         if num_incompatible > 0:
@@ -546,11 +574,19 @@ class AWQModifier(Modifier):
                             * scales.view(1, -1),
                         )
                     elif module == smooth_layer:
+                        smooth_scales = scales
+                        if mapping.gqa_head_dim is not None:
+                            smooth_scales = _compress_scales_for_gqa(
+                                scales,
+                                module.weight.size(0),
+                                mapping.gqa_head_dim,
+                            )
+
                         if module.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                module.weight.div_(scales),
+                                module.weight.div_(smooth_scales),
                             )
                         else:
                             # NOTE: edge case when smooth layer number of out_features
@@ -560,13 +596,15 @@ class AWQModifier(Modifier):
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
                             weight = module.weight
-                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            weight[-smooth_scales.size(0) :].div_(
+                                smooth_scales.view(-1, 1)
+                            )
                             update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
                                 "bias",
-                                module.bias.div_(scales),
+                                module.bias.div_(smooth_scales),
                             )
 
                 for layer in balance_layers:
@@ -966,31 +1004,51 @@ def _check_layers_are_compatible(
     smooth_name: str,
     balance_layers: list[Module],
     balance_names: list[str],
-):
+    head_dim: int | None = None,
+) -> tuple[bool, int | None]:
     """
-    returns True if they are all compatible
-    returns False if any smooth & balance layers are incompatible
+    :return: (compatible, gqa_head_dim) where gqa_head_dim is set when a valid
+        GQA dimension ratio is detected between v_proj and o_proj
     """
+    gqa_head_dim = None
     for balance_layer, balance_name in zip(balance_layers, balance_names):
-        # exclude v_proj->o_proj mappings whose shapes are incompatible
-        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-        if (
+        if not (
             isinstance(smooth_layer, torch.nn.Linear)
             and isinstance(balance_layer, torch.nn.Linear)
             and balance_name.endswith(".o_proj")
-            and (
-                (
-                    smooth_name.endswith(".v_proj")
-                    and smooth_layer.out_features != balance_layer.in_features
-                )
-                or (
-                    smooth_name.endswith(".qkv_proj")
-                    and smooth_layer.out_features != 3 * balance_layer.in_features
-                )
-            )
         ):
-            return False
-    return True
+            continue
+
+        if smooth_name.endswith(".v_proj"):
+            if smooth_layer.out_features == balance_layer.in_features:
+                continue
+            # check for valid GQA ratio
+            if (
+                head_dim is not None
+                and balance_layer.in_features % smooth_layer.out_features == 0
+                and smooth_layer.out_features % head_dim == 0
+                and balance_layer.in_features % head_dim == 0
+            ):
+                gqa_head_dim = head_dim
+                continue
+            return (False, None)
+
+        elif smooth_name.endswith(".qkv_proj"):
+            if smooth_layer.out_features != 3 * balance_layer.in_features:
+                return (False, None)
+
+    return (True, gqa_head_dim)
+
+
+def _compress_scales_for_gqa(
+    scales: torch.Tensor, target_dim: int, head_dim: int
+) -> torch.Tensor:
+    # avg scales across GQA repeat groups to match v_proj dimension
+    num_repeats = scales.size(0) // target_dim
+    num_kv_heads = target_dim // head_dim
+    return (
+        scales.view(num_kv_heads, num_repeats, head_dim).mean(dim=1).reshape(-1)
+    )
 
 
 def get_lowest_common_ancestor_with_avoid(
