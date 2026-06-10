@@ -3,9 +3,9 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.utils import load_context
 
 MODEL_ID = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-W4A16-awq"
@@ -55,7 +55,7 @@ def get_calib_dataset(tokenizer):
 
 
 if __name__ == "__main__":
-    with load_quantizable_moe():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

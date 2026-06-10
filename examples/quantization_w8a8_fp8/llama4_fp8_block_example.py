@@ -2,12 +2,12 @@ from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 # Load model
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-with load_quantizable_moe(AutoModelForCausalLM):
+with load_context(AutoModelForCausalLM):
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

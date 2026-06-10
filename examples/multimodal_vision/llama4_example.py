@@ -3,12 +3,12 @@ from datasets import load_dataset
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-with load_quantizable_moe(Llama4ForConditionalGeneration):
+with load_context(Llama4ForConditionalGeneration):
     model = Llama4ForConditionalGeneration.from_pretrained(model_id)
 processor = Llama4Processor.from_pretrained(model_id)
 
