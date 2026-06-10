@@ -112,9 +112,7 @@ def _saved_weight_keys(save_path):
         with open(index_path) as f:
             return set(json.load(f)["weight_map"].keys())
 
-    with safe_open(
-        os.path.join(save_path, "model.safetensors"), framework="pt"
-    ) as f:
+    with safe_open(os.path.join(save_path, "model.safetensors"), framework="pt") as f:
         return set(f.keys())
 
 
