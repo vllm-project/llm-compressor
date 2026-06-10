@@ -35,29 +35,63 @@ class ModifierFactory:
         ModifierFactory._loaded = True
 
     @staticmethod
+    def _walk_packages_filtered(package_path: str, deprecated_prefixes: list[str]):
+        """
+        Custom package walker that filters out deprecated packages
+        BEFORE attempting to import them, preventing deprecation warnings.
+
+        :param package_path: The package path to walk
+        :param deprecated_prefixes: List of full module path prefixes to skip
+        :yield: (module_name, is_pkg) tuples for non-deprecated modules
+        """
+
+        main_package = importlib.import_module(package_path)
+
+        def walk_recursive(current_path_list, prefix):
+            for importer, name, is_pkg in pkgutil.iter_modules(
+                current_path_list, prefix
+            ):
+                # Skip if this module path starts with any deprecated prefix
+                if any(name.startswith(dep_prefix) for dep_prefix in deprecated_prefixes):
+                    continue
+
+                yield name, is_pkg
+
+                # If it's a package, recursively walk its submodules
+                if is_pkg:
+                    try:
+                        subpackage = importlib.import_module(name)
+                        if hasattr(subpackage, "__path__"):
+                            yield from walk_recursive(subpackage.__path__, name + ".")
+                    except Exception:
+                        # If we can't import the subpackage, skip it
+                        pass
+
+        yield from walk_recursive(main_package.__path__, package_path + ".")
+
+    @staticmethod
     def load_from_package(package_path: str) -> dict[str, type[Modifier]]:
         """
         :param package_path: The path to the package to load modifiers from
         :return: The loaded modifiers, as a mapping of name to class
         """
         loaded = {}
-        main_package = importlib.import_module(package_path)
 
         # exclude deprecated packages from registry so
         # their new location is used instead
-        deprecated_packages = [
+        deprecated_package_prefixes = [
             "llmcompressor.modifiers.awq",
+            "llmcompressor.modifiers.smoothquant",
             "llmcompressor.modifiers.obcq",
             "llmcompressor.modifiers.obcq.sgpt_base",
             "llmcompressor.modifiers.quantization.gptq",
             "llmcompressor.modifiers.quantization.gptq.base",
             "llmcompressor.modifiers.quantization.gptq.gptq_quantize",
         ]
-        for _importer, modname, _is_pkg in pkgutil.walk_packages(
-            main_package.__path__, package_path + "."
+
+        for modname, _is_pkg in ModifierFactory._walk_packages_filtered(
+            package_path, deprecated_package_prefixes
         ):
-            if modname in deprecated_packages:
-                continue
             try:
                 module = importlib.import_module(modname)
 
