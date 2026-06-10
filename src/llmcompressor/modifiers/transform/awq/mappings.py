@@ -316,3 +316,4 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
+    gqa_head_dim: int | None = None
