@@ -44,7 +44,6 @@ init_dist()
 with load_offloaded_model():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        dtype="auto",
         device_map="auto_offload",
     )
 

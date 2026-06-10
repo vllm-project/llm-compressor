@@ -40,7 +40,7 @@ Load the model using `AutoModelForCausalLM` for handling quantized saving and lo
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -65,7 +65,7 @@ ds = ds.shuffle(seed=42)
 
 # Preprocess the data into the format the model is trained with.
 def preprocess(example):
-    return {"text": tokenizer.apply_chat_template(example["messages"], tokenize=False,)}
+    return {"text": tokenizer.apply_chat_template(example["messages"], tokenize=False)}
 ds = ds.map(preprocess)
 
 # Tokenize the data (be careful with bos tokens - we need add_special_tokens=False since the chat_template already added it).

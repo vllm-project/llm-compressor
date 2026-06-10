@@ -57,16 +57,16 @@ with open(f"{BFLOAT16_SAVE_DIR}/config.json", "w") as f:
 
 
 # 3) Apply oneshot to bfloat16 model
+#    note that `load_quantizable_moe` is not required because we are using the
+#    custom model def `DeepseekV32ForCausalLM` which is already linearized
 with load_offloaded_model(), torch.no_grad():
     model = DeepseekV32ForCausalLM.from_pretrained(
         BFLOAT16_SAVE_DIR,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        trust_remote_code=True,
         offload_folder="./offload_folder",
         max_memory={"cpu": 500e9},  # don't exceed 500GB RAM
     )
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "ultrachat-200k"
