@@ -7,7 +7,7 @@ reviews:
   high_level_summary_in_walkthrough: false # Only show high-level summary in walkthrough, not the PR description
   poem: false
   review_status: true
-  collapse_walkthrough: false
+  collapse_walkthrough: true
   auto_apply_labels: true
   path_filters:
     - "!**/*.pyc"
