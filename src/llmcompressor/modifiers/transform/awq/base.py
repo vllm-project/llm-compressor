@@ -597,7 +597,7 @@ class AWQModifier(Modifier):
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
                             weight = module.weight
                             weight[-smooth_scales.size(0) :].div_(
-                                smooth_scales.view(-1, 1)
+                                smooth_scales.reshape(-1, 1)
                             )
                             update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
@@ -1025,6 +1025,7 @@ def _check_layers_are_compatible(
             # check for valid GQA ratio
             if (
                 head_dim is not None
+                and head_dim > 0
                 and balance_layer.in_features % smooth_layer.out_features == 0
                 and smooth_layer.out_features % head_dim == 0
                 and balance_layer.in_features % head_dim == 0
@@ -1047,7 +1048,7 @@ def _compress_scales_for_gqa(
     num_repeats = scales.size(0) // target_dim
     num_kv_heads = target_dim // head_dim
     return (
-        scales.view(num_kv_heads, num_repeats, head_dim).mean(dim=1).reshape(-1)
+        scales.reshape(num_kv_heads, num_repeats, head_dim).mean(dim=1).reshape(-1)
     )
 
 
