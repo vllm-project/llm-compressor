@@ -282,6 +282,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Phi3VForCausalLM": _phi_mappings,
     "Qwen2ForCausalLM": default_mappings,
     "Qwen2_5OmniModel": default_mappings,
+    "Qwen2_5OmniThinkerForConditionalGeneration": default_mappings,
     "Qwen2_5_VLForConditionalGeneration": default_mappings,
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": default_mappings,
