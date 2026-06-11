@@ -105,9 +105,8 @@ def linearize_moe(model: PreTrainedModel):
 
     :param model: model containing MoE layers to linearize
     """
-    non_linearized_moes = get_non_linearized_moes(model)
-
-    if len(non_linearized_moes) <= 0:
+    fused_experts = get_fused_experts(model)
+    if len(fused_experts) <= 0:
         return model
 
     logger.warning(
@@ -118,14 +117,14 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
+    for name, module in tqdm.tqdm(fused_experts, desc="Linearizing experts"):
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
 
 
-def get_non_linearized_moes(
+def get_fused_experts(
     model: torch.nn.Module,
 ) -> list[tuple[str, torch.nn.Module]]:
     """
@@ -140,5 +139,4 @@ def get_non_linearized_moes(
         (name, module)
         for name, module in model.named_modules()
         if isinstance(module, FusedExpertsProtocol)
-        or LinearExperts2D.get_registration(module.__class__) is not None
     ]

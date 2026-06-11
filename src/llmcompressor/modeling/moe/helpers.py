@@ -15,6 +15,21 @@ from llmcompressor.sentinel import Sentinel
 from llmcompressor.typing import TorchModuleProtocol
 
 
+def is_moe_model(
+    model: torch.nn.Module, check_fused: bool = True, check_unfused: bool = True
+) -> bool:
+    from .linear_experts import LinearExperts2D
+
+    return any(
+        (
+            check_unfused
+            and isinstance(module, LinearExperts2D)
+            or (check_fused and isinstance(module, FusedExpertsProtocol))
+        )
+        for module in model.modules()
+    )
+
+
 class FusedExpertsProtocol(TorchModuleProtocol):
     config: PreTrainedConfig
     has_gate: bool
@@ -36,7 +51,9 @@ class FusedExpertsProtocol(TorchModuleProtocol):
 
     @classmethod
     def __validate__(cls, object: object) -> bool:
-        return (
+        from .linear_experts import LinearExperts2D
+
+        is_standard_experts = (
             isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
             and (
                 isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
@@ -44,6 +61,11 @@ class FusedExpertsProtocol(TorchModuleProtocol):
             )
             and get_use_experts_implementation_args(object.__class__) is not None
         )
+        is_registered_experts = (
+            LinearExperts2D.get_registration(object.__class__) is not None
+        )
+
+        return is_standard_experts or is_registered_experts
 
 
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:

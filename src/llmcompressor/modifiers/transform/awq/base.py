@@ -27,6 +27,7 @@ from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State, active_session
+from llmcompressor.modeling.moe.helpers import is_moe_model
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -40,7 +41,6 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     ResolvedMapping,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.helpers import fuse_weight_observers
 from llmcompressor.pipelines.cache import IntermediatesCache
