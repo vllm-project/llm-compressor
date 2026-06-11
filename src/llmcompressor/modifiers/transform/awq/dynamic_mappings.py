@@ -12,12 +12,12 @@ from collections.abc import Callable
 from loguru import logger
 from torch.nn import Module
 
+from llmcompressor.modeling.moe.helpers import is_moe_model
 from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
     AWQMapping,
     default_mappings,
 )
-from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 
 __all__ = ["AWQ_DYNAMIC_MAPPING_REGISTRY", "get_layer_mappings_from_model"]
 

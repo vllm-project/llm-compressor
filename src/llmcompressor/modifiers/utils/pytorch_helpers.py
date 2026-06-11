@@ -8,6 +8,7 @@ tensor operations for compression workflows.
 """
 
 import torch
+from compressed_tensors.utils import deprecated
 from torch.nn import Module
 
 __all__ = [
@@ -35,6 +36,7 @@ def apply_pad_mask_to_batch(batch: dict[str, torch.Tensor]) -> dict[str, torch.T
     return batch
 
 
+@deprecated("llmcompressor.modeling.moe.helpers::is_moe_model")
 def is_moe_model(model: Module) -> bool:
     """
     Check if the model is a mixture of experts model
