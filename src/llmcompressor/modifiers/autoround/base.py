@@ -207,7 +207,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
-    def input_capture_hook(self, module, *args, **kwargs):
+    def input_capture_hook(self, module, args, kwargs):
         if module._tmp_name not in self._all_module_input:
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
@@ -306,6 +306,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             first_param = next(decoding_layer.parameters())
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
+            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
             self._set_attention_masks(ar, cur_inputs)
             decoding_layer.tuning_device = device
             # Leave offload for LLMC to handle if `device_ids` is not set
@@ -318,7 +319,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
-                inputs=cur_inputs,
+                inputs=ar_inputs,
                 q_input=self._q_input,
                 device=str(device),
                 auto_offload=auto_offload,

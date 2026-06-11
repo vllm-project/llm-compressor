@@ -7,12 +7,12 @@ from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_ID = "Qwen/Qwen3-8B"
-MODEL_ID = "Qwen/Qwen3-0.6B"
+# MODEL_ID = "Qwen/Qwen3-0.6B"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 512
-ITERS = 10
+MAX_SEQUENCE_LENGTH = 2048
+ITERS = 200
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 tokenizer.pad_token = tokenizer.eos_token

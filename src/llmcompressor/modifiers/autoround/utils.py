@@ -1,0 +1,66 @@
+import torch
+
+__all__ = ["fix_attention_mask"]
+
+
+def _collapse_causal_attention_mask(mask: torch.Tensor) -> torch.Tensor:
+    """
+    Reduce causal attention masks to the per-token validity mask AutoRound expects.
+
+    AutoRound uses attention masks only to exclude padded query positions from the
+    reconstruction loss, so higher-rank causal masks need to be collapsed to a
+    `[batch, seq_len]` mask first.
+    """
+    if mask.ndim == 4:
+        mask = mask.squeeze(1)
+    if mask.ndim != 3:
+        raise ValueError(
+            "Unsupported causal attention mask shape for AutoRound: "
+            f"{tuple(mask.shape)}"
+        )
+
+    if mask.numel() == 0:
+        return mask
+
+    if mask.dtype == torch.bool:
+        return mask.any(dim=-1)
+
+    if torch.all(mask == 0):
+        return torch.ones(mask.shape[:-1], dtype=torch.long, device=mask.device)
+
+    global_min = mask.amin()
+    return (mask.amax(dim=-1) > global_min).to(torch.long)
+
+
+def fix_attention_mask(
+    mask: torch.Tensor | list[int] | list[list[int]],
+) -> torch.Tensor:
+    """
+    Normalize attention masks for AutoRound custom datasets.
+
+    AutoRound expects at least one masked position when the calibration mask is fully
+    dense. When every token is marked valid, set the final position to 0 while
+    preserving the original dtype and shape.
+    """
+    normalized_mask = torch.as_tensor(mask).clone()
+    if normalized_mask.shape[-1] == 0:
+        return normalized_mask
+
+    if normalized_mask.ndim in (3, 4):
+        normalized_mask = _collapse_causal_attention_mask(normalized_mask)
+
+    if normalized_mask.ndim == 1:
+        if torch.all(normalized_mask == 1):
+            normalized_mask[-1] = 0
+        return normalized_mask
+
+    if normalized_mask.ndim == 2:
+        all_ones_rows = torch.all(normalized_mask == 1, dim=1)
+        if torch.any(all_ones_rows):
+            normalized_mask[all_ones_rows, -1] = 0
+        return normalized_mask
+
+    raise ValueError(
+        "Unsupported attention mask shape for AutoRound: "
+        f"{tuple(normalized_mask.shape)}"
+    )
