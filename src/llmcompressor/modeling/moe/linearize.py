@@ -108,11 +108,6 @@ def linearize_moe(model: PreTrainedModel):
     non_linearized_moes = get_non_linearized_moes(model)
 
     if len(non_linearized_moes) <= 0:
-        logger.warning(
-            "Could not find experts to linearize. If your model is an MoE model, "
-            "consider registering a linearized class. See "
-            "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
-        )
         return model
 
     logger.warning(
