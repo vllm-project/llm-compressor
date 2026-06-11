@@ -170,6 +170,26 @@ _deepseek_mappings = [
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
+# GLM-4.7-Flash (Glm4MoeLiteForCausalLM) uses MLA attention (same as DeepSeek)
+# but has a mixed dense/MoE architecture: layer 0 is dense (first_k_dense_replace=1)
+# and layers 1+ are MoE. The dense layer 0 has no mlp.gate router, so we cannot
+# include mlp.gate in the balance layers (it would break per-layer grouping in
+# match_modules_set). The gate_proj$/up_proj$ patterns still match both
+# dense (mlp.gate_proj / mlp.up_proj) and MoE (mlp.experts.*.gate_proj / up_proj).
+_glm4_moe_lite_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*(q|q_a)_proj$", "re:.*kv_a_proj_with_mqa$"],
+    ),
+    AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
+    AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
 _bloom_mappings = [
     AWQMapping("re:.*input_layernorm$", ["re:.*query_key_value$"]),
     AWQMapping("re:.*post_attention_layernorm$", ["re:.*dense_h_to_4h$"]),
@@ -251,6 +271,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
     "Glm4MoeForCausalLM": _moe_default_mappings,
+    "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": default_mappings,
     "Llama4ForConditionalGeneration": _llama4_default_mappings,
