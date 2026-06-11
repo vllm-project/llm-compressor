@@ -12,7 +12,7 @@ def _collapse_causal_attention_mask(mask: torch.Tensor) -> torch.Tensor:
     `[batch, seq_len]` mask first.
     """
     if mask.ndim == 4:
-        mask = mask.squeeze(1)
+        mask = mask[:, 0]
     if mask.ndim != 3:
         raise ValueError(
             "Unsupported causal attention mask shape for AutoRound: "
