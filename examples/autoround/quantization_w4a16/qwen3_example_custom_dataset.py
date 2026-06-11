@@ -6,13 +6,13 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier, fix_batch_if_ne
 from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-MODEL_ID = "/mnt/disk1/yiliu7/Qwen/Qwen3-8B"
-MODEL_ID = "/mnt/disk1/yiliu7/Qwen/Qwen3-0.6B"
+MODEL_ID = "Qwen/Qwen3-8B"
+MODEL_ID = "Qwen/Qwen3-0.6B"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 512
-
+ITERS = 10
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 tokenizer.pad_token = tokenizer.eos_token
@@ -51,7 +51,7 @@ recipe = AutoRoundModifier(
     targets="Linear",
     scheme="W4A16",
     ignore=["lm_head"],
-    iters=10,
+    iters=ITERS,
 )
 
 oneshot(
