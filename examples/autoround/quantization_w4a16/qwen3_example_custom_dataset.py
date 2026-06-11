@@ -14,10 +14,15 @@ ITERS = 200
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-dataset = load_dataset(
-    DATASET_ID,
-    split=DATASET_SPLIT,
-).shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+dataset = (
+    load_dataset(
+        DATASET_ID,
+        split=DATASET_SPLIT,
+    )
+    .shuffle(seed=42)
+    .select(range(NUM_CALIBRATION_SAMPLES))
+)
+
 
 def preprocess(example):
     return {
