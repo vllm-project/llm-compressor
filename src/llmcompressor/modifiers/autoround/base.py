@@ -307,7 +307,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
-            self._set_attention_masks(ar, cur_inputs)
+            self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
             # Leave offload for LLMC to handle if `device_ids` is not set
             auto_offload = False
