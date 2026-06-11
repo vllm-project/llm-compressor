@@ -616,12 +616,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def _set_attention_masks(
         self,
         autoround: AutoRound,
+        block: torch.nn.Module,
         captured_inputs: list[tuple[tuple, dict]],
     ):
-        attention_masks = [
-            fix_attention_mask(kwargs["attention_mask"])
-            for _, kwargs in captured_inputs
-            if kwargs.get("attention_mask") is not None
-        ]
+        import inspect
+
+        sig = inspect.signature(block.forward)
+        attention_masks = []
+        for args, kwargs in captured_inputs:
+            bound = sig.bind_partial(*args, **kwargs)
+            mask = bound.arguments.get("attention_mask")
+            if mask is not None:
+                attention_masks.append(fix_attention_mask(mask))
+
         if attention_masks:
             autoround.attention_mask = attention_masks
