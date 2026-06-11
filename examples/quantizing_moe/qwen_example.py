@@ -5,13 +5,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, dtype=torch.bfloat16, trust_remote_code=True
-)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -67,7 +66,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
-    trust_remote_code_model=True,
 )
 
 # Confirm generations of the quantized model look sane.

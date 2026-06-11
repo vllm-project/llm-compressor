@@ -44,14 +44,6 @@ class ModelArguments:
             "help": "Pretrained processor name or path if not the same as model_name"
         },
     )
-
-    use_auth_token: bool = field(
-        default=False,
-        metadata={
-            "help": "Will use token generated when running `transformers-cli login` "
-            "(necessary to use this script with private models)"
-        },
-    )
     precision: str = field(
         default="auto",
         metadata={"help": "Precision to cast model weights to, default to auto"},
