@@ -5,9 +5,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier, fix_batch_if_needed
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_ID = "Qwen/Qwen3-8B"
-# MODEL_ID = "Qwen/Qwen3-0.6B"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 128
