@@ -259,6 +259,31 @@ _example_parallel_transformer_block_mappings = [
     )
 ]
 
+
+_step3p5_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        [
+            "re:.*moe.gate$",
+            "re:.*moe.gate_proj$",
+            "re:.*moe.up_proj$",
+            "re:.*share_expert.gate_proj$",
+            "re:.*share_expert.up_proj$",
+            "re:.*mlp.gate_proj$",
+            "re:.*mlp.up_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "AfmoeForCausalLM": _afmoe_mappings,
     "BloomForCausalLM": _bloom_mappings,
@@ -287,6 +312,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen3MoeForCausalLM": _moe_default_mappings,
     "SeedOssForCausalLM": default_mappings,
     "Ernie4_5_MoeForCausalLM": default_mappings,
+    "Step3p5ForCausalLM": _step3p5_mappings,
 }
 
 
