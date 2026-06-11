@@ -26,7 +26,9 @@ def _collapse_causal_attention_mask(mask: torch.Tensor) -> torch.Tensor:
         return mask.any(dim=-1)
 
     if torch.all(mask == 0):
-        return torch.ones(mask.shape[:-1], dtype=torch.long, device=mask.device)
+        raise ValueError(
+            "Invalid causal attention mask for AutoRound: all positions are masked"
+        )
 
     global_min = mask.amin()
     return (mask.amax(dim=-1) > global_min).to(torch.long)
