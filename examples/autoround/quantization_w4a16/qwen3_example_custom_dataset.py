@@ -17,10 +17,10 @@ tokenizer.pad_token = tokenizer.eos_token
 
 dataset = load_dataset(
     DATASET_ID,
-    split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
-).shuffle(seed=42)
-
-
+dataset = load_dataset(
+    DATASET_ID,
+    split=DATASET_SPLIT,
+).shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 def preprocess(example):
     return {
         "text": tokenizer.apply_chat_template(
