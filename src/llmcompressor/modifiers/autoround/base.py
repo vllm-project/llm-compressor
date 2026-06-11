@@ -21,12 +21,13 @@ from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.autoround.utils import fix_attention_mask
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
-__all__ = ["AutoRoundModifier"]
+__all__ = ["AutoRoundModifier", "fix_batch_if_needed"]
 
 
 class _LLModelWrapper(torch.nn.Module):
@@ -55,6 +56,20 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     first_param = next(layer.parameters())
     wrapped_model.dtype = first_param.dtype
     return wrapped_model
+
+
+def fix_batch_if_needed(
+    batch: dict[str, list[int] | list[list[int]]],
+) -> dict[str, list[int] | list[list[int]]]:
+    """
+    Normalize custom calibration batches so their attention masks work with AutoRound.
+    """
+    attention_mask = batch.get("attention_mask")
+    if attention_mask is None:
+        return batch
+
+    batch["attention_mask"] = fix_attention_mask(attention_mask).tolist()
+    return batch
 
 
 @contextmanager
@@ -291,6 +306,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             first_param = next(decoding_layer.parameters())
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
+            self._set_attention_masks(ar, cur_inputs)
             decoding_layer.tuning_device = device
             # Leave offload for LLMC to handle if `device_ids` is not set
             auto_offload = False
@@ -595,3 +611,16 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             act_data_type=act_data_type,
         )
         return ar_quant_scheme
+
+    def _set_attention_masks(
+        self,
+        autoround: AutoRound,
+        captured_inputs: list[tuple[tuple, dict]],
+    ):
+        attention_masks = [
+            fix_attention_mask(kwargs["attention_mask"])
+            for _, kwargs in captured_inputs
+            if kwargs.get("attention_mask") is not None
+        ]
+        if attention_masks:
+            autoround.attention_mask = attention_masks
