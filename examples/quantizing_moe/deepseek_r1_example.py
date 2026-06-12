@@ -1,8 +1,9 @@
 from datasets import load_dataset
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 
@@ -13,9 +14,8 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 # `DeepSeek-R1-0528-BF16` is a DeepSeek-V3 FP8 model which has been converted to BF16
 
 model_id = "unsloth/DeepSeek-R1-0528-BF16"
-config = AutoConfig.from_pretrained(model_id)
-del config.quantization_config  # fp8 qconfig no longer appplies to bf16 model
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", config=config)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
 # The `CalibrationDeepseekV3MoE` modules (from `llmcompressor.modeling.deepseek_v3`)

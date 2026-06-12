@@ -8,8 +8,8 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"
-model = LlavaForConditionalGeneration.from_pretrained(model_id, dtype="auto")
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+model = LlavaForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
@@ -32,11 +32,10 @@ oneshot(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    splits=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
     sequential_targets=["LlamaDecoderLayer"],
 )
 
