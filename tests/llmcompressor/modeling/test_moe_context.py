@@ -10,7 +10,6 @@ from tests.testing_utils import BaseTestConfig, requires_gpu
 def test_oneshot_integration():
     """
     Tests that moe_calibration_context is called within oneshot
-
     """
     config = BaseTestConfig(
         cadence="commit",
