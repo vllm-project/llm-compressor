@@ -29,6 +29,7 @@ def preprocess(example):
         "text": tokenizer.apply_chat_template(
             example["messages"],
             tokenize=False,
+            enable_thinking=False,
         )
     }
 
