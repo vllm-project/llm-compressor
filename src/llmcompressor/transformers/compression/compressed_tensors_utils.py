@@ -71,6 +71,13 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed:
                 compressor.compress_model(model)
 
+            # Re-tie weights before offload conversion. Offloading splits tied
+            # weights (e.g. lm_head and embed_tokens) into separate parameters,
+            # which defeats transformers' save-time de-duplication and writes a
+            # redundant copy. Doing this before `to_accelerate` keeps accelerate's
+            # tied-parameter bookkeeping consistent.
+            _retie_offloaded_weights(model)
+
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
@@ -99,6 +106,38 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+
+
+def _retie_offloaded_weights(model: PreTrainedModel):
+    """Re-tie weights split by offload conversion so the tied head isn't saved twice.
+
+    Offloading gives the input embeddings and a tied head (e.g. ``lm_head``)
+    separate parameters, defeating transformers' save-time de-duplication and
+    writing a redundant copy. Re-tying restores the shared parameter.
+
+    Only runs when ``config.tie_word_embeddings`` is set, so models that were
+    explicitly untied (e.g. by SpinQuant via ``untie_word_embeddings``) are left
+    untouched. Failures in a model's ``tie_weights`` are logged rather than raised.
+    """
+    get_text_config = getattr(model.config, "get_text_config", None)
+    text_config = (
+        get_text_config(decoder=True) if callable(get_text_config) else model.config
+    )
+    if not getattr(text_config, "tie_word_embeddings", False):
+        return
+
+    tie_weights = getattr(model, "tie_weights", None)
+    if not callable(tie_weights):
+        return
+
+    logger.info("Re-tying word embeddings before save to avoid duplicate weights")
+    try:
+        tie_weights()
+    except Exception as e:
+        logger.warning(
+            f"Failed to re-tie word embeddings before save ({e}); a tied head "
+            "such as lm_head may be written as a redundant duplicate."
+        )
 
 
 @deprecated("ModelCompressor.from_pretrained_model")
