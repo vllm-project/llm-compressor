@@ -160,6 +160,11 @@ def update_qparams(
     if observer is None:
         return
     if not observer.has_statistics:
+        logger.warning(
+            f"Attempted to calibrate a module {base_name} without statistics. This is "
+            " often indicative of a bad calibration setup, such as not using "
+            "`moe_calibrate_all_experts` or selecting the wrong calibration pipeline."
+        )
         return
 
     # Dynamic (activation) quantization: only store global_scale, not scale/zp
