@@ -15,7 +15,7 @@ from pydantic import Field, ValidationInfo, field_validator
 from torch.utils._pytree import tree_leaves
 from transformers import PreTrainedModel
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
@@ -52,15 +52,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_start
+    - on_calibration_epoch_start
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
-    - on sequential epoch end
-    - on_end
-    - on_finalize
 
     :param rotations: A list containing the names of rotations to apply to the model.
         Possible rotations include R1, R2, R3, and R4
@@ -151,8 +148,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     @torch.no_grad()
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
         # untie embeddings to avoid unintended effects of `_center_embeddings`
@@ -163,27 +159,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         self._center_embeddings(model)
         self._fuse_norms(model)
         apply_transform_config(model, self.transform_config)
-
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            pass
-
-        elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        if not self.ended_:
-            self.on_end(state, None)
-
-        return True
 
     def _get_targets(self, model: torch.nn.Module) -> NamedModules:
         return [

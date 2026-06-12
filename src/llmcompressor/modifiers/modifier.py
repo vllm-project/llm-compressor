@@ -19,8 +19,11 @@ class Modifier(ModifierInterface, HooksMixin):
     Lifecycle:
     1. initialize
     2. on_event ->
+        * on_calibration_epoch_start if event.type_ == EventType.CALIBRATION_EPOCH_START
         * on_start if self.start <= event.current_index
+        * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
+        * on_calibration_epoch_end if event.type_ == EventType.CALIBRATION_EPOCH_END
     5. finalize
 
     :param index: The index of the modifier in the list of modifiers
@@ -119,9 +122,28 @@ class Modifier(ModifierInterface, HooksMixin):
         if self.finalized_:
             raise RuntimeError("Cannot update a finalized modifier")
 
+        ## catch-all hook ##
+
         self.on_event(state, event, **kwargs)
 
-        # handle starting the modifier if needed
+        ## calibration lifecycle ##
+
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            self.on_calibration_epoch_start(state, event, **kwargs)
+            self.started_ = True
+            return
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self.on_sequential_epoch_end(state, event, **kwargs)
+            return
+
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.on_calibration_epoch_end(state, event, **kwargs)
+            self.ended_ = True
+            return
+
+        ## training lifecycle ##
+
         if (
             event.type_ == EventType.BATCH_START
             and not self.started_
@@ -130,10 +152,8 @@ class Modifier(ModifierInterface, HooksMixin):
             self.on_start(state, event, **kwargs)
             self.started_ = True
             self.on_update(state, event, **kwargs)
-
             return
 
-        # handle ending the modifier if needed
         if (
             event.type_ == EventType.BATCH_END
             and not self.ended_
@@ -142,7 +162,6 @@ class Modifier(ModifierInterface, HooksMixin):
             self.on_end(state, event, **kwargs)
             self.ended_ = True
             self.on_update(state, event, **kwargs)
-
             return
 
         if self.started_ and not self.ended_:
@@ -169,6 +188,8 @@ class Modifier(ModifierInterface, HooksMixin):
 
         return self.end is not None and current >= self.end
 
+    ## Required events ##
+
     @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -193,6 +214,18 @@ class Modifier(ModifierInterface, HooksMixin):
             False otherwise
         """
         return True
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        """
+        on_event is called whenever an event is triggered
+
+        :param state: The current state of the model
+        :param event: The event that triggered the update
+        :param kwargs: Additional arguments for updating the model
+        """
+        pass
+
+    ## Training lifecycle events ##
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
@@ -228,12 +261,35 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_event(self, state: State, event: Event, **kwargs):
+    ## Calibration lifecycle events ##
+
+    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
         """
-        on_event is called whenever an event is triggered
+        on_calibration_epoch_start is called at the start of a calibration epoch.
 
         :param state: The current state of the model
-        :param event: The event that triggered the update
-        :param kwargs: Additional arguments for updating the model
+        :param event: The event that triggered the calibration epoch start
+        :param kwargs: Additional arguments for the calibration epoch start
+        """
+        pass
+
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        """
+        on_sequential_epoch_end is called at the end of a sequential layer
+        calibration/training epoch.
+
+        :param state: The current state of the model
+        :param event: The event that triggered the sequential epoch end
+        :param kwargs: Additional arguments for the sequential epoch end
+        """
+        pass
+
+    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+        """
+        on_calibration_epoch_end is called at the end of a calibration epoch.
+
+        :param state: The current state of the model
+        :param event: The event that triggered the calibration epoch end
+        :param kwargs: Additional arguments for the calibration epoch end
         """
         pass
