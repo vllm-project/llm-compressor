@@ -160,6 +160,10 @@ def update_qparams(
     if observer is None:
         return
     if not observer.has_statistics:
+        logger.warning(
+            "Attempted to calibrate a module without statistics. This is often "
+            "indicative of a bad calibration setup"
+        )
         return
 
     # Dynamic (activation) quantization: only store global_scale, not scale/zp
