@@ -77,6 +77,10 @@ def load_quantizable_moe(
         # load model
         model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
 
+        for module in model.modules():
+            if isinstance(module, LinearExperts2D):
+                module.calibrate_all_experts = calibrate_all_experts
+
         # prepare for saving to be called later
         clear_patch_mapping()
         set_save_conversion_mapping(model, save_map)
