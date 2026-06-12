@@ -34,16 +34,14 @@ from llmcompressor.modifiers.transform import QuIPModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 recipe = [
-    QuIPModifier(
-        rotations=["v", "u"], transform_block_size=128, transform_type="hadamard"
-    ),
+    QuIPModifier(transform_block_size=128, transform_type="hadamard"),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 ```
 
 Note that `QuIPModifier` can be customized. For a full list of the available arguments, see the [docstring](/src/llmcompressor/modifiers/transform/quip/base.py) or documentation.
 
-* `rotations` determines which of the input rotation (v) or output rotations (u) should be used.
+* `rotations` determines which of the input rotation (v) or output rotations (u) should be used. **By default, only input rotations (`["v"]`) are enabled, as output rotations are not performant and do not increase accuracy.**
 * `transform_block_size` determines the size of the hadamard. Smaller hadamards require less cost at runtime.
 * `transform_type` determines how the transform is constrcted. hadamard uses the sylvester construction.
 
