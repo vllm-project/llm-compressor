@@ -20,6 +20,50 @@ from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_pat
 __all__ = ["modify_save_pretrained"]
 
 
+def _map_to_checkpoint_names(
+    model: PreTrainedModel, ignore_list: list[str]
+) -> list[str]:
+    """
+    Translate ignore list entries from HF module names to checkpoint names.
+
+    Transformers may rename weight keys on load (e.g. vision_embedder ->
+    embed_vision). The ignore list is built from model.named_modules() which
+    uses HF names, but safetensors keys use checkpoint names. This applies the
+    same reverse mapping that save_pretrained uses for weights.
+    """
+    try:
+        from transformers.conversion_mapping import (
+            PrefixChange,
+            get_model_conversion_mapping,
+        )
+    except ImportError:
+        return ignore_list
+
+    weight_conversions = getattr(model, "_weight_conversions", None)
+    if weight_conversions is None:
+        weight_conversions = get_model_conversion_mapping(model, add_legacy=False)
+        weight_conversions = [
+            x for x in weight_conversions if not isinstance(x, PrefixChange)
+        ]
+
+    if not weight_conversions:
+        return ignore_list
+
+    # Match revert_weight_conversion: reverse order, then reverse each transform.
+    # Renamings chain — every matching one fires sequentially.
+    inverted = [conv.reverse_transform() for conv in reversed(weight_conversions)]
+
+    result = []
+    for name in ignore_list:
+        for rev in inverted:
+            renamed, matched = rev.rename_source_key(name)
+            if matched is not None:
+                name = renamed
+        result.append(name)
+
+    return result
+
+
 def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
@@ -68,6 +112,15 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
+
+            if (
+                compressor.quantization_config is not None
+                and compressor.quantization_config.ignore
+            ):
+                compressor.quantization_config.ignore = _map_to_checkpoint_names(
+                    model, compressor.quantization_config.ignore
+                )
+
             if save_compressed:
                 compressor.compress_model(model)
 
