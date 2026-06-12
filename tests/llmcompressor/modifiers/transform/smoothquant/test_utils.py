@@ -8,6 +8,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     DEFAULT_SMOOTHQUANT_MAPPINGS,
     MAPPINGS_REGISTRY,
     PHI3_VISION_SMOOTHQUANT_MAPPINGS,
+    QWEN_MOE_SMOOTHQUANT_MAPPINGS,
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
@@ -76,3 +77,17 @@ def test_specialized_architecture_overrides_default(architecture, expected_mappi
     resolved = get_layer_mappings_from_architecture(architecture)
     assert resolved is expected_mappings
     assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture",
+    [
+        "Qwen3_5MoeForCausalLM",
+        "Qwen3_5MoeForConditionalGeneration",
+    ],
+)
+def test_qwen3_5_moe_smoothquant_mappings(architecture):
+    assert architecture in MAPPINGS_REGISTRY
+    resolved = get_layer_mappings_from_architecture(architecture)
+    assert resolved is QWEN_MOE_SMOOTHQUANT_MAPPINGS

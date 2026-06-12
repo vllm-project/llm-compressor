@@ -10,6 +10,7 @@ Quantization examples for the Qwen3.5 family of models, including dense vision-l
 
 - [NVFP4A16 Vision-Language Example](nvfp4-vl-example.md)
 - [NVFP4 MoE Example](nvfp4-moe-example.md)
+- [W8A8 MoE Example](w8a8-moe-example.md)
 
 ## Pre-quantized Checkpoints
 
