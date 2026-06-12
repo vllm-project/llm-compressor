@@ -273,6 +273,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Glm4MoeForCausalLM": _moe_default_mappings,
     "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
+    "GraniteForCausalLM": default_mappings,
     "LlamaForCausalLM": default_mappings,
     "Llama4ForConditionalGeneration": _llama4_default_mappings,
     "Mistral3ForConditionalGeneration": default_mappings,
