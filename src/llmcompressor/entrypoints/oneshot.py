@@ -10,6 +10,7 @@ with various pipeline configurations for efficient model optimization.
 from __future__ import annotations
 
 import os
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -22,6 +23,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
@@ -227,7 +229,11 @@ class Oneshot:
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
-        with norm_calibration_context(self.model):
+        with ExitStack() as stack:
+            stack.enter_context(norm_calibration_context(self.model))
+            if self.dataset_args.moe_calibrate_all_experts:
+                stack.enter_context(moe_calibration_context())
+
             session.initialize(
                 model=self.model,
                 start=-1,
