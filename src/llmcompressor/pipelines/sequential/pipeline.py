@@ -32,19 +32,15 @@ def _get_batches(
     sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
-    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
-    background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass. Delegates to
-    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
+    Yield (batch_idx, inputs) with the next batch optionally prefetched.
     """
-    batch_source = (
-        activations.iter_prefetch(input_names)
-        if sequential_prefetch
-        else activations.iter(input_names)
-    )
-    for batch_idx, inputs in tqdm(
-        enumerate(batch_source), total=num_batches, desc=desc
+    iter_fn = activations.iter_prefetch if sequential_prefetch else activations.iter
+    batch_iter = iter_fn(keys=list(range(num_batches)))
+
+    for batch_idx, batch_dict in tqdm(
+        enumerate(batch_iter), total=num_batches, desc=desc
     ):
+        inputs = {name: batch_dict[name] for name in input_names if name in batch_dict}
         yield batch_idx, inputs
 
 
@@ -124,7 +120,7 @@ class SequentialPipeline(CalibrationPipeline):
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
                 session.state.loss_masks = [
-                    activations.fetch(batch_idx, ["loss_mask"]).get("loss_mask")
+                    activations[batch_idx]["loss_mask"]
                     for batch_idx in range(len(dataloader))
                 ]
             else:
@@ -154,8 +150,14 @@ class SequentialPipeline(CalibrationPipeline):
 
                         if not dataset_args.propagate_error:
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, outputs)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                # Get raw batch dict (no onload of existing tensors)
+                                raw_batch = activations.fetch_no_onload(batch_idx)
+
+                                raw_batch.update(outputs)
+                                for key in subgraph.consumed_names:
+                                    raw_batch.pop(key, None)
+
+                                activations.update(batch_idx, raw_batch, onload_device)
 
                     modules = list(subgraph.submodules(model))
                     LifecycleCallbacks.sequential_epoch_end(modules)
@@ -173,9 +175,15 @@ class SequentialPipeline(CalibrationPipeline):
                             ):
                                 output = subgraph.forward(model, **inputs)
                                 if subgraph_index < num_subgraphs - 1:
-                                    activations.update(batch_idx, output)
-                                    activations.delete(
-                                        batch_idx, subgraph.consumed_names
+                                    # Get raw batch dict (no onload of existing tensors)
+                                    raw_batch = activations.fetch_no_onload(batch_idx)
+
+                                    raw_batch.update(output)
+                                    for key in subgraph.consumed_names:
+                                        raw_batch.pop(key, None)
+
+                                    activations.update(
+                                        batch_idx, raw_batch, onload_device
                                     )
 
             # redundant, finish any remaining compression
