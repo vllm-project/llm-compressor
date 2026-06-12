@@ -7,7 +7,6 @@ from transformers.models.llama4.configuration_llama4 import (
 )
 from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
 
-from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLPWithGate, LinearExperts2D
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -25,7 +24,12 @@ class Llama4LinearExperts(LinearExperts2D):
 
     @classmethod
     @torch.no_grad()
-    def from_experts_module(cls, experts: "Llama4TextExperts", config: Llama4Config):
+    def from_experts_module(
+        cls,
+        experts: "Llama4TextExperts",
+        config: Llama4Config,
+        calibrate_all_experts: bool = True,
+    ):
         config: Llama4TextConfig = config.text_config
         assert experts.num_experts == config.num_local_experts
         experts.is_concatenated = cls.is_concatenated
@@ -41,6 +45,7 @@ class Llama4LinearExperts(LinearExperts2D):
                 config,
             )
             self.num_experts = experts.num_experts
+            self.calibrate_all_experts = calibrate_all_experts
 
         # Extract individual expert weights from the batched parameters
         for index in range(experts.num_experts):
@@ -101,7 +106,7 @@ class Llama4LinearExperts(LinearExperts2D):
         output_list = []
         for i in range(self.num_experts):
             expert = self[i]
-            if get_calibrate_all_experts_flag():
+            if self.calibrate_all_experts:
                 expert_output = expert(hidden_states).view(*expert_view)[i]
             else:
                 expert_output = expert(hidden_states.view(*expert_view)[i])

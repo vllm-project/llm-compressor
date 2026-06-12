@@ -3,7 +3,6 @@ from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
 from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
 
-from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -17,7 +16,10 @@ class GraniteMoeLinearExperts(LinearExperts2D):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: "GraniteMoeParallelExperts", config: GraniteMoeConfig
+        cls,
+        experts: "GraniteMoeParallelExperts",
+        config: GraniteMoeConfig,
+        calibrate_all_experts: bool = True,
     ):
         assert experts.num_experts == config.num_local_experts
 
@@ -26,6 +28,7 @@ class GraniteMoeLinearExperts(LinearExperts2D):
                 experts.num_experts, experts.input_size, experts.output_size, config
             )
             self.num_experts = experts.num_experts
+            self.calibrate_all_experts = calibrate_all_experts
 
         # TODO: experiment with copying views, not values
         for i in range(experts.num_experts):
@@ -71,7 +74,7 @@ class GraniteMoeLinearExperts(LinearExperts2D):
         output_list = []
 
         for i in range(self.num_experts):
-            if get_calibrate_all_experts_flag():
+            if self.calibrate_all_experts:
                 expert_out = self[i](inputs).split(expert_size, dim=0)[i]
             else:
                 expert_out = self[i](inputs.split(expert_size, dim=0)[i])

@@ -11,7 +11,6 @@ from transformers.integrations.moe import _default_apply_gate
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
-from .context import get_calibrate_all_experts_flag
 from .helpers import (
     FusedExpertsProtocol,
     MoEConfig,
@@ -192,10 +191,13 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
+        calibrate_all_experts: bool = True,
     ):
         with skip_weights_initialize():
-            self = cls(config)
+            self = cls(config, calibrate_all_experts=calibrate_all_experts)
 
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
@@ -208,7 +210,14 @@ class LinearExperts2D(torch.nn.ModuleList):
 
         return self
 
-    def __init__(self, config: PreTrainedConfig, *args, **kwargs):
+    def __init__(
+        self,
+        config: PreTrainedConfig,
+        calibrate_all_experts: bool = True,
+        *args,
+        **kwargs,
+    ):
+        self.calibrate_all_experts = calibrate_all_experts
         moe_config = MoEConfig.from_config(config)
 
         # store num_experts before appending `act_fn` to module list
@@ -254,7 +263,7 @@ class LinearExperts2D(torch.nn.ModuleList):
 
             # apply expert
             expert = self[expert_index]
-            if get_calibrate_all_experts_flag():
+            if self.calibrate_all_experts:
                 expert_output = expert(hidden_states)[token_indices]
             else:
                 expert_output = expert(hidden_states[token_indices])
