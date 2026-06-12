@@ -180,7 +180,7 @@ class TestLMEval:
                     model_class=self.config.model_class,
                     max_memory=self.config.max_memory,
                     num_calibration_samples=self.config.num_calibration_samples,
-                    max_seq_length=2048,
+                    max_seq_length=self.config.max_seq_length,
                     scheme=self.config.scheme,
                     dataset_id=self.config.dataset_id,
                     dataset_config=self.config.dataset_config,
