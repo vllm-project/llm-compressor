@@ -185,6 +185,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
             # reindex_fused_weights is deprecated
             "llmcompressor.reindex_fused_weights=llmcompressor.entrypoints.model_free.reindex_fused_weights:main",
+            "llmcompressor.evaluate_kld=llmcompressor.evaluation.kld:main",
         ]
     },
     python_requires=">=3.10",
