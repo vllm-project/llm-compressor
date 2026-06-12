@@ -161,8 +161,9 @@ def update_qparams(
         return
     if not observer.has_statistics:
         logger.warning(
-            "Attempted to calibrate a module without statistics. This is often "
-            "indicative of a bad calibration setup"
+            f"Attempted to calibrate a module {base_name} without statistics. This is "
+            " often indicative of a bad calibration setup, such as not using "
+            "`moe_calibrate_all_experts` or selecting the wrong calibration pipeline."
         )
         return
 
