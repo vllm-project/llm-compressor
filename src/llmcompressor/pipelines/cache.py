@@ -102,19 +102,23 @@ class IntermediatesCache:
         return cls(batch_intermediates, offload_device)
 
     def fetch(
-        self, batch_index: int, input_names: list[str] | None = None
+        self,
+        batch_index: int,
+        input_names: list[str] | None = None,
+        non_blocking: bool = True,
     ) -> dict[str, Any]:
         """
         Fetch values belonging to a batch
 
         :param batch_index: index of batch whose values are being fetched
         :param input_names: list of keys whose values are being fetched
+        :param non_blocking: if True, pin CPU tensors on-the-fly
         :return: dictionary mapping keys to onloaded values
         """
         intermediates = self.batch_intermediates[batch_index]
 
         return {
-            key: self._onload_value(subgraph_input)
+            key: self._onload_value(subgraph_input, non_blocking=non_blocking)
             for key, subgraph_input in intermediates.items()
             if input_names is None or key in input_names
         }
@@ -226,7 +230,7 @@ class IntermediatesCache:
             event = None
             if h2d_stream is not None:
                 with torch.cuda.stream(h2d_stream):
-                    data = self.fetch(batch_index, input_names)
+                    data = self.fetch(batch_index, input_names, non_blocking=True)
                 event = torch.cuda.Event()
                 event.record(h2d_stream)
             else:
@@ -257,11 +261,14 @@ class IntermediatesCache:
         return len(self.batch_intermediates)
 
     @classmethod
-    def _onload_value(cls, intermediate: IntermediateValue) -> Any:
+    def _onload_value(
+        cls, intermediate: IntermediateValue, non_blocking: bool = True
+    ) -> Any:
         """
         Onload a value's tensors to the onload device
 
         :param intermediate: intermediates value representation to onload
+        :param non_blocking: if True, pin CPU tensors on-the-fly
         :return: original value with tensors onloaded to the onload device
         """
         value = intermediate.value
@@ -269,26 +276,33 @@ class IntermediatesCache:
 
         match value:
             case torch.Tensor():
+                # pin on-the-fly so only the active batch consumes pinned memory
+                if non_blocking and not value.is_pinned() and value.device.type == "cpu":
+                    value = value.pin_memory()
+
                 # use non_blocking when source is pinned and target is an accelerator
                 # so the H2D DMA can overlap with compute on a separate stream
-                non_blocking = (
+                use_non_blocking = (
                     value.is_pinned()
                     and device is not None
                     and torch.accelerator.is_available()
                     and torch.device(device).type
                     == torch.accelerator.current_accelerator().type
                 )
-                return value.to(device=device, non_blocking=non_blocking)
+                return value.to(device=device, non_blocking=use_non_blocking)
             case list():
-                return [cls._onload_value(v) for v in value]
+                return [cls._onload_value(v, non_blocking=non_blocking) for v in value]
             case tuple():
-                return tuple(cls._onload_value(v) for v in value)
+                return tuple(cls._onload_value(v, non_blocking=non_blocking) for v in value)
             case dict():
-                return {k: cls._onload_value(v) for k, v in value.items()}
+                return {
+                    k: cls._onload_value(v, non_blocking=non_blocking)
+                    for k, v in value.items()
+                }
             case _ if is_dataclass(value):
                 for field in fields(value):
                     v = getattr(value, field.name)
-                    setattr(value, field.name, cls._onload_value(v))
+                    setattr(value, field.name, cls._onload_value(v, non_blocking=non_blocking))
                 return value
             case _:
                 # handles primitive values that should be returned as is.
