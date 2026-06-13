@@ -235,10 +235,7 @@ _afmoe_mappings = [
     ),
 ]
 
-# Step3p5 (Step-3.5-Flash): GQA self-attention with head-wise g_proj, dense early
-# layers (mlp), MoE layers (moe + share_expert) with packed MoELinear experts.
-# The packed moe.up_proj -> moe.down_proj path is intentionally excluded from the
-# up/down mapping because AWQ's smooth-layer update assumes a 1D/2D smooth weight.
+# Step-3.5-Flash
 _step3p5_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",
