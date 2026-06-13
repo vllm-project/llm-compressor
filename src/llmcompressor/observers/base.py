@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Dict, Iterable, List, Optional, Tuple, TypedDict
+from typing import Iterable, TypedDict
 
 import torch
 from compressed_tensors import InternalModule
@@ -13,7 +13,7 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
-MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
+MinMaxTuple = tuple[torch.Tensor, torch.Tensor]
 
 
 class QParamsDict(TypedDict, total=False):
@@ -21,7 +21,7 @@ class QParamsDict(TypedDict, total=False):
 
     scale: torch.Tensor
     zero_point: torch.Tensor
-    global_scale: Optional[torch.Tensor]
+    global_scale: torch.Tensor | None
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -35,7 +35,7 @@ class Observer(InternalModule, RegistryMixin):
     """
 
     # Dict of statistic attribute names to reduce operations for DDP synchronization
-    _act_sync_dict: Dict[str, dist.ReduceOp] = {}
+    _act_sync_dict: dict[str, dist.ReduceOp] = {}
 
     def __init__(
         self,
@@ -78,17 +78,17 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        assert (
-            self.has_statistics
-        ), "No statistics available. Call observer(value) first."
+        assert self.has_statistics, (
+            "No statistics available. Call observer(value) first."
+        )
 
         global_scale = None
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
             global_absmax = torch.max(-self.min_vals.min(), self.max_vals.max())
             for obs in self._fused_observers:
-                assert (
-                    obs.has_statistics
-                ), "All fused observers must be run before get_qparams."
+                assert obs.has_statistics, (
+                    "All fused observers must be run before get_qparams."
+                )
                 global_absmax = torch.max(global_absmax, -obs.min_vals.min())
                 global_absmax = torch.max(global_absmax, obs.max_vals.max())
             global_scale = generate_gparam(
@@ -132,7 +132,7 @@ class Observer(InternalModule, RegistryMixin):
                 if other is not obs:
                     obs._fused_observers.add(other)
 
-    def sync_activation_stats(self) -> List[dist.Work]:
+    def sync_activation_stats(self) -> list[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.
 
             note: weight statistics don't need to be synced since weights
