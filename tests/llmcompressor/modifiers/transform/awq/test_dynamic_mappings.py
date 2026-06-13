@@ -1,12 +1,17 @@
 import pytest
 import torch
+from compressed_tensors.quantization import apply_quantization_config
 from torch.nn import Linear
 
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     AWQ_DYNAMIC_MAPPING_REGISTRY,
     _detect_linear_attn_projections,
+    _detect_step3p5_ffn_layer_indices,
     _get_hybrid_attention_config,
     build_hybrid_attention_mappings,
+    build_step3p5_mappings,
     get_layer_mappings_from_model,
 )
 
@@ -156,6 +161,66 @@ def _make_standard_model():
     return model
 
 
+def _make_step3p5_model(num_layers=6, moe_start=2):
+    """Build a minimal Step3p5-shaped model with dense and MoE FFN layers."""
+    layers = []
+    for i in range(num_layers):
+        layer = torch.nn.ModuleDict(
+            {
+                "self_attn": torch.nn.ModuleDict(
+                    {
+                        "q_proj": Linear(8, 8),
+                        "k_proj": Linear(8, 8),
+                        "v_proj": Linear(8, 8),
+                        "g_proj": Linear(8, 8),
+                        "o_proj": Linear(8, 8),
+                    }
+                ),
+                "input_layernorm": torch.nn.LayerNorm(8),
+                "post_attention_layernorm": torch.nn.LayerNorm(8),
+            }
+        )
+
+        if i < moe_start:
+            layer["mlp"] = torch.nn.ModuleDict(
+                {
+                    "gate_proj": Linear(8, 8),
+                    "up_proj": Linear(8, 8),
+                    "down_proj": Linear(8, 8),
+                }
+            )
+        else:
+            layer["moe"] = torch.nn.ModuleDict(
+                {
+                    "gate": Linear(8, 8),
+                    "gate_proj": Linear(8, 8),
+                    "up_proj": Linear(8, 8),
+                    "down_proj": Linear(8, 8),
+                }
+            )
+            layer["share_expert"] = torch.nn.ModuleDict(
+                {
+                    "gate_proj": Linear(8, 8),
+                    "up_proj": Linear(8, 8),
+                    "down_proj": Linear(8, 8),
+                }
+            )
+
+        layers.append(layer)
+
+    model = torch.nn.ModuleDict(
+        {
+            "model": torch.nn.ModuleDict(
+                {
+                    "layers": torch.nn.ModuleList(layers),
+                }
+            )
+        }
+    )
+    model.config = type("Config", (), {"num_hidden_layers": num_layers})()
+    return model
+
+
 @pytest.mark.unit
 class TestGetHybridAttentionConfig:
     def test_returns_config_for_hybrid_model(self):
@@ -202,6 +267,93 @@ class TestDetectLinearAttnProjections:
         projs = _detect_linear_attn_projections(model)
         # 6 linear layers but should only return unique projection names
         assert len(projs) == len(set(projs))
+
+
+@pytest.mark.unit
+class TestStep3p5Mappings:
+    def test_detects_dense_and_moe_ffn_layer_indices(self):
+        model = _make_step3p5_model(num_layers=6, moe_start=2)
+        dense_indices, moe_indices = _detect_step3p5_ffn_layer_indices(model)
+        assert dense_indices == [0, 1]
+        assert moe_indices == [2, 3, 4, 5]
+
+    def test_builds_split_dense_and_moe_mappings(self):
+        model = _make_step3p5_model(num_layers=6, moe_start=2)
+        mappings = build_step3p5_mappings(model)
+        assert mappings is not None
+        assert len(mappings) == 5
+
+        dense_mapping = mappings[2]
+        assert "0|1" in dense_mapping.smooth_layer
+        assert all("mlp." in balance for balance in dense_mapping.balance_layers)
+
+        moe_mapping = mappings[3]
+        assert "2|3|4|5" in moe_mapping.smooth_layer
+        assert any("moe." in balance for balance in moe_mapping.balance_layers)
+        assert any("share_expert." in balance for balance in moe_mapping.balance_layers)
+        assert not any("mlp." in balance for balance in moe_mapping.balance_layers)
+
+    def test_dynamic_registry_model_uses_step3p5_dynamic_path(self):
+        model = _make_step3p5_model(num_layers=6, moe_start=2)
+        model.__class__ = type("Step3p5ForCausalLM", (model.__class__,), {})
+        assert model.__class__.__name__ in AWQ_DYNAMIC_MAPPING_REGISTRY
+
+        mappings = get_layer_mappings_from_model(model)
+        assert len(mappings) == 5
+        assert mappings[2].smooth_layer.endswith("(0|1)\\.post_attention_layernorm$")
+        assert mappings[3].smooth_layer.endswith(
+            "(2|3|4|5)\\.post_attention_layernorm$"
+        )
+
+    def test_step3p5_mappings_resolve_per_layer(self):
+        model = _make_step3p5_model(num_layers=6, moe_start=2)
+        mappings = build_step3p5_mappings(model)
+        assert mappings is not None
+
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM"
+            ).resolve_quantization_config(),
+        )
+        awq = AWQModifier(mappings=mappings)
+        awq._set_resolved_mappings(model)
+
+        post_attention_mappings = [
+            mapping
+            for mapping in awq._resolved_mappings
+            if mapping.smooth_name.endswith("post_attention_layernorm")
+        ]
+        assert len(post_attention_mappings) == 6
+
+        dense_mappings = [
+            mapping
+            for mapping in post_attention_mappings
+            if ".layers.0." in mapping.smooth_name
+            or ".layers.1." in mapping.smooth_name
+        ]
+        assert len(dense_mappings) == 2
+        assert all(
+            all(".mlp." in name for name in mapping.balance_names)
+            for mapping in dense_mappings
+        )
+
+        moe_mappings = [
+            mapping
+            for mapping in post_attention_mappings
+            if ".layers.2." in mapping.smooth_name
+            or ".layers.3." in mapping.smooth_name
+            or ".layers.4." in mapping.smooth_name
+            or ".layers.5." in mapping.smooth_name
+        ]
+        assert len(moe_mappings) == 4
+        assert all(
+            all(
+                ".moe." in name or ".share_expert." in name
+                for name in mapping.balance_names
+            )
+            for mapping in moe_mappings
+        )
 
 
 @pytest.mark.unit
