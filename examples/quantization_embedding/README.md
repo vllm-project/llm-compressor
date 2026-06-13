@@ -91,7 +91,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 recipe = [
     GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
-    QuantizationModifier(config_groups={"embedding": {...}}),
+    QuantizationModifier(config_groups={"embedding": embedding_config}), # where embedding_config is defined as above
 ]
 ```
 
