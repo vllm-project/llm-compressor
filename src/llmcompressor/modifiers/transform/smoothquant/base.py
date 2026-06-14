@@ -15,8 +15,10 @@ from torch.utils._pytree import tree_leaves
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
+    get_layer_mappings_from_model,
+)
 from llmcompressor.modifiers.transform.smoothquant.utils import (
-    get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
@@ -187,9 +189,7 @@ class SmoothQuantModifier(Modifier):
             return self.mappings
 
         logger.info("No SmoothQuantModifier.mappings provided, inferring from model...")
-        return get_layer_mappings_from_architecture(
-            architecture=model.__class__.__name__
-        )
+        return get_layer_mappings_from_model(model)
 
     @handle_mapping_resolution_errors
     def _resolve_mappings(self, model: Module) -> list[SmoothQuantMapping]:
