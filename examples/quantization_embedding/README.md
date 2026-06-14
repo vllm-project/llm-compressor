@@ -36,9 +36,15 @@ loaded into vLLM.
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, device_map="auto", torch_dtype="auto"
+)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 ```
+
+> Note: `meta-llama/Meta-Llama-3-8B-Instruct` is gated on Hugging Face. Make sure
+> your account has access and that you are authenticated locally (e.g. via
+> `huggingface-cli login`) before running, or substitute an open model.
 
 ### 2) Apply embedding quantization (data-free)
 
