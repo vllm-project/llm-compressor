@@ -13,7 +13,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     LayerMap,
 )
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
-    get_hybrid_attention_layer_types,
+    get_config_layer_types,
 )
 
 __all__ = ["SMOOTHQUANT_DYNAMIC_MAPPING_REGISTRY", "get_layer_mappings_from_model"]
@@ -55,7 +55,7 @@ def _build_qwen3_5_smoothquant_mappings(
     projections), and uses the caller-provided MLP balance layers for the
     post_attention_layernorm mapping.
     """
-    layer_types = get_hybrid_attention_layer_types(model)
+    layer_types = get_config_layer_types(model)
     if layer_types is None:
         raise ValueError(
             "Qwen3.5 SmoothQuant mappings require model.config.text_config."
