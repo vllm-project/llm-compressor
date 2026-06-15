@@ -19,13 +19,10 @@ def _collapse_causal_attention_mask(mask: torch.Tensor) -> torch.Tensor:
             f"{tuple(mask.shape)}"
         )
 
-    if mask.numel() == 0:
-        return mask
-
     if mask.dtype == torch.bool:
         return mask.any(dim=-1)
 
-    if torch.all(mask == 0):
+    if mask.numel() == 0 or torch.all(mask == 0):
         raise ValueError(
             "Invalid causal attention mask for AutoRound: all positions are masked"
         )
@@ -48,6 +45,13 @@ def fix_attention_mask(
     normalized_mask = torch.as_tensor(mask).clone()
     if normalized_mask.shape[-1] == 0:
         return normalized_mask
+
+    if (
+        normalized_mask.ndim == 4
+        and normalized_mask.shape[1] == 1
+        and normalized_mask.shape[2] == 1
+    ):
+        normalized_mask = normalized_mask.squeeze(2).squeeze(1)
 
     if normalized_mask.ndim in (3, 4):
         normalized_mask = _collapse_causal_attention_mask(normalized_mask)
