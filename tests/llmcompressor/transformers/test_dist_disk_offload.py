@@ -25,7 +25,12 @@ EVAL_TEXT = "Paris is the capital of France"
 @contextlib.contextmanager
 def _disk_offloaded_model():
     """Load a disk-offloaded model using a temporary offload folder."""
-    offload_dir = tempfile.mkdtemp(prefix="disk_offload_test_")
+    if dist.get_rank() == 0:
+        offload_dir = [tempfile.mkdtemp(prefix="disk_offload_test_")]
+    else:
+        offload_dir = [None]
+    dist.broadcast_object_list(offload_dir, src=0)
+
     try:
         with load_offloaded_model():
             model = AutoModelForCausalLM.from_pretrained(
@@ -33,11 +38,15 @@ def _disk_offloaded_model():
                 torch_dtype=torch.float32,
                 device_map="auto_offload",
                 max_memory={"cpu": MAX_CPU_MEMORY},
-                offload_folder=offload_dir,
+                offload_folder=offload_dir[0],
             )
         yield model
+
     finally:
-        shutil.rmtree(offload_dir, ignore_errors=True)
+        dist.barrier()
+        if dist.get_rank() == 0:
+            shutil.rmtree(offload_dir[0], ignore_errors=True)
+        dist.barrier()
 
 
 def _dataset():
@@ -88,8 +97,6 @@ def test_gptq_distributed_disk_offload():
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
         )
-
-        torch.distributed.barrier()
 
         if dist.get_rank() == 0:
             ppl = _compute_perplexity(model, EVAL_TEXT)

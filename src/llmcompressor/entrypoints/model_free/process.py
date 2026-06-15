@@ -60,6 +60,8 @@ def validate_file(
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
     """
+    # device is ignored: all validation is done on meta device
+    device = torch.device("meta")
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:

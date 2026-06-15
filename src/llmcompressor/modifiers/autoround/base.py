@@ -21,12 +21,13 @@ from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.autoround.utils import fix_attention_mask
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
-__all__ = ["AutoRoundModifier"]
+__all__ = ["AutoRoundModifier", "fix_batch_if_needed"]
 
 
 class _LLModelWrapper(torch.nn.Module):
@@ -57,6 +58,20 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     return wrapped_model
 
 
+def fix_batch_if_needed(
+    batch: dict[str, list[int] | list[list[int]]],
+) -> dict[str, list[int] | list[list[int]]]:
+    """
+    Normalize custom calibration batches so their attention masks work with AutoRound.
+    """
+    attention_mask = batch.get("attention_mask")
+    if attention_mask is None:
+        return batch
+
+    batch["attention_mask"] = fix_attention_mask(attention_mask).tolist()
+    return batch
+
+
 @contextmanager
 def suspend_offloading(model: nn.Module):
     """
@@ -64,6 +79,8 @@ def suspend_offloading(model: nn.Module):
     """
     offloading_info = dict()
     for name, module in model.named_modules():
+        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+            continue
         offloading_info[name] = (
             get_execution_device(module),
             get_offloaded_device(module),
@@ -73,6 +90,8 @@ def suspend_offloading(model: nn.Module):
     yield
 
     for name, module in model.named_modules():
+        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+            continue
         offload_module(module, *offloading_info[name])
 
 
@@ -145,6 +164,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     batch_size: int = 8
     lr: float | None = None
     device_ids: str | None = None
+    disable_opt_rtn: bool = False
 
     # private variables
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
@@ -187,7 +207,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
-    def input_capture_hook(self, module, *args, **kwargs):
+    def input_capture_hook(self, module, args, kwargs):
         if module._tmp_name not in self._all_module_input:
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
@@ -266,6 +286,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "batch_size": self.batch_size,
             "device_map": self.device_ids,
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
+            "disable_opt_rtn": self.disable_opt_rtn,
         }
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
@@ -285,6 +306,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             first_param = next(decoding_layer.parameters())
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
+            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
+            self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
             # Leave offload for LLMC to handle if `device_ids` is not set
             auto_offload = False
@@ -296,7 +319,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
-                inputs=cur_inputs,
+                inputs=ar_inputs,
                 q_input=self._q_input,
                 device=str(device),
                 auto_offload=auto_offload,
@@ -589,3 +612,25 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             act_data_type=act_data_type,
         )
         return ar_quant_scheme
+
+    def _set_attention_masks(
+        self,
+        autoround: AutoRound,
+        block: torch.nn.Module,
+        captured_inputs: list[tuple[tuple, dict]],
+    ):
+        import inspect
+
+        sig = inspect.signature(block.forward)
+        attention_masks = []
+        for args, kwargs in captured_inputs:
+            try:
+                bound = sig.bind_partial(*args, **kwargs)
+                mask = bound.arguments.get("attention_mask")
+            except TypeError:
+                mask = kwargs.get("attention_mask")
+            if mask is not None:
+                attention_masks.append(fix_attention_mask(mask))
+
+        if attention_masks:
+            autoround.attention_mask = attention_masks

@@ -6,9 +6,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 MODEL_ID = "Qwen/Qwen3-32B"
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, dtype="auto", trust_remote_code=True
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Configure the quantization algorithm and scheme.

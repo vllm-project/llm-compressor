@@ -1,6 +1,6 @@
 import contextlib
 import inspect
-from collections import deque
+from collections import UserDict, deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
@@ -179,6 +179,10 @@ class SequentialTracer(HFTracer):
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
+
+        # special extension for supporting `UserDict`s (Gemma4 uses this)
+        elif isinstance(a, UserDict):
+            return self.create_arg(dict(a))
 
         else:
             return super().create_arg(a)
