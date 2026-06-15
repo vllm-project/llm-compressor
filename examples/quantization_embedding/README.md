@@ -36,9 +36,7 @@ loaded into vLLM.
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(
-    model_id, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 ```
 
