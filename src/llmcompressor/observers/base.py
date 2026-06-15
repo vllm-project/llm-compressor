@@ -26,7 +26,9 @@ class QParamsDict(TypedDict, total=False):
     zero_point: torch.Tensor
     global_scale: Optional[torch.Tensor]
 
+
 _msg = "Fused module has been garbage collected before its weight was observed"
+
 
 class Observer(InternalModule, RegistryMixin):
     """
@@ -85,7 +87,7 @@ class Observer(InternalModule, RegistryMixin):
         ), "No statistics available. Call observer(value) first."
 
         global_scale = None
-        
+
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
             global_absmax = torch.max(-self.min_vals.min(), self.max_vals.max())
             for fused_obs in self._fusions.keys():
