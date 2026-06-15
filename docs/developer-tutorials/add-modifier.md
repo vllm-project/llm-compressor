@@ -80,7 +80,9 @@ class MyModifier(Modifier):
         # the calibration pass (e.g., set up observers, reset statistics).
         ...
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         # Called at the end of a sequential layer group (sequential pipeline) or
         # once for the entire model (basic/data-free pipelines).
         # This is where quantization modifiers compute weight and activation
