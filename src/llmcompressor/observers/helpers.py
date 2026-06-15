@@ -185,21 +185,32 @@ def fuse_weight_observers(model: Module):
     from llmcompressor.observers import Observer
 
     for submodule in model.modules():
-        for layers_to_fuse in FUSED_LAYER_NAMES:
-            if not all(hasattr(submodule, name) for name in layers_to_fuse):
+        for fusion_name_group in FUSED_LAYER_NAMES:
+            if not all(hasattr(submodule, name) for name in fusion_name_group):
                 continue
+            layers_to_fuse = [getattr(submodule, name) for name in fusion_name_group]
 
-            layers = [getattr(submodule, name) for name in layers_to_fuse]
-            observers = []
-            for layer in layers:
+            only_obs = True
+            only_tensor_group = True
+            observers_and_modules = []
+            for layer in layers_to_fuse:
                 obs = getattr(layer, "weight_observer", None)
                 if obs is None:
-                    break
+                    only_obs = False
+                    continue
                 if obs.args.strategy != QuantizationStrategy.TENSOR_GROUP:
-                    break
-                observers.append(obs)
-            else:
-                Observer.fuse(observers)
+                    only_tensor_group = False
+                    continue
+                observers_and_modules.append((obs, layer))
+            if len(observers_and_modules) == 0:
+                continue
+
+            start = f"Some layers in fused group: {fusion_name_group} have"
+            end = ", need all fused layers to have same quantization"
+            assert only_obs, f"{start} no weight observer{end}"
+            assert only_tensor_group, f"{start} non-TENSOR_GROUP quantization{end}"
+
+            Observer.fuse(observers_and_modules)
 
 
 def lerp(start: torch.Tensor, end: torch.Tensor, weight: float) -> torch.Tensor:

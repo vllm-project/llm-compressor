@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from typing import Dict, Iterable, List, Optional, Tuple, TypedDict
+from weakref import ref
 
 import torch
 from compressed_tensors import InternalModule
@@ -8,10 +9,12 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationStrate
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
+from torch.nn import Module
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
+
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 
@@ -22,6 +25,9 @@ class QParamsDict(TypedDict, total=False):
     scale: torch.Tensor
     zero_point: torch.Tensor
     global_scale: Optional[torch.Tensor]
+
+
+_msg = "Fused module has been garbage collected before its weight was observed"
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -50,7 +56,7 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
-        self._fused_observers: set["Observer"] = set()
+        self._fusions: dict["Observer", ref[Module]] = {}
 
     @property
     def has_statistics(self) -> bool:
@@ -72,9 +78,7 @@ class Observer(InternalModule, RegistryMixin):
         Compute quantization parameters from accumulated statistics.
 
         For TENSOR_GROUP, global_scale is computed from the absmax of
-        this observer and all fused observers. Fused observers must
-        already have statistics — call observe_weight on all modules
-        before calling get_qparams on any of them.
+        this observer and all fused observers.
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
@@ -83,14 +87,16 @@ class Observer(InternalModule, RegistryMixin):
         ), "No statistics available. Call observer(value) first."
 
         global_scale = None
+
         if self.args.strategy == QuantizationStrategy.TENSOR_GROUP:
             global_absmax = torch.max(-self.min_vals.min(), self.max_vals.max())
-            for obs in self._fused_observers:
-                assert (
-                    obs.has_statistics
-                ), "All fused observers must be run before get_qparams."
-                global_absmax = torch.max(global_absmax, -obs.min_vals.min())
-                global_absmax = torch.max(global_absmax, obs.max_vals.max())
+            for fused_obs in self._fusions.keys():
+                if not fused_obs.has_statistics:
+                    fused_mod = self._fusions[fused_obs]()
+                    assert fused_mod is not None, _msg
+                    fused_obs(fused_mod.weight)
+                global_absmax = torch.max(global_absmax, -fused_obs.min_vals.min())
+                global_absmax = torch.max(global_absmax, fused_obs.max_vals.max())
             global_scale = generate_gparam(
                 -global_absmax.reshape(1), global_absmax.reshape(1)
             )
@@ -120,17 +126,18 @@ class Observer(InternalModule, RegistryMixin):
         return self
 
     @staticmethod
-    def fuse(observers: Iterable["Observer"]) -> None:
+    def fuse(observers_and_modules: Iterable[tuple["Observer", Module]]) -> None:
         """
         Link all observers in the list with each other for shared global_scale.
+        Capture module weak-references for auto-observation in get_qparams().
 
-        :param observers: list of observers to fuse together
+        :param observers_and_modules: list of (observer, module) tuples
         """
-        observers = list(observers)
-        for obs in observers:
-            for other in observers:
-                if other is not obs:
-                    obs._fused_observers.add(other)
+        pairs = list(observers_and_modules)
+        for obs, _ in pairs:
+            for fuse_obs, fuse_mod in pairs:
+                if fuse_obs is not obs:
+                    obs._fusions[fuse_obs] = ref(fuse_mod)
 
     def sync_activation_stats(self) -> List[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.
