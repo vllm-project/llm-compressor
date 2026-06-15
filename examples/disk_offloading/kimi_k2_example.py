@@ -1,11 +1,12 @@
-from compressed_tensors.offload import get_device_map, load_offloaded_model
+from compressed_tensors.offload import get_device_map
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
-# Select model and load it in the `load_offloaded_model` context
-with load_offloaded_model():
+# Select model and load it in the `load_context` context
+with load_context():
     model_id = "unsloth/Kimi-K2-Instruct-0905-BF16"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
