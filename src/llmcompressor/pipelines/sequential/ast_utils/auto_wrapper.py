@@ -113,7 +113,7 @@ class AutoWrapper(ast.NodeTransformer):
             value = bool(self._eval_expr(node.test))
 
             # force a wrap if any assignments occur within the if statement
-            for expr in ast.walk(node):
+            for expr in ast.walk(node.test):
                 if isinstance(expr, ast.NamedExpr):
                     raise Exception("If statement contains assignment")
 
