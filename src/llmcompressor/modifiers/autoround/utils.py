@@ -43,6 +43,7 @@ def fix_attention_mask(
     AutoRound expects at least one masked position when the calibration mask is fully
     dense. When every token is marked valid, set the final position to 0 while
     preserving the original dtype and shape.
+    More details can be found here: https://github.com/intel/auto-round/blob/50ee58c9e176e9da2a744dbe6ed220f26e80eccd/auto_round/calibration/llm.py#L315-L355
     """
     normalized_mask = torch.as_tensor(mask).clone()
     if normalized_mask.shape[-1] == 0:
