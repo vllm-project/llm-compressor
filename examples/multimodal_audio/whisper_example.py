@@ -13,7 +13,7 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 # Select model and load it.
 MODEL_ID = "openai/whisper-large-v3"
 
-model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID)
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
 
@@ -83,7 +83,7 @@ def data_collator(features):
 
 
 # Recipe
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["proj_out"])
 
 # Apply algorithms.
 oneshot(
