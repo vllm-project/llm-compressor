@@ -624,8 +624,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         sig = inspect.signature(block.forward)
         attention_masks = []
         for args, kwargs in captured_inputs:
-            bound = sig.bind_partial(*args, **kwargs)
-            mask = bound.arguments.get("attention_mask")
+            try:
+                bound = sig.bind_partial(*args, **kwargs)
+                mask = bound.arguments.get("attention_mask")
+            except TypeError:
+                mask = kwargs.get("attention_mask")
             if mask is not None:
                 attention_masks.append(fix_attention_mask(mask))
 
