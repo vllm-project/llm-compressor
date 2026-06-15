@@ -337,10 +337,14 @@ class AWQModifier(Modifier):
                     ]
                 )
 
-                compatible, gqa_head_dim = _check_layers_are_compatible(
+                compatible, is_gqa = _check_layers_are_compatible(
                     smooth_layer, smooth_name, balance_layers, balance_names,
-                    head_dim=head_dim,
                 )
+
+                if is_gqa and head_dim is None:
+                    compatible = False
+
+                gqa_head_dim = head_dim if is_gqa else None
 
                 # Incompatibility occurs frequently depending on model size
                 if not compatible:
@@ -567,26 +571,25 @@ class AWQModifier(Modifier):
                 ):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
+                        balance_scales = scales
+                        if mapping.gqa_head_dim is not None:
+                            balance_scales = _expand_scales_for_gqa(
+                                scales,
+                                module.in_features,
+                                mapping.gqa_head_dim,
+                            )
                         update_offload_parameter(
                             module,
                             "weight",
                             orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1),
+                            * balance_scales.view(1, -1),
                         )
                     elif module == smooth_layer:
-                        smooth_scales = scales
-                        if mapping.gqa_head_dim is not None:
-                            smooth_scales = _compress_scales_for_gqa(
-                                scales,
-                                module.weight.size(0),
-                                mapping.gqa_head_dim,
-                            )
-
                         if module.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                module.weight.div_(smooth_scales),
+                                module.weight.div_(scales),
                             )
                         else:
                             # NOTE: edge case when smooth layer number of out_features
@@ -596,15 +599,15 @@ class AWQModifier(Modifier):
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
                             weight = module.weight
-                            weight[-smooth_scales.size(0) :].div_(
-                                smooth_scales.reshape(-1, 1)
+                            weight[-scales.size(0) :].div_(
+                                scales.reshape(-1, 1)
                             )
                             update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
                                 "bias",
-                                module.bias.div_(smooth_scales),
+                                module.bias.div_(scales),
                             )
 
                 for layer in balance_layers:
@@ -669,6 +672,19 @@ class AWQModifier(Modifier):
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
+        # compress activation/weight stats to kv_dim for GQA mappings
+        gqa_expand_dim = None
+        if mapping.gqa_head_dim is not None:
+            kv_dim = mapping.smooth_layer.out_features
+            gqa_expand_dim = x_mean.size(0)
+            x_mean = _compress_scales_for_gqa(
+                x_mean, kv_dim, mapping.gqa_head_dim,
+            )
+            if self.duo_scaling:
+                w_mean = _compress_scales_for_gqa(
+                    w_mean, kv_dim, mapping.gqa_head_dim,
+                )
+
         # Where appropriate, replace observers with memoryless_minmax
         # for duration of grid search
         balance_layers_to_patch = [
@@ -706,7 +722,12 @@ class AWQModifier(Modifier):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                _scalesview = scales.view(1, -1).to(device)
+                if gqa_expand_dim is not None:
+                    _scalesview = _expand_scales_for_gqa(
+                        scales, gqa_expand_dim, mapping.gqa_head_dim,
+                    ).view(1, -1).to(device)
+                else:
+                    _scalesview = scales.view(1, -1).to(device)
 
                 # (W * s)
                 for balance_layer in balance_layers_to_patch:
@@ -1004,13 +1025,12 @@ def _check_layers_are_compatible(
     smooth_name: str,
     balance_layers: list[Module],
     balance_names: list[str],
-    head_dim: int | None = None,
-) -> tuple[bool, int | None]:
+) -> tuple[bool, bool]:
     """
-    :return: (compatible, gqa_head_dim) where gqa_head_dim is set when a valid
+    :return: (compatible, is_gqa) where is_gqa is True when a valid
         GQA dimension ratio is detected between v_proj and o_proj
     """
-    gqa_head_dim = None
+    is_gqa = False
     for balance_layer, balance_name in zip(balance_layers, balance_names):
         if not (
             isinstance(smooth_layer, torch.nn.Linear)
@@ -1022,23 +1042,16 @@ def _check_layers_are_compatible(
         if smooth_name.endswith(".v_proj"):
             if smooth_layer.out_features == balance_layer.in_features:
                 continue
-            # check for valid GQA ratio
-            if (
-                head_dim is not None
-                and head_dim > 0
-                and balance_layer.in_features % smooth_layer.out_features == 0
-                and smooth_layer.out_features % head_dim == 0
-                and balance_layer.in_features % head_dim == 0
-            ):
-                gqa_head_dim = head_dim
+            if balance_layer.in_features % smooth_layer.out_features == 0:
+                is_gqa = True
                 continue
-            return (False, None)
+            return (False, False)
 
         elif smooth_name.endswith(".qkv_proj"):
             if smooth_layer.out_features != 3 * balance_layer.in_features:
-                return (False, None)
+                return (False, False)
 
-    return (True, gqa_head_dim)
+    return (True, is_gqa)
 
 
 def _compress_scales_for_gqa(
@@ -1049,6 +1062,19 @@ def _compress_scales_for_gqa(
     num_kv_heads = target_dim // head_dim
     return (
         scales.reshape(num_kv_heads, num_repeats, head_dim).mean(dim=1).reshape(-1)
+    )
+
+
+def _expand_scales_for_gqa(
+    scales: torch.Tensor, target_dim: int, head_dim: int
+) -> torch.Tensor:
+    # expand kv_dim scales to hidden_dim by repeating across GQA groups
+    num_kv_heads = scales.size(0) // head_dim
+    num_repeats = target_dim // scales.size(0)
+    return (
+        scales.reshape(num_kv_heads, head_dim)
+        .repeat_interleave(num_repeats, dim=0)
+        .reshape(-1)
     )
 
 
