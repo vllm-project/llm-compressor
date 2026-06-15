@@ -110,7 +110,7 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
 
-        LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -179,4 +179,4 @@ class SequentialPipeline(CalibrationPipeline):
                                     )
 
             # redundant, finish any remaining compression
-            LifecycleCallbacks.calibration_epoch_end()
+            LifecycleCallbacks.calibration_end()
