@@ -52,7 +52,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_calibration_epoch_start
+    - on_calibration_start
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
@@ -148,7 +148,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     @torch.no_grad()
-    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
         # untie embeddings to avoid unintended effects of `_center_embeddings`

@@ -45,14 +45,14 @@ def _run_gatherer(
 
     state = _State(model)
     gatherer.on_initialize(state)
-    gatherer.on_calibration_epoch_start(state, event=None)
+    gatherer.on_calibration_start(state, event=None)
 
     model.eval()
     with torch.no_grad():
         for x in inputs:
             model(x)
 
-    gatherer.on_calibration_epoch_end(state, event=None)
+    gatherer.on_calibration_end(state, event=None)
 
 
 def _get_importance(module: nn.Module) -> torch.Tensor:
@@ -216,7 +216,7 @@ class TestNoQuantization:
 class TestOnEvent:
     """Verify that on_event triggers the lifecycle correctly.
 
-    The real pipeline uses on_event(CALIBRATION_EPOCH_START) to trigger
+    The real pipeline uses on_event(CALIBRATION_START) to trigger
     on_start, not a direct call. This test ensures the gatherer responds
     to events, which is how oneshot() drives the lifecycle.
     """
@@ -236,7 +236,7 @@ class TestOnEvent:
         gatherer.on_initialize(state)
 
         # Trigger start via event (not direct call)
-        start_event = Event(type_=EventType.CALIBRATION_EPOCH_START)
+        start_event = Event(type_=EventType.CALIBRATION_START)
         gatherer.on_event(state, start_event)
 
         model.eval()
@@ -245,7 +245,7 @@ class TestOnEvent:
                 model(torch.ones(1, 4, 128))
 
         # Trigger end via event
-        end_event = Event(type_=EventType.CALIBRATION_EPOCH_END)
+        end_event = Event(type_=EventType.CALIBRATION_END)
         gatherer.on_event(state, end_event)
 
         assert hasattr(model.layer1, "_imatrix_sum")
@@ -253,7 +253,7 @@ class TestOnEvent:
         assert (imp > 0).all()
 
     def test_event_does_not_double_start(self):
-        """Sending CALIBRATION_EPOCH_START twice must not crash."""
+        """Sending CALIBRATION_START twice must not crash."""
         from llmcompressor.core import Event, EventType
 
         model = TinyModel(hidden=128)
@@ -266,7 +266,7 @@ class TestOnEvent:
         state = _State(model)
         gatherer.on_initialize(state)
 
-        start_event = Event(type_=EventType.CALIBRATION_EPOCH_START)
+        start_event = Event(type_=EventType.CALIBRATION_START)
         gatherer.on_event(state, start_event)
         gatherer.on_event(state, start_event)  # second time — should be no-op
 
@@ -274,7 +274,7 @@ class TestOnEvent:
         with torch.no_grad():
             model(torch.ones(1, 4, 128))
 
-        end_event = Event(type_=EventType.CALIBRATION_EPOCH_END)
+        end_event = Event(type_=EventType.CALIBRATION_END)
         gatherer.on_event(state, end_event)
 
         assert hasattr(model.layer1, "_imatrix_sum")

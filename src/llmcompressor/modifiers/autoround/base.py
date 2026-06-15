@@ -126,12 +126,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - apply config to model
-    - on_calibration_epoch_start
+    - on_calibration_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
-    - on_calibration_epoch_end
+    - on_calibration_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -212,7 +212,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
@@ -324,7 +324,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
 
-    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """

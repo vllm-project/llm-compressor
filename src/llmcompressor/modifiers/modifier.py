@@ -19,11 +19,11 @@ class Modifier(ModifierInterface, HooksMixin):
     Lifecycle:
     1. initialize
     2. on_event ->
-        * on_calibration_epoch_start if event.type_ == EventType.CALIBRATION_EPOCH_START
+        * on_calibration_start if event.type_ == EventType.CALIBRATION_START
         * on_start if self.start <= event.current_index
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
-        * on_calibration_epoch_end if event.type_ == EventType.CALIBRATION_EPOCH_END
+        * on_calibration_end if event.type_ == EventType.CALIBRATION_END
     5. finalize
 
     :param index: The index of the modifier in the list of modifiers
@@ -128,8 +128,8 @@ class Modifier(ModifierInterface, HooksMixin):
 
         ## calibration lifecycle ##
 
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            self.on_calibration_epoch_start(state, event, **kwargs)
+        if event.type_ == EventType.CALIBRATION_START:
+            self.on_calibration_start(state, event, **kwargs)
             self.started_ = True
             return
 
@@ -137,8 +137,8 @@ class Modifier(ModifierInterface, HooksMixin):
             self.on_sequential_epoch_end(state, event, **kwargs)
             return
 
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self.on_calibration_epoch_end(state, event, **kwargs)
+        if event.type_ == EventType.CALIBRATION_END:
+            self.on_calibration_end(state, event, **kwargs)
             self.ended_ = True
             return
 
@@ -263,9 +263,9 @@ class Modifier(ModifierInterface, HooksMixin):
 
     ## Calibration lifecycle events ##
 
-    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
-        on_calibration_epoch_start is called at the start of a calibration epoch.
+        on_calibration_start is called at the start of a calibration epoch.
 
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch start
@@ -284,9 +284,9 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
-        on_calibration_epoch_end is called at the end of a calibration epoch.
+        on_calibration_end is called at the end of a calibration epoch.
 
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch end

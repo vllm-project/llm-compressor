@@ -142,13 +142,13 @@ class SmoothQuantModifier(Modifier):
 
         return True
 
-    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         self._setup_scale_hooks()
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         self._apply_smoothing(state.model)
 
-    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:

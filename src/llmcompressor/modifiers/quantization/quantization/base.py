@@ -66,7 +66,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
         Begin calibrating activations.
         """
@@ -79,7 +79,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         observe(modules, "weight")
         update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
 
-    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
