@@ -90,7 +90,7 @@ class IMatrixGatherer(Modifier):
 
         return True
 
-    def on_calibration_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         for _, module in match_named_modules(
             state.model, self._resolved_targets, self.ignore
         ):

@@ -40,7 +40,7 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - on_calibration_epoch_start
+    - on_calibration_start
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
@@ -105,7 +105,7 @@ class QuIPModifier(Modifier):
 
         return True
 
-    def on_calibration_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
         # Untie embeddings if they will be targeted by transforms

@@ -39,7 +39,7 @@ def test_apply_correctness(
         true_output = model(**input)
 
     modifier.on_initialize(state)
-    modifier.on_calibration_epoch_start(state, None)
+    modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
         output = model(**input)
