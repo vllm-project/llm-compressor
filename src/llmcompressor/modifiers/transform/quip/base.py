@@ -50,7 +50,9 @@ class QuIPModifier(Modifier):
 
     :param rotations: which rotation schemes to apply to the model. Including `"v"` will
         rotate the input side of weights, and including `"u"` will rotate the output
-        side of weights (note that v does not require u and vice-versa)
+        side of weights (note that v does not require u and vice-versa).
+        **Note: Output rotations (`"u"`) are not performant and do not increase accuracy
+        in practice. It is recommended to use only input rotations (`["v"]`).**
     :param transform_type: The type of transform to apply to the model.
         `"hadamard"` has the least performance cost but only supports sizes which are
         powers of power of two.
@@ -70,7 +72,7 @@ class QuIPModifier(Modifier):
     :param transform_config: Optional transform config for overriding provided arguments
     """  # noqa: E501
 
-    rotations: list[Literal["v", "u"]] = Field(default_factory=lambda: ["v", "u"])
+    rotations: list[Literal["v", "u"]] = Field(default_factory=lambda: ["v"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
     )
