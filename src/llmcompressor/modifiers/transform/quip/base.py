@@ -40,7 +40,7 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - on_start
+    - on_calibration_epoch_start
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms

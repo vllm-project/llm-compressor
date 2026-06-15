@@ -77,7 +77,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - apply config to model
-    - on_start
+    - on_calibration_epoch_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
     - on_sequential_epoch_end

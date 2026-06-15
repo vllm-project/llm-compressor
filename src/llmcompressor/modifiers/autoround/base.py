@@ -126,7 +126,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - apply config to model
-    - on_start
+    - on_calibration_epoch_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
