@@ -19,7 +19,7 @@ from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.autoround.utils import fix_attention_mask
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
@@ -126,12 +126,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - apply config to model
-    - on_start
+    - on_calibration_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
-    - on_finalize
+    - on_calibration_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -212,9 +212,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
@@ -225,19 +223,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = kwargs.pop("modules", None)
-            self.apply_autoround(state, modules)
-            self.post_autoround_cleanup()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        modules = kwargs.pop("modules", None)
+        self.apply_autoround(state, modules)
+        self.post_autoround_cleanup()
 
     def apply_autoround(self, state, modules):
         """
@@ -335,26 +324,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
 
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        """
-        disable the quantization observers used by the AutoRound algorithm
-
-        :param state: session state storing input model and calibration data
-        """
-        if not self.ended_:
-            self.on_end(state, None)
-
-        return True
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []

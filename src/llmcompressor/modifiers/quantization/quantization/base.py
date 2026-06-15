@@ -1,6 +1,6 @@
 from compressed_tensors.offload.dist_utils import is_source_process as is_src
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     get_modules,
@@ -66,36 +66,21 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
         Begin calibrating activations.
         """
-        self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        parents = kwargs.get("modules", [])
+        modules = get_modules(parents)
+        self.sync_obs_act_stats(modules)
+        observe(modules, "weight")
+        update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            parents = kwargs.get("modules", [])
-            modules = get_modules(parents)
-            self.sync_obs_act_stats(modules)
-            observe(modules, "weight")
-            update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        if not self.ended_:
-            self.on_end(state, None)
