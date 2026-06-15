@@ -6,6 +6,7 @@
 #
 # Usage:
 #   GPUS_PER_GROUP=2 ./launch_multi_gpu.sh ddp_qwen3_multi_gpu_example.py --model ... --scheme W4A16
+#   GPUS_PER_GROUP=2 ./launch_multi_gpu.sh ddp_qwen3_multi_gpu_example.py --model /storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507  --scheme W4A16
 #
 # This spawns 2 ranks, each with 2 GPUs (4 GPUs total).
 # The Python script no longer needs to override CUDA_VISIBLE_DEVICES.
@@ -15,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GPUS_PER_GROUP=${GPUS_PER_GROUP:-${GPUS_PER_RANK:-2}}
 NPROC=${NPROC:-2}  # number of ranks
 PYTHON=${PYTHON:-/home/yiliu7/workspace/venvs/ar/bin/python}
-MASTER_PORT=${MASTER_PORT:-29500}
+MASTER_PORT=${MASTER_PORT:-29600}
 MASTER_ADDR=${MASTER_ADDR:-localhost}
 NNODES=${NNODES:-1}
 NODE_RANK=${NODE_RANK:-0}
