@@ -125,7 +125,7 @@ def test_no_duplicate_tied_lm_head_on_save(offload, tie_word_embeddings, tmp_pat
     so without re-tying before save a redundant, identical ``lm_head.weight`` is
     written. Untied models must still keep their separate head.
     """
-    model_path = "nm-testing/tinysmokellama-3.2"
+    model_path = "Qwen/Qwen3-0.6B"
     save_path = tmp_path / "save_path"
 
     model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
