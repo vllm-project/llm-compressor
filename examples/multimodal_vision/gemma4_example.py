@@ -1,7 +1,3 @@
-# NOTE: LLM Compressor quantization with Gemma4 requires `transformers==5.8.1`
-# Please install using the following command:
-#   pip install -U transformers==5.8.1
-
 # Checkpoint available at https://huggingface.co/RedHatAI/gemma-4-31B-it-NVFP4
 
 import requests
@@ -15,7 +11,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 model_id = "google/gemma-4-31B-it"
-model = Gemma4ForConditionalGeneration.from_pretrained(model_id, dtype="auto")
+model = Gemma4ForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
@@ -68,7 +64,8 @@ oneshot(
     batch_size=BATCH_SIZE,
     shuffle_calibration_samples=False,
     max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    num_calibration_samples=1,  # NUM_CALIBRATION_SAMPLES,
+    # pipeline="datafree"
 )
 
 # Confirm generations of the quantized model look sane.

@@ -9,6 +9,7 @@ from compressed_tensors.utils import patch_attr
 from loguru import logger
 from torch import distributed as dist
 
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 
@@ -87,6 +88,12 @@ class IMatrixMSEObserver(Observer):
         module._imatrix_count = torch.tensor(0, dtype=torch.int64)
 
         def _hook(mod, args):
+            if (
+                HooksMixin._HOOKS_DISABLED
+                and getattr(mod, "_imatrix_hook", None)
+                not in HooksMixin._HOOKS_KEEP_ENABLED
+            ):
+                return
             x = args[0] if isinstance(args, tuple) else args
             if isinstance(x, tuple):
                 x = x[0]

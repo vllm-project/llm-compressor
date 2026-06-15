@@ -18,7 +18,7 @@ def test_oneshot_with_modifier_object(tmp_path, config):
 
     concatenate_data = False
     num_calibration_samples = 64
-    splits = {"calibration": "train[:10%]"}
+    splits = "train[:10%]"
 
     oneshot(
         model=config["model"],
