@@ -1,21 +1,20 @@
 from compressed_tensors.offload import (
     dispatch_model,
     get_device_map,
-    load_offloaded_model,
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
-# Select model and load it in the `load_offloaded_model` context
+# Select model and load it in the `load_context` context
 # In this example, we emulate large model quantization with disk offloading by
 # restricting the theoretical size of CPU RAM to be smaller than the size of the model
-with load_offloaded_model():
+with load_context():
     model_id = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
         max_memory={"cpu": 6e8},  # remove this line to use as much cpu as possible
         offload_folder="./offload_folder",

@@ -4,11 +4,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 

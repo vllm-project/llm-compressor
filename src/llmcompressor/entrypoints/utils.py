@@ -142,7 +142,6 @@ def initialize_model_from_path(
         model_args.config_name if model_args.config_name else model_path,
         cache_dir=None,
         revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
         trust_remote_code=model_args.trust_remote_code_model,
     )
 
@@ -158,7 +157,6 @@ def initialize_model_from_path(
         "config": config,
         "cache_dir": None,
         "revision": model_args.model_revision,
-        "use_auth_token": True if model_args.use_auth_token else None,
         "dtype": parse_dtype(model_args.precision),
         "trust_remote_code": model_args.trust_remote_code_model,
     }
@@ -188,7 +186,6 @@ def initialize_processor_from_path(
             cache_dir=None,
             use_fast=True,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
             trust_remote_code=model_args.trust_remote_code_model,
         )
 
@@ -207,7 +204,6 @@ def initialize_processor_from_path(
             cache_dir=None,
             use_fast=False,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
             trust_remote_code=model_args.trust_remote_code_model,
         )
 

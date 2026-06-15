@@ -24,18 +24,17 @@ This example demonstrates quantizing the `zai-org/GLM-4.7` MoE model using AWQ (
 
 ### Step 1: Load the Model and Tokenizer
 
-First, load the GLM-4.7 model and its tokenizer from the Hugging Face Hub:
+First, load the GLM-4.7 model and its tokenizer from the Hugging Face Hub. The `load_context` context is responsible for ensuring that moe modules load in a way such that they can be calibrated properly. For more information on supporting new MoE architectures, see [MoE Support Guide](../../docs/developer-tutorials/add-moe-support.md).
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from llmcompressor.modeling.glm4_moe import CalibrationGlm4MoeMoE  # noqa: F401
+from llmcompressor.utils import load_context
 
 model_id = "zai-org/GLM-4.7"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 ```
-
-**Important**: The import of `CalibrationGlm4MoeMoE` is crucial for proper MoE calibration. This custom module automatically replaces the original `Glm4MoeMoE` class during calibration to ensure all experts are properly calibrated, even those that wouldn't normally be activated for certain tokens. More details on this can be found in [Quantizing MoEs with a custom definition](#quantizing-moes-with-a-custom-definition).
 
 ### Step 2: Prepare the Calibration Dataset
 
@@ -139,15 +138,3 @@ tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 The model will be saved in a compressed format with 4-bit weights, ready for vLLM inference.
-
-# Quantizing MoEs with a custom definition
-Quantizing MoE models with a scheme that requires calibration data (for example, schemes where activations are not dynamic, such as FP8 or INT8 per-tensor activations, or NVFP4), or with an algorithm that requires data (such as GPTQ, AWQ, or AutoRound), requires a calibration-friendly MoE block definition for the model being quantized.
-
-Examples of calibration-friendly definitions can be found in the [modeling folder](https://github.com/vllm-project/llm-compressor/tree/main/src/llmcompressor/modeling). Each definition enables an MoE calibration context by inheriting from the [`MoECalibrationModule` class](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/moe_context.py) and registering the MoE block that should be replaced with a custom definition.
-
-In particular, each model-specific definition includes an updated forward pass that ensures all tokens are routed through all experts during calibration, including experts that would not normally be activated. Only the activated experts contribute to the final output of the MoE block. This behavior ensures proper calibration of all expert layers.
-
-These custom definitions replace the existing MoE implementations during `oneshot` processing. The replacement can be either temporary or permanent; in the temporary case, the original definition is restored after calibration. In the GLM-4.7 example above, the `CalibrationGlm4MoeMoE` custom definition registers a replacement of all `Glm4MoeMoE` instances from the transformers library with the calibration-friendly version. You can see this definition replacement applied in [llmcompressor/modeling/glm4_moe.py](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/glm4_moe.py).
-
-Without a custom calibration-friendly definition, MoE experts may be calibrated incorrectly, which can result in numerical instability or NaNs.
-

@@ -20,6 +20,5 @@ def tiny_llama_tokenizer(tiny_llama_model_args):
         tiny_llama_model_args.model,
         use_fast=True,
         revision=tiny_llama_model_args.model_revision,
-        use_auth_token=True if tiny_llama_model_args.use_auth_token else None,
     )
     return tokenizer

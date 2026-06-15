@@ -10,12 +10,7 @@ from typing import Callable, List, NamedTuple
 import pytest
 from compressed_tensors.config import CompressionFormat
 
-from tests.testing_utils import (
-    requires_gpu,
-    requires_transformers_v4,
-    requires_transformers_v5,
-    run_cli_command,
-)
+from tests.testing_utils import requires_gpu, run_cli_command
 
 
 def verify_quantization_config(
@@ -74,7 +69,7 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.pack_quantized,
                 prefix="W4A16-G128-DDP2",
             ),
-            marks=(requires_gpu(2), pytest.mark.multi_gpu, requires_transformers_v4),
+            marks=(requires_gpu(2), pytest.mark.multi_gpu),
         ),
         pytest.param(
             TestCase(
@@ -82,7 +77,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.pack_quantized,
                 prefix="awq-asym",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -90,7 +84,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.pack_quantized,
                 prefix="awq-sym",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -98,7 +91,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.int_quantized,
                 prefix="W8A8",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -106,7 +98,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="FP8-KV",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -114,7 +105,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.pack_quantized,
                 prefix="W4A16-G128",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -122,7 +112,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="30B-A3B-FP8-BLOCK",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -130,7 +119,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="FP8-Dynamic",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -138,7 +126,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="235B-A22B-Instruct-FP8-DYNAMIC",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -146,7 +133,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4-Disk-Offload",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -154,7 +140,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="FP8-BLOCK",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -162,7 +147,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.pack_quantized,
                 prefix="W4A16",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -170,7 +154,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.mxfp4_pack_quantized,
                 prefix="MXFP4A16",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -178,7 +161,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -186,7 +168,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="30B-A3B-NVFP4",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -194,7 +175,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4-GPTQ",
             ),
-            marks=requires_transformers_v4,
         ),
         pytest.param(
             TestCase(
@@ -202,7 +182,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4",
             ),
-            marks=requires_transformers_v5,
         ),
         pytest.param(
             TestCase(
@@ -210,7 +189,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="FP8_BLOCK",
             ),
-            marks=requires_transformers_v5,
         ),
         pytest.param(
             TestCase(
@@ -218,7 +196,6 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4",
             ),
-            marks=requires_transformers_v5,
         ),
     ],
     ids=repr,
