@@ -142,7 +142,95 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
     return mappings
 
 
+def build_gemma4_mappings(model: Module) -> list[AWQMapping] | None:
+    """
+    Build AWQ mappings for Gemma4UnifiedForConditionalGeneration.
+
+    Gemma4 has hybrid attention with two types of layers:
+    - sliding_attention layers: have separate k_proj and v_proj (GQA)
+    - full_attention layers: share k=v projection (no separate v_proj)
+
+    For sliding_attention layers with GQA, we skip the v_proj -> o_proj mapping
+    since v is separate from k. For full_attention layers, k and v are shared
+    so we map k_proj -> o_proj instead.
+    """
+    config = getattr(model, "config", None)
+    if config is None:
+        return None
+
+    # VL models nest text config under text_config
+    text_config = getattr(config, "text_config", config)
+    layer_types = getattr(text_config, "layer_types", None)
+    num_layers = getattr(text_config, "num_hidden_layers", None)
+
+    if layer_types is None or num_layers is None:
+        return None
+
+    # Find sliding and full attention layer indices
+    sliding_indices = [i for i in range(num_layers) if layer_types[i] == "sliding_attention"]
+    full_indices = [i for i in range(num_layers) if layer_types[i] == "full_attention"]
+
+    if not sliding_indices and not full_indices:
+        return None
+
+    mappings = []
+
+    # Sliding attention layers: input_layernorm -> q/k/v_proj
+    # Balance layers must also be scoped to sliding layers only to avoid
+    # matching full attention layers which don't have v_proj
+    if sliding_indices:
+        sliding_re = "|".join(str(i) for i in sliding_indices)
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({sliding_re})\\.input_layernorm$",
+                [
+                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.q_proj$",
+                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.k_proj$",
+                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.v_proj$",
+                ],
+            )
+        )
+        # No v_proj -> o_proj mapping due to GQA dimension mismatch is unsupported
+
+    # Full attention layers: input_layernorm -> q/k_proj (k=v, no separate v_proj)
+    # Balance layers scoped to full attention layers only
+    # Note: can't do k_proj -> o_proj mapping since that would alter the attention
+    if full_indices:
+        full_re = "|".join(str(i) for i in full_indices)
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({full_re})\\.input_layernorm$",
+                [
+                    f"re:.*layers\\.({full_re})\\.self_attn\\.q_proj$",
+                    f"re:.*layers\\.({full_re})\\.self_attn\\.k_proj$",
+                ],
+            )
+        )
+        # No k_proj -> o_proj mapping, altering k_proj would change attention behavior
+
+    # MLP mappings for all layers (use pre_feedforward_layernorm like Gemma2/3)
+    mappings.extend([
+        AWQMapping(
+            "re:.*pre_feedforward_layernorm$",
+            ["re:.*gate_proj$", "re:.*up_proj$"],
+        ),
+        AWQMapping(
+            "re:.*up_proj$",
+            ["re:.*down_proj$"],
+        ),
+    ])
+
+    logger.info(
+        f"Built dynamic Gemma4 AWQ mappings: "
+        f"{len(sliding_indices)} sliding-attention layers, "
+        f"{len(full_indices)} full-attention layers (k=v)"
+    )
+
+    return mappings
+
+
 AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | None]] = {
+    "Gemma4UnifiedForConditionalGeneration": build_gemma4_mappings,
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForConditionalGeneration": build_hybrid_attention_mappings,
