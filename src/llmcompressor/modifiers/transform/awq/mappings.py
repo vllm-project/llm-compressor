@@ -235,41 +235,6 @@ _afmoe_mappings = [
     ),
 ]
 
-# Step-3.5-Flash
-_step3p5_mappings = [
-    AWQMapping(
-        "re:.*input_layernorm$",
-        [
-            "re:.*self_attn.q_proj$",
-            "re:.*self_attn.k_proj$",
-            "re:.*self_attn.v_proj$",
-            "re:.*self_attn.g_proj$",
-        ],
-    ),
-    AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
-    AWQMapping(
-        "re:.*post_attention_layernorm$",
-        [
-            "re:.*mlp.gate_proj$",
-            "re:.*mlp.up_proj$",
-        ],
-    ),
-    AWQMapping(
-        "re:.*post_attention_layernorm$",
-        [
-            "re:.*moe.gate$",
-            "re:.*moe.gate_proj$",
-            "re:.*moe.up_proj$",
-            "re:.*share_expert.gate_proj$",
-            "re:.*share_expert.up_proj$",
-        ],
-    ),
-    AWQMapping(
-        "re:.*(mlp|share_expert).up_proj$",
-        ["re:.*(mlp|share_expert).down_proj$"],
-    ),
-]
-
 # Example mapping for MoE models with parallel transformer blocks, where
 # attention and MoE share the same input. This is the only case where
 # activation_hook_target is needed. Without it, the hook lands on
@@ -322,7 +287,6 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen3MoeForCausalLM": _moe_default_mappings,
     "SeedOssForCausalLM": default_mappings,
     "Ernie4_5_MoeForCausalLM": default_mappings,
-    "Step3p5ForCausalLM": _step3p5_mappings,
 }
 
 
