@@ -22,6 +22,13 @@ python3 llama3_example.py
 
 The resulting model `Meta-Llama-3-8B-Instruct-W8A8-Dynamic-Per-Token` is ready to be loaded into vLLM.
 
+For Qwen3.5/3.6 sparse MoE models (requires `transformers >= v5`; set
+`MODEL_ID` in the script, e.g. `Qwen/Qwen3.6-35B-A3B`):
+
+```bash
+python3 qwen3_6_example.py
+```
+
 ## Code Walkthough
 
 Now, we will step though the code in the example. There are four steps:

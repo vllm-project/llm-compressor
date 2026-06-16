@@ -164,6 +164,7 @@ _REGULAR_SUPPORTED_MODEL_NAMES_AND_TASKS = [
     "qwen3",
     "qwen3_next",
     "qwen3_moe",
+    "qwen3_5_moe",
     "resnet",
     "roberta",
     "segformer",
