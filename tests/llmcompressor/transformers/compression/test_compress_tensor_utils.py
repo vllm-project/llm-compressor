@@ -100,6 +100,53 @@ def test_model_reload_gpu(offload, dtype, tie_word_embeddings, device, tmp_path)
     test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path)
 
 
+def _saved_weight_keys(save_path):
+    """Return the set of tensor names actually written to disk."""
+    import json
+    import os
+
+    from safetensors import safe_open
+
+    index_path = os.path.join(save_path, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        with open(index_path) as f:
+            return set(json.load(f)["weight_map"].keys())
+
+    with safe_open(os.path.join(save_path, "model.safetensors"), framework="pt") as f:
+        return set(f.keys())
+
+
+@pytest.mark.parametrize("offload", [False, True])
+@pytest.mark.parametrize("tie_word_embeddings", [True, False])
+def test_no_duplicate_tied_lm_head_on_save(offload, tie_word_embeddings, tmp_path):
+    """A tied lm_head must not be written as a duplicate of the embeddings on save.
+
+    Offloading splits the tied embedding and lm_head into separate parameters,
+    so without re-tying before save a redundant, identical ``lm_head.weight`` is
+    written. Untied models must still keep their separate head.
+    """
+    model_path = "Qwen/Qwen3-0.6B"
+    save_path = tmp_path / "save_path"
+
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
+    if offload:
+        model = dispatch_model(model, {"": "cpu"}, force_hooks=True)
+    else:
+        model = model.to("cpu")
+
+    if not tie_word_embeddings:
+        untie_word_embeddings(model)
+
+    modify_save_pretrained(model)
+    model.save_pretrained(save_path, safe_serialization=True)
+
+    saved_keys = _saved_weight_keys(save_path)
+    if tie_word_embeddings:
+        assert "lm_head.weight" not in saved_keys
+    else:
+        assert "lm_head.weight" in saved_keys
+
+
 class DummyLinearModel(nn.Module):
     """
     A dummy linear model for testing purposes, simulating a quantized linear layer.
