@@ -64,13 +64,13 @@ class Event:
     A class for defining an event that can be triggered during sparsification.
 
     :param type_: The type of event.
-    :type type_: Optional[EventType]
+    :type type_: EventType | None
     :param steps_per_epoch: The number of steps per epoch.
-    :type steps_per_epoch: Optional[int]
+    :type steps_per_epoch: int | None
     :param batches_per_step: The number of batches per step where step is an
         optimizer step invocation. For most pathways, these are the same.
         See the invocations_per_step parameter for more details when they are not.
-    :type batches_per_step: Optional[int]
+    :type batches_per_step: int | None
     :param invocations_per_step: The number of invocations of the step wrapper
         before optimizer.step was called. Generally can be left as 1 (default).
         For older amp pathways, this is the number of times the scaler wrapper
@@ -211,12 +211,12 @@ class Event:
         Determines if the event should trigger an update.
 
         :param start: The start index to check against, set to None to ignore start.
-        :type start: Optional[float]
+        :type start: float | None
         :param end: The end index to check against, set to None to ignore end.
-        :type end: Optional[float]
+        :type end: float | None
         :param update: The update interval, set to None or 0.0 to always update,
             otherwise must be greater than 0.0, defaults to None.
-        :type update: Optional[float]
+        :type update: float | None
         :return: True if the event should trigger an update, False otherwise.
         :rtype: bool
         """
