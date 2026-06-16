@@ -67,6 +67,20 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
+# Arcee uses an un-gated MLP: down_proj(act_fn(up_proj(x))) — no gate_proj.
+# Drop the gate_proj target from the MLP-side mapping; otherwise identical to
+# DEFAULT_SMOOTHQUANT_MAPPINGS.
+ARCEE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+    LayerMap(
+        balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+        smooth_layers="re:.*input_layernorm",
+    ),
+    LayerMap(
+        balance_layers=["re:.*up_proj"],
+        smooth_layers="re:.*post_attention_layernorm",
+    ),
+]
+
 # MLP smoothing (post_attention_layernorm) is intentionally omitted for MoE.
 # A single smoothing scale across all experts causes inter-expert imbalance,
 # degrading PPL even with the router gate properly balanced. This matches
@@ -111,6 +125,7 @@ AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 # Registry of layer mappings for different architectures
 #   Add more mappings here
 MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
+    "ArceeForCausalLM": ARCEE_SMOOTHQUANT_MAPPINGS,
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
     "CohereForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,
