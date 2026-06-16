@@ -63,6 +63,8 @@ def validate_file(
 
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
+    tensors = split_fused_moe_experts(tensors)
+
     if converter is not None:
         converter.validate(tensors)
 
@@ -283,6 +285,8 @@ def split_fused_moe_experts(
                 split_layers = expert_tensor.split(intermediate_size, dim=0)
                 for split_name, split_layer in zip(split_names, split_layers):
                     key = name.replace(unsplit_name, f"{expert_idx}.{split_name}")
+                    if not key.endswith(".weight"):
+                        key = f"{key}.weight"
                     split_tensors[key] = split_layer
 
             logger.info(f"Split {name} into {num_experts} experts")
