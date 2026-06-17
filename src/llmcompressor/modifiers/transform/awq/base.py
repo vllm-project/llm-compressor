@@ -279,7 +279,7 @@ class AWQModifier(Modifier):
     @staticmethod
     def _get_head_dim(model: Module) -> int | None:
         config = getattr(model, "config", None)
-        if config is None: # fallback incase model.config doesn't exist
+        if config is None:  # fallback in case model.config doesn't exist
             return None
         # match dynamic_mappings.py for text config
         text_config = getattr(config, "text_config", config)
@@ -390,7 +390,7 @@ class AWQModifier(Modifier):
                         balance_layers[0].in_features
                         // smooth_layer.out_features
                     )
-                    logger.info(
+                    logger.debug(
                         f"GQA detected for {smooth_name}: "
                         f"num_repeats={num_repeats}, head_dim={gqa_head_dim}"
                     )
