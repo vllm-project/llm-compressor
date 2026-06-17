@@ -17,6 +17,9 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     AWQMapping,
     default_mappings,
 )
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
+    get_hybrid_attention_config,
+)
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 
 __all__ = ["AWQ_DYNAMIC_MAPPING_REGISTRY", "get_layer_mappings_from_model"]
@@ -60,7 +63,7 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
 
     Returns None if the model is not a hybrid attention model.
     """
-    result = _get_hybrid_attention_config(model)
+    result = get_hybrid_attention_config(model)
     if result is None:
         return None
 
@@ -149,34 +152,6 @@ AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | No
     "Qwen3_5MoeForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5MoeForConditionalGeneration": build_hybrid_attention_mappings,
 }
-
-
-def _get_hybrid_attention_config(model: Module) -> tuple[list[str], int] | None:
-    """
-    Extract layer_types and num_hidden_layers from a model with hybrid attention
-    (mix of full self-attention and linear/Gated DeltaNet attention).
-
-    Checks both top-level config and text_config (for VL models like Qwen3.5).
-    Returns (layer_types, num_hidden_layers) or None if not a hybrid model.
-    """
-    config = getattr(model, "config", None)
-    if config is None:
-        return None
-
-    # VL models nest text config under text_config
-    text_config = getattr(config, "text_config", config)
-    layer_types = getattr(text_config, "layer_types", None)
-    num_layers = getattr(text_config, "num_hidden_layers", None)
-
-    if layer_types is None or num_layers is None:
-        return None
-
-    has_full = "full_attention" in layer_types
-    has_linear = "linear_attention" in layer_types
-    if not (has_full and has_linear):
-        return None
-
-    return layer_types, num_layers
 
 
 def _detect_linear_attn_projections(model: Module) -> list[str]:
