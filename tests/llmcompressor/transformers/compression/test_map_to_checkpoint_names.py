@@ -1,8 +1,13 @@
+import json
 from unittest.mock import MagicMock
 
+import torch
 from compressed_tensors.quantization.quant_config import QuantizationConfig
+from transformers import AutoModelForImageTextToText
 from transformers.conversion_mapping import WeightRenaming
 
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     _map_ignore_to_checkpoint_names,
 )
@@ -97,3 +102,48 @@ class TestMapIgnoreToCheckpointNames:
         _map_ignore_to_checkpoint_names(model, qconfig)
 
         assert qconfig.ignore == []
+
+
+def test_oneshot_ignore_mapped_to_checkpoint_names(tmp_path):
+    """Quantize a real vision-language model with an ignore list and verify
+    that the saved config contains checkpoint-style names, not HF module names.
+
+    llava has WeightRenaming conversions — HF module names differ from
+    checkpoint key names (e.g. ``model.vision_tower.encoder.layers.0.…``
+    in HF vs ``vision_tower.vision_model.encoder.layers.0.…`` on disk).
+    Without the reverse mapping, the saved ignore list would reference HF
+    names that don't match any safetensors keys.
+    """
+    model_id = "llava-hf/llava-interleave-qwen-0.5b-hf"
+    model = AutoModelForImageTextToText.from_pretrained(model_id, dtype=torch.float16)
+
+    ignore = [
+        "lm_head",
+        "model.vision_tower.encoder.layers.0.self_attn.q_proj",
+        "model.multi_modal_projector.linear_1",
+    ]
+
+    recipe = QuantizationModifier(
+        targets="Linear",
+        scheme="FP8_DYNAMIC",
+        ignore=ignore,
+    )
+
+    oneshot(model=model, recipe=recipe)
+
+    save_dir = tmp_path / "saved"
+    model.save_pretrained(save_dir)
+
+    with open(save_dir / "config.json") as f:
+        saved_config = json.load(f)
+
+    saved_ignore = saved_config["quantization_config"]["ignore"]
+
+    assert "lm_head" in saved_ignore
+    assert "vision_tower.vision_model.encoder.layers.0.self_attn.q_proj" in saved_ignore
+    assert "multi_modal_projector.linear_1" in saved_ignore
+
+    for entry in saved_ignore:
+        assert not entry.startswith(
+            "model."
+        ), f"HF name leaked into saved config: {entry}"
