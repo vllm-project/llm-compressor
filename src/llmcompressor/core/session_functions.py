@@ -91,7 +91,7 @@ class LifecycleCallbacks:
         return active_session().event(event_type, **kwargs)
 
     @classmethod
-    def batch_start(cls, batch_data: Any | None = None, **kwargs) -> ModifiedState:
+    def batch_start(cls, batch_data: Any = None, **kwargs) -> ModifiedState:
         """
         Invoke a batch start event for the active session
 
@@ -102,7 +102,7 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_START, batch_data=batch_data, **kwargs)
 
     @classmethod
-    def loss_calculated(cls, loss: Any | None = None, **kwargs) -> ModifiedState:
+    def loss_calculated(cls, loss: Any = None, **kwargs) -> ModifiedState:
         """
         Invoke a loss calculated event for the active session
 
