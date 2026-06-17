@@ -49,7 +49,7 @@ class BasicPipeline(CalibrationPipeline):
         if use_loss_mask:
             session.state.loss_masks = []
 
-        LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -68,7 +68,7 @@ class BasicPipeline(CalibrationPipeline):
                 model(**batch)
 
         LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
-        LifecycleCallbacks.calibration_epoch_end()
+        LifecycleCallbacks.calibration_end()
 
 
 def run_calibration(model: torch.nn.Module, dataloader: DataLoader):
