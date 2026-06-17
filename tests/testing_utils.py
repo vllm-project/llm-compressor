@@ -220,9 +220,8 @@ class BaseTestConfig(BaseModel):
         None,
         description="Dataset split (e.g. 'train_sft', 'train').",
     )
-    num_calibration_samples: int = Field(
-        512, description="Number of calibration samples"
-    )
+    num_calibration_samples: int = Field(512, description="Num of calibration samples")
+    max_seq_length: int = Field(2048, description="Max calibration sequence length")
 
     # -------------------------------------------------------------------------
     # Model / quantization overrides

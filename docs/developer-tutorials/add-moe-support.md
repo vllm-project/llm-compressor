@@ -1,241 +1,167 @@
-# Adding MoE Calibration Support for a New Model
+# Background
 
-Mixture of Experts (MoE) models route each token to only a subset of expert layers. This creates a calibration problem: experts that are not activated for a given token never see calibration data, which can result in poorly calibrated quantization parameters, numerical instability, or NaNs.
+## How are Mixture of Experts (MoE) models calibrated?
 
-LLM Compressor solves this by replacing MoE modules with calibration-friendly versions that route all tokens through all experts during calibration, while keeping only the routed expert outputs for the final result.
+Mixture of Experts (MoE) models route each token to only a subset of expert layers. This creates a calibration problem: Given that calibration datasets are relatively small, some experts will not be activated, or activated very infrequently. This can result in poorly calibrated quantization parameters, numerical instability, or NaNs.
 
-For background, see [Quantizing MoEs with a custom definition](../../examples/quantizing_moe/README.md#quantizing-moes-with-a-custom-definition).
+LLM Compressor and other quantization frameworks resolve this by replacing MoE modules with calibration-friendly versions that route all tokens through all experts during calibration, while keeping only the routed expert outputs for the final result.
 
-## When Do You Need This?
+LLM Compressor also performs an operation called **linearization**, by which fused experts (with 3D weights) are loaded as a sequence of unfused, 2D linear weights. Linearization is useful because most algorithms (GPTQ, AWQ, Quantization) are built around calibration of 2D linear weights. Unfusing the weights can also lead to better GPU utilization during compression in DDP cases. In most cases, the checkpoint remains unfused and can be loaded by vLLM as unfused, although re-fusion into 3D weights may be necessary for some models.
 
-You need a calibration module definition when:
+# Adding MoE Support
 
-- Quantizing with a **data-dependent algorithm** (GPTQ, AWQ, AutoRound) on an MoE model
-- Quantizing with **static activation quantization** (FP8 per-tensor, INT8 per-tensor, NVFP4) on an MoE model
+Since upgrading to [transformers v5](https://github.com/vllm-project/llm-compressor/pull/2647), LLM Compressor automatically handles MoE support for nearly all model architectures supported by transformers.
 
-Simple weight-only data-free quantization (e.g., RTN W4A16) does not require calibration data and is not affected.
-
-## The MoECalibrationModule Contract
-
-All MoE calibration modules subclass `MoECalibrationModule` and must:
-
-1. Be decorated with `@MoECalibrationModule.register("OriginalClassName")` where `OriginalClassName` is the exact class name of the MoE block being replaced
-2. Implement `__init__(self, original, config, calibrate_all_experts=True)` accepting the original module instance
-3. Implement `forward()` with the same input/output signature as the original, routing all tokens through all experts when `calibrate_all_experts=True`
-4. Set `is_permanent` to control whether the module is restored after calibration
-
-If `is_permanent=True`, the calibration module stays in place after calibration and is used for inference. This is necessary when the model's expert weights are stored in a packed format (e.g., a single 3D tensor) that must be unpacked for per-expert quantization and vLLM compatibility. If `is_permanent=False`, implement `restore(original)` to return the original module after calibration.
-
+Mixture of Experts (MoE) models should be loaded with the `load_context` provided by LLM Compressor in order to ensure that they are loaded correctly and optimally for calibration.
 ```python
-import torch
-from llmcompressor.modeling.moe_context import MoECalibrationModule
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from llmcompressor.utils import load_context
 
-
-@MoECalibrationModule.register("MyModelMoE")  # exact class name from transformers
-class CalibrationMyModelMoE(MoECalibrationModule):
-
-    is_permanent = True  # stays in place for vLLM compatibility
-
-    def __init__(self, original, config, calibrate_all_experts: bool = True):
-        super().__init__()
-        self.experts = ...       # unpack or copy experts from original
-        self.router = original.router
-        self.calibrate_all_experts = calibrate_all_experts
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        ...
+model_id = "zai-org/GLM-4.7"
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 ```
 
-## The `forward` Pattern
+## Transformers v5 Background ##
 
-The key behavior difference between normal MoE routing and calibration routing:
+One of the primary goals of [transformers v5](https://github.com/huggingface/transformers/releases/tag/v5.0.0) was to accelerate model inference when loading with the transformers framework. For MoE models, this means loading the model experts as fused experts. Fused experts allow the model to use fast and efficient [`group_mm`](https://github.com/huggingface/transformers/blob/main/src/transformers/integrations/moe.py) and [`batch_mm`](https://github.com/huggingface/transformers/blob/main/src/transformers/integrations/moe.py) operations during inference.
 
-- **Normal routing**: only tokens selected by the router run through each expert
-- **Calibration routing**: all tokens run through every expert (but only the routed tokens contribute to the output)
+This is achieved through 2 systems:
+1. Each model architecture has a dedicated [conversion_mapping](https://github.com/huggingface/transformers/blob/main/src/transformers/conversion_mapping.py) which defines how the model should be loaded and saved. For MoEs, this typically means fusing 2D weights into 3D weights.
+2. Each model architecture uses the [`use_experts_implementation`](https://github.com/huggingface/transformers/blob/main/src/transformers/integrations/moe.py#L526) decorator to designate experts modules. These experts modules are highly standardized, which allows LLM Compressor to standardize its conversions. For adding support for architectures which do not use the `use_experts_implementation` decorator, see [Adding Custom MoE Definitions](#adding-custom-moe-definitions).
 
-The Llama4 pattern — where the router returns separate scores and logits and a shared expert always runs on all tokens:
+## MoE Conversion Before Loading
 
-```python
-def forward(self, hidden_states):
-    hidden_states = hidden_states.reshape(-1, self.hidden_dim)
-    router_scores, router_logits = self.router(hidden_states)
-    out = self.shared_expert(hidden_states)  # always runs on all tokens
+Many checkpoints already store weights as unfused, 2D linear weights. Transformers typically uses the [conversion_mapping](https://github.com/huggingface/transformers/blob/main/src/transformers/conversion_mapping.py) to fuse them into 3D weights on load. However, LLM Compressor allows you to skip this step by adding explicit 2D mappings. Examples of 2D conversion mappings can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/moe/conversion_mappings.py).
 
-    _, router_indices = torch.topk(router_logits, self.top_k, dim=1)
-    expert_mask = torch.nn.functional.one_hot(
-        router_indices, num_classes=self.num_experts
-    ).permute(2, 1, 0)  # (num_experts, top_k, batch_size * seq_len)
+When contributing a new mapping, be sure to add your model architecture to `test_linearize.py`.
 
-    for i in range(self.num_experts):
-        token_idx = torch.where(expert_mask[i].squeeze(0))
+Adding a conversion mapping is the most efficient way to load your model. For models which do not have conversion mappings, they will fallback to performing conversion after loading.
 
-        if self.calibrate_all_experts:
-            # Run ALL tokens through the expert to collect calibration statistics.
-            # Only the routed tokens contribute to the output.
-            expert_out = self.experts[i](hidden_states)[token_idx]
-        else:
-            expert_out = self.experts[i](hidden_states[token_idx])
+## MoE Conversion After Loading
 
-        if len(token_idx) > 0:
-            weighted_output = expert_out * router_scores[:, i][token_idx].reshape(-1, 1)
-            out[token_idx] += weighted_output
+The vast majority of models can be converted after loading. Conversion after loading is often slow, since it may require converting from 2D -> 3D and then back to 2D. However, it is guaranteed to work for nearly all MoE model definitions.
 
-    return out, router_logits
-```
+For implementation details, see [LinearExperts2D](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/modeling/moe/linear_experts.py).
 
-!!! note
-    The routing scores are applied to the expert **output** rather than the input. Applying scores to the input before passing to the expert can produce NaNs during calibration.
+## Adding Custom MoE Definitions
 
-## Example: Llama4
+For models which do not use the standard `use_experts_implementation` decorator, you may need to add a custom model definition. This is not required for the vast majority of models. **Do not add a new model definition if your model definition already uses the `use_experts_implementation` decorator**.
 
-The existing `SequentialLlama4TextMoe` (in `src/llmcompressor/modeling/llama4.py`) is the canonical reference implementation. It registers as a replacement for `Llama4TextMoe` and handles a key Llama4-specific detail: expert weights are stored as a single packed 3D tensor (`gate_up_proj` of shape `(num_experts, hidden, 2*intermediate)`) which must be unpacked into individual `Llama4TextMLP` modules for per-expert calibration.
-
-This is handled by a helper class `SequentialLlama4TextExperts` that converts the packed tensor into a `ModuleList` of unpacked experts:
+1. Define a linearized model definition. This definition should specify an `__init__` method for initializing parameters, a `from_experts_module` method for specifying how to convert from the original module to the new definition, and a `forward` method which uses `get_calibrate_all_experts_flag` to calibrate all experts.
 
 ```python
-class SequentialLlama4TextExperts(torch.nn.ModuleList):
-    def __init__(self, config: Llama4TextConfig, original: Llama4TextExperts):
-        self.num_experts = original.gate_up_proj.shape[0]
+class GraniteMoeLinearExperts(LinearExperts2D):
+    is_concatenated = False
+    is_transposed = False
+    has_bias = False
+    has_gate = False
+
+    @classmethod
+    @torch.no_grad()
+    def from_experts_module(
+        cls, experts: "GraniteMoeParallelExperts", config: GraniteMoeConfig
+    ):
+        assert experts.num_experts == config.num_local_experts
+
         with skip_weights_initialize():
-            super().__init__([Llama4TextMLP(config) for _ in range(self.num_experts)])
+            self = cls(
+                experts.num_experts, experts.input_size, experts.output_size, config
+            )
+            self.num_experts = experts.num_experts
 
-        for i in range(self.num_experts):
-            gate_up = original.gate_up_proj[i]
-            down = original.down_proj[i]
-            gate_proj, up_proj = gate_up.chunk(2, dim=-1)
+        for i in range(experts.num_experts):
+            self[i].weight.copy_(experts.weight[i])
 
-            self[i].gate_proj.weight.data = gate_proj.t().contiguous()
-            self[i].up_proj.weight.data = up_proj.t().contiguous()
-            self[i].down_proj.weight.data = down.t().contiguous()
-```
+        # copy offloading from original
+        offload_kwargs = get_cache_init_kwargs(experts)
+        for module in self.modules():
+            offload_module(module, **offload_kwargs)
 
-Key details from the Llama4 implementation:
-
-- `is_permanent = True` — the unpacked expert form is required for vLLM inference, so the module is not restored after calibration
-- Expert weights are unpacked from a 3D packed tensor into a `ModuleList` of individual MLPs
-- The config passed to `__init__` is a multimodal `Llama4Config`; text-specific settings are extracted via `config.get_text_config()`
-- A `shared_expert` runs on all tokens unconditionally and its output is used as the accumulation base
-
-## Step-by-Step: Adding Support for a New Model
-
-### Step 1: Identify the MoE block class name
-
-Find the class in the transformers library that implements the MoE routing for your model:
-
-```python
-from transformers.models.your_model.modeling_your_model import YourModelMoE
-print(YourModelMoE.__name__)  # e.g. "YourModelMoE"
-```
-
-### Step 2: Determine whether experts are packed
-
-Inspect the original MoE module to see how experts are stored:
-
-```python
-import inspect
-print(inspect.getsource(YourModelMoE.__init__))
-```
-
-- If experts are stored as a `ModuleList` of individual layers, you can copy them directly.
-- If experts are stored as a packed 3D tensor (like Llama4), you need a helper class to unpack them into a `ModuleList` before calibration.
-
-### Step 3: Create the calibration module
-
-Create a new file `src/llmcompressor/modeling/your_model.py`:
-
-```python
-from typing import Tuple
-
-import torch
-from transformers.models.your_model.configuration_your_model import YourModelConfig
-from transformers.models.your_model.modeling_your_model import YourModelMoE as OriginalYourModelMoE
-
-from llmcompressor.modeling.moe_context import MoECalibrationModule
-
-
-@MoECalibrationModule.register("YourModelMoE")
-class SequentialYourModelMoE(MoECalibrationModule):
-    """
-    Calibration version of YourModelMoE that sends all tokens to all experts
-    during calibration to ensure proper quantization statistics are collected.
-    """
-
-    is_permanent = True  # set False if unpacking is not needed and you want restoration
+        return self
 
     def __init__(
         self,
-        original: OriginalYourModelMoE,
-        config: YourModelConfig,
-        calibrate_all_experts: bool = True,
-    ):
-        super().__init__()
-        self.top_k = config.num_experts_per_tok
-        self.hidden_dim = config.hidden_size
-        self.num_experts = config.num_local_experts
+        num_experts: int,
+        input_size: int,
+        output_size: int,
+        config: GraniteMoeConfig,
+    ) -> None:
+        self.num_experts = num_experts
+        self.input_size = input_size
+        self.output_size = output_size
 
-        # Unpack packed experts if needed, or copy directly:
-        # self.experts = SequentialYourModelExperts(config, original.experts)
-        self.experts = original.experts
-        self.router = original.router
-        self.shared_expert = original.shared_expert
-        self.calibrate_all_experts = calibrate_all_experts
+        torch.nn.ModuleList.__init__(
+            self,
+            [
+                torch.nn.Linear(input_size, output_size, bias=False, dtype=config.dtype)
+                for _ in range(num_experts)
+            ],
+        )
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        hidden_states = hidden_states.reshape(-1, self.hidden_dim)
-        router_scores, router_logits = self.router(hidden_states)
-        out = self.shared_expert(hidden_states)
-
-        _, router_indices = torch.topk(router_logits, self.top_k, dim=1)
-        expert_mask = torch.nn.functional.one_hot(
-            router_indices, num_classes=self.num_experts
-        ).permute(2, 1, 0)
+    def forward(self, inputs: torch.Tensor, expert_size: list[int]):
+        output_list = []
 
         for i in range(self.num_experts):
-            token_idx = torch.where(expert_mask[i].squeeze(0))
-
-            if self.calibrate_all_experts:
-                expert_out = self.experts[i](hidden_states)[token_idx]
+            if get_calibrate_all_experts_flag():
+                expert_out = self[i](inputs).split(expert_size, dim=0)[i]
             else:
-                expert_out = self.experts[i](hidden_states[token_idx])
+                expert_out = self[i](inputs.split(expert_size, dim=0)[i])
+            output_list.append(expert_out)
 
-            if len(token_idx) > 0:
-                weighted_output = expert_out * router_scores[:, i][token_idx].reshape(-1, 1)
-                out[token_idx] += weighted_output
-
-        return out, router_logits
+        return torch.cat(output_list, dim=0)
 ```
 
-### Step 4: Import the calibration module at the call site
-
-The `@MoECalibrationModule.register(...)` decorator only takes effect when the module is imported. Import it before calling `oneshot`:
+2. Make sure the definition is registered
 
 ```python
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from llmcompressor import oneshot
-from llmcompressor.modeling.your_model import SequentialYourModelMoE  # noqa: F401
-from llmcompressor.modifiers.quantization import QuantizationModifier
-
-model_id = "your-org/your-moe-model"
-model = AutoModelForCausalLM.from_pretrained(model_id)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-oneshot(
-    model=model,
-    dataset=ds,
-    recipe=[QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head"])],
-    num_calibration_samples=512,
-    max_seq_length=2048,
-)
-
-model.save_pretrained("your-moe-model-FP8", save_compressed=True)
-tokenizer.save_pretrained("your-moe-model-FP8")
+# register in registry
+LinearExperts2D._registry[GraniteMoeParallelExperts] = GraniteMoeLinearExperts
 ```
 
-## Tips
+```python
+class LinearExperts2D(torch.nn.ModuleList):
+    # custom model definitions
+    _registry: ClassVar[dict[type[torch.nn.Module], type["LinearExperts2D"]]] = dict()
 
-- **The register name must exactly match the original class name** (case-sensitive). Inspect `module.__class__.__name__` if unsure.
-- **Check whether experts are packed.** If the model stores experts as a single high-dimensional tensor rather than a `ModuleList`, you need to unpack them before calibration — see the `SequentialLlama4TextExperts` pattern.
-- **Match the original `forward` signature exactly**, including return values. Llama4, for example, returns `(out, router_logits)`.
-- **Apply routing scores to expert outputs, not inputs.** Applying scores before the expert forward pass can produce NaNs during calibration.
-- **Use `is_permanent=True` when the unpacked form is required for inference** (e.g., vLLM needs individual expert modules). Use `is_permanent=False` when you only need calibration coverage and want the original structure restored afterwards.
-- **Test with a small model or a few calibration samples first** to confirm all experts are reached and no NaNs appear.
+    @classmethod
+    def get_registration(
+        cls, key: type[torch.nn.Module], default: Any = None
+    ) -> type["LinearExperts2D"]:
+        from .granitemoe import GraniteMoeLinearExperts  # noqa: F401
+        from .llama4 import Llama4LinearExperts  # noqa: F401
+        # Add your import here
+
+        return cls._registry.get(key, default)
+```
+
+3. Add a test to `test_linearize.py` to ensure that outputs are similar before and after linearization.
+
+```python
+def test_linearize_moe_granite():
+    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
+    experts = GraniteMoeParallelExperts(
+        config.num_local_experts, config.hidden_size, config.intermediate_size
+    )
+    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
+
+    mock_model = DummyModel(experts, config)
+    linearize_moe(mock_model)
+    assert mock_model.module is not experts
+
+    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
+    expert_size = [
+        (NUM_TEST_TOKENS // config.num_local_experts)
+        for _ in range(config.num_local_experts)
+    ]
+    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
+    true_outputs = experts(hidden_states, expert_size)
+    outputs = mock_model(hidden_states, expert_size)
+    with moe_calibration_context():
+        calib_outputs = mock_model(hidden_states, expert_size)
+
+    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
+    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
+    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
+```

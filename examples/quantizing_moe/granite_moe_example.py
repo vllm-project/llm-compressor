@@ -3,12 +3,12 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 # select a Mixture of Experts model for quantization
 model_id = "ibm-research/PowerMoE-3b"
-with load_quantizable_moe():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
