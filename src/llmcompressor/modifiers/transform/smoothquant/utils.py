@@ -78,6 +78,7 @@ QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
+
 COHERE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=[
