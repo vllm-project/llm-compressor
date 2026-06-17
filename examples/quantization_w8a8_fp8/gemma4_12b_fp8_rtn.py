@@ -11,7 +11,6 @@
 import torch
 import transformers
 from compressed_tensors.offload import dispatch_model
-from datasets import load_dataset
 
 if int(transformers.__version__.split(".")[0]) < 5:
     raise RuntimeError(

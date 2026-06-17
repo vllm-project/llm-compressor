@@ -13,7 +13,6 @@ from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
-    PrefixChange,
     get_model_conversion_mapping,
 )
 
@@ -39,13 +38,13 @@ def _map_ignore_to_checkpoint_names(
     if not quantization_config:
         return
 
-    ignore_list = quantization_config.ignore_list
+    ignore_list = quantization_config.ignore
     weight_conversions = getattr(model, "_weight_conversions", None)
     if weight_conversions is None:
         weight_conversions = get_model_conversion_mapping(model, add_legacy=False)
 
     if not weight_conversions:
-        return ignore_list
+        return
 
     # Match revert_weight_conversion: reverse order, then reverse each transform.
     # Renamings chain — every matching one fires sequentially.
@@ -59,7 +58,7 @@ def _map_ignore_to_checkpoint_names(
                 name = renamed
         result.append(name)
 
-    quantization_config.ignore_lsit = result
+    quantization_config.ignore = result
 
 
 def modify_save_pretrained(model: PreTrainedModel):
