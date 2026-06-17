@@ -1,9 +1,10 @@
+import torch
 from compressed_tensors.offload.dist_utils import is_source_process as is_src
+from compressed_tensors.quantization.utils import is_module_quantized
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
-    get_modules,
     observe,
     update_qparams,
 )
@@ -72,9 +73,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         QuantizationMixin.start_calibration(self, state.model)
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        parents = kwargs.get("modules", [])
-        modules = get_modules(parents)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        modules = [module for module in modules if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)
         observe(modules, "weight")
         update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())

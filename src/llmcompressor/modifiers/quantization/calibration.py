@@ -30,30 +30,7 @@ __all__ = [
     "calibrate_query_hook",
     "calibrate_key_hook",
     "calibrate_value_hook",
-    "get_modules",
 ]
-
-
-def get_modules(parents: Iterable[Module]) -> list[Module]:
-    """
-    Extract all modules from parent modules and return a deduplicated list
-    preserving iteration order.
-
-    This is critical for DDP: all ranks must process modules in the same order
-    to avoid NCCL deadlocks when collective operations (e.g., all_reduce) are
-    called during observer synchronization.
-
-    :param parents: iterable of parent modules
-    :return: deduplicated list of all modules in iteration order
-    """
-    seen = set()
-    result = []
-    for parent in parents:
-        for module in parent.modules():
-            if module not in seen:
-                seen.add(module)
-                result.append(module)
-    return result
 
 
 def initialize_observer(

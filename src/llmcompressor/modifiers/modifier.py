@@ -1,5 +1,6 @@
 from abc import abstractmethod
 
+import torch
 from pydantic import ConfigDict
 
 from llmcompressor.core.events import Event, EventType
@@ -273,13 +274,17 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         """
         on_sequential_epoch_end is called at the end of a sequential layer
         calibration/training epoch.
 
         :param state: The current state of the model
         :param event: The event that triggered the sequential epoch end
+        :param modules: List of de-duplicated modules which were included in the
+            sequential subgraph
         :param kwargs: Additional arguments for the sequential epoch end
         """
         pass
