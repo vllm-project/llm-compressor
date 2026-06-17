@@ -22,6 +22,7 @@ from loguru import logger
 __all__ = [
     "MoEModelAttrs",
     "REAPSaliencyTracker",
+    "assert_homogeneous_moe",
     "assert_routing_feasible",
     "compute_retained_experts",
     "detect_moe_attrs",
@@ -151,6 +152,21 @@ def detect_moe_attrs(model: nn.Module) -> MoEModelAttrs | None:
             )
             return attrs
 
+    # validate that "num_experts" exists in config before hard coding
+    # it for auto-detection
+    config = model.config
+    config_has_num_experts = hasattr(config, "num_experts") or (
+        hasattr(config, "text_config") and hasattr(config.text_config, "num_experts")
+    )
+    if not config_has_num_experts:
+        model_class = next(model.named_modules())[1].__class__.__name__
+        raise ValueError(
+            f"Attribute auto-detection failed for model '{model_class}': "
+            "'num_experts' not found in model.config or model.config.text_config. "
+            "Please add your model's details to MOE_ATTR_REGISTRY in "
+            "src/llmcompressor/modifiers/pruning/reap/utils.py to avoid auto-detection."
+        )
+
     for _, module in model.named_modules():
         router = _find_router_attr(module)
         if router is not None and hasattr(module, "experts"):
@@ -162,7 +178,7 @@ def detect_moe_attrs(model: nn.Module) -> MoEModelAttrs | None:
             )
             logger.info(
                 f"Auto-detected MoE block: {module.__class__.__name__} "
-                f"(router={router}, routing={SOFTMAX})"
+                f"(router={router}, experts=experts, routing={SOFTMAX})"
             )
             return attrs
 
@@ -205,15 +221,9 @@ def get_num_experts(module: nn.Module, attrs: MoEModelAttrs) -> int:
     if isinstance(experts, nn.ModuleList):
         return len(experts)
 
-    if hasattr(experts, "num_experts"):
-        return experts.num_experts
-
-    for _, param in experts.named_parameters(recurse=False):
-        if param.dim() >= 2:
-            return param.shape[0]
-
     raise ValueError(
-        f"Cannot determine number of experts from {module.__class__.__name__}"
+        f"Cannot determine number of experts from {module.__class__.__name__}:"
+        " experts are not in 2D format as expected"
     )
 
 
@@ -228,6 +238,10 @@ def get_router_num_groups(module: nn.Module, attrs: MoEModelAttrs) -> int:
         n_group = getattr(holder, "n_group", None)
         if isinstance(n_group, int) and n_group > 0:
             return n_group
+    logger.info(
+        f"n_group attribute not found on {module.__class__.__name__};"
+        " assuming n_group=1"
+    )
     return 1
 
 
@@ -241,7 +255,39 @@ def get_router_topk_group(module: nn.Module, attrs: MoEModelAttrs) -> int:
         topk_group = getattr(holder, "topk_group", None)
         if isinstance(topk_group, int) and topk_group > 0:
             return topk_group
+    logger.info(
+        f"topk_group attribute not found on {module.__class__.__name__};"
+        " assuming topk_group=n_group"
+    )
     return get_router_num_groups(module, attrs)
+
+
+def assert_homogeneous_moe(moe_layers: dict[str, nn.Module], attrs: MoEModelAttrs):
+    """
+    Assert that all detected MoE layers share the same ``num_experts``,
+    ``n_group``, and ``topk_group``.
+    """
+    num_experts = set()
+    n_groups = set()
+    topk_groups = set()
+
+    for module in moe_layers.values():
+        num_experts.add(get_num_experts(module, attrs))
+        n_groups.add(get_router_num_groups(module, attrs))
+        topk_groups.add(get_router_topk_group(module, attrs))
+
+    if len(num_experts) > 1:
+        raise ValueError(
+            f"Detected heterogeneous num_experts across MoE layers: {num_experts}"
+        )
+    if len(n_groups) > 1:
+        raise ValueError(
+            f"Detected heterogeneous n_group across MoE layers: {n_groups}"
+        )
+    if len(topk_groups) > 1:
+        raise ValueError(
+            f"Detected heterogeneous topk_group across MoE layers: {topk_groups}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +484,7 @@ def compute_retained_experts(
     if n_group <= 1:
         _, drop_idx = torch.topk(saliency, n_experts_to_drop, largest=False)
         drop_set = set(drop_idx.tolist())
-        return sorted(i for i in range(num_experts) if i not in drop_set)
+        return [i for i in range(num_experts) if i not in drop_set]
 
     if num_experts % n_group != 0:
         raise ValueError(f"{num_experts} experts not divisible by n_group={n_group}")
@@ -464,7 +510,7 @@ def compute_retained_experts(
         _, drop_local = torch.topk(grp, drop_per_group, largest=False)
         drop_set = {lo + int(i) for i in drop_local.tolist()}
         retained.extend(i for i in range(lo, lo + group_size) if i not in drop_set)
-    return sorted(retained)
+    return retained
 
 
 def _drop_per_group(n_experts_to_drop: int, n_group: int, group_size: int) -> int:
@@ -531,7 +577,10 @@ def prune_moe_layer(
         setattr(moe_block, attrs.experts_attr, new_experts)
         del old_experts
     else:
-        _prune_fused_experts(experts, retained)
+        raise ValueError(
+            f"Cannot prune experts from layer {layer_name}:"
+            " experts are not in 2D format as expected"
+        )
 
     _prune_router(router, retained)
 
@@ -578,23 +627,6 @@ def _prune_router(router: nn.Module, retained: list[int]):
         router.out_features = len(retained)
 
 
-def _prune_fused_experts(experts: nn.Module, retained: list[int]):
-    """Fallback for fused experts (stacked weight tensors). Defensive: all
-    currently supported calibration wrappers expose experts as a ModuleList."""
-    retained_t = torch.tensor(retained, dtype=torch.long)
-
-    for name, _ in list(experts.named_parameters(recurse=False)):
-        with align_module_device(experts):
-            param = getattr(experts, name)
-            if param.dim() < 2:
-                continue
-            new_param = param.detach()[retained_t.to(param.device)].contiguous()
-        setattr(experts, name, nn.Parameter(new_param, requires_grad=False))
-
-    if isinstance(getattr(experts, "num_experts", None), int):
-        experts.num_experts = len(retained)
-
-
 def update_model_config(
     model: nn.Module,
     attrs: MoEModelAttrs,
@@ -604,13 +636,17 @@ def update_model_config(
     attr_name = attrs.num_experts_config_key
 
     updated = False
-    for cfg in (config, getattr(config, "text_config", None)):
+    for cfg, cfg_name in [
+        (config, "config"),
+        (getattr(config, "text_config", None), "text_config"),
+    ]:
         if cfg is not None and hasattr(cfg, attr_name):
             old_val = getattr(cfg, attr_name)
             setattr(cfg, attr_name, new_num_experts)
-            logger.info(f"Updated config.{attr_name}: {old_val} -> {new_num_experts}")
+            logger.info(
+                f"Updated {cfg_name}.{attr_name}: {old_val} -> {new_num_experts}"
+            )
             updated = True
-            break
 
     if not updated:
         logger.warning(

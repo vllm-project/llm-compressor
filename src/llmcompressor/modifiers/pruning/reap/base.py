@@ -11,11 +11,13 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
+from llmcompressor.modeling.moe import get_calibrate_all_experts_flag
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.reap.utils import (
     MoEModelAttrs,
     REAPSaliencyTracker,
+    assert_homogeneous_moe,
     assert_routing_feasible,
     compute_retained_experts,
     detect_moe_attrs,
@@ -74,6 +76,7 @@ class REAPPruningModifier(Modifier):
         default_factory=dict
     )
     _top_k: int = PrivateAttr(default=2)
+    _num_experts: int = PrivateAttr(default=0)
     _n_group: int = PrivateAttr(default=1)
     _n_experts_to_drop: int = PrivateAttr(default=0)
     _prune_decisions: dict[str, list[int]] = PrivateAttr(default_factory=dict)
@@ -108,22 +111,26 @@ class REAPPruningModifier(Modifier):
         text_config = getattr(config, "text_config", config)
         self._top_k = getattr(text_config, "num_experts_per_tok", 2)
 
+        # fast fail if all layers do not have same num_experts, n_group,
+        # and topk_group (non-homogeneous)
+        assert_homogeneous_moe(moe_layers, self._attrs)
+
         sample_module = next(iter(moe_layers.values()))
-        num_experts = get_num_experts(sample_module, self._attrs)
+        self._num_experts = get_num_experts(sample_module, self._attrs)
         self._n_group = get_router_num_groups(sample_module, self._attrs)
-        self._n_experts_to_drop = int(num_experts * self.sparsity)
+        self._n_experts_to_drop = int(self._num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
             logger.warning(
                 f"sparsity={self.sparsity} results in 0 "
-                f"experts to drop (out of {num_experts}). No pruning will "
+                f"experts to drop (out of {self._num_experts}). No pruning will "
                 "be performed."
             )
         else:
             # fail fast (before calibration) if the requested sparsity would
             # leave the router unable to select top_k experts per token
             assert_routing_feasible(
-                num_experts,
+                self._num_experts,
                 self._n_experts_to_drop,
                 self._n_group,
                 get_router_topk_group(sample_module, self._attrs),
@@ -132,31 +139,28 @@ class REAPPruningModifier(Modifier):
 
         logger.info(
             f"REAP initialized: {len(moe_layers)} MoE layers, "
-            f"{num_experts} experts/layer, will drop "
+            f"{self._num_experts} experts/layer, will drop "
             f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
             + (f", n_group={self._n_group}" if self._n_group > 1 else "")
         )
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
         model = state.model
+
+        if not get_calibrate_all_experts_flag():
+            raise RuntimeError(
+                "REAP requires that all experts be activated during calibration,"
+                " but calibrate_all_experts is false. "
+                "Ensure the model runs inside moe_calibration_context."
+            )
 
         for layer_name in self._moe_layer_names:
             module = model.get_submodule(layer_name)
 
-            if not hasattr(module, "calibrate_all_experts"):
-                raise RuntimeError(
-                    f"REAP requires the MoE block '{layer_name}' "
-                    f"({module.__class__.__name__}) to support all-expert "
-                    "calibration, but it has no 'calibrate_all_experts' attribute. "
-                    "Ensure the model runs inside moe_calibration_context."
-                )
-            module.calibrate_all_experts = True
-
-            num_experts = get_num_experts(module, self._attrs)
-            self._saliency_trackers[layer_name] = REAPSaliencyTracker(num_experts)
+            self._saliency_trackers[layer_name] = REAPSaliencyTracker(self._num_experts)
             self._norm_buffers[layer_name] = {}
 
             # capture the router's raw output so routing is read from the model
@@ -185,25 +189,10 @@ class REAPPruningModifier(Modifier):
                 module, partial(self._moe_post_hook, layer_name), "forward"
             )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            # a subgraph just finished calibrating: any MoE layer whose saliency
-            # is complete can have its drop decision finalized and its activation
-            # buffers freed now, rather than carrying them until on_finalize
-            self._finalize_decisions()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.ended_ = True
         # fallback for pipelines that never fire SEQUENTIAL_EPOCH_END
-        self._finalize_decisions()
+        self.on_sequential_epoch_end()
         self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
@@ -211,7 +200,7 @@ class REAPPruningModifier(Modifier):
         # exited): the decisions were finalized at SEQUENTIAL_EPOCH_END, so this
         # only mutates module structure -- it does not need calibration data.
         if not self.ended_:
-            self.on_end(state, None)
+            self.on_calibration_end(state, None)
 
         if self._n_experts_to_drop == 0:
             logger.info("REAP: nothing to prune (n_experts_to_drop=0)")
@@ -244,7 +233,7 @@ class REAPPruningModifier(Modifier):
 
     # -- decision finalization ----------------------------------------------
 
-    def _finalize_decisions(self):
+    def on_sequential_epoch_end(self):
         """Finalize drop decisions for any tracked layer whose saliency is
         complete, then release its activation buffers."""
         if self._n_experts_to_drop == 0:
