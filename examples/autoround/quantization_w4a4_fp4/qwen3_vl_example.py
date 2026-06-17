@@ -7,7 +7,7 @@ from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
-model = Qwen3VLForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = Qwen3VLForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 tokenizer = processor.tokenizer
 

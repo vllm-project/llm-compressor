@@ -1,6 +1,6 @@
-# NOTE: LLM Compressor quantization with Gemma4 requires `transformers==5.8.1`
+# NOTE: LLM Compressor quantization with Gemma4 requires `transformers>=5.5.0`
 # Please install using the following command:
-#   pip install -U transformers==5.8.1
+#   pip install -U transformers>=5.5.0
 
 import torch
 from datasets import load_dataset
@@ -8,11 +8,13 @@ from transformers import AutoProcessor, Gemma4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
 
 # Load model.
-model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+with load_context(Gemma4ForConditionalGeneration):
+    model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # MoE calibration is handled automatically by the pipeline.

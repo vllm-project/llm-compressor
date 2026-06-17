@@ -10,11 +10,9 @@ MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    dtype="auto",
     low_cpu_mem_usage=True,
-    trust_remote_code=True,
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 recipe = QuantizationModifier(
     targets=["Linear"],

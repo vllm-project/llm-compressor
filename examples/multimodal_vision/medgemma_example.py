@@ -8,8 +8,8 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "google/medgemma-27b-it"
-model = Gemma3ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+model = Gemma3ForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
@@ -39,7 +39,6 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
 )
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
