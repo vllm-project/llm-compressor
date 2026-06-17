@@ -53,9 +53,11 @@ class IntermediatesCache:
         self,
         batch_intermediates: list[IntermediateValues] | None = None,
         offload_device: torch.device | None = "cpu",
+        non_blocking: bool = True,
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
+        self.non_blocking = non_blocking
 
     @classmethod
     def empty(cls, num_batches: int, offload_device: torch.device):
@@ -105,20 +107,18 @@ class IntermediatesCache:
         self,
         batch_index: int,
         input_names: list[str] | None = None,
-        non_blocking: bool = True,
     ) -> dict[str, Any]:
         """
         Fetch values belonging to a batch
 
         :param batch_index: index of batch whose values are being fetched
         :param input_names: list of keys whose values are being fetched
-        :param non_blocking: if True, pin CPU tensors on-the-fly
         :return: dictionary mapping keys to onloaded values
         """
         intermediates = self.batch_intermediates[batch_index]
 
         return {
-            key: self._onload_value(subgraph_input, non_blocking=non_blocking)
+            key: self._onload_value(subgraph_input)
             for key, subgraph_input in intermediates.items()
             if input_names is None or key in input_names
         }
@@ -230,7 +230,7 @@ class IntermediatesCache:
             event = None
             if h2d_stream is not None:
                 with torch.cuda.stream(h2d_stream):
-                    data = self.fetch(batch_index, input_names, non_blocking=True)
+                    data = self.fetch(batch_index, input_names)
                 event = torch.cuda.Event()
                 event.record(h2d_stream)
             else:
@@ -260,15 +260,11 @@ class IntermediatesCache:
     def __len__(self) -> int:
         return len(self.batch_intermediates)
 
-    @classmethod
-    def _onload_value(
-        cls, intermediate: IntermediateValue, non_blocking: bool = True
-    ) -> Any:
+    def _onload_value(self, intermediate: IntermediateValue) -> Any:
         """
         Onload a value's tensors to the onload device
 
         :param intermediate: intermediates value representation to onload
-        :param non_blocking: if True, pin CPU tensors on-the-fly
         :return: original value with tensors onloaded to the onload device
         """
         value = intermediate.value
@@ -277,7 +273,7 @@ class IntermediatesCache:
         match value:
             case torch.Tensor():
                 # pin on-the-fly so only the active batch consumes pinned memory
-                if non_blocking and not value.is_pinned() and value.device.type == "cpu":
+                if self.non_blocking and not value.is_pinned() and value.device.type == "cpu":
                     value = value.pin_memory()
 
                 # use non_blocking when source is pinned and target is an accelerator
@@ -291,18 +287,18 @@ class IntermediatesCache:
                 )
                 return value.to(device=device, non_blocking=use_non_blocking)
             case list():
-                return [cls._onload_value(v, non_blocking=non_blocking) for v in value]
+                return [self._onload_value(v) for v in value]
             case tuple():
-                return tuple(cls._onload_value(v, non_blocking=non_blocking) for v in value)
+                return tuple(self._onload_value(v) for v in value)
             case dict():
                 return {
-                    k: cls._onload_value(v, non_blocking=non_blocking)
+                    k: self._onload_value(v)
                     for k, v in value.items()
                 }
             case _ if is_dataclass(value):
                 for field in fields(value):
                     v = getattr(value, field.name)
-                    setattr(value, field.name, cls._onload_value(v, non_blocking=non_blocking))
+                    setattr(value, field.name, self._onload_value(v))
                 return value
             case _:
                 # handles primitive values that should be returned as is.
