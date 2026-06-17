@@ -1,6 +1,6 @@
 ---
 name: validate-pr
-description: Validate an llm-compressor PR by running AWQ mapping tests on GPU and posting results to the PR.
+description: Validate an llm-compressor PR by running AWQ and/or SmoothQuant mapping tests on GPU and posting results to the PR.
 user-invocable: true
 args:
   pr_number:
@@ -21,7 +21,7 @@ allowed-tools:
 
 # Validate PR Skill
 
-Validate an llm-compressor PR by checking out the code, identifying new AWQ mappings, running test scripts on GPU, and posting a pass/fail report as a PR comment.
+Validate an llm-compressor PR by checking out the code, identifying new AWQ and/or SmoothQuant mappings, running test scripts on GPU, and posting a pass/fail report as a PR comment.
 
 ## Arguments
 
@@ -61,9 +61,15 @@ git diff main...HEAD --stat
 git diff main...HEAD
 ```
 
-### Step 3: Identify new AWQ mappings
+### Step 3: Identify new mappings
 
-Inspect the diff from step 2. Look for new or modified AWQ mapping files (typically under `src/llmcompressor/modifiers/transform/awq/`). If the PR contains **no new AWQ mappings**, skip to step 8 and post a comment noting that no AWQ validation was needed.
+Inspect the diff from step 2. Look for new or modified mapping files under:
+- `src/llmcompressor/modifiers/transform/awq/` — AWQ mappings (static in `mappings.py`, dynamic in `dynamic_mappings.py`)
+- `src/llmcompressor/modifiers/transform/smoothquant/` — SmoothQuant mappings (static in `utils.py`, dynamic in `dynamic_mappings.py`)
+
+For each new mapping found, note its **type** (AWQ or SmoothQuant) and **target architecture**.
+
+If the PR contains **no new mappings of either type**, skip to step 8 and post a comment noting that no mapping validation was needed.
 
 ### Step 4: Determine model IDs
 
@@ -83,12 +89,20 @@ If `ct_ref` was provided, also install that ref of compressed-tensors:
 uv pip install "compressed-tensors @ git+https://github.com/vllm-project/compressed-tensors.git@<ct_ref>"
 ```
 
-### Step 6: Run AWQ template on GPU for each mapping
+### Step 6: Run template on GPU for each mapping
 
-Copy the trusted template from this skill into the workspace, then run it once per mapping with the appropriate model ID:
+Copy the appropriate trusted template from this skill into the workspace, then run it once per mapping with the appropriate model ID:
+
+For **AWQ** mappings:
 ```bash
 cp .claude/skills/validate-pr/scripts/awq_template.py ./validate-pr-<pr_number>/awq_template.py
 chg run -- .venv/bin/python ./awq_template.py --model-id <model_id>
+```
+
+For **SmoothQuant** mappings:
+```bash
+cp .claude/skills/validate-pr/scripts/smoothquant_template.py ./validate-pr-<pr_number>/smoothquant_template.py
+chg run -- .venv/bin/python ./smoothquant_template.py --model-id <model_id>
 ```
 
 Run each invocation **sequentially** (each needs a GPU). If a run fails, capture the error output and continue to the next mapping.
@@ -109,8 +123,8 @@ gh pr comment <pr_number> --body "<report>"
 ```
 
 The report should include:
-- **Summary**: PASS if >= 80% of mappings improved, FAIL otherwise (or N/A if no AWQ mappings were found).
-- **Per-script results table**: script name, status (success/error), number of mappings tested, number that improved, first and final `best_error` values.
+- **Summary**: PASS if >= 80% of mappings improved, FAIL otherwise (or N/A if no mappings were found).
+- **Per-script results table**: mapping type (AWQ/SmoothQuant), script name, status (success/error), number of mappings tested, number that improved, first and final `best_error` values.
 - **Error details**: for any script that failed, include the last 50 lines of output.
 
 ### Step 9: Clean up
