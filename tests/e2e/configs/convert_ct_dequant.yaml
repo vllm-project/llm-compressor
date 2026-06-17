@@ -1,0 +1,4 @@
+cadence: nightly
+entrypoint: convert_checkpoint
+model: nm-testing/tinyllama-w4a16-compressed
+recipe: CompressedTensorsDequantizer

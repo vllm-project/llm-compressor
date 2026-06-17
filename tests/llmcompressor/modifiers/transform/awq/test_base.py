@@ -648,9 +648,7 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 def test_awq_with_kv_cache_quantization():
     """Test AWQModifier with kv_cache_scheme runs without errors"""
     model_id = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="cuda"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
     dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
 
     recipe = [
@@ -696,9 +694,7 @@ def test_awq_with_kv_cache_quantization():
 def test_awq_raises_on_non_finite_identity_grid_loss():
     """Test AWQModifier raises when the identity grid loss is non-finite"""
     model_id = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="cuda"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
     dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
 
     self_attn = model.model.layers[0].self_attn

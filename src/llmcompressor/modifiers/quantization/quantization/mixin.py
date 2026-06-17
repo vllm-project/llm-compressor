@@ -63,11 +63,11 @@ class QuantizationMixin(HooksMixin):
         - Attach schemes to modules
         - Attach observers to modules
         - Disable quantization until calibration starts/finishes
-    - on_start: QuantizationMixin.start_calibration
+    - on_calibration_start: QuantizationMixin.start_calibration
         - Attach calibration hooks
         - Apply calibration status
         - Enable quantization during calibration
-    - on_end: QuantizationMixin.end_calibration
+    - on_calibration_end: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
         - Keep quantization enabled for future steps
@@ -284,12 +284,13 @@ class QuantizationMixin(HooksMixin):
             return
 
         pending_comms = []
-        for module in set(modules):
+        synced_obs = {None}  # ignore None observers
+        for module in modules:
             for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)
-                if observer is None:
-                    continue
-                pending_comms.extend(observer.sync_activation_stats())
+                if observer not in synced_obs:
+                    synced_obs.add(observer)
+                    pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
 
     def has_config(self) -> bool:
