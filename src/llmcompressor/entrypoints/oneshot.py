@@ -33,6 +33,8 @@ __all__ = ["Oneshot", "oneshot"]
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
 
+    from llmcompressor.recipe import RecipeInput
+
 
 TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
 
@@ -272,7 +274,7 @@ def oneshot(
     save_compressed: bool = True,
     model_revision: str = "main",
     # Recipe arguments
-    recipe: str | list[str] | None = None,
+    recipe: RecipeInput | None = None,
     recipe_args: list[str] | None = None,
     clear_sparse_session: bool = False,
     stage: str | None = None,
@@ -344,8 +346,8 @@ def oneshot(
         tag, or commit id).
 
     # Recipe arguments
-    :param recipe: Path to a LLM Compressor recipe, or a list of paths
-      to multiple LLM Compressor recipes.
+    :param recipe: A LLM Compressor recipe. Accepts a path (or list of paths)
+      to recipe YAML file(s), a Modifier instance (or list), or a Recipe object.
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/
