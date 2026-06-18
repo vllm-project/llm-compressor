@@ -60,7 +60,8 @@ def validate_file(
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
     """
-
+    # device is ignored: all validation is done on meta device
+    device = torch.device("meta")
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
     if converter is not None:
@@ -206,7 +207,7 @@ def process_file_microscale_scheme(
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
         # 2. fuse observers, observe weights, and get qparams
-        Observer.fuse([mod.weight_observer for mod in named_modules.values()])
+        Observer.fuse([(mod.weight_observer, mod) for mod in named_modules.values()])
         observe(named_modules.values(), base_name="weight")
         update_qparams(named_modules.values(), base_name="weight")
 

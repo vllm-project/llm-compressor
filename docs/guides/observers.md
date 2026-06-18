@@ -31,8 +31,8 @@ This class is not used directly but provides the scaffolding for all custom obse
 |--------|-------------|
 | `forward(observed)` | Accumulates statistics from the observed tensor. Returns `self` (for chaining). Does **not** compute qparams. |
 | `update_statistics_from_observed(observed)` | Abstract. Subclasses implement this to accumulate statistics from a pre-shaped tensor. |
-| `get_qparams()` | Converts accumulated statistics into a `QParamsDict` with keys `scale`, `zero_point`, and `global_scale`. Default implementation uses `min_vals`/`max_vals`. Override for custom statistics. |
-| `Observer.fuse(observers)` | Static method. Links observers so they share `global_scale` computed from combined statistics. |
+| `get_qparams()` | Converts accumulated statistics into a `QParamsDict` with keys `scale`, `zero_point`, and `global_scale`. For TENSOR_GROUP, auto-observes any fused observers without statistics before computing shared `global_scale`. Default implementation uses `min_vals`/`max_vals`. Override for custom statistics. |
+| `Observer.fuse(observers_and_modules)` | Static method. Takes an iterable of `(observer, module)` tuples. Links observers with weak module references so they share `global_scale` computed from combined statistics. |
 | `sync_activation_stats()` | All-reduces accumulated statistics across DDP ranks using `_act_sync_dict`. |
 | `has_statistics` | Property. Returns `True` if the observer has been called at least once. Default checks for `min_vals`; override for custom statistics. |
 
@@ -134,8 +134,13 @@ At the end of the calibration epoch, it calls `observer.detach()` on each instru
 
 For TENSOR_GROUP quantization schemes (e.g., NVFP4), layers that are fused at inference time (Q/K/V projections, gate/up MLP projections) must share the same `global_scale`. This is handled automatically by observer fusion:
 
-1. `fuse_weight_observers(model)` scans the model for known fused layer groups and calls `Observer.fuse()` to link their weight observers
-2. When any fused observer computes `get_qparams()`, it takes the absmax across its own statistics **and** all fused observers' statistics to produce a shared `global_scale`
+1. `fuse_weight_observers(model)` scans the model for known fused layer groups and calls `Observer.fuse(observers_and_modules)` with `(observer, module)` tuples
+2. Each observer stores weak references to its fused partners' modules in `_fusions: dict[Observer, ref[Module]]`
+3. When `get_qparams()` is called on any fused observer:
+   - It automatically observes any fused observers that don't have statistics yet by calling them with their stored module references
+   - It computes `global_scale` from the absmax across its own statistics **and** all fused observers' statistics
+
+This design eliminates the need to explicitly observe all fused modules before calling `get_qparams()` - unobserved fused modules are handled on-demand. The weak references prevent circular reference cycles between observers and modules. It also handles situations where the subgraphs being quantized at the same time don't include all fused modules.
 
 The fused layer groups are defined in `FUSED_LAYER_NAMES`:
 - `gate_proj` / `up_proj` (MLP)

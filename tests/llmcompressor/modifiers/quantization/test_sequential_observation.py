@@ -33,7 +33,7 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     modifier = QuantizationModifier(targets="Linear", scheme="FP8")
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_start(state, None)
+    modifier.on_calibration_start(state, None)
 
     # Patch update_statistics_from_observed to track which observers are called
     with patch.object(
@@ -43,8 +43,10 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     ) as mock1, patch.object(
         model[2].weight_observer, "update_statistics_from_observed"
     ) as mock2:
-        modifier.on_event(
-            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=[model[0]]
+        modifier.on_sequential_epoch_end(
+            state,
+            Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+            modules=list(model[0].modules()),
         )
         mock0.assert_called_once()  # Only first module should be observed
         mock1.assert_not_called()  # Second module should NOT be observed
@@ -66,7 +68,7 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_start(state, None)
+    modifier.on_calibration_start(state, None)
 
     # Patch get_qparams and sync_activation_stats to track calls
     with patch.object(
@@ -92,14 +94,20 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
         return_value=True,
     ):
         # Process chunks sequentially
-        modifier.on_event(
-            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=[model[0]]
+        modifier.on_sequential_epoch_end(
+            state,
+            Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+            modules=list(model[0].modules()),
         )
-        modifier.on_event(
-            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=[model[1]]
+        modifier.on_sequential_epoch_end(
+            state,
+            Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+            modules=list(model[1].modules()),
         )
-        modifier.on_event(
-            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=[model[2]]
+        modifier.on_sequential_epoch_end(
+            state,
+            Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+            modules=list(model[2].modules()),
         )
 
         # Each observer's methods should be called exactly once
@@ -130,16 +138,16 @@ def test_nested_parent_modules_produce_valid_global_scale():
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_start(state, None)
+    modifier.on_calibration_start(state, None)
 
     for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):
         child.weight_observer(child.weight)
         child.input_observer(torch.randn(2, 64))
 
-    modifier.on_event(
+    modifier.on_sequential_epoch_end(
         state,
         Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-        modules=[model[0]],
+        modules=list(model.modules()),
     )
 
     for name, param in model.named_parameters():

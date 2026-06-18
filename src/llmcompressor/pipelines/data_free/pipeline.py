@@ -32,6 +32,6 @@ class DataFreePipeline(CalibrationPipeline):
         # we want those ops to occur on the GPU
         dispatch_model(model)
 
-        LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.calibration_start()
         LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
-        LifecycleCallbacks.calibration_epoch_end()
+        LifecycleCallbacks.calibration_end()
