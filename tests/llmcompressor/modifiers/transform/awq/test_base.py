@@ -21,6 +21,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.transform.awq.base import (
     _compress_scales_for_gqa,
+    _expand_scales_for_gqa,
     get_lowest_common_ancestor_with_avoid,
 )
 from llmcompressor.utils import get_high_precision
@@ -194,7 +195,6 @@ def test_gqa_mapping_accepted():
     awq._set_resolved_mappings(model)
     assert len(awq._resolved_mappings) == 1
     mapping = awq._resolved_mappings[0]
-    assert mapping.gqa_head_dim == 2
     assert "o_proj" in mapping.balance_names[0]
 
 
@@ -270,6 +270,31 @@ def test_compress_scales_for_gqa():
     # kvh1_r0 = [6, 7, 8], kvh1_r1 = [9, 10, 11]
     # averaged kvh1 = [7.5, 8.5, 9.5]
     assert_close(compressed[3:], torch.tensor([7.5, 8.5, 9.5]))
+
+
+@pytest.mark.unit
+def test_expand_scales_for_gqa():
+    # num_kv_heads=2, head_dim=3, num_repeats=2
+    # kv_dim = 2 * 3 = 6, hidden_dim = 2 * 2 * 3 = 12
+    scales = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    expanded = _expand_scales_for_gqa(scales, target_dim=12, head_dim=3)
+    assert expanded.shape == (12,)
+
+    # kvh0 = [1, 2, 3] repeated 2x, kvh1 = [4, 5, 6] repeated 2x
+    expected = torch.tensor(
+        [1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 4.0, 5.0, 6.0]
+    )
+    assert_close(expanded, expected)
+
+
+@pytest.mark.unit
+def test_compress_expand_roundtrip():
+    # compress then expand should reproduce the repeat_kv pattern
+    # num_kv_heads=2, num_repeats=2, head_dim=3
+    kv_scales = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    expanded = _expand_scales_for_gqa(kv_scales, target_dim=12, head_dim=3)
+    compressed = _compress_scales_for_gqa(expanded, target_dim=6, head_dim=3)
+    assert_close(compressed, kv_scales)
 
 
 @pytest.mark.unit

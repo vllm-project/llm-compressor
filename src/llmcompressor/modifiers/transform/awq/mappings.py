@@ -320,8 +320,6 @@ class ResolvedMapping:
         caching. When set, the activation cache hook is placed on this module
         instead of ``balance_layers[0]``. Populated from
         ``AWQMapping.activation_hook_target``.
-    :param gqa_head_dim: optional head dimension for GQA models. When set,
-        scales are compressed across KV head repeat groups during smoothing.
     """
 
     smooth_name: str
@@ -331,4 +329,3 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
-    gqa_head_dim: int | None = None
