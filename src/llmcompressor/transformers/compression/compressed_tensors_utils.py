@@ -8,13 +8,9 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import from_accelerate, to_accelerate
-from compressed_tensors.quantization.quant_config import QuantizationConfig
 from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
-from transformers.conversion_mapping import (
-    get_model_conversion_mapping,
-)
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
@@ -22,43 +18,6 @@ from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
 __all__ = ["modify_save_pretrained"]
-
-
-def _map_ignore_to_checkpoint_names(
-    model: PreTrainedModel, quantization_config: QuantizationConfig | None
-) -> None:
-    """
-    Translate ignore list entries from HF module names to checkpoint names.
-
-    Transformers may rename weight keys on load (e.g. vision_embedder ->
-    embed_vision). The ignore list is built from model.named_modules() which
-    uses HF names, but safetensors keys use checkpoint names. This applies the
-    same reverse mapping that save_pretrained uses for weights.
-    """
-    if not quantization_config:
-        return
-
-    ignore_list = quantization_config.ignore
-    weight_conversions = getattr(model, "_weight_conversions", None)
-    if weight_conversions is None:
-        weight_conversions = get_model_conversion_mapping(model, add_legacy=False)
-
-    if not weight_conversions:
-        return
-
-    # Match revert_weight_conversion: reverse order, then reverse each transform.
-    # Renamings chain — every matching one fires sequentially.
-    inverted = [conv.reverse_transform() for conv in reversed(weight_conversions)]
-
-    result = []
-    for name in ignore_list:
-        for rev in inverted:
-            renamed, matched = rev.rename_source_key(name)
-            if matched is not None:
-                name = renamed
-        result.append(name)
-
-    quantization_config.ignore = result
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -109,10 +68,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
-            _map_ignore_to_checkpoint_names(
-                model, getattr(compressor, "quantization_config", None)
-            )
-
             if save_compressed:
                 compressor.compress_model(model)
 
