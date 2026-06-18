@@ -154,7 +154,8 @@ class REAPPruningModifier(Modifier):
             raise RuntimeError(
                 "REAP requires that all experts be activated during calibration,"
                 " but calibrate_all_experts is false. "
-                "Ensure the model runs inside moe_calibration_context."
+                "Ensure the model runs inside moe_calibration_context by setting "
+                "dataset_args.moe_calibrate_all_experts in oneshot."
             )
 
         for layer_name in self._moe_layer_names:

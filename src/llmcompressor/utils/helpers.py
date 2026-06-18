@@ -13,6 +13,8 @@ from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import PreTrainedModel
 
+from llmcompressor.core.session_functions import active_session
+from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.utils import get_embeddings
 
 __all__ = [
@@ -134,6 +136,8 @@ def calibration_forward_context(model: torch.nn.Module):
         stack.enter_context(eval_context(model))
         stack.enter_context(disable_hf_kernels(model))
         stack.enter_context(disable_lm_head(model))
+        if active_session().state.moe_calibrate_all_experts:
+            stack.enter_context(moe_calibration_context())
         yield
 
 

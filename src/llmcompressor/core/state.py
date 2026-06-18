@@ -85,6 +85,8 @@ class State:
     :type optim_wrapped: bool
     :param loss: The loss function being used for training
     :type loss: Any
+    :param moe_calibrate_all_experts: Flag to calibrate all experts in a MoE model
+    :type moe_calibrate_all_experts: bool
     :param batch_data: The current batch of data being used for compression
     :type batch_data: Any
     :param data: The data sets being used for training, validation, testing,
@@ -99,6 +101,7 @@ class State:
     optimizer: Any = None
     optim_wrapped: bool = None
     loss: Any = None
+    moe_calibrate_all_experts: bool = True
     batch_data: Any = None
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
@@ -202,6 +205,8 @@ class State:
 
         if "device" in kwargs:
             self.hardware.device = kwargs["device"]
+        if "moe_calibrate_all_experts" in kwargs:
+            self.moe_calibrate_all_experts = kwargs["moe_calibrate_all_experts"]
 
         return kwargs
 
