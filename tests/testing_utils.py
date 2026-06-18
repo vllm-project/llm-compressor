@@ -461,6 +461,8 @@ def torchrun(world_size: int = 1, init_dist: bool = False):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
+                    "--basetemp",
+                    f"/tmp/pytest-torchrun-{func_name}",
                 ]
 
                 # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
