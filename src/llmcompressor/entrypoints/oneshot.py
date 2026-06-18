@@ -347,7 +347,7 @@ def oneshot(
 
     # Recipe arguments
     :param recipe: A LLM Compressor recipe. Accepts a path (or list of paths)
-      to recipe YAML file(s), a Modifier instance (or list), or a Recipe object.
+        to recipe YAML file(s), a Modifier instance (or list), or a Recipe object (or list).
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/
