@@ -135,10 +135,10 @@ def test_set_resolved_mappings():
                 {
                     "self_attn": torch.nn.ModuleDict(
                         {
-                            "q_proj": Linear(4, 2),
-                            "k_proj": Linear(4, 2),
-                            "v_proj": Linear(4, 2),
-                            "z_proj": Linear(2, 4),
+                            "q_proj": Linear(4, 3),
+                            "k_proj": Linear(4, 3),
+                            "v_proj": Linear(4, 3),
+                            "z_proj": Linear(3, 4),
                             "o_proj": Linear(4, 4),
                         }
                     )
@@ -199,7 +199,7 @@ def test_gqa_mapping_accepted():
 
 
 @pytest.mark.unit
-def test_gqa_no_config_falls_back_to_skip():
+def test_gqa_no_config_still_accepted():
     awq = AWQModifier(
         mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
     )
@@ -222,7 +222,7 @@ def test_gqa_no_config_falls_back_to_skip():
         config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
     )
     awq._set_resolved_mappings(model)
-    assert len(awq._resolved_mappings) == 0
+    assert len(awq._resolved_mappings) == 1
 
 
 @pytest.mark.unit

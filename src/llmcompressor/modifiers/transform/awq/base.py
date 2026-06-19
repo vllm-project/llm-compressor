@@ -305,7 +305,6 @@ class AWQModifier(Modifier):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
-        head_dim = self._get_head_dim(model)
 
         num_incompatible = 0
         for mapping in self.mappings:
@@ -337,15 +336,12 @@ class AWQModifier(Modifier):
                     ]
                 )
 
-                compatible, is_gqa = _check_layers_are_compatible(
+                compatible = _check_layers_are_compatible(
                     smooth_layer,
                     smooth_name,
                     balance_layers,
                     balance_names,
                 )
-
-                if is_gqa and head_dim is None:
-                    compatible = False
 
                 # Incompatibility occurs frequently depending on model size
                 if not compatible:
@@ -1026,12 +1022,10 @@ def _check_layers_are_compatible(
     smooth_name: str,
     balance_layers: list[Module],
     balance_names: list[str],
-) -> tuple[bool, bool]:
+) -> bool:
     """
-    :return: (compatible, is_gqa) where is_gqa is True when a valid
-        GQA dimension ratio is detected between v_proj and o_proj
+    returns True if all smooth & balance layers have compatible shapes
     """
-    is_gqa = False
     for balance_layer, balance_name in zip(balance_layers, balance_names):
         if not (
             isinstance(smooth_layer, torch.nn.Linear)
@@ -1044,15 +1038,14 @@ def _check_layers_are_compatible(
             if smooth_layer.out_features == balance_layer.in_features:
                 continue
             if balance_layer.in_features % smooth_layer.out_features == 0:
-                is_gqa = True
                 continue
-            return (False, False)
+            return False
 
         elif smooth_name.endswith(".qkv_proj"):
             if smooth_layer.out_features != 3 * balance_layer.in_features:
-                return (False, False)
+                return False
 
-    return (True, is_gqa)
+    return True
 
 
 def _compress_scales_for_gqa(
