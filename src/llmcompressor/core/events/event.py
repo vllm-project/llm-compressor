@@ -76,7 +76,7 @@ class Event:
         For older amp pathways, this is the number of times the scaler wrapper
         was invoked before the wrapped optimizer step function was called to
         handle accumulation in fp16.
-    :type invocations_per_step: Optional[int]
+    :type invocations_per_step: int
     :param global_step: The current global step.
     :type global_step: int
     :param global_batch: The current global batch.
