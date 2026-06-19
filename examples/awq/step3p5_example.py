@@ -27,7 +27,6 @@ MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
 
 
 def preprocess(example):
@@ -40,6 +39,20 @@ def preprocess(example):
 
 
 ds = ds.map(preprocess)
+
+
+# Tokenize inputs.
+def tokenize(sample):
+    return tokenizer(
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
+
+ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 # The Step3p5 AWQ mapping is selected automatically from the model architecture.
