@@ -326,7 +326,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # so anchoring to first_param.device can place residual modules
                 # (e.g. norms) on local cuda:1 while hidden states begin on
                 # local cuda:0, causing cross-device forward failures.
-                device = torch.device("cuda:0")
+                from llmcompressor.utils.dev import get_main_device
+                device = get_main_device()
                 # Move decoding layer to CPU first, then the submodules
                 # will be re-dispatched by AutoRound.
                 decoding_layer.to("cpu")
@@ -388,11 +389,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 return  # user explicitly set device_ids, respect it
             gpus_per_group = _get_local_gpu_group_size()
             if gpus_per_group > 1:
-                # Multi-GPU per group: pass comma-separated local GPU indices
-                # so AutoRound can load-balance submodules across GPUs.
-                # The group size is set by the launch_multi_gpu.sh wrapper.
+                local_rank = torch.distributed.get_rank()
+                start_gpu = local_rank * gpus_per_group
                 ar_kwargs["device_map"] = ",".join(
-                    str(i) for i in range(gpus_per_group)
+                    str(start_gpu + i) for i in range(gpus_per_group)
                 )
             else:
                 ar_kwargs["device_map"] = (

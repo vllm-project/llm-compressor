@@ -7,7 +7,6 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
-from compressed_tensors.offload import disable_onloading
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -120,9 +119,6 @@ def trace_subgraphs(
         stack.enter_context(patch_attr(type(model), "forward", unwrapped.__func__))
         assert isinstance(model.forward, MethodType)
         assert isinstance(type(model).forward, FunctionType)
-
-        # avoid device movement during tracing
-        stack.enter_context(disable_onloading())
 
         with append_autowrap_source_on_fail():
             graph = GraphModule(

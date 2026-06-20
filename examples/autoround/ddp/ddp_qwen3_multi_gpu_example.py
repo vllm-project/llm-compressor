@@ -6,10 +6,10 @@ gradients are synchronized across ranks via all_reduce for identical
 convergence despite split calibration data.
 
 Usage (4 GPUs, 2 GPUs per group):
-  CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=2 \\
-      ddp_qwen3_multi_gpu_example.py \\
-      --model /storage/yiliu7/Qwen/Qwen3-8B \\
-      --scheme W4A16 \\
+  CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=2 \
+      ddp_qwen3_multi_gpu_example.py \
+      --model /storage/yiliu7/Qwen/Qwen3-8B \
+      --scheme W4A16 \
       --nsamples 32 --iters 50
 
 For single-GPU DDP:

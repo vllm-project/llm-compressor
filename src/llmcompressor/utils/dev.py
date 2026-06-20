@@ -137,7 +137,7 @@ def get_main_device() -> torch.device:
 
     elif torch.accelerator.is_available():
         accel_type = torch.accelerator.current_accelerator().type
-        return torch.device(accel_type, rank)
+        return torch.device(accel_type, torch.accelerator.current_device_index())
     else:
         logger.warning("No accelerator available! Compressing model on CPU instead")
         return torch.device("cpu")

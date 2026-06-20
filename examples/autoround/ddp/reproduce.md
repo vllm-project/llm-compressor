@@ -1,6 +1,32 @@
 # Multi-GPU DDP AutoRound Reproduce
 
-## Command
+## torchrun (recommended)
+
+### 8B
+
+```bash
+cd /home/yiliu7/workspace/llm-compressor
+
+bash examples/autoround/ddp/launch_torchrun.sh \
+  --model /storage/yiliu7/Qwen/Qwen3-8B \
+  --scheme W4A16 \
+  --nsamples 32 --iters 50 \
+  --disable_torch_compile
+```
+
+### 235B
+
+```bash
+cd /home/yiliu7/workspace/llm-compressor
+
+AR_DISABLE_DATASET_SUBPROCESS=1 GPUS_PER_GROUP=2 CUDA_VISIBLE_DEVICES=0,1,2,3 \
+/home/yiliu7/workspace/venvs/llmc/bin/torchrun --nproc_per_node=2 --master_port=29500 \
+examples/autoround/ddp/ddp_qwen3_multi_gpu_torchrun.py \
+--model /storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507 \
+--scheme W4A16 --nsamples 32 --iters 50 --disable_torch_compile
+```
+
+## bash wrapper (dedicated GPU isolation)
 
 ```bash
 cd /home/yiliu7/workspace/llm-compressor
@@ -9,45 +35,65 @@ AR_DISABLE_DATASET_SUBPROCESS=1 CUDA_VISIBLE_DEVICES=0,1,6,7 GPUS_PER_GROUP=2 NP
   bash examples/autoround/ddp/launch_multi_gpu.sh \
   ddp_qwen3_multi_gpu_example.py \
   --model /storage/yiliu7/Qwen/Qwen3-8B \
-  --gpus-per-group 2 \
   --scheme W4A16 \
   --nsamples 32 --iters 50 \
+  --disable_torch_compile \
   > /tmp/multi_gpu_test.log 2>&1 &
 ```
 
 ## Monitor
 
 ```bash
-# Check progress
 tail -f /tmp/multi_gpu_test.log
-# Check processes
 ps aux | grep ddp_qwen3_multi | grep -v grep
-# Check GPU usage
 nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader
-# Kill
-pkill -f ddp_qwen3_multi_gpu_example
+pkill -f ddp_qwen3_multi_gpu
 ```
 
-## Current State
+## Verified
 
-- ✅ 4 code changes implemented (launch_multi_gpu.sh, base.py, distributed.py, quantizer.py)
-- ✅ Model loading works with `device_map="auto"` (dispatch 547/547 in <1s)
-- ✅ GPU partitioning works (rank 0 → GPUs 0,1; rank 1 → GPUs 2,3)
-- 🔄 **Hang** after "Disabling tokenizer parallelism" warning — inside `get_dataset()`
-  - `AR_DISABLE_DATASET_SUBPROCESS=1` avoids the fork issue
-  - Dataset is cached, not downloading
-  - Both processes at ~100% CPU but no progress
+### 8B (2026-06-18)
+```
+quantized 7/7 layers in the block, loss iter 0: 19.067873 -> iter 0: 19.067873
+[Rank 0] Quantization completed
+Hello my name is Mandy I am 20 years old...
+```
+All 37 decoder layers quantized, identical loss across ranks, sample generation works.
+
+### 235B (2026-06-19)
+```
+quantized 388/389 layers in the block, loss iter 0: 0.211156 -> iter 0: 0.211156
+...
+[Rank 0] Quantization completed
+```
+All 94 decoder layers quantized (388 Linear per MoE block), identical loss across ranks. ~25 min for 1 iter.
 
 ## Key Files
 
 | File | Change |
 |------|--------|
-| `examples/autoround/ddp/ddp_qwen3_multi_gpu_example.py` | NEW — multi-GPU DDP example |
-| `examples/autoround/ddp/launch_multi_gpu.sh` | NEW — bash wrapper for GPU partitioning |
-| `src/llmcompressor/modifiers/autoround/base.py` | `_update_device_map_for_dp` + auto_offload gate use `GPUS_PER_GROUP` |
-| `auto_round/utils/distributed.py` | `setup_ddp_if_needed_` returns `(block, sync_fn)` |
-| `auto_round/algorithms/quantization/sign_round/quantizer.py` | Captures return, calls `sync_gradients()` before `_step()` |
+| `examples/autoround/ddp/ddp_qwen3_multi_gpu_torchrun.py` | torchrun example with patches |
+| `examples/autoround/ddp/ddp_qwen3_multi_gpu_example.py` | bash wrapper example |
+| `examples/autoround/ddp/fast_pipeline.py` | Replaces `SequentialPipeline.__call__` — no FX trace |
+| `examples/autoround/ddp/launch_torchrun.sh` | torchrun launcher |
+| `examples/autoround/ddp/launch_multi_gpu.sh` | bash wrapper (GPU partitioning) |
+| `src/llmcompressor/modifiers/autoround/base.py` | `_get_local_gpu_group_size()` reads `GPUS_PER_GROUP` |
+| `src/llmcompressor/pipelines/sequential/helpers.py` | Removed `disable_onloading()` from `trace_subgraphs` |
+| `ar-py/auto_round/utils/distributed.py` | `setup_ddp_if_needed_` returns `(block, sync_fn)`; `current_device()` for NCCL |
+| `ar-py/auto_round/algorithms/quantization/sign_round/quantizer.py` | Captures return, calls `sync_gradients()` before `_step()` |
+
+## Required env vars
+
+| Var | Value | Why |
+|-----|-------|-----|
+| `GPUS_PER_GROUP` | `2` | Triggers multi-GPU block dispatch + manual all_reduce sync |
+| `AR_DISABLE_DATASET_SUBPROCESS` | `1` | Avoids `fork()` with CUDA context |
+| `--disable_torch_compile` | flag | torch.compile can't handle cross-device tensors |
+
+## Known issue: FX trace bottleneck
+
+`trace_subgraphs` runs an FX trace on the full model — for 61K-module models (235B) it never finishes. The `fast_pipeline.py` module bypasses this by creating subgraphs directly from decoder layer names. This affects ALL models using `SequentialPipeline`, not just DDP. The AWQ example (`qwen3_moe_example_ddp.py`) with 30B MoE also hangs.
 
 ## Venv
 
-Python: `/home/yiliu7/workspace/venvs/ar/bin/python`
+Python: `/home/yiliu7/workspace/venvs/llmc/bin/python`
