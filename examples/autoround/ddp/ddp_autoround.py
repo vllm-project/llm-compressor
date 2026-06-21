@@ -7,10 +7,16 @@ independently on CPU (safetensors mmap shares physical pages at OS level).
 Run with:
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
     --nproc_per_node=2 ddp_autoround.py \
-    --model /storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507/ 2>&1 | tee test_ddp_autoround.log
+        --iters 100 \
+            --nsamples 256 \
+    --model /storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507/ 2>&1 | tee test_ddp_autoround-2.log
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
     --nproc_per_node=2 ddp_autoround.py \
-    --model /storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507/ 2>&1 | tee test_ddp_autoround.log
+    --model /storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507/ 2>&1 | tee test_ddp_autoround-30.log
+  CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
+    --nproc_per_node=2 ddp_autoround.py \
+            --iters 100 --nsamples 256 \
+    --model /storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507/ 2>&1 | tee test_ddp_autoround-30.log
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
     --nproc_per_node=2 ddp_autoround.py \
     --model /path/to/model
@@ -155,6 +161,29 @@ if __name__ == "__main__":
     if dist.is_initialized():
         dist.barrier()
 
+
+    ###### SAVE (rank 0 only) #####
+    # Destroy process group before saving — compressed_tensors'
+    # save_pretrained detects DDP via dist.get_world_size() and
+    # tries replace_module_parallel, which fails on meta tensors
+    # left by the pipeline.
+    if dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+
+    if rank == 0:
+        save_dir = (
+             "/storage/yiliu7/Qwen/"
+             + args.model.rstrip("/").split("/")[-1]
+            + f"-{args.scheme}-AutoRound"
+            + f"-iters{args.iters}-nsamples{args.nsamples}"
+            + f"-DDP{world_size}"
+        )
+        logger.info(f"Saving to {save_dir}...")
+        model.save_pretrained(save_dir, save_compressed=True)
+        tokenizer.save_pretrained(save_dir)
+        logger.info(f"Saved to {save_dir}")
+
     ###### SAMPLE GENERATION (rank 0 only) #####
     if rank == 0:
         from compressed_tensors.offload import dispatch_model
@@ -167,21 +196,5 @@ if __name__ == "__main__":
         logger.info(tokenizer.decode(output[0]))
         logger.info("==========================================")
 
-    ###### SAVE (rank 0 only) #####
-    if rank == 0:
-        save_dir = (
-            args.model.rstrip("/").split("/")[-1]
-            + f"-{args.scheme}-AutoRound"
-            + f"-iters{args.iters}-nsamples{args.nsamples}"
-            + f"-DDP{world_size}"
-        )
-        logger.info(f"Saving to {save_dir}...")
-        model.save_pretrained(save_dir, save_compressed=True)
-        tokenizer.save_pretrained(save_dir)
-        logger.info(f"Saved to {save_dir}")
-
-    if dist.is_initialized():
-        dist.barrier()
-        dist.destroy_process_group()
 
     logger.info(f"[Rank {rank}] SUCCESS")
