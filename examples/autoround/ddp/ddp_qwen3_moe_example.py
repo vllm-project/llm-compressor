@@ -23,7 +23,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 
-
+#  FIXME: (yiliu30) remove this patch before merging 
 def patch_disable_onloading_for_quant_init():
     """Avoid dist.broadcast + barrier for every new quant parameter.
 
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     )
 
     # Apply patches BEFORE model loading and calibration
-    # FIXME: (yiliu30) remove these patched before merging once the underlying issues are fixed
+    # FIXME: (yiliu30) remove these patches before merging once the underlying issues are fixed
     patch_disable_onloading_for_quant_init()
     patch_force_local_cache()
 
