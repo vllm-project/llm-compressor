@@ -6,9 +6,9 @@ independently on CPU (safetensors mmap shares physical pages at OS level).
 
 Run with:
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
-    --nproc_per_node=2 ddp_autoround.py \
+    --nproc_per_node=2 ddp_qwen3_moe_example.py \
     --iters 100 --nsamples 256 \
-    --model /storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507/ 
+    --model Qwen/Qwen3-235B-A22B-Instruct-2507
 """
 
 import argparse
@@ -81,8 +81,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--scheme", type=str, default="W4A16")
-    parser.add_argument("--iters", type=int, default=5)
-    parser.add_argument("--nsamples", type=int, default=128)
+    parser.add_argument("--iters", type=int, default=100)
+    parser.add_argument("--nsamples", type=int, default=256)
     args = parser.parse_args()
 
     ###### DDP INIT #####
