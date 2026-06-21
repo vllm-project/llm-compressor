@@ -284,15 +284,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
             "disable_opt_rtn": self.disable_opt_rtn,
         }
-        if torch.distributed.is_initialized():
-            gpus_per_group = _get_local_gpu_group_size()
-            if gpus_per_group > 1 and kwargs["enable_torch_compile"]:
-                logger.warning(
-                    "Disabling torch.compile for AutoRound multi-GPU group DDP "
-                    "because compiled block execution does not support "
-                    "cross-device sharding."
-                )
-                kwargs["enable_torch_compile"] = False
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
         with (

@@ -7,19 +7,8 @@ independently on CPU (safetensors mmap shares physical pages at OS level).
 Run with:
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
     --nproc_per_node=2 ddp_autoround.py \
-        --iters 100 \
-            --nsamples 256 \
-    --model /storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507/ 2>&1 | tee test_ddp_autoround-2.log
-  CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
-    --nproc_per_node=2 ddp_autoround.py \
-    --model /storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507/ 2>&1 | tee test_ddp_autoround-30.log
-  CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
-    --nproc_per_node=2 ddp_autoround.py \
-            --iters 100 --nsamples 256 \
-    --model /storage/yiliu7/Qwen/Qwen3-30B-A3B-Instruct-2507/ 2>&1 | tee test_ddp_autoround-30.log
-  CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
-    --nproc_per_node=2 ddp_autoround.py \
-    --model /path/to/model
+    --iters 100 --nsamples 256 \
+    --model /storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507/ 
 """
 
 import argparse
@@ -117,6 +106,7 @@ if __name__ == "__main__":
     )
 
     # Apply patches BEFORE model loading and calibration
+    # FIXME: (yiliu30) remove these patched before merging once the underlying issues are fixed
     patch_disable_onloading_for_quant_init()
     patch_force_local_cache()
 
@@ -163,10 +153,6 @@ if __name__ == "__main__":
 
 
     ###### SAVE (rank 0 only) #####
-    # Destroy process group before saving — compressed_tensors'
-    # save_pretrained detects DDP via dist.get_world_size() and
-    # tries replace_module_parallel, which fails on meta tensors
-    # left by the pipeline.
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()
