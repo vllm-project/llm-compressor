@@ -18,6 +18,7 @@ from compressed_tensors.quantization import (
     enable_quantization,
 )
 from compressed_tensors.utils import align_module_device, match_named_modules
+from llmcompressor.utils.dev import get_main_device
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -317,7 +318,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # so anchoring to first_param.device can place residual modules
                 # (e.g. norms) on local cuda:1 while hidden states begin on
                 # local cuda:0, causing cross-device forward failures.
-                from llmcompressor.utils.dev import get_main_device
                 device = get_main_device()
                 # Move decoding layer to CPU first, then the submodules
                 # will be re-dispatched by AutoRound.
