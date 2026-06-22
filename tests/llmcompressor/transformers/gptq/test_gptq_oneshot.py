@@ -176,14 +176,12 @@ recipe_modifier_channel_actorder_weight = GPTQModifier(
 )
 def test_oneshot_application(recipe, tmp_path):
     output = tmp_path / "oneshot_output"
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "nm-testing/tinysmokeqwen3"
     dataset = "open_platypus"
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     # Load original model for numerical comparison
-    original_model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.float16, device_map=device
-    )
+    original_model = AutoModelForCausalLM.from_pretrained(model_id, device_map=device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     # Create test input
@@ -201,7 +199,8 @@ def test_oneshot_application(recipe, tmp_path):
         output_dir=output,
         recipe=recipe,
         num_calibration_samples=9,
-        splits={"calibration": "train[:9]"},
+        splits="train[:9]",
+        max_seq_length=512,
     )
     model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
 

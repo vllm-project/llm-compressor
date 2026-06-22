@@ -1,12 +1,16 @@
+# Checkpoint available at https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic
+
 from transformers import AutoProcessor, Gemma4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
 
 # Load model.
-model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+with load_context(Gemma4ForConditionalGeneration):
+    model = Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # MoE calibration is handled automatically by the pipeline.

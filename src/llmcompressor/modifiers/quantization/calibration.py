@@ -95,7 +95,7 @@ def observe(
     :param base_name: substring used to fetch the observer and value to observe
     """
     if isinstance(module, Iterable):
-        for m in set(module):
+        for m in module:
             observe(m, base_name)
         return
 
@@ -129,7 +129,7 @@ def update_qparams(
     if isinstance(module, Iterable) or not isinstance(base_name, str):
         modules = [module] if not isinstance(module, Iterable) else module
         base_names = [base_name] if isinstance(base_name, str) else base_name
-        for m, b in product(set(modules), set(base_names)):
+        for m, b in product(modules, base_names):
             update_qparams(m, b, only_update_onload=only_update_onload)
         return
 

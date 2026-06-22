@@ -65,17 +65,18 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | ------------------- | ------------------------------------------------------------------------- | ------------------------------------- |
 | `wNa16`             | [llama3_example](./quantization_w4a16/llama3_example.py)                  |                                       |
 | `wNa16`             | [qwen3_example](./quantization_w4a16/qwen3_example.py)                    | Multiple cards for `Qwen3-235B-A22B`  |
+| `wNa16`             | [qwen3_example_custom_dataset.py](./quantization_w4a16/qwen3_example_custom_dataset.py)| Using custom calibration datasets |
 | `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/llama3_example.py)               |                                       |
 | `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
 | `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
 | `W8A8-FP8` Block    | [llama3.1_example](./quantization_w8a8_fp8/llama3.1_block_quant_example.py) |                                     |
-| `MXFP8`  | [qwen3_example](./quantization_w8a8_mxfp8/qwen3_example.py)  |                                       |
-| `MXFP4`  | [qwen3_example](./quantization_w4a4_mxfp4/qwen3_example.py)  |                                       |
+| `MXFP8`  | [example](./quantization_w8a8_mxfp8/autoround_example.py)  | Usage: `python autoround_example.py ${model_id}`. For `Qwen/Qwen3-32B`, use `--batch_size 4 --max_seq_length 1024`; for `Qwen/Qwen3-30B-A3B-Instruct-2507`, use `--max_seq_length 1024`. |
+| `MXFP4`  | [example](./quantization_w4a4_mxfp4/autoround_example.py)  | Usage: `python autoround_example.py ${model_id}` |
 | `NVFP4`  | [llama3.1_example](./quantization_w4a4_fp4/llama3.1_example.py)  |                                       |
 
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound on the wNa16, W8A8-FP8, MXFP8, MXFP4, and NVFP4 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/1968).
+Currently, `llm-compressor` supports applying AutoRound on the wNa16, W8A8-FP8, MXFP8, MXFP4, and NVFP4 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/2706).
 
 ### Questions or Feature Requests?
 

@@ -8,22 +8,21 @@
 import time
 
 import torch
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype="auto", device_map="auto_offload"
-    )
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
