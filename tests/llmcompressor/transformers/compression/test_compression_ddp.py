@@ -71,6 +71,7 @@ def _prepare_dataset(model_id: str, num_samples: int):
         ),
         remove_columns=ds.column_names,
     )
+    ds.set_format("torch")
     return ds
 
 
@@ -160,9 +161,7 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
             # Get inputs
             sample = dataset[i]
             inputs = {
-                k: (v if isinstance(v, torch.Tensor) else torch.tensor(v))
-                .unsqueeze(0)
-                .to("cuda:0")
+                k: v.unsqueeze(0).to("cuda:0")
                 for k, v in sample.items()
                 if k == "input_ids"
             }
