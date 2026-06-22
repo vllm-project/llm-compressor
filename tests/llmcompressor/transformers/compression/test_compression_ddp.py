@@ -71,6 +71,7 @@ def _prepare_dataset(model_id: str, num_samples: int):
         ),
         remove_columns=ds.column_names,
     )
+    ds.set_format("torch")
     return ds
 
 
@@ -160,7 +161,7 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
             # Get inputs
             sample = dataset[i]
             inputs = {
-                k: torch.tensor([v]).to("cuda:0")
+                k: v.unsqueeze(0).to("cuda:0")
                 for k, v in sample.items()
                 if k == "input_ids"
             }
@@ -516,6 +517,10 @@ def test_ddp_smoke_gptq():
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 @torchrun(world_size=2)
+@pytest.mark.skip(
+    reason="AutoRound DDP gradient sync is broken upstream (auto_round "
+    "setup_ddp_if_needed_ discards the DDP-wrapped block)"
+)
 def test_ddp_smoke_autoround():
     _test_ddp_modifier(
         "autoround",
