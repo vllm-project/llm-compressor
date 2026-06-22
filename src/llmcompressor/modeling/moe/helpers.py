@@ -136,18 +136,22 @@ class MoEConfig:
             ),
             use_bias=_getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
             hidden_act=_getattr_fallbacks(
-                config, ["hidden_act", "hidden_activation", "mlp_hidden_act"]
+                config, ["hidden_act", "hidden_activation", "mlp_hidden_act"], None
             ),
             limit=_getattr_fallbacks(config, ["swiglu_limit"], None),
             alpha=None,
             dtype=_getattr_fallbacks(config, ["dtype"]),
         )
 
-        # special case: GptOssConfig has some parameters which are not marked in config
-        if config.model_type == "gpt_oss":
-            ret.use_bias = True
-            ret.limit = 7.0
-            ret.alpha = 1.702
+        # special case: some configs have parameters which are not marked in config
+        match config.model_type:
+            case "gpt_oss" | "openai_privacy_filter":
+                ret.use_bias = True
+                ret.limit = 7.0
+                ret.alpha = 1.702
+                ret.hidden_act = "sigmoid"
+            case "lfm2_moe":
+                ret.hidden_act = "silu"
 
         return ret
 
