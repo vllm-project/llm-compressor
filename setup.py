@@ -123,7 +123,7 @@ setup(
         ("tqdm>=4.66.3,<=4.68.2" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.12.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=5.9.0,<=5.10.1"
+            "transformers>=5.9.0,<=5.12.1"
             if BUILD_TYPE == "release"
             else "transformers>=5.9.0"
         ),
