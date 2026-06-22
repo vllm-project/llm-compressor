@@ -232,7 +232,6 @@ class IntermediatesCache:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
-    @handle_cache_error
     def iter_prefetch(
         self, input_names: list[str] | None = None
     ) -> Generator[Any, None, None]:
