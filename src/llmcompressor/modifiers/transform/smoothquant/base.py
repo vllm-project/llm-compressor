@@ -1,18 +1,24 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+from typing import Literal
 
 import torch
+import torch.distributed as dist
+from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.offload import update_offload_parameter
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
 from pydantic import ConfigDict, Field
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
+    get_layer_mappings_from_model,
+)
 from llmcompressor.modifiers.transform.smoothquant.utils import (
-    get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
@@ -77,8 +83,8 @@ class SmoothQuantModifier(Modifier):
        ignore: ["model.decoder.final_layer_norm"]
      ```
 
-     :param smoothing_strength: alpha, intensity of smoothing to perform (0-1 range)
-     :param mappings: list activation layers to smooth, and which layers to
+    :param smoothing_strength: alpha, intensity of smoothing to perform (0-1 range)
+    :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
         entry is a list of layers who share the same input activation (the one to be
@@ -86,12 +92,12 @@ class SmoothQuantModifier(Modifier):
         achieve the smoothing. If regex is used, it matches layers with the largest
         overlap in module name.  If not supplied the argument will be inferred from the
         model architecture.
-     :param ignore: list of layers to ignore during smoothing.
+    :param ignore: list of layers to ignore during smoothing.
         Mappings are only skipped if all layers in the mapping are ignored.
         It should match the name of layers whose outputs are scaled to
         achieve smoothing (the second entry of the mappings list).
-     :param num_calibration_steps: number of samples to use for calibration, or None to
-     use the whole dataset
+    :param num_calibration_steps: number of samples to use for calibration, or None to
+        use the whole dataset
     :param calibration_function: optional function to use for the forward pass, or None
     to use the default tensor_module_forward
     """
@@ -101,6 +107,7 @@ class SmoothQuantModifier(Modifier):
     ignore: list[str] | None = None
     num_calibration_steps: int | None = None
     calibration_function: Callable | None = None
+    algorithm: Literal["smoothquant", "log_equalization"] = "smoothquant"
 
     resolved_mappings_: list[SmoothQuantMapping] | None = Field(
         default=None, repr=False
@@ -137,27 +144,14 @@ class SmoothQuantModifier(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         self._setup_scale_hooks()
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        self._apply_smoothing(state.model)
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self._apply_smoothing(state.model)
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self._apply_smoothing(state.model)
-
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-        self.remove_hooks()  # remove hooks
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
+        self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -184,9 +178,7 @@ class SmoothQuantModifier(Modifier):
             return self.mappings
 
         logger.info("No SmoothQuantModifier.mappings provided, inferring from model...")
-        return get_layer_mappings_from_architecture(
-            architecture=model.__class__.__name__
-        )
+        return get_layer_mappings_from_model(model)
 
     @handle_mapping_resolution_errors
     def _resolve_mappings(self, model: Module) -> list[SmoothQuantMapping]:
@@ -290,6 +282,40 @@ class SmoothQuantModifier(Modifier):
             layer = mapping.smooth_layer
             self.register_hook(layer, create_hook_fn(name), "forward")
 
+    def _reduce_activation_scales(self):
+        """
+        In a distributed setting, all-reduce the per-channel min/max activation
+        statistics collected by each rank during calibration.
+
+        Each rank observes a disjoint partition of the calibration dataset, so the
+        global channel-wise min/max must be gathered across all ranks before smoothing
+        scales are computed.  We use ``dist.all_reduce`` with MIN/MAX ops so that
+        every rank ends up with identical statistics and can independently compute the
+        same smoothing scales without an extra broadcast of the final scale tensors.
+
+        This is a no-op when not running in a distributed context.
+        """
+        if not is_distributed():
+            return
+
+        pending_comms = []
+        for layer_name, scale in self.scales_.items():
+            pending_comms.append(
+                dist.all_reduce(
+                    scale.min_channel_vals,
+                    op=dist.ReduceOp.MIN,
+                    async_op=True,
+                )
+            )
+            pending_comms.append(
+                dist.all_reduce(
+                    scale.max_channel_vals,
+                    op=dist.ReduceOp.MAX,
+                    async_op=True,
+                )
+            )
+        wait_for_comms(pending_comms)
+
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):
         """
@@ -299,8 +325,16 @@ class SmoothQuantModifier(Modifier):
         Y = (Xdiag(scales)^(-1) * diag(scales)W) where W is the to_balance weights and
         X is the to_smooth weights
 
+        In a distributed setting, activation statistics are first all-reduced across
+        ranks so that every rank computes identical smoothing scales.  The scale
+        computation itself is duplicated across ranks (cheap), avoiding the need for
+        a broadcast of the final weight tensors.
+
         This modifies the weights of the model in-place.
         """
+        if is_distributed():
+            self._reduce_activation_scales()
+
         for mapping in self.resolved_mappings_:
             if mapping.smooth_name not in self.scales_:
                 continue
@@ -355,7 +389,14 @@ class SmoothQuantModifier(Modifier):
         :param activation_scales: channel-wise dynamic range of activations to smooth
         :return: channel-wise scales to use for smoothing activations
         """
-        # get the channel-wise dynamic range for each layer to be balanced
+        # Logarithmic Equalization does not use weight scales — skip the
+        # per-layer weight computation to avoid unnecessary overhead.
+        if self.algorithm == "log_equalization":
+            # Logarithmic Equalization (https://arxiv.org/abs/2308.15987):
+            # s_j = max(|X_j|) / log2( 2 + max(|X_j|) )
+            return activation_scales / torch.log2(2 + activation_scales)
+
+        # SmoothQuant: get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
             scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
@@ -363,14 +404,12 @@ class SmoothQuantModifier(Modifier):
 
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
-        # calculate the amount of smoothing to apply
+        # SmoothQuant (https://arxiv.org/abs/2211.10438):
         # s_j = max(|X_j|)^alpha / max(|W_j|)^(1-alpha)
         # where j is the input channel, alpha is smoothing strength
         scales = activation_scales.pow(self.smoothing_strength) / weight_scales.pow(
             1 - self.smoothing_strength
         )
-        scales = torch.where(weight_scales > 0.0, scales, activation_scales)
-
-        return scales
+        return torch.where(weight_scales > 0.0, scales, activation_scales)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

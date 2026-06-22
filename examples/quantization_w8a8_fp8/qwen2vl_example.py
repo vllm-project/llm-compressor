@@ -7,7 +7,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
 
 # Load model.
-model = Qwen2VLForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+model = Qwen2VLForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="FP8_DYNAMIC",
-    ignore=["re:.*lm_head", "re:visual.*"],
+    ignore=["re:.*lm_head", "re:.*visual.*"],
 )
 
 # Apply quantization and save to disk in compressed-tensors format.

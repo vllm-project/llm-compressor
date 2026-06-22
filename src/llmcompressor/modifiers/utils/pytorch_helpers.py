@@ -50,10 +50,13 @@ def is_moe_model(model: Module) -> bool:
             return True
 
     # Check config for MoE attributes
+    # NOTE: transformers v5 PreTrainedConfig adds property `_experts_implementation`
+    # to all model configs. Skipping all attributes starting with `_` to avoid this.
     if hasattr(model, "config"):
         if any(
             "moe" in attr.lower() or "expert" in attr.lower()
             for attr in dir(model.config)
+            if not attr.startswith("_")
         ):
             return True
 

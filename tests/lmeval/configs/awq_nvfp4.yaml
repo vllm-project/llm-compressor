@@ -1,0 +1,17 @@
+cadence: "weekly"
+model: meta-llama/Llama-3.1-8B-Instruct
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+num_calibration_samples: 20
+recipe: tests/e2e/recipes/NVFP4/recipe_awq_nvfp4.yaml
+lmeval:
+  recovery_threshold:
+    exact_match,strict-match: 0.94
+    exact_match,flexible-extract: 0.94
+  metrics:
+    # Note: recovery will be dependent on 
+    # the hardware cpabilities. For blackwell
+    # machines, we expect lower results as 
+    # activation quantization is also enabled.
+    exact_match,flexible-extract: 0.74
+    exact_match,strict-match: 0.73

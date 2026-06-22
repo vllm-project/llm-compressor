@@ -3,13 +3,15 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 import tqdm
-from compressed_tensors.offload import dispatch_model, get_execution_device
+from compressed_tensors.offload import get_execution_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
+from llmcompressor.utils.helpers import DisableQuantization
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -38,8 +40,12 @@ class BasicPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
-        dispatch_model(model)  # basic dispatch is identical to generation
         model_device = get_execution_device(model)
+        if model_device == torch.device("cpu"):
+            logger.warning(
+                "Attempting to calibrate on CPU. Consider loading your model with"
+                " `device_map='auto'`"
+            )
         use_loss_mask = (
             getattr(dataset_args, "use_loss_mask", False) if dataset_args else False
         )
@@ -48,10 +54,11 @@ class BasicPipeline(CalibrationPipeline):
         if use_loss_mask:
             session.state.loss_masks = []
 
-        LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(DisableQuantization(model))
             for batch_idx, batch in enumerate(
                 tqdm.tqdm(dataloader, desc="Calibrating")
             ):
@@ -65,7 +72,8 @@ class BasicPipeline(CalibrationPipeline):
                 batch = tensors_to_device(batch, model_device)
                 model(**batch)
 
-        LifecycleCallbacks.calibration_epoch_end()
+        LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
+        LifecycleCallbacks.calibration_end()
 
 
 def run_calibration(model: torch.nn.Module, dataloader: DataLoader):

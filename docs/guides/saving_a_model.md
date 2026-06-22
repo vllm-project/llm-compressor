@@ -1,6 +1,6 @@
-# Saving a Model
+# Saving a Compressed Model
 
-The `llmcompressor` library extends Hugging Face's `save_pretrained` method with additional arguments to support model compression functionality. This document explains these extra arguments and how to use them effectively.
+The `llmcompressor` library extends Hugging Face's `save_pretrained` method with additional arguments to support model compression functionality. Serialization is handled by [compressed-tensors](https://github.com/neuralmagic/compressed-tensors), which manages the on-disk format for quantized and sparse models. This document explains these extra arguments and how to use them effectively.
 
 ## How It Works
 
@@ -17,20 +17,8 @@ When saving your compressed models, you can use the following extra arguments wi
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `sparsity_config` | `Optional[SparsityCompressionConfig]` | `None` | Optional configuration for sparsity compression. This should be provided if there's existing sparsity in the model. If None and `skip_sparsity_compression_stats` is False, configuration will be automatically inferred from the model. |
-| `quantization_format` | `Optional[str]` | `None` | Optional format string for quantization. If not provided, it will be inferred from the model. |
-| `save_compressed` | `bool` | `True` | Controls whether to save the model in a compressed format. Set to `False` to save in the original dense format. |
-| `skip_sparsity_compression_stats` | `bool` | `True` | Controls whether to skip calculating sparsity statistics (e.g., global sparsity and structure) when saving the model. Set to `False` to include these statistics. If you are not providing a `sparsity_config`, you should set this to `False` to automatically generate the config for you. |
-| `disable_sparse_compression` | `bool` | `False` | When set to `True`, skips any sparse compression during save, even if the model has been previously compressed. |
-
-## Workflow for Models with Existing Sparsity
-
-When working with models that already have sparsity:
-
-1. If you know the sparsity configuration, provide it directly via `sparsity_config`
-2. If you don't know the sparsity configuration, set `skip_sparsity_compression_stats` to `False` to automatically infer it from the model
-
-This workflow ensures that the correct sparsity configuration is either provided or generated when saving models with existing sparsity.
+| `quantization_format` | `Optional[str]` | `None` | The on-disk serialization format for quantized weights, defined by `compressed_tensors.QuantizationFormat`. If not provided, it is inferred from the model's quantization scheme. See the compressed-tensors documentation for available formats. |
+| `save_compressed` | `bool` | `True` | Controls whether to save the model in a compressed format. Set to `False` to save in the original frozen state. |
 
 ## Examples
 
@@ -58,63 +46,47 @@ oneshot(
 SAVE_DIR = "your-model-W8A8-compressed"
 model.save_pretrained(
     SAVE_DIR,
-    save_compressed=True  # Use the enhanced functionality
+    save_compressed=True
 )
 tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-### Manual Approach (Without oneshot)
+### Setting quantization_format Explicitly
 
-If you need more control, you can wrap `save_pretrained` manually:
+You can override the inferred format by passing `quantization_format` directly using `compressed_tensors.QuantizationFormat`. This is useful when you want to control exactly how weights are serialized on disk:
 
 ```python
-from transformers import AutoModelForCausalLM
-from llmcompressor.transformers.compression.compressed_tensors_utils import modify_save_pretrained
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from compressed_tensors import QuantizationFormat
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
-# Load model
 model = AutoModelForCausalLM.from_pretrained("your-model")
+tokenizer = AutoTokenizer.from_pretrained("your-model")
 
-# Manually wrap save_pretrained
-modify_save_pretrained(model)
+oneshot(
+    model=model,
+    recipe=[QuantizationModifier(targets="Linear", scheme="W4AFP8", ignore=["lm_head"])],
+)
 
-# Now you can use the enhanced save_pretrained
+SAVE_DIR = "your-model-W4AFP8"
 model.save_pretrained(
-    "your-model-path",
+    SAVE_DIR,
     save_compressed=True,
-    skip_sparsity_compression_stats=False  # To automatically infer sparsity config
+    quantization_format=QuantizationFormat.pack_quantized,
 )
-```
-
-### Saving with Custom Sparsity Configuration
-
-```python
-from transformers import AutoModelForCausalLM
-from compressed_tensors import SparsityCompressionConfig
-
-# Load model
-model = AutoModelForCausalLM.from_pretrained("your-model")
-
-# Create custom sparsity config
-custom_config = SparsityCompressionConfig(
-    format="2:4",
-    block_size=16
-)
-
-# Save with custom config
-model.save_pretrained(
-    "your-model-custom-sparse",
-    sparsity_config=custom_config,
-)
+tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 ## Notes
 
-- When loading compressed models with `from_pretrained`, the compression format is automatically detected.
+!!! warning
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+
+- When loading compressed models with `from_pretrained`, the compression format is automatically detected by `compressed-tensors`.
 - To use compressed models with vLLM, simply load them as you would any model:
   ```python
   from vllm import LLM
   model = LLM("./your-model-compressed")
   ```
-- Compression configurations are saved in the model's config file and are automatically applied when loading.
-
-For more information about compression algorithms and formats, please refer to the documentation and examples in the llmcompressor repository.
+- Compression configurations are saved in the model's `config.json` and are automatically applied when loading.

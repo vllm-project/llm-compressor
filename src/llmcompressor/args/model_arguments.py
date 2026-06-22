@@ -44,14 +44,6 @@ class ModelArguments:
             "help": "Pretrained processor name or path if not the same as model_name"
         },
     )
-
-    use_auth_token: bool = field(
-        default=False,
-        metadata={
-            "help": "Will use token generated when running `transformers-cli login` "
-            "(necessary to use this script with private models)"
-        },
-    )
     precision: str = field(
         default="auto",
         metadata={"help": "Precision to cast model weights to, default to auto"},
@@ -75,9 +67,9 @@ class ModelArguments:
         },
     )
     # TODO: potentialy separate out/expand to additional saving args
-    save_compressed: bool | None = field(
+    save_compressed: bool = field(
         default=True,
-        metadata={"help": "Whether to compress sparse models during save"},
+        metadata={"help": "Whether to compress models during save"},
     )
     model_revision: str = field(
         default="main",

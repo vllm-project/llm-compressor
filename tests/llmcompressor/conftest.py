@@ -7,12 +7,6 @@ import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
 
-try:
-    import wandb
-except Exception:
-    wandb = None
-
-
 os.environ["NM_TEST_MODE"] = "True"
 os.environ["NM_TEST_LOG_DIR"] = "nm_temp_test_logs"
 
@@ -53,9 +47,9 @@ def _files_size_mb(path_list: List[str]) -> int:
 
 @pytest.fixture(scope="session", autouse=True)
 def check_for_created_files():
-    local_ignore_dirs = ["__pycache__", "sparse_logs"]
+    local_ignore_dirs = ["__pycache__", "sparse_logs", "test-results", ".pytest_cache"]
     local_ignore_files = [".coverage"]
-    tmp_ignore_dirs = ["pytest-of", "torchinductor"]
+    tmp_ignore_dirs = ["pytest-of", "torchinductor", "torchrun-logs"]
     start_files_root = _get_files(
         directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
     )
@@ -63,8 +57,6 @@ def check_for_created_files():
         directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
     )
     yield
-    if wandb:
-        wandb.finish()
     log_dir = os.environ.get("NM_TEST_LOG_DIR")
     if os.path.isdir(log_dir):
         shutil.rmtree(log_dir)

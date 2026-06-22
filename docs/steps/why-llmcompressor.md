@@ -55,15 +55,6 @@ To quantize values, a scale and zero-point are computed to map the original high
 quantized_value = round(original_value / scale) + zero_point
 ```
 
-### Pruning enables increased processing speed for hardware-accelerated compute
-
-Pruning (or _sparsification_) zeros out certain model weight values in fixed patterns.
-This can be done in specific patterns, such as **2:4 sparsity** where 2 out of every 4 values within a model weight tensor are set to 0. This has the following benefits:
-
-- Enables more efficient computation
-- Can be combined with quantization for additional gains
-- Utilizes hardware acceleration available on modern GPUs
-
 ### Compressing the model reduces file size
 
 Compression refers to saving the model in a reduced file size format with minimal impact to model accuracy.
@@ -77,13 +68,13 @@ LLM Compressor supports a variety of optimization workflows depending on your de
 |----------|----------|----------|
 | Deploying large models on limited hardware | Deploy a 70B parameter model on a single 80GB GPU | Apply INT4 quantization (W4A16) to reduce model size by 75%, enabling single-GPU deployment |
 | Maximizing throughput for production serving | Serve high request volumes with minimal latency on modern NVIDIA hardware | Use FP8 quantization to leverage Hopper tensor cores for maximum throughput |
-| Optimizing MoE models | Deploy a Mixture of Experts model like DeepSeek or Mixtral efficiently | Use NVFP4 quantization with calibration support designed for MoE architectures |
+| Optimizing MoE models | Deploy a Mixture of Experts model like DeepSeek or Mixtral efficiently | Quantize your MoE to any supported format with calibration support designed for MoE architectures |
 
 ### Next Steps
 
 - [Choosing your model](choosing-model.md)
 - [Choosing the right compression scheme](choosing-scheme.md)
-- [Choosing the right quantization, sparsity, and transform-based algorithms](choosing-algo.md)
+- [Choosing the right algorithms for quantization](choosing-algo.md)
 - [Choosing your dataset](./choosing-dataset.md)
 - [Compress your first model](compress.md)
 - [Deploy with vLLM](deploy.md)

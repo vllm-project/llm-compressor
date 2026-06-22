@@ -22,7 +22,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 

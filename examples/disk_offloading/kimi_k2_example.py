@@ -1,20 +1,19 @@
-from compressed_tensors.offload import get_device_map, load_offloaded_model
+from compressed_tensors.offload import get_device_map
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
-# Select model and load it in the `load_offloaded_model` context
-with load_offloaded_model():
+# Select model and load it in the `load_context` context
+with load_context():
     model_id = "unsloth/Kimi-K2-Instruct-0905-BF16"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        trust_remote_code=True,
         offload_folder="./offload_folder",
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Confirm that model is dispatched correctly
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
@@ -38,7 +37,7 @@ oneshot(
     model=model,
     processor=tokenizer,
     dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    splits=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

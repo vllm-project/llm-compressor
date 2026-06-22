@@ -1,3 +1,4 @@
+from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.quantization.quant_scheme import NVFP4
 from datasets import load_dataset
@@ -6,11 +7,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import SpinQuantModifier
-from compressed_tensors.offload import dispatch_model
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.

@@ -24,9 +24,6 @@ from llmcompressor.transformers.data.data_helpers import (
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
-from llmcompressor.transformers.utils.preprocessing_functions import (
-    PreprocessingFunctionRegistry,
-)
 from llmcompressor.typing import DatasetType, Processor
 from llmcompressor.utils import import_from_path
 
@@ -69,15 +66,19 @@ class TextGenerationDataset(RegistryMixin):
 
             # configure sequence length
             max_seq_length = dataset_args.max_seq_length
-            if dataset_args.max_seq_length > self.tokenizer.model_max_length:
-                logger.warning(
-                    f"The max_seq_length passed ({max_seq_length}) is larger than "
-                    f"maximum length for model ({self.tokenizer.model_max_length}). "
-                    f"Using max_seq_length={self.tokenizer.model_max_length}."
+            if max_seq_length is not None:
+                if max_seq_length > self.tokenizer.model_max_length:
+                    logger.warning(
+                        f"The max_seq_length passed ({max_seq_length}) is larger "
+                        f"than maximum length for model "
+                        f"({self.tokenizer.model_max_length}). "
+                        f"Using max_seq_length={self.tokenizer.model_max_length}."
+                    )
+                self.max_seq_length = min(
+                    max_seq_length, self.tokenizer.model_max_length
                 )
-            self.max_seq_length = min(
-                dataset_args.max_seq_length, self.tokenizer.model_max_length
-            )
+            else:
+                self.max_seq_length = self.tokenizer.model_max_length
 
             # configure padding
             self.padding = (
@@ -214,14 +215,13 @@ class TextGenerationDataset(RegistryMixin):
             return preprocessing_func
 
         if isinstance(preprocessing_func, str):
-            if ":" in preprocessing_func:
-                # load func_name from "/path/to/file.py:func_name"
-                return import_from_path(preprocessing_func)
-            else:
-                # load from the registry
-                return PreprocessingFunctionRegistry.get_value_from_registry(
-                    name=preprocessing_func
+            # load func_name from "/path/to/file.py:func_name"
+            if ":" not in preprocessing_func:
+                raise ValueError(
+                    f"{preprocessing_func} does not match expected format "
+                    "`/path:func_name`"
                 )
+            return import_from_path(preprocessing_func)
 
         return self.dataset_template
 

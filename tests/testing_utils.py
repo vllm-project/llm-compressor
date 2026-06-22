@@ -1,15 +1,11 @@
-import dataclasses
-import enum
-import hashlib
 import json
 import logging
 import os
 from dataclasses import dataclass
-from enum import Enum
 from functools import wraps
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 import pandas as pd
 import pytest
@@ -17,9 +13,9 @@ import torch
 import yaml
 from datasets import Dataset
 from loguru import logger
+from pydantic import BaseModel, Field, model_validator
 from transformers import ProcessorMixin
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 DISABLE_LMEVAL_CACHE = os.environ.get("DISABLE_LMEVAL_CACHE", "").lower() in (
     "1",
     "true",
@@ -29,28 +25,276 @@ LMEVAL_CACHE_DIR = Path(os.environ.get("LMEVAL_CACHE_DIR", ".lmeval_cache"))
 LMEVAL_CACHE_FILE = LMEVAL_CACHE_DIR / "cache.csv"
 
 
-def _sha256_hash(text: str, length: Optional[int] = None) -> str:
-    hash_result = hashlib.sha256(text.encode()).hexdigest()
-    return hash_result[:length] if length else hash_result
+class BaseTestConfig(BaseModel):
+    """
+    Shared configuration for lm-eval and e2e test cases, loaded from a YAML config file.
 
+    This configuration class serves as the foundation for defining test scenarios across
+    different quantization workflows. It provides a unified interface for model,
+    quantization schemes, calibration datasets, and test infrastructure requirements.
 
-# TODO: maybe test type as decorators?
-class TestType(Enum):
-    SANITY = "sanity"
-    REGRESSION = "regression"
-    SMOKE = "smoke"
+    Required fields
+    ---------------
+    cadence : str
+        When this test runs. One of: "commit", "nightly", "weekly".
+        Determines the CI cadence for this test configuration.
+    model : str
+        HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
+        Must be a valid model identifier on HuggingFace Hub or a local path.
 
+    Quantization source (at least one required)
+    -------------------------------------------
+    scheme : str | None
+        Preset quantization scheme passed directly to the modifier
+        (e.g. "FP8", "FP8_DYNAMIC", "W4A16", "INT8_dyn_per_token", "NVFP4").
+        Used when no recipe is provided. Ignored when entrypoint is "convert_checkpoint"
+    recipe : str | None
+        Path to a YAML recipe file. When both scheme and recipe are used, recipe wins.
+        Required when entrypoint is "convert_checkpoint". Can be a relative path from
+        the config file location or an absolute path.
+    entrypoint : "oneshot" | "model_free_ptq" | "convert_checkpoint"
+        Determines which quantization pathway to use (default: "oneshot"):
+          - "oneshot"             : Standard quantization using all available fields
+          - "model_free_ptq"      : Model-free PTQ (requires scheme)
+          - "convert_checkpoint"  : Convert using pre-baked recipe (requires recipe)
+    ignore : list[str] | None
+        Set of layer names to ignore during model_free_ptq. Supports regex patterns.
+        Only applicable when entrypoint is "model_free_ptq".
 
-class Cadence(Enum):
-    COMMIT = "commit"
-    WEEKLY = "weekly"
-    NIGHTLY = "nightly"
+    Optional calibration dataset fields
+    ------------------------------------
+    dataset_id : str | None
+        HuggingFace dataset ID for calibration. Leave unset to skip calibration.
+        Datasets with special data-collator handling in run_oneshot_for_e2e_testing:
+          - "HuggingFaceH4/ultrachat_200k"  → text, DefaultDataCollator
+          - "neuralmagic/calibration"        → multimodal; set dataset_config="LLM"
+          - any ID containing "flickr30k"   → multimodal, flickr30k collator
+        Any other dataset ID uses DefaultDataCollator.
+    dataset_config : str | None
+        Dataset config/subset name (e.g. "LLM" for "neuralmagic/calibration").
+        Required for datasets with multiple configurations.
+    dataset_split : str | None
+        Dataset split string (e.g. "train_sft", "train[:512]").
+        Supports HuggingFace slice notation for limiting dataset size.
+    num_calibration_samples : int
+        How many samples to use for calibration (default: 512).
+        Actual samples used may be less if dataset is smaller.
 
+    Optional quantization overrides
+    --------------------------------
+    model_class : str
+        Transformers class used to load the model (default: "AutoModelForCausalLM").
+        Use e.g. "Qwen3VLForConditionalGeneration" for vision-language models.
+        Must be a valid class from the transformers library.
+    quant_type : "GPTQ" | "RTN" | None
+        Modifier to use when no recipe is provided.
+          - None / "RTN" → QuantizationModifier (default for most schemes)
+          - "GPTQ"       → GPTQModifier (activation-order / GPTQ-style quantization)
+        Ignored when a recipe is provided.
+    max_memory : dict[int | str, int] | None
+        Max memory per device for model loading. Keys can be device indices (int)
+        or device names (str like "cpu"). Values are in MB.
+        Example: {0: 40000, 1: 40000, "cpu": 10000}.
+        Passed to from_pretrained's max_memory parameter, used for disk offloading.
+    seed : int
+        Random seed for reproducibility (default: 42).
+        Affects dataset shuffling and quantization randomness.
 
-@dataclass
-class TestConfig:
-    test_type: TestType
-    cadence: Cadence
+    Save / output
+    -------------
+    save_dir : str | None
+        Where to write the compressed model. Defaults to the config file's stem
+        (e.g. "fp8_dynamic_per_token" for fp8_dynamic_per_token.yaml) so that
+        each config always produces a unique, predictable directory without
+        depending on the scheme name. Can be a relative or absolute path.
+
+    Test infrastructure
+    -------------------
+    gpu_memory_utilization : float | None
+        Fraction of GPU memory for vLLM to use (default: 0.70).
+        Valid range is typically 0.0-1.0. Lower values leave memory for other processes.
+    num_gpus : int
+        Number of GPUs required for this test (default: 1).
+    pipeline_parallel : bool
+        Enable pipeline parallelism for vLLM serving (default: False).
+        When True, pipeline_parallel_size is set to num_gpus.
+        Useful for large models that don't fit on a single GPU.
+    test_group : str | None
+        Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
+        Allows selective test execution based on environment or requirements.
+
+    Example YAML configurations
+    ----------------------------
+    Basic FP8 quantization with calibration:
+        ```yaml
+        cadence: commit
+        model: meta-llama/Meta-Llama-3-8B-Instruct
+        scheme: FP8_DYNAMIC
+        dataset_id: HuggingFaceH4/ultrachat_200k
+        dataset_split: train_sft
+        num_calibration_samples: 512
+        ```
+
+    Model-free PTQ with layer ignoring:
+        ```yaml
+        cadence: nightly
+        model: meta-llama/Meta-Llama-3-8B
+        scheme: W4A16
+        entrypoint: model_free_ptq
+        ignore: ["lm_head", "model.embed_tokens"]
+        num_gpus: 2
+        ```
+
+    Recipe-based conversion:
+        ```yaml
+        cadence: weekly
+        model: Qwen/Qwen2-VL-7B-Instruct
+        recipe: recipes/qwen2_vl_fp8.yaml
+        entrypoint: convert_checkpoint
+        model_class: Qwen3VLForConditionalGeneration
+        test_group: vision
+        ```
+    """
+
+    # -------------------------------------------------------------------------
+    # Required
+    # -------------------------------------------------------------------------
+    cadence: str = Field(..., description="'commit', 'nightly', or 'weekly'")
+    model: str = Field(..., description="HuggingFace model ID to quantize")
+
+    # -------------------------------------------------------------------------
+    # Quantization source — at least one must be set (enforced below)
+    # -------------------------------------------------------------------------
+    scheme: Optional[str] = Field(
+        None,
+        description=(
+            "Preset quantization scheme (e.g. FP8, FP8_DYNAMIC, W4A16, "
+            "INT8_dyn_per_token, NVFP4). Used when no recipe is provided."
+        ),
+    )
+    recipe: Optional[str] = Field(
+        None,
+        description=(
+            "Path to a quantization recipe YAML file. "
+            "Takes precedence over scheme when both are set."
+            "Used by `convert_checkpoint` to target specific pre-baked recipes."
+        ),
+    )
+    entrypoint: Literal["oneshot", "model_free_ptq", "convert_checkpoint"] = Field(
+        "oneshot",
+        description=(
+            "Entrypoint to use to create model.\n"
+            "`oneshot`:\n"
+            "  default entrypoint, uses all fields when they are provided\n"
+            "`model_free_ptq`:\n"
+            "  requires `scheme`, all other quantization arguments are ignored\n"
+            "`convert_checkpoint`:\n"
+            "  requires `recipe`, all other quantization arguments are ignored\n"
+        ),
+    )
+    ignore: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Set of layer names to ignore during model_free_ptq. Regexes allowed"
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Calibration dataset (all optional — omit to skip calibration)
+    # -------------------------------------------------------------------------
+    dataset_id: Optional[str] = Field(
+        None,
+        description=(
+            "HuggingFace dataset ID. Known datasets with special collator handling:\n"
+            " 'HuggingFaceH4/ultrachat_200k' — text, DefaultDataCollator\n"
+            " 'neuralmagic/calibration'      — multimodal (set dataset_config='LLM')\n"
+            " any ID containing 'flickr30k'  — multimodal, flickr30k collator\n"
+            "Any other ID uses DefaultDataCollator."
+        ),
+    )
+    dataset_config: Optional[str] = Field(
+        None,
+        description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
+    )
+    dataset_split: Optional[str] = Field(
+        None,
+        description="Dataset split (e.g. 'train_sft', 'train').",
+    )
+    num_calibration_samples: int = Field(512, description="Num of calibration samples")
+    max_seq_length: int = Field(2048, description="Max calibration sequence length")
+
+    # -------------------------------------------------------------------------
+    # Model / quantization overrides
+    # -------------------------------------------------------------------------
+    model_class: str = Field(
+        "AutoModelForCausalLM",
+        description=(
+            "Transformers class used to load the model. "
+            "Use e.g. 'Qwen3VLForConditionalGeneration' for vision-language models."
+        ),
+    )
+    quant_type: Literal["GPTQ", "RTN"] | None = Field(
+        None,
+        description=(
+            "Modifier used when no recipe is provided.\n"
+            "  None / 'RTN' → QuantizationModifier (default)\n"
+            "  'GPTQ'       → GPTQModifier"
+        ),
+    )
+    max_memory: Optional[dict[int | str, int]] = Field(
+        None,
+        description="Max memory for model loading. Used to induce disk offloading",
+    )
+    seed: int = Field(42, description="Random seed for reproducibility")
+
+    # -------------------------------------------------------------------------
+    # Save directory
+    # -------------------------------------------------------------------------
+    save_dir: Optional[str] = Field(
+        None,
+        description=(
+            "Directory to save the compressed model. "
+            "If unset, defaults to the config file's stem "
+            "(e.g. 'fp8_dynamic_per_token' for fp8_dynamic_per_token.yaml)."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Test infra
+    # -------------------------------------------------------------------------
+    gpu_memory_utilization: Optional[float] = Field(
+        0.70,
+        description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
+    )
+    num_gpus: int = Field(
+        1,
+        description=(
+            "Number of GPUs required for this test. "
+            "Tests are skipped if fewer are available.",
+        ),
+    )
+    pipeline_parallel: bool = Field(
+        False,
+        description=(
+            "Enable pipeline parallelism for vLLM serving. "
+            "When True, pipeline_parallel_size is set to num_gpus."
+        ),
+    )
+    test_group: Optional[str] = Field(
+        None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
+    )
+    skip_sanity_check: bool = Field(
+        False,
+        description="Skip the sanity check that verifies vLLM generates coherent text",
+    )
+
+    @model_validator(mode="after")
+    def require_scheme_or_recipe(self) -> "BaseTestConfig":
+        if not self.scheme and not self.recipe:
+            raise ValueError(
+                "At least one of 'scheme' or 'recipe' must be provided in the config."
+            )
+        return self
 
 
 def _enough_gpus(num_required_gpus):
@@ -116,6 +360,124 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
 
 
+def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecorator:
+    """
+    Pytest decorator to skip based on GPU compute capability.
+
+    Usage:
+    @requires_compute_capability(9, 0)  # Requires H100 or higher
+    def test_something():
+        pass
+
+    :param major: required major compute capability version
+    :param minor: required minor compute capability version (default 0)
+    """
+    if not torch.cuda.is_available():
+        return pytest.mark.skip(reason="CUDA not available")
+
+    device_capability = torch.cuda.get_device_capability(0)
+    has_capability = device_capability[0] > major or (
+        device_capability[0] == major and device_capability[1] >= minor
+    )
+
+    reason = (
+        f"Compute capability {major}.{minor} required, "
+        f"found {device_capability[0]}.{device_capability[1]}"
+    )
+    return pytest.mark.skipif(not has_capability, reason=reason)
+
+
+def torchrun(world_size: int = 1, init_dist: bool = False):
+    """
+    Pytest decorator to run a test within parallel torchrun subprocesses.
+
+    This decorator automatically spawns torchrun when the test is run with regular
+    pytest.
+    When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it
+    optionally initializes the distributed process group before running the test.
+
+    related to https://github.com/vllm-project/compressed-tensors/blob/main/tests/test_offload/conftest.py#L81
+
+    Usage:
+        @pytest.mark.unit
+        @requires_gpu(2)
+        @torchrun(world_size=2, init_dist=True)
+        def test_distributed_feature():
+            # Distributed already initialized
+            ...
+
+        @torchrun(world_size=2)  # init_dist=False by default
+        def test_custom_init():
+            # Handle your own distributed setup
+            from compressed_tensors.offload import init_dist
+            init_dist()
+            ...
+
+    :param world_size: number of ranks to spawn
+    :param init_dist: whether to automatically call init_dist() (default: False)
+    """
+    import subprocess
+    import sys
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # We're running in a torchrun subprocess: optionally init then run the test
+            if "TORCHELASTIC_RUN_ID" in os.environ:
+                if init_dist:
+                    from compressed_tensors.offload import init_dist as _init_dist
+
+                    _init_dist()
+                return func(*args, **kwargs)
+
+            # First time calling in the main process:
+            # trigger torchrun with this function as the pytest target
+            else:
+                module = sys.modules.get(func.__module__)
+                if module is None:
+                    raise RuntimeError(
+                        f"Can't find module {func.__module__} for func {func.__name__}"
+                    )
+                file_path = module.__file__
+                if file_path is None:
+                    raise RuntimeError(
+                        f"Module {func.__module__} has no __file__ attribute"
+                    )
+                func_name = func.__name__
+
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "torch.distributed.run",
+                    "--nproc_per_node",
+                    str(world_size),
+                    "--log-dir",
+                    "/tmp/torchrun-logs",
+                    "--tee",
+                    "3",
+                    "--role",
+                    "torchrun",
+                    "-m",
+                    "pytest",
+                    f"{file_path}::{func_name}",
+                    "-sx",
+                ]
+
+                # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
+                # pytest-cov from loading in workers by adding --no-cov.
+                # Worker coverage data is still collected via .coveragerc's
+                # patch = subprocess + parallel = True.
+                if "--cov" in os.environ.get("PYTEST_ADDOPTS", ""):
+                    cmd.append("--no-cov")
+
+                proc = subprocess.run(cmd)
+                assert proc.returncode == 0
+
+        return wrapper
+
+    return decorator
+
+
 requires_hf_token: callable = pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tests requiring gated model access",
@@ -130,17 +492,15 @@ def _load_yaml(config_path: str):
     return None
 
 
-def _validate_test_config(config: dict):
-    for f in dataclasses.fields(TestConfig):
-        if f.name not in config:
-            return False
-        config_value = config.get(f.name)
-        if issubclass(f.type, enum.Enum):
-            try:
-                f.type(config_value)
-            except ValueError:
-                return False
-    return True
+_VALID_CADENCES = {"commit", "weekly", "nightly"}
+
+
+def _validate_test_config(config: dict) -> bool:
+    cadence = config.get("cadence")
+    if not cadence:
+        return False
+    cadences = cadence if isinstance(cadence, list) else [cadence]
+    return all(c in _VALID_CADENCES for c in cadences)
 
 
 # Set cadence in the config. The environment must set if nightly, weekly or commit
@@ -157,10 +517,6 @@ def parse_params(configs_directory: Union[list, str]) -> List[dict]:
 
         for file in os.listdir(current_config_dir):
             config_path = os.path.join(current_config_dir, file)
-            if TEST_DATA_FILE is not None:
-                if not config_path.endswith(TEST_DATA_FILE):
-                    continue
-
             config = _load_yaml(config_path)
             if not config:
                 continue
@@ -325,8 +681,11 @@ class LMEvalCacheKey:
     task: str
     num_fewshot: int
     limit: int
-    batch_size: int
-    model_args_hash: str
+    apply_chat_template: bool
+    fewshot_as_multiturn: bool
+    dtype: str
+    add_bos_token: bool
+    trust_remote_code: bool
     lmeval_version: str
     seed: Optional[int]
 
@@ -340,17 +699,19 @@ class LMEvalCacheKey:
         except (ImportError, AttributeError):
             lmeval_version = "unknown"
 
-        lmeval = test_instance.lmeval
-        model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
-        seed = getattr(test_instance, "seed", None)
+        lmeval = test_instance.config.lmeval
+        seed = test_instance.config.seed
 
         return cls(
-            model=test_instance.model,
+            model=test_instance.config.model,
             task=lmeval.task,
             num_fewshot=lmeval.num_fewshot,
             limit=lmeval.limit,
-            batch_size=lmeval.batch_size,
-            model_args_hash=_sha256_hash(model_args_json, 16),
+            apply_chat_template=lmeval.apply_chat_template,
+            fewshot_as_multiturn=lmeval.fewshot_as_multiturn,
+            dtype=lmeval.dtype,
+            add_bos_token=lmeval.add_bos_token,
+            trust_remote_code=lmeval.trust_remote_code,
             lmeval_version=lmeval_version,
             seed=seed,
         )
@@ -366,8 +727,11 @@ class LMEvalCacheKey:
             and row["task"] == self.task
             and row["num_fewshot"] == self.num_fewshot
             and row["limit"] == self.limit
-            and row["batch_size"] == self.batch_size
-            and row["model_args_hash"] == self.model_args_hash
+            and row["apply_chat_template"] == self.apply_chat_template
+            and row["fewshot_as_multiturn"] == self.fewshot_as_multiturn
+            and row["dtype"] == self.dtype
+            and row["add_bos_token"] == self.add_bos_token
+            and row["trust_remote_code"] == self.trust_remote_code
             and row["lmeval_version"] == self.lmeval_version
             and seed_matches
         )
@@ -400,8 +764,11 @@ class LMEvalCacheKey:
                 "task": self.task,
                 "num_fewshot": self.num_fewshot,
                 "limit": self.limit,
-                "batch_size": self.batch_size,
-                "model_args_hash": self.model_args_hash,
+                "apply_chat_template": self.apply_chat_template,
+                "fewshot_as_multiturn": self.fewshot_as_multiturn,
+                "dtype": self.dtype,
+                "add_bos_token": self.add_bos_token,
+                "trust_remote_code": self.trust_remote_code,
                 "lmeval_version": self.lmeval_version,
                 "seed": self.seed,
                 "result": json.dumps(result, default=str),

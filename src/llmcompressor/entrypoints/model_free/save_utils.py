@@ -6,16 +6,16 @@ from compressed_tensors.base import (
     COMPRESSION_VERSION_NAME,
     QUANTIZATION_CONFIG_NAME,
     QUANTIZATION_METHOD_NAME,
-    SPARSITY_CONFIG_NAME,
     TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.entrypoints.convert import Converter, find_config_path
+from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
 )
+from compressed_tensors.utils.safetensors_load import find_config_path
 from loguru import logger
 from pydantic import ValidationError
 
@@ -46,7 +46,6 @@ def update_config(
     qconfig_data = {
         COMPRESSION_VERSION_NAME: ct_version,
         QUANTIZATION_METHOD_NAME: "compressed-tensors",
-        SPARSITY_CONFIG_NAME: {},
         TRANSFORM_CONFIG_NAME: {},
         **qconfig_data,
     }
@@ -117,7 +116,7 @@ def create_or_update_quant_config(
         # construct quantization config from scratch
         qconfig = QuantizationConfig.model_validate(
             {
-                "config_groups": {scheme_name: scheme},
+                "config_groups": {"config_group_0": scheme},
                 "ignore": ignore,
                 "quantization_status": QuantizationStatus.COMPRESSED,
                 "format": scheme.format,
@@ -125,11 +124,8 @@ def create_or_update_quant_config(
         )
     else:
         # update pre-existing quantization config
-        scheme_name = (
-            f"config_group_{len(qconfig.config_groups)}"
-            if scheme_name in qconfig.config_groups
-            else scheme_name
-        )
+        scheme_name = f"config_group_{len(qconfig.config_groups)}"
+
         qconfig.config_groups[scheme_name] = scheme
         unique_formats = set(scheme.format for scheme in qconfig.config_groups.values())
         qconfig.format = (

@@ -25,7 +25,7 @@ def test_validate_file_raises_for_non_2d_linear_weight(tmp_path):
     save_file({"model.layers.0.mlp.down_proj.weight": torch.ones(128)}, str(path))
 
     with pytest.raises(ValueError, match="model.layers.0.mlp.down_proj.weight"):
-        validate_file(path, None, _get_block_scheme(), [], None)
+        validate_file({str(path): []}, None, _get_block_scheme(), [], "cpu")
 
 
 def test_validate_file_does_not_raise_for_block_incompatible_shape(tmp_path):
@@ -35,4 +35,4 @@ def test_validate_file_does_not_raise_for_block_incompatible_shape(tmp_path):
         str(path),
     )
 
-    validate_file(path, None, _get_block_scheme(), [], None)
+    validate_file({str(path): []}, None, _get_block_scheme(), [], "cpu")
