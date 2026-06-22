@@ -194,6 +194,8 @@ def fuse_weight_observers(model: Module):
             only_tensor_group = True
             observers_and_modules = []
             for layer in layers_to_fuse:
+                if layer is None:
+                    continue
                 obs = getattr(layer, "weight_observer", None)
                 if obs is None:
                     only_obs = False
