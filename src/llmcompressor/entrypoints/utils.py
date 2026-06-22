@@ -201,7 +201,6 @@ def initialize_processor_from_path(
         processor = AutoProcessor.from_pretrained(
             processor_src,
             cache_dir=None,
-            use_fast=False,
             revision=model_args.model_revision,
             trust_remote_code=model_args.trust_remote_code_model,
         )
