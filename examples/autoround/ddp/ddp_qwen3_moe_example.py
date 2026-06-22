@@ -6,13 +6,9 @@ independently on CPU (safetensors mmap shares physical pages at OS level).
 
 Run with:
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
-    --nproc_per_node=2 ddp_qwen3_moe_example.py \
-    --iters 100 --nsamples 256 \
-    --model Qwen/Qwen3-235B-A22B-Instruct-2507
+    --nproc_per_node=2 ddp_qwen3_moe_example.py
 """
 
-import argparse
-import importlib
 import os
 import time
 
@@ -22,68 +18,14 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-
-#  FIXME: (yiliu30) remove this patch before merging 
-def patch_disable_onloading_for_quant_init():
-    """Avoid dist.broadcast + barrier for every new quant parameter.
-
-    compressed-tensors' initialize_module_for_quantization creates new
-    parameters which trigger DistributedCPUCache's per-param broadcast.
-    Wrapping with disable_onloading() prevents this.
-    """
-    from compressed_tensors.offload import disable_onloading
-
-    lifecycle_init_mod = importlib.import_module(
-        "compressed_tensors.quantization.lifecycle.initialize"
-    )
-    original_fn = lifecycle_init_mod.initialize_module_for_quantization
-    if getattr(original_fn, "_patched", False):
-        return
-
-    def patched(module, scheme=None, force_zero_point=True):
-        with disable_onloading():
-            return original_fn(module, scheme=scheme, force_zero_point=force_zero_point)
-
-    patched._patched = True
-    lifecycle_init_mod.initialize_module_for_quantization = patched
-
-
-def patch_force_local_cache():
-    """Force OffloadCache.cls_from_device to return non-distributed caches.
-
-    When ranks load the model independently, each already has parameters
-    locally. DistributedCPUCache's per-param broadcast+barrier is
-    unnecessary and causes O(n_params) collective ops (~218ms each).
-    """
-    from compressed_tensors.offload.cache.base import OffloadCache
-    from compressed_tensors.offload.cache.cpu import CPUCache
-    from compressed_tensors.offload.cache.device import DeviceCache
-    from compressed_tensors.offload.cache.disk import DiskCache
-    from compressed_tensors.utils import is_accelerator_type
-
-    @classmethod
-    def cls_from_device_local(cls, device=None):
-        device_type = torch.device(device).type if device != "disk" else "disk"
-        if device_type == "cpu":
-            return CPUCache
-        elif is_accelerator_type(device_type):
-            return DeviceCache
-        elif device_type == "disk":
-            return DiskCache
-        else:
-            raise NotImplementedError(f"Offload of type {device_type} not implemented")
-
-    OffloadCache.cls_from_device = cls_from_device_local
-    logger.info("Patched OffloadCache.cls_from_device → local (non-distributed) caches")
+from compressed_tensors.offload.cache.base import force_local_cache
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--scheme", type=str, default="W4A16")
-    parser.add_argument("--iters", type=int, default=100)
-    parser.add_argument("--nsamples", type=int, default=256)
-    args = parser.parse_args()
+    MODEL = "/storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507"
+    SCHEME = "W4A16"
+    ITERS = 100
+    NSAMPLES = 256
 
     ###### DDP INIT #####
     gpus_per_group = int(os.environ.get("GPUS_PER_GROUP", "1"))
@@ -105,48 +47,44 @@ if __name__ == "__main__":
         f"main_gpu: {main_gpu}, group: [{main_gpu}-{main_gpu + gpus_per_group - 1}]"
     )
 
-    # Apply patches BEFORE model loading and calibration
-    # FIXME: (yiliu30) remove these patches before merging once the underlying issues are fixed
-    patch_disable_onloading_for_quant_init()
-    patch_force_local_cache()
-
     ###### MODEL LOAD #####
     load_start = time.perf_counter()
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype="auto")
+    model = AutoModelForCausalLM.from_pretrained(MODEL, dtype="auto")
     load_elapsed = time.perf_counter() - load_start
     logger.info(f"[Rank {rank}] Model loaded on CPU in {load_elapsed:.1f}s")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
     ###### DATASET #####
     os.environ["AR_DISABLE_DATASET_SUBPROCESS"] = "1"
     from auto_round.calib_dataset import get_dataset
     from llmcompressor.modifiers.autoround import AutoRoundModifier
 
-    ds = get_dataset(tokenizer=tokenizer, seqlen=2048, nsamples=args.nsamples)
+    ds = get_dataset(tokenizer=tokenizer, seqlen=2048, nsamples=NSAMPLES)
 
     ###### RECIPE #####
     recipe = AutoRoundModifier(
         targets="Linear",
-        scheme=args.scheme,
+        scheme=SCHEME,
         ignore=["lm_head", "re:.*mlp.gate$"],
-        iters=args.iters,
+        iters=ITERS,
         enable_torch_compile=False,
     )
 
     ###### QUANTIZE #####
     logger.info(f"[Rank {rank}] Starting oneshot...")
     quant_start = time.perf_counter()
-    oneshot(
-        model=model,
-        dataset=ds,
-        recipe=recipe,
-        max_seq_length=2048,
-        num_calibration_samples=args.nsamples,
-        shuffle_calibration_samples=False,
-    )
-    quant_elapsed = time.perf_counter() - quant_start
-    logger.info(f"[Rank {rank}] Quantization done in {quant_elapsed:.1f}s")
+    with force_local_cache():
+        oneshot(
+            model=model,
+            dataset=ds,
+            recipe=recipe,
+            max_seq_length=2048,
+            num_calibration_samples=NSAMPLES,
+            shuffle_calibration_samples=False,
+        )
+        quant_elapsed = time.perf_counter() - quant_start
+        logger.info(f"[Rank {rank}] Quantization done in {quant_elapsed:.1f}s")
 
     if dist.is_initialized():
         dist.barrier()
@@ -160,9 +98,9 @@ if __name__ == "__main__":
     if rank == 0:
         save_dir = (
              "/storage/yiliu7/Qwen/"
-             + args.model.rstrip("/").split("/")[-1]
-            + f"-{args.scheme}-AutoRound"
-            + f"-iters{args.iters}-nsamples{args.nsamples}"
+             + MODEL.rstrip("/").split("/")[-1]
+            + f"-{SCHEME}-AutoRound"
+            + f"-iters{ITERS}-nsamples{NSAMPLES}"
             + f"-DDP{world_size}"
         )
         logger.info(f"Saving to {save_dir}...")
