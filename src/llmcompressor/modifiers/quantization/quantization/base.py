@@ -1,6 +1,7 @@
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import (
+    as_broadcastable,
     greedy_bin_packing,
     is_distributed,
     wait_for_comms,
@@ -127,7 +128,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
                     if (qparam := getattr(module, qparam_name, None)) is not None:
                         pending_comms.append(
                             dist.broadcast(
-                                qparam, src=module_to_rank[module], async_op=True
+                                as_broadcastable(qparam),
+                                src=module_to_rank[module],
+                                async_op=True,
                             )
                         )
 
