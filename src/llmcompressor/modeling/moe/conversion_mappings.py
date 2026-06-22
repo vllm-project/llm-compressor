@@ -23,6 +23,7 @@ __all__ = [
 ARCH_TO_EXPERTS_MODULE_CLS = {
     "deepseek_v4": DeepseekV4Experts,
     "qwen2_moe": Qwen3MoeExperts,
+    "qwen3_moe": Qwen3MoeExperts,
 }
 
 ARCH_TO_2D_MAPPINGS = {
@@ -52,11 +53,11 @@ ARCH_TO_2D_MAPPINGS = {
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
             ),
         ],
     ),
@@ -72,8 +73,8 @@ def get_linearize_load_mappings(
     model_type: str,
 ) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
     """ """
-    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
+    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
