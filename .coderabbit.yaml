@@ -4,7 +4,7 @@ early_access: false
 reviews:
   request_changes_workflow: false # prevent code rabbit from approving PRs
   high_level_summary: false
-  high_level_summary_in_walkthrough: false # Only show high-level summary in walkthrough, not the PR description
+  high_level_summary_in_walkthrough: false # Do not show high-level summary in walkthrough
   poem: false
   review_status: true
   collapse_walkthrough: true
