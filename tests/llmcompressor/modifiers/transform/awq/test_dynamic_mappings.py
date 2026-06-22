@@ -5,9 +5,11 @@ from torch.nn import Linear
 from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     AWQ_DYNAMIC_MAPPING_REGISTRY,
     _detect_linear_attn_projections,
-    _get_hybrid_attention_config,
     build_hybrid_attention_mappings,
     get_layer_mappings_from_model,
+)
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
+    get_hybrid_attention_config,
 )
 
 
@@ -160,7 +162,7 @@ def _make_standard_model():
 class TestGetHybridAttentionConfig:
     def test_returns_config_for_hybrid_model(self):
         model = _make_hybrid_model(num_layers=8)
-        result = _get_hybrid_attention_config(model)
+        result = get_hybrid_attention_config(model)
         assert result is not None
         layer_types, num_layers = result
         assert num_layers == 8
@@ -169,18 +171,18 @@ class TestGetHybridAttentionConfig:
 
     def test_returns_none_for_standard_model(self):
         model = _make_standard_model()
-        assert _get_hybrid_attention_config(model) is None
+        assert get_hybrid_attention_config(model) is None
 
     def test_reads_text_config_for_vl_models(self):
         model = _make_hybrid_model(num_layers=4, use_text_config=True)
-        result = _get_hybrid_attention_config(model)
+        result = get_hybrid_attention_config(model)
         assert result is not None
         _, num_layers = result
         assert num_layers == 4
 
     def test_returns_none_without_config(self):
         model = torch.nn.Linear(4, 4)
-        assert _get_hybrid_attention_config(model) is None
+        assert get_hybrid_attention_config(model) is None
 
 
 @pytest.mark.unit
