@@ -27,18 +27,17 @@ NSAMPLES = 256
 
 ###### DDP INIT #####
 gpus_per_group = int(os.environ.get("GPUS_PER_GROUP", "1"))
-if "TORCHELASTIC_RUN_ID" in os.environ:
-    local_rank = int(os.environ["LOCAL_RANK"])
-    main_gpu = local_rank * gpus_per_group
-    torch.cuda.set_device(main_gpu)
-    dist.init_process_group(
-        backend="nccl",
-        init_method="env://",
-        device_id=torch.device(f"cuda:{main_gpu}"),
-    )
+local_rank = int(os.environ["LOCAL_RANK"])
+main_gpu = local_rank * gpus_per_group
+torch.cuda.set_device(main_gpu)
+dist.init_process_group(
+    backend="nccl",
+    init_method="env://",
+    device_id=torch.device(f"cuda:{main_gpu}"),
+)
 
-rank = dist.get_rank() if dist.is_initialized() else 0
-world_size = dist.get_world_size() if dist.is_initialized() else 1
+rank = dist.get_rank()
+world_size = dist.get_world_size()
 main_gpu = rank * gpus_per_group
 logger.info(
     f"[Rank {rank}/{world_size}] GPUs: {torch.cuda.device_count()}, "
