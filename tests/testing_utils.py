@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -452,7 +453,7 @@ def torchrun(world_size: int = 1, init_dist: bool = False):
                     "--nproc_per_node",
                     str(world_size),
                     "--log-dir",
-                    "/tmp/torchrun-logs",
+                    tempfile.mkdtemp(prefix="torchrun-logs-"),
                     "--tee",
                     "3",
                     "--role",
@@ -461,6 +462,8 @@ def torchrun(world_size: int = 1, init_dist: bool = False):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
+                    "--basetemp",
+                    f"/tmp/pytest-torchrun-{func_name}",
                 ]
 
                 # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
