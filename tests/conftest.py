@@ -14,6 +14,8 @@ emulated XPU identity on real CUDA hardware:
 """
 
 import os
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import torch
@@ -55,7 +57,11 @@ def pytest_configure(config):
     # Give each torchrun rank its own basetemp to avoid cleanup race conditions
     rank = os.environ.get("LOCAL_RANK")
     if rank is not None and config.option.basetemp is None:
-        config.option.basetemp = f"/tmp/pytest-torchrun-rank{rank}"
+        run_id = os.environ.get("TORCHELASTIC_RUN_ID", str(os.getpid()))
+        config.option.basetemp = tempfile.mkdtemp(
+            prefix=f"pytest-torchrun-{run_id}-rank{rank}-",
+            dir=Path(tempfile.gettempdir()),
+        )
 
     if not config.getoption("--emulate-xpu"):
         return
