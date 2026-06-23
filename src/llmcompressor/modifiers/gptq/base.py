@@ -131,7 +131,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
-    _enable_compile: bool = PrivateAttr(default=False)
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -207,8 +206,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._enable_compile = state.enable_compile
-
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
@@ -245,7 +242,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self._enable_compile = False
         QuantizationMixin.end_calibration(self, state.model)
         self.remove_hooks()  # remove gptq hooks
 
@@ -332,7 +328,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     hessian=self._hessians.pop(module) / self._num_samples.pop(module),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
-                    enable_compile=self._enable_compile,
                 )
                 comp_logger.set_results(name="GPTQ", loss=loss)
 

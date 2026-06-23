@@ -5,8 +5,10 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
+from compressed_tensors.utils import patch_attr
 
 import llmcompressor.modifiers.gptq.gptq_quantize as gptq_quantize
+from llmcompressor.core import active_session, create_session
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
@@ -19,15 +21,21 @@ from llmcompressor.modifiers.quantization.calibration import (
 from tests.testing_utils import requires_compute_capability
 
 
-def _make_group_quantize_inputs(device: str = "cpu"):
+def _make_quantize_inputs(strategy: str = "group", device: str = "cpu"):
     torch.manual_seed(0)
     module = torch.nn.Linear(8, 6, bias=False).to(device)
-    quant_args = QuantizationArgs(
+    quant_args_kwargs = dict(
         num_bits=4,
         symmetric=True,
-        strategy="group",
-        group_size=2,
+        strategy=strategy,
     )
+    if strategy in ("group", "tensor_group"):
+        quant_args_kwargs["group_size"] = 2
+    if strategy == "block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["block_structure"] = [2, 2]
+
+    quant_args = QuantizationArgs(**quant_args_kwargs)
     module.quantization_scheme = QuantizationScheme(
         targets=["Linear"], weights=quant_args
     )
@@ -41,34 +49,40 @@ def _make_group_quantize_inputs(device: str = "cpu"):
     return module, quant_args, hessian
 
 
+def _make_group_quantize_inputs(device: str = "cpu"):
+    return _make_quantize_inputs("group", device)
+
+
 @torch.no_grad()
-def test_quantize_weight_compiled_block_path_matches_eager(monkeypatch):
-    module, quant_args, hessian = _make_group_quantize_inputs()
+@pytest.mark.parametrize("strategy", ["tensor", "channel", "group", "block"])
+def test_quantize_weight_compiled_block_path_matches_eager(monkeypatch, strategy):
+    module, quant_args, hessian = _make_quantize_inputs(strategy)
 
-    eager_loss, eager_qparams = quantize_weight(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian.clone(),
-        blocksize=4,
-        enable_compile=False,
-    )
+    with create_session() as session:
+        session.state.enable_compile = False
+        eager_loss, eager_qparams = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian.clone(),
+            blocksize=4,
+        )
 
-    calls = 0
+        calls = 0
 
-    def compiled_block(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return gptq_quantize._quantize_block(*args, **kwargs)
+        def compiled_block(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return gptq_quantize._quantize_block(*args, **kwargs)
 
-    monkeypatch.setattr(gptq_quantize, "_quantize_block_compiled", compiled_block)
+        monkeypatch.setattr(gptq_quantize, "_quantize_block_compiled", compiled_block)
 
-    compiled_loss, compiled_qparams = quantize_weight(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian.clone(),
-        blocksize=4,
-        enable_compile=True,
-    )
+        session.state.enable_compile = True
+        compiled_loss, compiled_qparams = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian.clone(),
+            blocksize=4,
+        )
 
     assert calls > 0
     assert compiled_loss == pytest.approx(eager_loss)
@@ -85,13 +99,14 @@ def test_quantize_weight_compile_flag_off_uses_eager(monkeypatch):
 
     monkeypatch.setattr(gptq_quantize, "_quantize_block_compiled", compiled_block)
 
-    loss, q_param_dict = quantize_weight(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian,
-        blocksize=4,
-        enable_compile=False,
-    )
+    with create_session() as session:
+        session.state.enable_compile = False
+        loss, q_param_dict = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian,
+            blocksize=4,
+        )
 
     assert loss >= 0
     assert q_param_dict["weight"].shape == module.weight.shape
@@ -102,13 +117,13 @@ def test_quantize_weight_compile_flag_off_uses_eager(monkeypatch):
 def test_quantize_weight_runs_real_compiled_block_path():
     module, quant_args, hessian = _make_group_quantize_inputs(device="cuda")
 
-    loss, q_param_dict = quantize_weight(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian,
-        blocksize=4,
-        enable_compile=True,
-    )
+    with patch_attr(active_session().state, "enable_compile", True):
+        loss, q_param_dict = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian,
+            blocksize=4,
+        )
 
     assert loss >= 0
     assert q_param_dict["weight"].shape == module.weight.shape
