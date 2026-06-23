@@ -1,5 +1,4 @@
 import math
-from copy import copy
 
 import torch
 import torch._dynamo.config
@@ -10,8 +9,10 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
+from compressed_tensors.utils import patch_attr
 from loguru import logger
 
+from llmcompressor.core import active_session
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
@@ -109,7 +110,6 @@ def quantize_weight(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
-    enable_compile: bool = False,
 ) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
@@ -119,7 +119,6 @@ def quantize_weight(
     :param hessian: preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
-    :param enable_compile: whether to use compiled GPTQ kernels where available
     :return: loss, quantized_weight, scale, zero_point, g_idx
     """
     strategy = quant_args.strategy
@@ -213,15 +212,16 @@ def quantize_weight(
         )
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
-    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        column_quant_args = copy(quant_args)
-        column_quant_args.strategy = QuantizationStrategy.CHANNEL
-    else:
-        column_quant_args = quant_args
-
     use_compiled_block = (
-        enable_compile
-        and strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
+        active_session().state.enable_compile
+        and strategy
+        in (
+            QuantizationStrategy.TENSOR,
+            QuantizationStrategy.CHANNEL,
+            QuantizationStrategy.GROUP,
+            QuantizationStrategy.TENSOR_GROUP,
+            QuantizationStrategy.BLOCK,
+        )
         and not preserve_zeros
     )
 
@@ -234,17 +234,46 @@ def quantize_weight(
         Hinv1 = Hinv[i1:i2, i1:i2]
 
         if use_compiled_block:
-            cols = g_idx[i1:i2]
+            if strategy == QuantizationStrategy.TENSOR:
+                scale_cols = scale.expand(num_rows, count)
+                zero_point_cols = zero_point.expand(num_rows, count)
+            elif strategy == QuantizationStrategy.CHANNEL:
+                scale_cols = scale[:, :1].expand(-1, count)
+                zero_point_cols = zero_point[:, :1].expand(-1, count)
+            elif strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+            ):
+                cols = g_idx[i1:i2]
+                scale_cols = scale[:, cols]
+                zero_point_cols = zero_point[:, cols]
+            elif strategy == QuantizationStrategy.BLOCK:
+                row_block_size = quant_args.block_structure[0]
+                row_idx = (
+                    torch.arange(num_rows, device=W.device, dtype=torch.int)
+                    // row_block_size
+                )
+                cols = g_idx[i1:i2]
+                scale_cols = scale[row_idx][:, cols]
+                zero_point_cols = zero_point[row_idx][:, cols]
+            else:
+                raise ValueError(
+                    f"Quantization strategy is not supported for GPTQ: {strategy}"
+                )
+
             # _quantize_block mutates W1 during error propagation. W1 is not
             # read after this call. Hinv1 is made contiguous so Dynamo does not
             # specialize on the parent Hessian stride.
-            with torch._dynamo.config.patch(capture_scalar_outputs=True):
+            with (
+                patch_attr(quant_args, "strategy", QuantizationStrategy.CHANNEL),
+                torch._dynamo.config.patch(capture_scalar_outputs=True),
+            ):
                 Q1, Err1, losses1 = _quantize_block_compiled(
                     W1,
                     Hinv1.contiguous(),
-                    scale[:, cols],
-                    zero_point[:, cols],
-                    column_quant_args,
+                    scale_cols,
+                    zero_point_cols,
+                    quant_args,
                     global_scale,
                     count,
                 )
@@ -284,13 +313,16 @@ def quantize_weight(
                 QuantizationStrategy.TENSOR_GROUP,
             ):
                 group_index = g_idx[i1 + i]
-                q = fake_quantize(
-                    q,
-                    scale[:, group_index],
-                    zero_point[:, group_index],
-                    column_quant_args,
-                    global_scale=global_scale,
-                )
+                with patch_attr(
+                    quant_args, "strategy", QuantizationStrategy.CHANNEL
+                ):
+                    q = fake_quantize(
+                        q,
+                        scale[:, group_index],
+                        zero_point[:, group_index],
+                        quant_args,
+                        global_scale=global_scale,
+                    )
             elif strategy == QuantizationStrategy.BLOCK:
                 column_idx = i1 + i
                 block_column_idx = g_idx[column_idx]
