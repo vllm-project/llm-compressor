@@ -469,7 +469,7 @@ def test_ddp_smoke_rtn_imatrix():
         "independent",
         None,
         weight_atol=5e-3,
-        min_top1_match=0.85,
+        min_top1_match=0.90,
         max_logit_diff=0.15,
     )
 
@@ -532,7 +532,6 @@ def test_ddp_smoke_awq():
         "independent",
         None,
         weight_atol=5e-2,
-        min_top1_match=0.85,
     )
 
 
