@@ -54,7 +54,9 @@ def _make_group_quantize_inputs(device: str = "cpu"):
 
 
 @torch.no_grad()
-@pytest.mark.parametrize("strategy", ["tensor", "channel", "group", "block"])
+@pytest.mark.parametrize(
+    "strategy", ["tensor", "channel", "group", "tensor_group", "block"]
+)
 def test_quantize_weight_compiled_block_path_matches_eager(monkeypatch, strategy):
     module, quant_args, hessian = _make_quantize_inputs(strategy)
 
