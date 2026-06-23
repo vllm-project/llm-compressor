@@ -13,6 +13,7 @@ emulated XPU identity on real CUDA hardware:
   3. Local is_accelerator_type patches — accept both "xpu" and "cuda"
 """
 
+import os
 from types import SimpleNamespace
 
 import torch
@@ -51,6 +52,11 @@ def pytest_configure(config):
     compares against the mocked "xpu" and would return False.  This is the known
     trade-off: routing logic is bypassed and must be tested separately (Option 1).
     """
+    # Give each torchrun rank its own basetemp to avoid cleanup race conditions
+    rank = os.environ.get("LOCAL_RANK")
+    if rank is not None and config.option.basetemp is None:
+        config.option.basetemp = f"/tmp/pytest-torchrun-rank{rank}"
+
     if not config.getoption("--emulate-xpu"):
         return
 
