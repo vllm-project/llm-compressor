@@ -532,6 +532,7 @@ def test_ddp_smoke_awq():
         "independent",
         None,
         weight_atol=5e-2,
+        min_top1_match=0.85,
     )
 
 
