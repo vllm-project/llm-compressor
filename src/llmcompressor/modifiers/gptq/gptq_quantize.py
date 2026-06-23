@@ -1,4 +1,5 @@
 import math
+from copy import copy
 
 import torch
 import torch._dynamo.config
@@ -298,16 +299,15 @@ def quantize_weight(
                 QuantizationStrategy.TENSOR_GROUP,
             ):
                 group_index = g_idx[i1 + i]
-                with patch_attr(
-                    quant_args, "strategy", QuantizationStrategy.CHANNEL
-                ):
-                    q = fake_quantize(
-                        q,
-                        scale[:, group_index],
-                        zero_point[:, group_index],
-                        quant_args,
-                        global_scale=global_scale,
-                    )
+                altered_args = copy(quant_args)
+                altered_args.strategy = QuantizationStrategy.CHANNEL
+                q = fake_quantize(
+                    q,
+                    scale[:, group_index],
+                    zero_point[:, group_index],
+                    altered_args,
+                    global_scale=global_scale,
+                )
             elif strategy == QuantizationStrategy.BLOCK:
                 column_idx = i1 + i
                 block_column_idx = g_idx[column_idx]
