@@ -10,6 +10,7 @@ router, however, produces gate weights differently, so the routing math is
 captured per-architecture via ``ROUTING_MODE`` (see ``extract_routing``).
 """
 
+from collections import OrderedDict
 import re
 from dataclasses import dataclass, field
 
@@ -18,6 +19,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from compressed_tensors import align_module_device
 from loguru import logger
+
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 
 __all__ = [
     "MoEModelAttrs",
@@ -218,8 +221,8 @@ def find_moe_layers(
 
 def get_num_experts(module: nn.Module, attrs: MoEModelAttrs) -> int:
     experts = getattr(module, attrs.experts_attr)
-    if isinstance(experts, nn.ModuleList):
-        return len(experts)
+    if hasattr(experts, "num_experts"):
+        return experts.num_experts
 
     raise ValueError(
         f"Cannot determine number of experts from {module.__class__.__name__}:"
@@ -227,7 +230,7 @@ def get_num_experts(module: nn.Module, attrs: MoEModelAttrs) -> int:
     )
 
 
-def get_router_num_groups(module: nn.Module, attrs: MoEModelAttrs) -> int:
+def get_router_num_groups(module: nn.Module, attrs: MoEModelAttrs, info: bool = False) -> int:
     """
     Number of expert groups used by group-limited routers (DeepSeek-V3, GLM4,
     GLM-MoE-DSA). Returns 1 for routers without grouping. ``n_group`` may live on
@@ -238,14 +241,15 @@ def get_router_num_groups(module: nn.Module, attrs: MoEModelAttrs) -> int:
         n_group = getattr(holder, "n_group", None)
         if isinstance(n_group, int) and n_group > 0:
             return n_group
-    logger.info(
-        f"n_group attribute not found on {module.__class__.__name__};"
-        " assuming n_group=1"
-    )
+    if info:
+        logger.info(
+            f"n_group attribute not found on {module.__class__.__name__};"
+            " assuming n_group=1"
+        )
     return 1
 
 
-def get_router_topk_group(module: nn.Module, attrs: MoEModelAttrs) -> int:
+def get_router_topk_group(module: nn.Module, attrs: MoEModelAttrs, info: bool = False) -> int:
     """
     Number of expert groups a token may route into (``topk_group``) for
     group-limited routers. Defaults to ``n_group`` (all groups) when not set.
@@ -255,10 +259,11 @@ def get_router_topk_group(module: nn.Module, attrs: MoEModelAttrs) -> int:
         topk_group = getattr(holder, "topk_group", None)
         if isinstance(topk_group, int) and topk_group > 0:
             return topk_group
-    logger.info(
-        f"topk_group attribute not found on {module.__class__.__name__};"
-        " assuming topk_group=n_group"
-    )
+    if info:
+        logger.info(
+            f"topk_group attribute not found on {module.__class__.__name__};"
+            " assuming topk_group=n_group"
+        )
     return get_router_num_groups(module, attrs)
 
 
@@ -331,6 +336,8 @@ def extract_routing(
 
     if mode == SOFTMAX:
         logits = router_output
+        if isinstance(logits, tuple):
+            logits = logits[0]
         routing_weights = F.softmax(logits, dim=-1, dtype=torch.float32)
         topk_weights, topk_indices = torch.topk(routing_weights, top_k, dim=-1)
         if getattr(block, "norm_topk_prob", True):
@@ -420,25 +427,50 @@ class REAPSaliencyTracker:
         self,
         topk_indices: torch.Tensor,
         topk_weights: torch.Tensor,
-        expert_norms: torch.Tensor,
+        expert_norms_dict: dict[int, torch.Tensor],
     ):
         """
         Vectorized accumulation over one batch.
 
         :param topk_indices: ``[num_tokens, top_k]`` selected expert ids
         :param topk_weights: ``[num_tokens, top_k]`` gate weight per selection
-        :param expert_norms: ``[num_tokens, num_experts]`` output norm of every
-            expert for every token (available because all experts see all tokens)
+        :param expert_norms_dict: dict mapping expert_idx to output norms
+            ``[num_routed_tokens]`` for tokens routed to that expert (sparse
+            routing: experts only see tokens the router sent to them)
         """
-        self._ensure(expert_norms.device)
+        if not expert_norms_dict:
+            return
 
-        flat_idx = topk_indices.reshape(-1).to(torch.long)
-        gathered_norms = expert_norms.gather(1, topk_indices.to(torch.long))
-        contrib = topk_weights.to(torch.float64) * gathered_norms.to(torch.float64)
-        self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
-        self.count.index_add_(
-            0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
-        )
+        self._ensure(next(iter(expert_norms_dict.values())).device)
+        
+        # For each expert, find which tokens/slots routed to it and compute contributions
+        for expert_idx in range(self.num_experts):
+            if expert_idx not in expert_norms_dict:
+                continue
+
+            # Find all (token, slot) positions where this expert was selected
+            mask = (topk_indices == expert_idx)
+            positions = mask.nonzero(as_tuple=True)  # (token_indices, slot_indices)
+            token_indices, slot_indices = positions
+
+            # Get corresponding norms and weights
+            expert_norms = expert_norms_dict[expert_idx]
+            if len(expert_norms) != len(token_indices):
+                raise RuntimeError(
+                    f"REAP saliency tracker: expert {expert_idx} has "
+                    f"{len(expert_norms)} norms but router sent "
+                    f"{len(token_indices)} tokens to it. This indicates a bug in "
+                    f"the expert hook or routing extraction logic."
+                )
+
+            expert_weights = topk_weights[token_indices, slot_indices]
+
+            # Compute contributions
+            contrib = expert_weights.to(torch.float64) * expert_norms.to(torch.float64)
+
+            # Sum contributions for this expert
+            self.sum_saliency[expert_idx] += contrib.sum()
+            self.count[expert_idx] += len(contrib)
 
     @property
     def total_count(self) -> float:
@@ -572,10 +604,23 @@ def prune_moe_layer(
     experts = getattr(moe_block, attrs.experts_attr)
 
     if isinstance(experts, nn.ModuleList):
-        old_experts = experts
-        new_experts = nn.ModuleList([experts[i] for i in retained])
-        setattr(moe_block, attrs.experts_attr, new_experts)
-        del old_experts
+        # Preserve non-expert modules (e.g., act_fn in LinearExperts2D)
+        # These are modules that are not instances of ExpertMLP subclasses
+        non_expert_modules = {}
+        for key, module in experts._modules.items():
+            if not isinstance(module, ExpertMLP):
+                non_expert_modules[key] = module
+
+        # Rebuild with retained experts
+        str_indices = [str(i) for i in range(len(retained))]
+        new_modules = OrderedDict(zip(str_indices, [experts[i] for i in retained]))
+
+        # Re-add non-expert modules
+        new_modules.update(non_expert_modules)
+
+        experts._modules = new_modules
+        if hasattr(experts, "num_experts"):
+            experts.num_experts = len(retained)
     else:
         raise ValueError(
             f"Cannot prune experts from layer {layer_name}:"

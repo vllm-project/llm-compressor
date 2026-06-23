@@ -12,7 +12,6 @@ from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 
 from llmcompressor.core import Event, State
-from llmcompressor.modeling.moe import get_calibrate_all_experts_flag
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.reap.utils import (
     MoEModelAttrs,
@@ -29,6 +28,8 @@ from llmcompressor.modifiers.pruning.reap.utils import (
     prune_moe_layer,
     update_model_config,
 )
+from llmcompressor.core.session_functions import active_session
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 
 __all__ = ["REAPPruningModifier"]
 
@@ -83,6 +84,7 @@ class REAPPruningModifier(Modifier):
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
+    _original_moe_calibrate_all_experts: bool | None = PrivateAttr(default=None)
     _routing_cache: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
@@ -117,7 +119,7 @@ class REAPPruningModifier(Modifier):
 
         sample_module = next(iter(moe_layers.values()))
         self._num_experts = get_num_experts(sample_module, self._attrs)
-        self._n_group = get_router_num_groups(sample_module, self._attrs)
+        self._n_group = get_router_num_groups(sample_module, self._attrs, True)
         self._n_experts_to_drop = int(self._num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
@@ -133,7 +135,7 @@ class REAPPruningModifier(Modifier):
                 self._num_experts,
                 self._n_experts_to_drop,
                 self._n_group,
-                get_router_topk_group(sample_module, self._attrs),
+                get_router_topk_group(sample_module, self._attrs, True),
                 self._top_k,
             )
 
@@ -150,13 +152,15 @@ class REAPPruningModifier(Modifier):
         self.started_ = True
         model = state.model
 
-        if not get_calibrate_all_experts_flag():
-            raise RuntimeError(
-                "REAP requires that all experts be activated during calibration,"
-                " but calibrate_all_experts is false. "
-                "Ensure the model runs inside moe_calibration_context by setting "
-                "dataset_args.moe_calibrate_all_experts in oneshot."
-            )
+        # Prevent calibration of all experts
+        session = active_session()
+        self._original_moe_calibrate_all_experts = session.state.moe_calibrate_all_experts
+        session.state.moe_calibrate_all_experts = False
+        logger.warning(
+            "REAP: setting moe_calibrate_all_experts=False to prevent excess "
+            "forward passes during calibration. Flag will be restored at the end"
+            " of calibration."
+        )
 
         for layer_name in self._moe_layer_names:
             module = model.get_submodule(layer_name)
@@ -173,8 +177,9 @@ class REAPPruningModifier(Modifier):
 
             # one hook per expert to record its per-token output norm
             experts = getattr(module, self._attrs.experts_attr)
+            expert_list = [expert for expert in experts.children() if isinstance(expert, ExpertMLP)] # Filter out the activation function
             n_expert_hooks = 0
-            for idx, expert in enumerate(experts.children()):
+            for idx, expert in enumerate(expert_list): 
                 self.register_hook(
                     expert, partial(self._expert_hook, layer_name, idx), "forward"
                 )
@@ -193,8 +198,17 @@ class REAPPruningModifier(Modifier):
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.ended_ = True
         # fallback for pipelines that never fire SEQUENTIAL_EPOCH_END
-        self.on_sequential_epoch_end()
+        self.on_sequential_epoch_end(state, event, **kwargs)
         self.remove_hooks()
+
+        # restore the original calibrate all experts flag
+        if self._original_moe_calibrate_all_experts is not None:
+            session = active_session()
+            session.state.moe_calibrate_all_experts = self._original_moe_calibrate_all_experts
+            logger.info(
+                "REAP: restored original moe_calibrate_all_experts="
+                f"{self._original_moe_calibrate_all_experts} after calibration."
+            )
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         # Apply structural pruning here (after the calibration context has
@@ -234,7 +248,7 @@ class REAPPruningModifier(Modifier):
 
     # -- decision finalization ----------------------------------------------
 
-    def on_sequential_epoch_end(self):
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         """Finalize drop decisions for any tracked layer whose saliency is
         complete, then release its activation buffers."""
         if self._n_experts_to_drop == 0:
@@ -299,23 +313,12 @@ class REAPPruningModifier(Modifier):
             return
 
         norm_buffer = self._norm_buffers[layer_name]
-        if len(norm_buffer) != tracker.num_experts:
-            logger.warning(
-                f"REAP: layer '{layer_name}' saw {len(norm_buffer)}/"
-                f"{tracker.num_experts} experts this batch; skipping update."
-            )
-            self._norm_buffers[layer_name] = {}
-            self._routing_cache[layer_name] = None
-            return
 
         with torch.no_grad():
             topk_indices, topk_weights = extract_routing(
                 router_output, module, self._attrs, self._top_k
             )
-            expert_norms = torch.stack(
-                [norm_buffer[i] for i in range(tracker.num_experts)], dim=1
-            )
-            tracker.update(topk_indices, topk_weights, expert_norms)
+            tracker.update(topk_indices, topk_weights, norm_buffer)
 
         self._norm_buffers[layer_name] = {}
         self._routing_cache[layer_name] = None
