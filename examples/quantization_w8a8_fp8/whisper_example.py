@@ -8,7 +8,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "openai/whisper-large-v2"
 
 # Load model.
-model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
+model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID)
 model.config.forced_decoder_ids = None
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")

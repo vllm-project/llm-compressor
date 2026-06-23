@@ -10,6 +10,7 @@ with various pipeline configurations for efficient model optimization.
 from __future__ import annotations
 
 import os
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -22,7 +23,8 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
-from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.modeling.moe.context import moe_calibration_context
+from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
@@ -30,6 +32,8 @@ __all__ = ["Oneshot", "oneshot"]
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
+
+    from llmcompressor.recipe import RecipeInput
 
 
 TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
@@ -217,12 +221,21 @@ class Oneshot:
         session = active_session()
         session.reset()
 
+        if len(get_non_linearized_moes(self.model)) > 0:
+            logger.warning(
+                "Detected an MoE model which has not been linearized. First load "
+                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
+                " before passing to `oneshot`. Falling back to post-load linearization."
+            )
+            linearize_moe(self.model)
+
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
-        with norm_calibration_context(self.model), moe_calibration_context(
-            self.model,
-            calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(norm_calibration_context(self.model))
+            if self.dataset_args.moe_calibrate_all_experts:
+                stack.enter_context(moe_calibration_context())
+
             session.initialize(
                 model=self.model,
                 start=-1,
@@ -232,6 +245,8 @@ class Oneshot:
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
             )
+
+            session.state.enable_compile = self.dataset_args.enable_compile
 
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
@@ -253,14 +268,13 @@ def oneshot(
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,
-    use_auth_token: bool = False,
     precision: str = "auto",
     tie_word_embeddings: bool = True,
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
     # Recipe arguments
-    recipe: str | list[str] | None = None,
+    recipe: RecipeInput | None = None,
     recipe_args: list[str] | None = None,
     clear_sparse_session: bool = False,
     stage: str | None = None,
@@ -305,6 +319,7 @@ def oneshot(
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
+    enable_compile: bool = False,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -321,8 +336,6 @@ def oneshot(
         model_name.
     :param processor: Pretrained processor name or path if not the same as
         model_name.
-    :param use_auth_token: Whether to use Hugging Face auth token for private
-        models.
     :param precision: Precision to cast model weights to, default to auto.
     :param tie_word_embeddings: Whether the model's input and output word embeddings
         should be left tied if possible. False means always untie.
@@ -333,8 +346,9 @@ def oneshot(
         tag, or commit id).
 
     # Recipe arguments
-    :param recipe: Path to a LLM Compressor recipe, or a list of paths
-      to multiple LLM Compressor recipes.
+    :param recipe: A LLM Compressor recipe. Accepts a path (or list
+        of paths) to recipe YAML file(s), a Modifier instance (or
+        list), or a Recipe object (or list).
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/
@@ -400,6 +414,8 @@ def oneshot(
         Nothing is saved if None.
     :param log_dir: Path to save logs during oneshot run.
         Nothing is logged to file if None.
+    :param enable_compile: If True, use torch.compiled MSE observer inner loop
+        for faster calibration. Default False.
 
     :return: The calibrated PreTrainedModel
     """
