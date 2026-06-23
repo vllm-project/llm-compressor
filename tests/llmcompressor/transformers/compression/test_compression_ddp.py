@@ -517,10 +517,6 @@ def test_ddp_smoke_gptq():
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 @torchrun(world_size=2)
-@pytest.mark.skip(
-    reason="AutoRound DDP gradient sync is broken upstream (auto_round "
-    "setup_ddp_if_needed_ discards the DDP-wrapped block)"
-)
 def test_ddp_smoke_autoround():
     _test_ddp_modifier(
         "autoround",
@@ -533,5 +529,5 @@ def test_ddp_smoke_autoround():
         None,
         weight_atol=1e-1,
         min_top1_match=0.85,
-        max_logit_diff=0.2,
+        max_logit_diff=0.15,
     )
