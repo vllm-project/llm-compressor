@@ -92,6 +92,78 @@ def suspend_offloading(model: nn.Module):
         offload_module(module, *offloading_info[name])
 
 
+import os
+import torch
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
+
+def fmt_bytes(num_bytes: int) -> str:
+    gb = num_bytes / 1024**3
+    return f"{gb:.2f} GB"
+
+
+def dump_memory_usage():
+    print("=" * 80)
+    print("CPU Memory")
+    print("=" * 80)
+
+    if psutil is not None:
+        proc = psutil.Process(os.getpid())
+        rss = proc.memory_info().rss
+        vms = proc.memory_info().vms
+        sys_mem = psutil.virtual_memory()
+
+        print(f"Process RSS      : {fmt_bytes(rss)}")
+        print(f"Process VMS      : {fmt_bytes(vms)}")
+        print(f"System Used      : {fmt_bytes(sys_mem.used)} / {fmt_bytes(sys_mem.total)}")
+        print(f"System Available : {fmt_bytes(sys_mem.available)}")
+    else:
+        print("psutil is not installed. Install with: pip install psutil")
+
+    print()
+    print("=" * 80)
+    print("CUDA Memory")
+    print("=" * 80)
+
+    if not torch.cuda.is_available():
+        print("CUDA is not available.")
+        return
+
+    num_devices = torch.cuda.device_count()
+    print(f"CUDA devices: {num_devices}")
+
+    for i in range(num_devices):
+        props = torch.cuda.get_device_properties(i)
+
+        allocated = torch.cuda.memory_allocated(i)
+        reserved = torch.cuda.memory_reserved(i)
+        max_allocated = torch.cuda.max_memory_allocated(i)
+        max_reserved = torch.cuda.max_memory_reserved(i)
+
+        free, total = torch.cuda.mem_get_info(i)
+        used_total = total - free
+
+        print()
+        print(f"[cuda:{i}] {props.name}")
+        print(f"  Total memory        : {fmt_bytes(total)}")
+        print(f"  Free memory         : {fmt_bytes(free)}")
+        print(f"  Used memory         : {fmt_bytes(used_total)}")
+        print(f"  Torch allocated     : {fmt_bytes(allocated)}")
+        print(f"  Torch reserved      : {fmt_bytes(reserved)}")
+        print(f"  Max allocated       : {fmt_bytes(max_allocated)}")
+        print(f"  Max reserved        : {fmt_bytes(max_reserved)}")
+
+    print("=" * 80)
+
+
+# if __name__ == "__main__":
+#     dump_memory_usage()
+
+
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
     Implements the AutoRound algorithm from https://aclanthology.org/2024.findings-emnlp.662.pdf.
@@ -292,6 +364,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             align_module_device(decoding_layer),
             suspend_offloading(wrapped_model),
         ):
+            dump_memory_usage()
             self._update_device_map_for_dp(kwargs)
             ar = AutoRound(
                 model=wrapped_model,
