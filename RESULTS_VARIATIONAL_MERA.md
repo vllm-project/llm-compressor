@@ -1,22 +1,36 @@
-# Variational MERA: Breakthrough Results
+# Variational MERA: Experimental Results (OUTDATED)
 
 **Date:** June 21, 2026  
-**Objective:** Achieve 5-10x compression of LLM activations with 25-30 dB SNR  
-**Status:** ✅ **TARGET ACHIEVED**
+**Status:** ⚠️ **DOES NOT GENERALIZE - SEE README.md FOR WORKING APPROACH**
 
 ---
 
-## Executive Summary
+## ⚠️ Warning: This Approach Doesn't Generalize
 
-Successfully compressed LLM activations using a **Variational MERA** architecture with two-level adaptive bond dimensions:
+This document shows results from **per-position variational MERA** which achieved:
+- **8.00x compression @ 32.35 dB SNR** on training samples
+- **2.03x compression @ -42 dB SNR** on held-out samples
 
-### Final Results
+**The approach FAILS on unseen data.** It was later discovered that per-position bases don't transfer across samples.
+
+**For the working approach, see README.md** (shared bases: 3.94x @ 27 dB, generalizes)
+
+---
+
+## What This Document Shows (Training Set Only)
+
+Per-position variational MERA with two-level adaptive bond dimensions:
+
+### Results on Training Samples
 - **Compression:** 8.00x
 - **SNR:** 32.35 dB
 - **Method:** Per-layer + per-position variational chi with 99.9% energy threshold
 - **Architecture:** Deterministic SVD-based MERA (no gradient descent)
 
-**Key Innovation:** Allowing bond dimension (χ) to vary both per-layer AND per-position enables efficient compression while preserving signal quality.
+### Results on Held-Out Samples
+- **Compression:** 2.03x
+- **SNR:** -42.32 dB
+- **Conclusion:** Complete failure to generalize
 
 ---
 

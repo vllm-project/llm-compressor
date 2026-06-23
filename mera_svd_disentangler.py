@@ -87,8 +87,13 @@ class SVDDisentanglerMERA(nn.Module):
 
         # Energy-based truncation
         energy = (S_w ** 2).cumsum(0) / (S_w ** 2).sum()
-        chi_eff = (energy < self.energy_threshold).sum().item() + 1
-        chi_eff = min(chi_eff, 2 * chi_in)
+
+        if self.energy_threshold >= 1.0:
+            # Keep all singular values (no truncation)
+            chi_eff = min(len(S_w), 2 * chi_in)
+        else:
+            chi_eff = (energy < self.energy_threshold).sum().item() + 1
+            chi_eff = min(chi_eff, 2 * chi_in)
 
         # Truncate
         U_trunc = U_w[:, :chi_eff]
@@ -111,8 +116,83 @@ class SVDDisentanglerMERA(nn.Module):
 
         return X_compressed
 
+    def train_bases(self, batch, num_layers=2, verbose=True):
+        """Train bases from batch (call this ONCE on training set)."""
+        X = batch @ self.U_features
+        intermediates = [X]
+
+        self.layer_disentanglers = []
+        self.layer_isometries = []
+        self.layer_chi_effs = []
+
+        for layer_idx in range(num_layers):
+            if X.shape[1] < 2:
+                break
+
+            X = self.build_layer(X, verbose=verbose)
+            intermediates.append(X)
+
+            if X.shape[1] == 1:
+                break
+
+        if verbose:
+            print(f"\nTrained bases on {batch.shape[0]} samples")
+
+        return X, intermediates
+
+    def encode(self, sample, num_layers=None, verbose=False):
+        """Encode sample using LEARNED bases (don't rebuild!)."""
+        if not self.layer_disentanglers:
+            raise RuntimeError("Must call train_bases() first!")
+
+        num_layers = num_layers or len(self.layer_disentanglers)
+        batch_size = sample.shape[0]
+
+        X = sample @ self.U_features
+        intermediates = [X]
+
+        for layer_idx in range(num_layers):
+            if X.shape[1] < 2:
+                break
+
+            seq_len, chi_in = X.shape[1], X.shape[2]
+            n_pairs = seq_len // 2
+
+            # Extract and concatenate
+            x_even = X[:, 0::2, :]
+            x_odd = X[:, 1::2, :]
+            x_concat = torch.cat([x_even, x_odd], dim=-1)
+
+            # Apply LEARNED disentangler
+            u = self.layer_disentanglers[layer_idx]
+            x_flat = x_concat.reshape(-1, 2 * chi_in)
+            x_disentangled = x_flat @ u.T
+
+            # Apply LEARNED isometry (just matrix multiply, no new SVD!)
+            chi_eff = self.layer_chi_effs[layer_idx]
+            Vt_w = self.layer_isometries[layer_idx]
+
+            # Project onto learned basis: x_compressed = x_disentangled @ Vt_w.T
+            # Vt_w is [chi_eff, 2*chi_in]
+            # x_disentangled is [batch*n_pairs, 2*chi_in]
+            # Result: [batch*n_pairs, chi_eff]
+            X_compressed_flat = x_disentangled @ Vt_w.T
+
+            X = X_compressed_flat.reshape(batch_size, n_pairs, chi_eff)
+
+            intermediates.append(X)
+
+            if X.shape[1] == 1:
+                break
+
+        return X, intermediates
+
     def build_tree(self, batch, num_layers=2, verbose=True):
-        """Build MERA tree with disentanglers."""
+        """DEPRECATED: Use train_bases() and encode() instead.
+
+        This method rebuilds bases every call, which is incorrect for
+        train/test scenarios. Kept for backward compatibility only.
+        """
         X = batch @ self.U_features
         intermediates = [X]
 
