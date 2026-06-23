@@ -1,7 +1,9 @@
 from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.modifiers.gptq import GPTQModifier
@@ -63,6 +65,57 @@ def test_block_strategy_parsing(block_q_config_kwargs):
     w_scheme = resolved.config_groups["group_block"].weights
     assert w_scheme.strategy == "block"
     assert w_scheme.block_structure == [128, 128]
+
+
+def test_compress_module_list_passes_enable_compile():
+    modifier = GPTQModifier(targets=["Linear"], scheme="W4A16")
+    module = torch.nn.Linear(4, 3, bias=False)
+    quant_args = QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        strategy="group",
+        group_size=2,
+    )
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+
+    modifier._module_names = {module: "linear"}
+    modifier._hessians = {module: torch.eye(module.in_features)}
+    modifier._num_samples = {module: torch.ones(())}
+    modifier._enable_compile = True
+
+    with patch(
+        "llmcompressor.modifiers.gptq.base.quantize_weight",
+        return_value=(0.0, {}),
+    ) as quantize:
+        modifier.compress_module_list([module])
+
+    assert quantize.call_args.kwargs["enable_compile"] is True
+
+
+def test_on_calibration_start_sets_enable_compile():
+    modifier = GPTQModifier(targets=["Linear"], scheme="W4A16")
+    model = torch.nn.Sequential(torch.nn.Linear(4, 3, bias=False))
+    quant_args = QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        strategy="group",
+        group_size=2,
+    )
+    model[0].quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    state = SimpleNamespace(model=model, enable_compile=True)
+
+    with (
+        patch("llmcompressor.modifiers.gptq.base.QuantizationMixin.start_calibration"),
+        patch.object(GPTQModifier, "register_hook") as register_hook,
+    ):
+        modifier.on_calibration_start(state, event=None)
+
+    assert modifier._enable_compile is True
+    register_hook.assert_called_once()
 
 
 @pytest.mark.parametrize(

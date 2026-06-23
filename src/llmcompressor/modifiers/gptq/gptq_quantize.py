@@ -2,6 +2,7 @@ import math
 from copy import copy
 
 import torch
+import torch._dynamo.config
 import transformers
 from compressed_tensors.quantization import (
     ActivationOrdering,
@@ -14,6 +15,43 @@ from loguru import logger
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
+
+
+def _quantize_block(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    scale_cols: torch.Tensor,
+    zero_point_cols: torch.Tensor,
+    quant_args: QuantizationArgs,
+    global_scale: torch.Tensor | None,
+    count: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    Q1 = torch.zeros_like(W1)
+    Err1 = torch.zeros_like(W1)
+    losses1 = torch.zeros_like(W1)
+
+    for i in range(count):
+        w = W1[:, i]
+        d = Hinv1[i, i]
+        q = fake_quantize(
+            w,
+            scale_cols[:, i],
+            zero_point_cols[:, i],
+            quant_args,
+            global_scale=global_scale,
+        )
+        Q1[:, i] = q
+        losses1[:, i] = (w - q) ** 2 / d**2
+
+        err1 = (w - q) / d
+        w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
+        W1[:, i:] -= w1_err
+        Err1[:, i] = err1
+
+    return Q1, Err1, losses1
+
+
+_quantize_block_compiled = torch.compile(_quantize_block, dynamic=True)
 
 
 def make_empty_hessian(
@@ -68,6 +106,7 @@ def quantize_weight(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
+    enable_compile: bool = False,
 ) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
@@ -77,6 +116,7 @@ def quantize_weight(
     :param hessian: preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
+    :param enable_compile: whether to use compiled GPTQ kernels where available
     :return: loss, quantized_weight, scale, zero_point, g_idx
     """
     strategy = quant_args.strategy
@@ -161,16 +201,48 @@ def quantize_weight(
         )
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+        column_quant_args = copy(quant_args)
+        column_quant_args.strategy = QuantizationStrategy.CHANNEL
+    else:
+        column_quant_args = quant_args
+
+    use_compiled_block = enable_compile and strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+    )
+
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
         count = i2 - i1
 
         W1 = W[:, i1:i2].clone()
+        Hinv1 = Hinv[i1:i2, i1:i2]
+
+        if use_compiled_block:
+            cols = g_idx[i1:i2]
+            # _quantize_block mutates W1 during error propagation. W1 is not
+            # read after this call. Hinv1 is made contiguous so Dynamo does not
+            # specialize on the parent Hessian stride.
+            with torch._dynamo.config.patch(capture_scalar_outputs=True):
+                Q1, Err1, losses1 = _quantize_block_compiled(
+                    W1,
+                    Hinv1.contiguous(),
+                    scale[:, cols],
+                    zero_point[:, cols],
+                    column_quant_args,
+                    global_scale,
+                    count,
+                )
+            W[:, i1:i2] = Q1
+            losses += torch.sum(losses1, 1) / 2
+            W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
+            continue
+
         Q1 = torch.zeros_like(W1)
         Err1 = torch.zeros_like(W1)
         losses1 = torch.zeros_like(W1)
-        Hinv1 = Hinv[i1:i2, i1:i2]
 
         for i in range(count):
             w = W1[:, i]
@@ -195,20 +267,12 @@ def quantize_weight(
                 QuantizationStrategy.GROUP,
                 QuantizationStrategy.TENSOR_GROUP,
             ):
-                # get the group index for the current column
-                column_idx = i1 + i
-                group_index = g_idx[column_idx]
-
-                # Since we're only applying quantization to a slice, this
-                # ends up being a channelwise application
-                altered_qargs = copy(quant_args)
-                altered_qargs.strategy = QuantizationStrategy.CHANNEL
-
+                group_index = g_idx[i1 + i]
                 q = fake_quantize(
                     q,
                     scale[:, group_index],
                     zero_point[:, group_index],
-                    altered_qargs,
+                    column_quant_args,
                     global_scale=global_scale,
                 )
             elif strategy == QuantizationStrategy.BLOCK:
