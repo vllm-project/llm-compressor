@@ -13,10 +13,12 @@ from pydantic import ConfigDict, Field
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
+    get_layer_mappings_from_model,
+)
 from llmcompressor.modifiers.transform.smoothquant.utils import (
-    get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
@@ -81,8 +83,8 @@ class SmoothQuantModifier(Modifier):
        ignore: ["model.decoder.final_layer_norm"]
      ```
 
-     :param smoothing_strength: alpha, intensity of smoothing to perform (0-1 range)
-     :param mappings: list activation layers to smooth, and which layers to
+    :param smoothing_strength: alpha, intensity of smoothing to perform (0-1 range)
+    :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
         entry is a list of layers who share the same input activation (the one to be
@@ -90,12 +92,12 @@ class SmoothQuantModifier(Modifier):
         achieve the smoothing. If regex is used, it matches layers with the largest
         overlap in module name.  If not supplied the argument will be inferred from the
         model architecture.
-     :param ignore: list of layers to ignore during smoothing.
+    :param ignore: list of layers to ignore during smoothing.
         Mappings are only skipped if all layers in the mapping are ignored.
         It should match the name of layers whose outputs are scaled to
         achieve smoothing (the second entry of the mappings list).
-     :param num_calibration_steps: number of samples to use for calibration, or None to
-     use the whole dataset
+    :param num_calibration_steps: number of samples to use for calibration, or None to
+        use the whole dataset
     :param calibration_function: optional function to use for the forward pass, or None
     to use the default tensor_module_forward
     """
@@ -142,25 +144,14 @@ class SmoothQuantModifier(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         self._setup_scale_hooks()
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        self._apply_smoothing(state.model)
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self._apply_smoothing(state.model)
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-        self.remove_hooks()  # remove hooks
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
+        self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -187,9 +178,7 @@ class SmoothQuantModifier(Modifier):
             return self.mappings
 
         logger.info("No SmoothQuantModifier.mappings provided, inferring from model...")
-        return get_layer_mappings_from_architecture(
-            architecture=model.__class__.__name__
-        )
+        return get_layer_mappings_from_model(model)
 
     @handle_mapping_resolution_errors
     def _resolve_mappings(self, model: Module) -> list[SmoothQuantMapping]:

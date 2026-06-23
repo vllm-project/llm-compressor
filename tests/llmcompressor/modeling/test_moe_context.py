@@ -1,70 +1,42 @@
-from unittest.mock import patch
-
 import torch
-from compressed_tensors.offload.cache import OffloadCache
+from compressed_tensors.offload import disable_onloading
+from compressed_tensors.quantization import QuantizationMetadata
 
-from llmcompressor.modeling.moe_context import (
-    _apply_offloading_to_replacement,
-    _find_ancestor_with_offload_cache,
-)
-
-
-class MockOffloadCache(OffloadCache):
-    """Mock implementation of OffloadCache for testing."""
-
-    offload_device = "cpu"
-
-    def onload(self, offloaded):
-        return offloaded
-
-    def offload(self, tensor):
-        return tensor
-
-    def update_offload(self, offloaded, data):
-        if offloaded is not None and data is not None:
-            offloaded.copy_(data)
+from tests.e2e.e2e_utils import run_oneshot_single
+from tests.testing_utils import BaseTestConfig, requires_gpu
 
 
-def test_find_ancestor_with_offload_cache():
-    """Test finding ancestor modules with OffloadCache."""
-    # Module without offload cache
-    module_no_cache = torch.nn.Linear(10, 10)
-    assert _find_ancestor_with_offload_cache(module_no_cache) is None
+@requires_gpu(1)
+def test_oneshot_integration():
+    """
+    Tests that moe_calibration_context is called within oneshot
+    """
+    config = BaseTestConfig(
+        cadence="commit",
+        model="nm-testing/tinysmokeqwen3moe",
+        scheme="NVFP4",
+        dataset_id="HuggingFaceH4/ultrachat_200k",
+        dataset_split="train_sft",
+        num_calibration_samples=1,
+        max_seq_length=1,  # not enough tokens to send to all experts w/o context
+    )
 
-    # Module with offload cache
-    module_with_cache = torch.nn.Linear(10, 10)
-    module_with_cache._parameters = MockOffloadCache(onload_device="cpu")
-    assert _find_ancestor_with_offload_cache(module_with_cache) is module_with_cache
-
-    # Parent with child that has cache
-    parent = torch.nn.Sequential(module_with_cache)
-    assert _find_ancestor_with_offload_cache(parent) is module_with_cache
-
-
-@patch("llmcompressor.modeling.moe_context.get_cache_init_kwargs")
-@patch("llmcompressor.modeling.moe_context.offload_module")
-def test_apply_offloading_to_replacement(mock_offload, mock_get_kwargs):
-    """Test offloading is applied from original to replacement."""
-    mock_get_kwargs.return_value = {"device": "cpu"}
-
-    # Original with offload cache
-    original = torch.nn.Sequential(torch.nn.Linear(10, 10))
-    original[0]._parameters = MockOffloadCache(onload_device="cpu")
-
-    # Replacement without cache
-    replacement = torch.nn.Sequential(torch.nn.Linear(10, 10))
-
-    _apply_offloading_to_replacement(original, replacement)
-
-    # Should call offload_module for the child linear layer
-    assert mock_offload.called
-    assert mock_get_kwargs.called
+    model = run_oneshot_single(**config.model_dump())
+    _test_qparams(model)
 
 
-def test_apply_offloading_no_cache():
-    """Test no offloading applied when original has no cache."""
-    original = torch.nn.Linear(10, 10)
-    replacement = torch.nn.Linear(10, 10)
+def _test_qparams(model: torch.nn.Module):
+    all_qparam_names = QuantizationMetadata.all_qparam_names()
 
-    # Should not raise, just return early
-    _apply_offloading_to_replacement(original, replacement)
+    with disable_onloading():
+        all_qparams = [
+            (module_name + "." + qparam_name, getattr(module, qparam_name))
+            for module_name, module in model.named_modules()
+            for qparam_name in all_qparam_names
+            if hasattr(module, qparam_name)
+        ]
+    assert len(all_qparams) > 0, "Model does not have any qparams to test"
+
+    for name, qparam in all_qparams:
+        assert isinstance(qparam, torch.Tensor)
+        assert qparam._version >= 1, f"{name} was never updated after initialization"

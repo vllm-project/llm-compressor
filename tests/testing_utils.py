@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -10,7 +11,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union
 import pandas as pd
 import pytest
 import torch
-import transformers as _transformers
 import yaml
 from datasets import Dataset
 from loguru import logger
@@ -221,9 +221,8 @@ class BaseTestConfig(BaseModel):
         None,
         description="Dataset split (e.g. 'train_sft', 'train').",
     )
-    num_calibration_samples: int = Field(
-        512, description="Number of calibration samples"
-    )
+    num_calibration_samples: int = Field(512, description="Num of calibration samples")
+    max_seq_length: int = Field(2048, description="Max calibration sequence length")
 
     # -------------------------------------------------------------------------
     # Model / quantization overrides
@@ -389,27 +388,34 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     return pytest.mark.skipif(not has_capability, reason=reason)
 
 
-def torchrun(world_size: int = 1):
+def torchrun(world_size: int = 1, init_dist: bool = False):
     """
     Pytest decorator to run a test within parallel torchrun subprocesses.
 
     This decorator automatically spawns torchrun when the test is run with regular
     pytest.
-    When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it simply
-    runs the test. The test is responsible for its own distributed initialization.
+    When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it
+    optionally initializes the distributed process group before running the test.
 
     related to https://github.com/vllm-project/compressed-tensors/blob/main/tests/test_offload/conftest.py#L81
 
     Usage:
         @pytest.mark.unit
         @requires_gpu(2)
-        @torchrun(world_size=2)
+        @torchrun(world_size=2, init_dist=True)
         def test_distributed_feature():
-            # Test must handle its own distributed setup
-            torch.distributed.init_process_group(...)
+            # Distributed already initialized
+            ...
+
+        @torchrun(world_size=2)  # init_dist=False by default
+        def test_custom_init():
+            # Handle your own distributed setup
+            from compressed_tensors.offload import init_dist
+            init_dist()
             ...
 
     :param world_size: number of ranks to spawn
+    :param init_dist: whether to automatically call init_dist() (default: False)
     """
     import subprocess
     import sys
@@ -417,8 +423,12 @@ def torchrun(world_size: int = 1):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # We're running in a torchrun subprocess: just run the test
+            # We're running in a torchrun subprocess: optionally init then run the test
             if "TORCHELASTIC_RUN_ID" in os.environ:
+                if init_dist:
+                    from compressed_tensors.offload import init_dist as _init_dist
+
+                    _init_dist()
                 return func(*args, **kwargs)
 
             # First time calling in the main process:
@@ -443,7 +453,7 @@ def torchrun(world_size: int = 1):
                     "--nproc_per_node",
                     str(world_size),
                     "--log-dir",
-                    "/tmp/torchrun-logs",
+                    tempfile.mkdtemp(prefix="torchrun-logs-"),
                     "--tee",
                     "3",
                     "--role",
@@ -452,6 +462,8 @@ def torchrun(world_size: int = 1):
                     "pytest",
                     f"{file_path}::{func_name}",
                     "-sx",
+                    "--basetemp",
+                    f"/tmp/pytest-torchrun-{func_name}",
                 ]
 
                 # If coverage is enabled (--cov in PYTEST_ADDOPTS), prevent
@@ -472,19 +484,6 @@ def torchrun(world_size: int = 1):
 requires_hf_token: callable = pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tests requiring gated model access",
-)
-
-
-_TRANSFORMERS_MAJOR = int(_transformers.__version__.split(".")[0])
-
-requires_transformers_v5: pytest.MarkDecorator = pytest.mark.skipif(
-    _TRANSFORMERS_MAJOR < 5,
-    reason="Requires transformers v5+",
-)
-
-requires_transformers_v4: pytest.MarkDecorator = pytest.mark.skipif(
-    _TRANSFORMERS_MAJOR >= 5,
-    reason="Requires transformers v4 (not compatible with v5+)",
 )
 
 
