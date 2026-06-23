@@ -1,3 +1,4 @@
+from compressed_tensors.distributed import init_dist
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
@@ -10,6 +11,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
@@ -23,6 +25,7 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/DeepSeek-V4-Pro-BF16"
 # MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 
+init_dist()
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
@@ -50,8 +53,7 @@ MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
 ds = load_dataset(
-    DATASET_ID,
-    split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
+    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
 )
 ds = ds.shuffle(seed=42)
 
@@ -127,18 +129,19 @@ oneshot(
     model=model,
     processor=tokenizer,
     dataset=ds,
-    # recipe=recipe,
+    recipe=recipe,
     pipeline="sequential",
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     sequential_targets=["DeepseekV4DecoderLayer"],
-    batch_size=1,
+    batch_size=16,
     shuffle_calibration_samples=True,
     propagate_error=False,  # work around reliance on transformers cache
     # something weird happens with the cache and propagation
 )
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+# SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+SAVE_DIR = "/mnt/nvme-data/engine/kylesayrs/DeepSeek-V4-Pro-NVFP4-FP8-BLOCK"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
