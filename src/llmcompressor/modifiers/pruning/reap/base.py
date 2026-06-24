@@ -20,11 +20,8 @@ from llmcompressor.modifiers.pruning.reap.utils import (
     assert_routing_feasible,
     compute_retained_experts,
     detect_moe_attrs,
-    extract_routing,
     find_moe_layers,
     get_num_experts,
-    get_router_num_groups,
-    get_router_topk_group,
     prune_moe_layer,
     update_model_config,
 )
@@ -57,9 +54,7 @@ class REAPPruningModifier(Modifier):
     calibration context has exited and a layer's second error-propagation pass,
     if any, has run).
 
-    :param sparsity: fraction of experts to remove per layer (0, 1). For
-        group-limited routers (DeepSeek-V3, GLM4, GLM-MoE-DSA) the count is
-        rounded to an equal number per expert group.
+    :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
 
     Example recipe::
@@ -78,14 +73,12 @@ class REAPPruningModifier(Modifier):
     )
     _top_k: int = PrivateAttr(default=2)
     _num_experts: int = PrivateAttr(default=0)
-    _n_group: int = PrivateAttr(default=1)
     _n_experts_to_drop: int = PrivateAttr(default=0)
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
     _pruned: set[str] = PrivateAttr(default_factory=set)
     _original_moe_calibrate_all_experts: bool | None = PrivateAttr(default=None)
-    _routing_cache: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
@@ -99,27 +92,26 @@ class REAPPruningModifier(Modifier):
         self._attrs = detect_moe_attrs(model)
         if self._attrs is None:
             raise ValueError(
-                "Could not detect a supported MoE architecture. REAP requires an "
-                "MoE model with a calibration wrapper that routes all tokens to "
-                "all experts."
+                "Could not detect a supported MoE architecture. REAP requires access",
+                " to the experts block of each MoE layer, as well at the router's ",
+                "num-experts attribute. Update EXPERTS_ATTRS and/or ",
+                "NUM_EXPERTS_ATTRS in utils.py to add more support."
             )
 
         moe_layers = find_moe_layers(model, self._attrs, self.ignore)
         if not moe_layers:
-            raise ValueError("No MoE layers found in model.")
+            raise ValueError("No valid MoE layers found in model.")
         self._moe_layer_names = list(moe_layers.keys())
 
         config = model.config
         text_config = getattr(config, "text_config", config)
         self._top_k = getattr(text_config, "num_experts_per_tok", 2)
 
-        # fast fail if all layers do not have same num_experts, n_group,
-        # and topk_group (non-homogeneous)
+        # fast fail if all layers do not have same num_experts
         assert_homogeneous_moe(moe_layers, self._attrs)
 
         sample_module = next(iter(moe_layers.values()))
         self._num_experts = get_num_experts(sample_module, self._attrs)
-        self._n_group = get_router_num_groups(sample_module, self._attrs, True)
         self._n_experts_to_drop = int(self._num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
@@ -134,8 +126,6 @@ class REAPPruningModifier(Modifier):
             assert_routing_feasible(
                 self._num_experts,
                 self._n_experts_to_drop,
-                self._n_group,
-                get_router_topk_group(sample_module, self._attrs, True),
                 self._top_k,
             )
 
@@ -143,7 +133,6 @@ class REAPPruningModifier(Modifier):
             f"REAP initialized: {len(moe_layers)} MoE layers, "
             f"{self._num_experts} experts/layer, will drop "
             f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
-            + (f", n_group={self._n_group}" if self._n_group > 1 else "")
         )
 
         return True
@@ -168,31 +157,17 @@ class REAPPruningModifier(Modifier):
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(self._num_experts)
             self._norm_buffers[layer_name] = {}
 
-            # capture the router's raw output so routing is read from the model
-            # itself rather than recomputed (correct for every routing scheme)
-            router = getattr(module, self._attrs.router_attr)
-            self.register_hook(
-                router, partial(self._router_hook, layer_name), "forward"
-            )
-
             # one hook per expert to record its per-token output norm
             experts = getattr(module, self._attrs.experts_attr)
             expert_list = [expert for expert in experts.children() if isinstance(expert, ExpertMLP)] # Filter out the activation function
-            n_expert_hooks = 0
             for idx, expert in enumerate(expert_list): 
                 self.register_hook(
                     expert, partial(self._expert_hook, layer_name, idx), "forward"
                 )
-                n_expert_hooks += 1
-            if n_expert_hooks == 0:
-                raise RuntimeError(
-                    f"REAP could not register per-expert hooks for '{layer_name}': "
-                    f"the experts module ({experts.__class__.__name__}) has no "
-                    "child modules. Fused experts are not supported."
-                )
-
+            
+            # hook for the experts block to capture the router's top-k routing decisions and weights
             self.register_hook(
-                module, partial(self._moe_post_hook, layer_name), "forward"
+                experts, partial(self._experts_block_hook, layer_name), "forward"
             )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
@@ -229,7 +204,6 @@ class REAPPruningModifier(Modifier):
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
-        self._routing_cache.clear()
 
         return True
 
@@ -250,7 +224,7 @@ class REAPPruningModifier(Modifier):
                 continue
 
             retained = compute_retained_experts(
-                tracker.mean_saliency, self._n_experts_to_drop, self._n_group
+                tracker.mean_saliency, self._n_experts_to_drop
             )
             prune_moe_layer(model, layer_name, retained, self._attrs)
             self._pruned.add(layer_name)
@@ -258,19 +232,8 @@ class REAPPruningModifier(Modifier):
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]
             self._norm_buffers.pop(layer_name, None)
-            self._routing_cache.pop(layer_name, None)
 
     # -- calibration hooks ---------------------------------------------------
-
-    def _router_hook(
-        self, layer_name: str, module: torch.nn.Module, args: tuple, output: Any
-    ):
-        """Cache the router's raw forward output for this layer/batch."""
-        # hooks stay registered through the pipeline's error-propagation pass,
-        # which re-runs an already-finalized subgraph; ignore those calls
-        if layer_name not in self._saliency_trackers:
-            return
-        self._routing_cache[layer_name] = output
 
     def _expert_hook(
         self,
@@ -289,26 +252,24 @@ class REAPPruningModifier(Modifier):
             norms = torch.linalg.norm(output.float(), dim=-1).reshape(-1)
         self._norm_buffers[layer_name][expert_idx] = norms
 
-    def _moe_post_hook(
+    def _experts_block_hook(
         self,
         layer_name: str,
         module: torch.nn.Module,
         args: tuple,
         output: Any,
     ):
-        """Combine cached routing decisions with buffered expert norms."""
+        """Combine router decisions with expert norms to update saliency."""
+        top_k_indices = args[1]
+        top_k_weights = args[2]
+
         tracker = self._saliency_trackers.get(layer_name)
-        router_output = self._routing_cache.get(layer_name)
-        if tracker is None or router_output is None:
+        if tracker is None:
             return
 
         norm_buffer = self._norm_buffers[layer_name]
 
         with torch.no_grad():
-            topk_indices, topk_weights = extract_routing(
-                router_output, module, self._attrs, self._top_k
-            )
-            tracker.update(topk_indices, topk_weights, norm_buffer)
-
+            tracker.update(top_k_indices, top_k_weights, norm_buffer)
+        
         self._norm_buffers[layer_name] = {}
-        self._routing_cache[layer_name] = None
