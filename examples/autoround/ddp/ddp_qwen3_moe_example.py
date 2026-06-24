@@ -1,8 +1,9 @@
 """
 DDP AutoRound quantization example for large MoE models.
 
-Runs 2 ranks, each using GPUS_PER_GROUP GPUs. All ranks load the model
-independently on CPU (safetensors mmap shares physical pages at OS level).
+Uses the standard compressed-tensors DDP path: load_offloaded_model()
+broadcasts weights from rank 0 to rank 1.  GPUS_PER_GROUP controls how
+many GPUs each rank uses for per-block model parallelism.
 
 Run with:
   CUDA_VISIBLE_DEVICES=0,1,2,3 GPUS_PER_GROUP=2 torchrun \
@@ -14,15 +15,14 @@ import time
 
 import torch
 import torch.distributed as dist
+from compressed_tensors.offload import load_offloaded_model
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
 from llmcompressor import oneshot
-from compressed_tensors.offload.cache.base import force_local_cache
 
 MODEL = "/storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507"
 SCHEME = "W4A16"
-ITERS = 100
+ITERS = 200
 NSAMPLES = 256
 
 ###### DDP INIT #####
@@ -38,7 +38,6 @@ dist.init_process_group(
 
 rank = dist.get_rank()
 world_size = dist.get_world_size()
-main_gpu = rank * gpus_per_group
 logger.info(
     f"[Rank {rank}/{world_size}] GPUs: {torch.cuda.device_count()}, "
     f"main_gpu: {main_gpu}, group: [{main_gpu}-{main_gpu + gpus_per_group - 1}]"
@@ -46,9 +45,11 @@ logger.info(
 
 ###### MODEL LOAD #####
 load_start = time.perf_counter()
-model = AutoModelForCausalLM.from_pretrained(MODEL, dtype="auto")
-load_elapsed = time.perf_counter() - load_start
-logger.info(f"[Rank {rank}] Model loaded on CPU in {load_elapsed:.1f}s")
+with load_offloaded_model():
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL, dtype="auto", device_map="auto_offload",
+    )
+logger.info(f"[Rank {rank}] Loaded in {time.perf_counter() - load_start:.1f}s")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
@@ -60,6 +61,7 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 ds = get_dataset(tokenizer=tokenizer, seqlen=2048, nsamples=NSAMPLES)
 
 ###### RECIPE #####
+
 recipe = AutoRoundModifier(
     targets="Linear",
     scheme=SCHEME,
@@ -71,17 +73,15 @@ recipe = AutoRoundModifier(
 ###### QUANTIZE #####
 logger.info(f"[Rank {rank}] Starting oneshot...")
 quant_start = time.perf_counter()
-with force_local_cache():
-    oneshot(
-        model=model,
-        dataset=ds,
-        recipe=recipe,
-        max_seq_length=2048,
-        num_calibration_samples=NSAMPLES,
-        shuffle_calibration_samples=False,
-    )
-quant_elapsed = time.perf_counter() - quant_start
-logger.info(f"[Rank {rank}] Quantization done in {quant_elapsed:.1f}s")
+oneshot(
+    model=model,
+    dataset=ds,
+    recipe=recipe,
+    max_seq_length=2048,
+    num_calibration_samples=NSAMPLES,
+    shuffle_calibration_samples=False,
+)
+logger.info(f"[Rank {rank}] Quantization done in {time.perf_counter() - quant_start:.1f}s")
 
 if dist.is_initialized():
     dist.barrier()
@@ -93,8 +93,7 @@ if dist.is_initialized():
 
 if rank == 0:
     save_dir = (
-         "/storage/yiliu7/Qwen/"
-         + MODEL.rstrip("/").split("/")[-1]
+        MODEL.rstrip("/").split("/")[-1]
         + f"-{SCHEME}-AutoRound"
         + f"-iters{ITERS}-nsamples{NSAMPLES}"
         + f"-DDP{world_size}"
