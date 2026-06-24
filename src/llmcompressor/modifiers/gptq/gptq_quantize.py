@@ -11,7 +11,6 @@ from compressed_tensors.quantization import (
 )
 from loguru import logger
 
-
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
