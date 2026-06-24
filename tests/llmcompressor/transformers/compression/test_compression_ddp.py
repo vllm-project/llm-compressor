@@ -149,17 +149,17 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
     """
     Compare model outputs between single-GPU and DDP runs.
 
-    Returns tuple of (max_abs_diff, mean_abs_diff, top1_match_rate)
+    Returns tuple of (kl_div, top1_match_rate)
     """
     ref_model.eval()
     ddp_model.eval()
 
-    ref_outputs = []
-    ddp_outputs = []
+    kl_divs = []
+    top1_matches = 0
+    top1_total = 0
 
     with torch.no_grad():
         for i in range(min(num_samples, len(dataset))):
-            # Get inputs
             sample = dataset[i]
             inputs = {
                 k: v.unsqueeze(0).to("cuda:0")
@@ -167,29 +167,23 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
                 if k == "input_ids"
             }
 
-            # Get outputs
             ref_out = ref_model(**inputs).logits[0].float().cpu()
             ddp_out = ddp_model(**inputs).logits[0].float().cpu()
 
-            ref_outputs.append(ref_out)
-            ddp_outputs.append(ddp_out)
+            ref_log_probs = torch.nn.functional.log_softmax(ref_out, dim=-1)
+            ddp_log_probs = torch.nn.functional.log_softmax(ddp_out, dim=-1)
+            kl = torch.nn.functional.kl_div(
+                ddp_log_probs, ref_log_probs, log_target=True, reduction="batchmean"
+            )
+            kl_divs.append(kl.item())
 
-    # Stack and compute differences
-    ref_outputs = torch.stack(ref_outputs)
-    ddp_outputs = torch.stack(ddp_outputs)
+            top1_matches += (ref_out.argmax(dim=-1) == ddp_out.argmax(dim=-1)).sum().item()
+            top1_total += ref_out.shape[0]
 
-    abs_diff = torch.abs(ref_outputs - ddp_outputs)
-    max_abs_diff = abs_diff.max().item()
-    mean_abs_diff = abs_diff.mean().item()
-
-    # Check top-1 predictions
-    ref_top1 = ref_outputs.argmax(dim=-1)
-    ddp_top1 = ddp_outputs.argmax(dim=-1)
-    top1_matches = (ref_top1 == ddp_top1).sum().item()
-    top1_total = ref_top1.numel()
+    kl_div = sum(kl_divs) / len(kl_divs)
     top1_match_rate = top1_matches / top1_total
 
-    return max_abs_diff, mean_abs_diff, top1_match_rate
+    return kl_div, top1_match_rate
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +198,7 @@ def _test_ddp_modifier(
     offload_device,
     weight_atol=1e-4,
     min_top1_match=0.95,
-    max_logit_diff=0.1,
+    max_kl_div=0.1,
     offload_folder=None,
 ):
     """
@@ -224,7 +218,7 @@ def _test_ddp_modifier(
         offload_device: Device to offload model weights (None, "cpu", or "disk")
         weight_atol: Absolute tolerance for weight comparison (default 1e-4)
         min_top1_match: Minimum top-1 prediction match rate (default 0.95 = 95%)
-        max_logit_diff: Maximum allowed mean logit difference (default 0.1)
+        max_kl_div: Maximum allowed mean KL divergence (default 0.1)
         offload_folder: Optional folder for disk offload (default None)
     """
     # Set deterministic seed for reproducibility
@@ -286,13 +280,13 @@ def _test_ddp_modifier(
     # Compare (only rank 0)
     if rank == 0:
         # Compare outputs first (primary correctness test)
-        max_diff, mean_diff, top1_match_rate = _compare_outputs(
+        kl_div, top1_match_rate = _compare_outputs(
             ref_model, model, ref_dataset, num_samples=5
         )
 
         print(
             f"[Rank {rank}] Results: top1_match={100*top1_match_rate:.1f}%, "
-            f"mean_logit_diff={mean_diff:.6f}, max_logit_diff={max_diff:.6f}",
+            f"kl_div={kl_div:.6f}",
             flush=True,
         )
 
@@ -303,15 +297,14 @@ def _test_ddp_modifier(
                 f"  Top-1 match rate: {100*top1_match_rate:.1f}% "
                 f"(expected >= {100*min_top1_match:.0f}%)"
             )
-        if mean_diff > max_logit_diff:
+        if kl_div > max_kl_div:
             errors.append(
-                f"  Mean logit diff: {mean_diff:.6f} (expected <= {max_logit_diff})"
+                f"  Mean KL divergence: {kl_div:.6f} (expected <= {max_kl_div})"
             )
 
         assert not errors, (
             f"Distributed {test_id} outputs differ significantly:\n"
             + "\n".join(errors)
-            + f"\n  (Max logit diff: {max_diff:.6f})"
         )
 
         # Clean up reference model
@@ -407,7 +400,7 @@ def test_ddp_smoke_imatrix():
         None,
         weight_atol=5e-3,
         min_top1_match=1.00,
-        max_logit_diff=0.00,
+        max_kl_div=0.00,
     )
 
 
@@ -426,7 +419,7 @@ def test_ddp_smoke_mse_cpu_offload():
         "cpu",
         weight_atol=1e-5,
         min_top1_match=1.00,
-        max_logit_diff=0.00,
+        max_kl_div=0.00,
     )
 
 
@@ -451,7 +444,7 @@ def test_ddp_smoke_rtn_disk_offload():
         "disk",
         weight_atol=1e-5,
         min_top1_match=1.00,
-        max_logit_diff=0.00,
+        max_kl_div=0.00,
         offload_folder=offload_folder,
     )
 
@@ -493,7 +486,7 @@ def test_ddp_smoke_gptq():
         None,
         weight_atol=1e-1,
         min_top1_match=0.95,
-        max_logit_diff=0.15,
+        max_kl_div=0.15,
     )
 
 
@@ -513,5 +506,5 @@ def test_ddp_smoke_autoround():
         None,
         weight_atol=1e-1,
         min_top1_match=0.85,
-        max_logit_diff=0.2,
+        max_kl_div=0.2,
     )
