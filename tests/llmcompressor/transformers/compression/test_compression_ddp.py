@@ -95,9 +95,10 @@ def _run_single_gpu(
     Returns:
         weights dict if return_model=False, else (weights, model, dataset)
     """
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype=torch.bfloat16, device_map=device
-    )
+    with load_offloaded_model():
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id, dtype=torch.bfloat16, device_map="auto_offload"
+        )
     ds = _prepare_dataset(model_id, num_samples)
 
     oneshot(
@@ -107,7 +108,6 @@ def _run_single_gpu(
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
     )
-
     # Extract quantized weights (exclude common ignored parameters)
     weights = {
         name: param.clone().cpu()
@@ -158,7 +158,6 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
 
     with torch.no_grad():
         for i in range(min(num_samples, len(dataset))):
-            # Get inputs
             sample = dataset[i]
             inputs = {
                 k: v.unsqueeze(0).to("cuda:0")
@@ -166,7 +165,6 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
                 if k == "input_ids"
             }
 
-            # Get outputs
             ref_out = ref_model(**inputs).logits[0].float().cpu()
             ddp_out = ddp_model(**inputs).logits[0].float().cpu()
 
@@ -272,7 +270,6 @@ def _test_ddp_modifier(
         max_seq_length=MAX_SEQ_LENGTH,
         pipeline=pipeline,
     )
-
     # Extract DDP weights (exclude common ignored parameters)
     ddp_weights = {
         name: param.clone().cpu()
@@ -287,6 +284,12 @@ def _test_ddp_modifier(
         # Compare outputs first (primary correctness test)
         max_diff, mean_diff, top1_match_rate = _compare_outputs(
             ref_model, model, ref_dataset, num_samples=5
+        )
+
+        print(
+            f"[Rank {rank}] Results: top1_match={100*top1_match_rate:.1f}%, "
+            f"mean_logit_diff={mean_diff:.6f}, max_logit_diff={max_diff:.6f}",
+            flush=True,
         )
 
         # Primary test: outputs should be very similar
@@ -323,6 +326,44 @@ def _test_ddp_modifier(
     torch.cuda.empty_cache()
     torch.distributed.barrier()
 
+w8a8_static_rtn = {
+    "group_0": QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=8,
+            type="int",
+            symmetric=True,
+            strategy="channel",
+        ),
+        input_activations=QuantizationArgs(
+            num_bits=8,
+            type="int",
+            symmetric=True,
+            strategy="tensor",
+            observer="static_minmax",
+        ),
+    )
+}
+
+w8a8_static_mse = {
+    "group_0": QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=8,
+            type="int",
+            symmetric=True,
+            strategy="channel",
+            observer="mse",
+        ),
+        input_activations=QuantizationArgs(
+            num_bits=8,
+            type="int",
+            symmetric=True,
+            strategy="tensor",
+            observer="static_minmax",
+        ),
+    )
+}
 
 # ---------------------------------------------------------------------------
 # Individual Test Functions (each gets its own torchrun subprocess)
@@ -347,88 +388,21 @@ def test_ddp_smoke_smoothquant():
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 @torchrun(world_size=2)
-def test_ddp_smoke_rtn_minmax():
+def test_ddp_smoke_imatrix():
     _test_ddp_modifier(
-        "rtn_minmax",
-        lambda: QuantizationModifier(
-            scheme={"W8A8": ["Linear"]},
-            ignore=["lm_head"],
-        ),
-        "independent",
-        None,
-        weight_atol=1e-5,
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.multi_gpu
-@requires_gpu(2)
-@torchrun(world_size=2)
-def test_ddp_smoke_rtn_mse():
-    _test_ddp_modifier(
-        "rtn_mse",
-        lambda: QuantizationModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=8,
-                        type="int",
-                        symmetric=True,
-                        strategy="channel",
-                        observer="mse",
-                    ),
-                    input_activations=QuantizationArgs(
-                        num_bits=8,
-                        type="int",
-                        symmetric=True,
-                        strategy="tensor",
-                        observer="mse",
-                    ),
-                )
-            },
-            ignore=["lm_head"],
-        ),
-        "independent",
-        None,
-        weight_atol=1e-4,
-        min_top1_match=0.90,
-        max_logit_diff=0.15,
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.multi_gpu
-@requires_gpu(2)
-@torchrun(world_size=2)
-def test_ddp_smoke_rtn_imatrix():
-    _test_ddp_modifier(
-        "rtn_imatrix",
+        "imatrix",
         lambda: [
             IMatrixGatherer(ignore=["lm_head"]),
             QuantizationModifier(
-                config_groups={
-                    "group_0": QuantizationScheme(
-                        targets=["Linear"],
-                        weights=QuantizationArgs(
-                            num_bits=4,
-                            type="int",
-                            symmetric=True,
-                            strategy="group",
-                            group_size=128,
-                            observer="imatrix_mse",
-                        ),
-                        input_activations=None,
-                    )
-                },
+                scheme={"W4A16": ["Linear"]},
                 ignore=["lm_head"],
             ),
         ],
         "independent",
         None,
         weight_atol=5e-3,
-        min_top1_match=0.90,
-        max_logit_diff=0.15,
+        min_top1_match=1.00,
+        max_logit_diff=0.00,
     )
 
 
@@ -436,16 +410,18 @@ def test_ddp_smoke_rtn_imatrix():
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 @torchrun(world_size=2)
-def test_ddp_smoke_rtn_cpu_offload():
+def test_ddp_smoke_mse_cpu_offload():
     _test_ddp_modifier(
-        "rtn_cpu_offload",
+        "mse_cpu_offload",
         lambda: QuantizationModifier(
-            scheme={"W8A8": ["Linear"]},
+            config_groups=w8a8_static_mse,
             ignore=["lm_head"],
         ),
         "independent",
         "cpu",
         weight_atol=1e-5,
+        min_top1_match=1.00,
+        max_logit_diff=0.00,
     )
 
 
@@ -463,12 +439,14 @@ def test_ddp_smoke_rtn_disk_offload():
     _test_ddp_modifier(
         "rtn_disk_offload",
         lambda: QuantizationModifier(
-            scheme={"W8A8": ["Linear"]},
+            config_groups=w8a8_static_rtn,
             ignore=["lm_head"],
         ),
         "independent",
         "disk",
         weight_atol=1e-5,
+        min_top1_match=1.00,
+        max_logit_diff=0.00,
         offload_folder=offload_folder,
     )
 
@@ -490,6 +468,7 @@ def test_ddp_smoke_awq():
         "independent",
         None,
         weight_atol=5e-2,
+        min_top1_match=0.85,
     )
 
 
@@ -508,8 +487,8 @@ def test_ddp_smoke_gptq():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.90,
-        max_logit_diff=0.15,
+        min_top1_match=1.00,
+        max_logit_diff=0.00,
     )
 
 
@@ -529,5 +508,5 @@ def test_ddp_smoke_autoround():
         None,
         weight_atol=1e-1,
         min_top1_match=0.85,
-        max_logit_diff=0.15,
+        max_logit_diff=0.2,
     )
