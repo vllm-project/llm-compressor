@@ -22,8 +22,8 @@ from llmcompressor import oneshot
 
 MODEL = "/storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507"
 SCHEME = "W4A16"
-ITERS = 200
-NSAMPLES = 256
+ITERS = 1
+NSAMPLES = 4
 
 ###### DDP INIT #####
 gpus_per_group = int(os.environ.get("GPUS_PER_GROUP", "1"))
@@ -87,10 +87,6 @@ if dist.is_initialized():
     dist.barrier()
 
 ###### SAVE (rank 0 only) #####
-if dist.is_initialized():
-    dist.barrier()
-    dist.destroy_process_group()
-
 if rank == 0:
     save_dir = (
         MODEL.rstrip("/").split("/")[-1]
@@ -114,5 +110,9 @@ if rank == 0:
     output = model.generate(**sample, max_new_tokens=100)
     logger.info(tokenizer.decode(output[0]))
     logger.info("==========================================")
+
+if dist.is_initialized():
+    dist.barrier()
+    dist.destroy_process_group()
 
 logger.info(f"[Rank {rank}] SUCCESS")

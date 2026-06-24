@@ -173,9 +173,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks
+        # apply config to model and prepare calibration hooks.
+        # Wrap in disable_onloading to suppress DistributedCPUCache's
+        # per-param broadcast+barrier when creating quant params (scale,
+        # zero_point). With GPUS_PER_GROUP > 1, modules have varying GPU
+        # execution devices, causing GPU→CPU copy timing to vary between
+        # ranks → broadcast deadlock. Quant params are deterministic —
+        # each rank computes identical values, no sync needed.
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            from compressed_tensors.offload import disable_onloading
+
+            with disable_onloading():
+                QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
         self._add_temporary_names(state.model)
@@ -310,7 +319,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # across multiple GPUs within the rank.
             auto_offload = False
             needs_multi_gpu = (
-                self.device_ids is not None or _get_local_gpu_group_size() > 1
+                self.device_ids is not None
+                or _get_local_gpu_group_size() > 1
+                or torch.cuda.device_count() > 1
             )
             if needs_multi_gpu:
                 # Let AutoRound own placement within the rank-local GPU group.
@@ -323,6 +334,21 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # will be re-dispatched by AutoRound.
                 decoding_layer.to("cpu")
                 auto_offload = True
+                # Move cached inputs to the anchor device — they may have
+                # been captured on different GPUs during calibration.
+                cur_inputs = [
+                    (
+                        tuple(
+                            x.to(device) if isinstance(x, torch.Tensor) else x
+                            for x in args
+                        ),
+                        {
+                            k: v.to(device) if isinstance(v, torch.Tensor) else v
+                            for k, v in kwargs.items()
+                        },
+                    )
+                    for args, kwargs in cur_inputs
+                ]
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
