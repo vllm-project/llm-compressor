@@ -108,6 +108,7 @@ def _run_single_gpu(
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
     )
+
     # Extract quantized weights (exclude common ignored parameters)
     weights = {
         name: param.clone().cpu()
@@ -158,6 +159,7 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
 
     with torch.no_grad():
         for i in range(min(num_samples, len(dataset))):
+            # Get inputs
             sample = dataset[i]
             inputs = {
                 k: v.unsqueeze(0).to("cuda:0")
@@ -165,6 +167,7 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
                 if k == "input_ids"
             }
 
+            # Get outputs
             ref_out = ref_model(**inputs).logits[0].float().cpu()
             ddp_out = ddp_model(**inputs).logits[0].float().cpu()
 
@@ -270,6 +273,7 @@ def _test_ddp_modifier(
         max_seq_length=MAX_SEQ_LENGTH,
         pipeline=pipeline,
     )
+
     # Extract DDP weights (exclude common ignored parameters)
     ddp_weights = {
         name: param.clone().cpu()
@@ -325,6 +329,7 @@ def _test_ddp_modifier(
     del model
     torch.cuda.empty_cache()
     torch.distributed.barrier()
+
 
 w8a8_static_rtn = {
     "group_0": QuantizationScheme(
