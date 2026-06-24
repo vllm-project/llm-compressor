@@ -108,6 +108,9 @@ class Observer(InternalModule, RegistryMixin):
             global_scale=global_scale,
         )
 
+        del self.min_vals
+        del self.max_vals
+
         return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
 
     @torch.no_grad
