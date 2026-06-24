@@ -25,7 +25,7 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/DeepSeek-V4-Pro-BF16"
 # MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 
-init_dist()
+#init_dist()
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
@@ -48,7 +48,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 1#512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -122,23 +122,28 @@ recipe = QuantizationModifier(
     ignore=[],
 )
 
+import torch
+
+torch.cuda.memory._record_memory_history()
+
 # Apply algorithms.
 # due to the large size of DeepSeek-V4, we specify sequential targets such that
 # only one block is loaded into GPU memory at a time
-oneshot(
-    model=model,
-    processor=tokenizer,
-    dataset=ds,
-    recipe=recipe,
-    pipeline="sequential",
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    sequential_targets=["DeepseekV4DecoderLayer"],
-    batch_size=16,
-    shuffle_calibration_samples=True,
-    propagate_error=False,  # work around reliance on transformers cache
-    # something weird happens with the cache and propagation
-)
+try:
+    oneshot(
+        model=model,
+        processor=tokenizer,
+        dataset=ds,
+        recipe=recipe,
+        pipeline="sequential",
+        sequential_targets=["DeepseekV4DecoderLayer"],
+        batch_size=2,
+        #shuffle_calibration_samples=True,
+        propagate_error=False,  # work around reliance on transformers cache
+        # something weird happens with the cache and propagation
+    )
+finally:
+    torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
 # Save to disk compressed.
 # SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
