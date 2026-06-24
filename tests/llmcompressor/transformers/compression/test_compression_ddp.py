@@ -467,6 +467,7 @@ def test_ddp_smoke_awq():
         None,
         weight_atol=5e-2,
         min_top1_match=0.85,
+        max_kl_div=0.001,
     )
 
 
@@ -486,7 +487,7 @@ def test_ddp_smoke_gptq():
         None,
         weight_atol=1e-1,
         min_top1_match=0.95,
-        max_kl_div=0.15,
+        max_kl_div=0.001,
     )
 
 
@@ -506,5 +507,5 @@ def test_ddp_smoke_autoround():
         None,
         weight_atol=1e-1,
         min_top1_match=0.85,
-        max_kl_div=0.2,
+        max_kl_div=0.01,
     )
