@@ -177,7 +177,9 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
             )
             kl_divs.append(kl.item())
 
-            top1_matches += (ref_out.argmax(dim=-1) == ddp_out.argmax(dim=-1)).sum().item()
+            top1_matches += (
+                (ref_out.argmax(dim=-1) == ddp_out.argmax(dim=-1)).sum().item()
+            )
             top1_total += ref_out.shape[0]
 
     kl_div = sum(kl_divs) / len(kl_divs)
@@ -303,8 +305,7 @@ def _test_ddp_modifier(
             )
 
         assert not errors, (
-            f"Distributed {test_id} outputs differ significantly:\n"
-            + "\n".join(errors)
+            f"Distributed {test_id} outputs differ significantly:\n" + "\n".join(errors)
         )
 
         # Clean up reference model
