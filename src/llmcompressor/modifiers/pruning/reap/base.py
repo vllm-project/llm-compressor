@@ -80,10 +80,10 @@ class REAPPruningModifier(Modifier):
     _num_experts: int = PrivateAttr(default=0)
     _n_group: int = PrivateAttr(default=1)
     _n_experts_to_drop: int = PrivateAttr(default=0)
-    _prune_decisions: dict[str, list[int]] = PrivateAttr(default_factory=dict)
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
+    _pruned: set[str] = PrivateAttr(default_factory=set)
     _original_moe_calibrate_all_experts: bool | None = PrivateAttr(default=None)
     _routing_cache: dict[str, Any] = PrivateAttr(default_factory=dict)
 
@@ -221,25 +221,12 @@ class REAPPruningModifier(Modifier):
             logger.info("REAP: nothing to prune (n_experts_to_drop=0)")
             return True
 
-        missing = [n for n in self._moe_layer_names if n not in self._prune_decisions]
-        if missing:
-            raise RuntimeError(
-                f"REAP did not finalize prune decisions for {len(missing)} MoE "
-                f"layers (e.g. {missing[:3]}); no calibration data reached them."
-            )
-
         model = state.model
-        for layer_name, retained in self._prune_decisions.items():
-            logger.debug(
-                f"Pruning {layer_name}: keeping {len(retained)} experts {retained}"
-            )
-            prune_moe_layer(model, layer_name, retained, self._attrs)
 
         sample_module = model.get_submodule(self._moe_layer_names[0])
         new_num_experts = get_num_experts(sample_module, self._attrs)
         update_model_config(model, self._attrs, new_num_experts)
 
-        self._prune_decisions.clear()
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
         self._routing_cache.clear()
@@ -254,8 +241,10 @@ class REAPPruningModifier(Modifier):
         if self._n_experts_to_drop == 0:
             return
 
+        model = state.model
+
         for layer_name, tracker in list(self._saliency_trackers.items()):
-            if layer_name in self._prune_decisions:
+            if layer_name in self._pruned:
                 continue
             if tracker.total_count <= 0:
                 continue
@@ -263,7 +252,8 @@ class REAPPruningModifier(Modifier):
             retained = compute_retained_experts(
                 tracker.mean_saliency, self._n_experts_to_drop, self._n_group
             )
-            self._prune_decisions[layer_name] = retained
+            prune_moe_layer(model, layer_name, retained, self._attrs)
+            self._pruned.add(layer_name)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]

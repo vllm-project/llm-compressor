@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from compressed_tensors import align_module_device
 from loguru import logger
 
-from llmcompressor.modeling.moe.linear_experts import ExpertMLP
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 
 __all__ = [
     "MoEModelAttrs",
@@ -603,7 +603,7 @@ def prune_moe_layer(
     router = getattr(moe_block, attrs.router_attr)
     experts = getattr(moe_block, attrs.experts_attr)
 
-    if isinstance(experts, nn.ModuleList):
+    if isinstance(experts, LinearExperts2D):
         # Preserve non-expert modules (e.g., act_fn in LinearExperts2D)
         # These are modules that are not instances of ExpertMLP subclasses
         non_expert_modules = {}
