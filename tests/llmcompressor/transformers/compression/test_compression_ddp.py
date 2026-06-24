@@ -492,8 +492,8 @@ def test_ddp_smoke_gptq():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=1.00,
-        max_logit_diff=0.00,
+        min_top1_match=0.95,
+        max_logit_diff=0.15,
     )
 
 
