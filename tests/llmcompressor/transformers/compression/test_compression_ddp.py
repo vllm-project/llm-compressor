@@ -71,6 +71,7 @@ def _prepare_dataset(model_id: str, num_samples: int):
         ),
         remove_columns=ds.column_names,
     )
+    ds.set_format("torch")
     return ds
 
 
@@ -160,7 +161,7 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
             # Get inputs
             sample = dataset[i]
             inputs = {
-                k: torch.tensor([v]).to("cuda:0")
+                k: v.unsqueeze(0).to("cuda:0")
                 for k, v in sample.items()
                 if k == "input_ids"
             }
@@ -528,5 +529,5 @@ def test_ddp_smoke_autoround():
         None,
         weight_atol=1e-1,
         min_top1_match=0.85,
-        max_logit_diff=0.2,
+        max_logit_diff=0.15,
     )
