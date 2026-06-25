@@ -389,7 +389,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 return  # user explicitly set device_ids, respect it
             gpus_per_group = _get_local_gpu_group_size()
             if gpus_per_group > 1:
-                local_rank = torch.distributed.get_rank()
+                local_rank = int(os.environ.get("LOCAL_RANK", "0"))
                 start_gpu = local_rank * gpus_per_group
                 ar_kwargs["device_map"] = ",".join(
                     str(start_gpu + i) for i in range(gpus_per_group)
