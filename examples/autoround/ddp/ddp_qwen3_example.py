@@ -17,11 +17,12 @@ import os
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.utils import load_context
 
 
 def fix_everything(seed=42):
@@ -78,10 +79,8 @@ model_id = args.model
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype="auto", device_map="auto_offload"
-    )
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)

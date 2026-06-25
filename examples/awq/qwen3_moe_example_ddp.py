@@ -8,7 +8,7 @@
 import time
 
 import torch
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -16,16 +16,15 @@ from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 init_dist()
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, dtype="auto", device_map="auto_offload"
-    )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -71,9 +70,9 @@ def tokenize(sample):
 recipe = [
     AWQModifier(),
     QuantizationModifier(
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
+        ignore=["lm_head", "re:.*mlp.gate$"],
     ),
 ]
 

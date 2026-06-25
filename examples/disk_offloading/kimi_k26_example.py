@@ -2,11 +2,12 @@ from compressed_tensors.entrypoints.convert import (
     CompressedTensorsDequantizer,
     convert_checkpoint,
 )
-from compressed_tensors.offload import get_device_map, load_offloaded_model
+from compressed_tensors.offload import get_device_map
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 # moonshotai/Kimi-K2.6 checkpoint is published in W4A16 compressed-tensors format.
 # This script will first upconvert to bfloat16 so that the model can be compressed
@@ -39,10 +40,9 @@ convert_checkpoint(
 )
 
 # Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         DEQUANTIZED_SAVE_DIR,
-        dtype="auto",
         device_map="auto_offload",
         max_memory={"cpu": 500e9},
         trust_remote_code=True,

@@ -144,14 +144,14 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def calibration_epoch_start(cls, **kwargs) -> ModifiedState:
+    def calibration_start(cls, **kwargs) -> ModifiedState:
         """
-        Invoke a epoch start event for the active session during calibration. This event
+        Invoke a start event for the active session during calibration. This event
         should be called before calibration starts for one epoch
 
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
-        return cls.event(EventType.CALIBRATION_EPOCH_START, **kwargs)
+        return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod
     def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
@@ -165,14 +165,14 @@ class LifecycleCallbacks:
         return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
 
     @classmethod
-    def calibration_epoch_end(cls, **kwargs) -> ModifiedState:
+    def calibration_end(cls, **kwargs) -> ModifiedState:
         """
-        Invoke a epoch end event for the active session during calibration. This event
+        Invoke an end event for the active session during calibration. This event
         should be called after the model has been calibrated for one epoch
 
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
-        return cls.event(EventType.CALIBRATION_EPOCH_END, **kwargs)
+        return cls.event(EventType.CALIBRATION_END, **kwargs)
 
 
 callbacks = LifecycleCallbacks

@@ -62,7 +62,6 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
             device_map=device_map,
             max_memory=max_memory,
             offload_folder=OFFLOAD_DIR,
-            dtype="auto",
         )
     return loaded_model
 
@@ -153,7 +152,8 @@ def run_oneshot_single(
     save_compressed: bool = False,
     shuffle_calibration_samples: bool = True,
     data_collator: str | Callable = DefaultDataCollator(),
-):
+    **kwargs,
+) -> torch.nn.Module:
     oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
         model_id=model,
         model_class=model_class,
@@ -174,9 +174,11 @@ def run_oneshot_single(
     _run_oneshot(**oneshot_kwargs)
 
     logger.info("================= SAVING TO DISK ======================")
-    save_model_and_processor(
-        loaded_model, processor, save_dir, save_compressed, reset_session=True
-    )
+    if save_dir is not None:
+        save_model_and_processor(
+            loaded_model, processor, save_dir, save_compressed, reset_session=True
+        )
+    return loaded_model
 
 
 def run_oneshot_ddp(config: dict, save_compressed: bool = False):
