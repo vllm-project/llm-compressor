@@ -6,7 +6,8 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 
 # Select model and load it.
-# Note: for the Moonlight model, you may need to install the `tiktoken` package for the tokenizer.
+# Note: for the Moonlight model, you may need to install the
+# `tiktoken` package for the tokenizer.
 model_id = "moonshotai/Moonlight-16B-A3B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)

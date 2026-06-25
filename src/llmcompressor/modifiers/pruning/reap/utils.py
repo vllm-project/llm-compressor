@@ -3,20 +3,18 @@ Utilities for REAP: MoE detection, routing extraction, saliency tracking, and
 expert pruning.
 """
 
-from collections import OrderedDict
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from compressed_tensors import align_module_device
 from loguru import logger
 
-from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
-from transformers.configuration_utils import PreTrainedConfig
 
 __all__ = [
     "MoeModelAttrs",
@@ -25,6 +23,8 @@ __all__ = [
     "prune_moe_layer",
     "update_model_config",
 ]
+
+
 @dataclass
 class MoeModelAttrs:
     num_experts_config_key: str
@@ -38,6 +38,7 @@ class MoeModelAttrs:
     top_k_group: int | None
     group_size: int | None
 
+
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
 NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
@@ -45,6 +46,7 @@ TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
 N_GROUP_CONFIG_KEYS = ["n_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
 NUM_EXPERTS_MODULE_KEYS = ["num_experts", "n_experts", "n_routed_experts"]
+
 
 def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
     config = model.config
@@ -62,7 +64,7 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             num_experts_config_key = key
             num_experts = getattr(config, key)
             break
-    
+
     if num_experts_config_key is None:
         raise ValueError(
             "Could not find a config attribute for the number of experts. "
@@ -76,32 +78,36 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
         if hasattr(config, key):
             top_k = getattr(config, key)
             break
-    
+
     if top_k is None:
         raise ValueError(
             "Could not find a config attribute for the top_k. "
             "Make sure the name of the model config's "
             "top_k attribute is in TOP_K_CONFIG_KEYS in reap/utils.py"
         )
-    
+
     n_group = None
 
     for key in N_GROUP_CONFIG_KEYS:
         if hasattr(config, key):
             n_group = getattr(config, key)
             break
-    
+
     top_k_group = None
 
     for key in TOP_K_GROUP_CONFIG_KEYS:
         if hasattr(config, key):
             top_k_group = getattr(config, key)
             break
-    
+
     if (n_group is None) != (top_k_group is None):
+        attr_name = "n_group" if n_group is not None else "top_k_group"
         raise ValueError(
-            f"Detected one group-limited router attribute ({'n_group' if n_group is not None else 'top_k_group'} is set) but could not find a config attribute for the other. "
-            "Make sure the name of the model config's n_group and top_k_group attributes are in N_GROUP_CONFIG_KEYS and TOP_K_GROUP_CONFIG_KEYS in reap/utils.py"
+            f"Detected one group-limited router attribute ({attr_name} "
+            "is set) but could not find a config attribute for the other. "
+            "Make sure the name of the model config's n_group and "
+            "top_k_group attributes are in N_GROUP_CONFIG_KEYS and "
+            "TOP_K_GROUP_CONFIG_KEYS in reap/utils.py"
         )
 
     group_size = None
@@ -109,10 +115,13 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
     # Group-limited router checks
     if n_group is not None:
         if num_experts % n_group != 0:
-            raise ValueError(f"Group limited router detected, but {num_experts} experts not divisible by n_group={n_group}")
+            raise ValueError(
+                f"Group limited router detected, but {num_experts} experts "
+                f"not divisible by n_group={n_group}"
+            )
 
         group_size = num_experts // n_group
-    
+
     for _, module in model.named_modules():
         for e_attr in EXPERTS_ATTRS:
             if hasattr(module, e_attr):
@@ -127,9 +136,10 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
 
     if experts_attr is None or router_attr is None:
         raise ValueError(
-            "Could not find a layer with both an experts module and a router module in the model."
-            " Make sure the model has MoE layers, and that the name of its "
-            "experts module is in EXPERTS_ATTRS and it the name of its router module is in ROUTER_ATTRS in reap/utils.py"
+            "Could not find a layer with both an experts module and a router "
+            "module in the model. Make sure the model has MoE layers, and "
+            "that the name of its experts module is in EXPERTS_ATTRS and it "
+            "the name of its router module is in ROUTER_ATTRS in reap/utils.py"
         )
 
     for name, module in model.named_modules():
@@ -138,24 +148,36 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
                 continue
             experts = getattr(module, experts_attr)
             if not isinstance(experts, LinearExperts2D):
-                logger.warning(f"Skipping layer {name}: experts module is not LinearExperts2D")
+                logger.warning(
+                    f"Skipping layer {name}: experts module is not LinearExperts2D"
+                )
                 continue
             if isinstance(experts, GraniteMoeLinearExperts):
-                logger.warning(f"Skipping unsupported GraniteMoeLinearExperts layer: {name}")
+                logger.warning(
+                    f"Skipping unsupported GraniteMoeLinearExperts layer: {name}"
+                )
                 continue
             if isinstance(experts, Llama4LinearExperts):
-                logger.warning(f"Skipping unsupported Llama4LinearExperts layer: {name}")
+                logger.warning(
+                    f"Skipping unsupported Llama4LinearExperts layer: {name}"
+                )
                 continue
             moe_layer_names.append(name)
 
     if not moe_layer_names:
         raise ValueError(
-            "Could not find any supported MoE layers with experts in LinearExperts2D format. "
-            "Make sure the model has MoE layers (excluding GraniteMoeLinearExperts and Llama4LinearExperts), and that the name of its "
-            "experts module is in EXPERTS_ATTRS and it the name of its router module is in ROUTER_ATTRS in reap/utils.py"
+            "Could not find any supported MoE layers with experts in "
+            "LinearExperts2D format. Make sure the model has MoE layers "
+            "(excluding GraniteMoeLinearExperts and Llama4LinearExperts), "
+            "and that the name of its experts module is in EXPERTS_ATTRS "
+            "and it the name of its router module is in ROUTER_ATTRS in "
+            "reap/utils.py"
         )
-    
-    logger.info(f"Found {len(moe_layer_names)} MoE layers with experts in LinearExperts2D format")
+
+    logger.info(
+        f"Found {len(moe_layer_names)} MoE layers with experts in "
+        "LinearExperts2D format"
+    )
 
     return MoeModelAttrs(
         num_experts_config_key=num_experts_config_key,
@@ -221,16 +243,19 @@ class REAPSaliencyTracker:
             return
 
         self._ensure(next(iter(expert_norms_dict.values())).device)
-        
-        # For each expert, find which tokens/slots routed to it and compute contributions
+
+        # For each expert, find which tokens/slots routed to it and
+        # compute contributions
         for expert_idx in range(self.num_experts):
-            # If the expert did not receive any tokens in this batch, it won't be in the norms dict
+            # If the expert did not receive any tokens in this batch,
+            # it won't be in the norms dict
             if expert_idx not in expert_norms_dict:
                 continue
 
             # Find all (token, slot) positions where this expert was selected
-            mask = (topk_indices == expert_idx)
-            positions = mask.nonzero(as_tuple=True)  # (token_indices, slot_indices)
+            mask = topk_indices == expert_idx
+            # (token_indices, slot_indices)
+            positions = mask.nonzero(as_tuple=True)
             token_indices, slot_indices = positions
 
             # Get corresponding norms and weights
@@ -251,8 +276,12 @@ class REAPSaliencyTracker:
             self.sum_saliency[expert_idx] += contrib.sum()
             self.count[expert_idx] += len(contrib)
 
-
-    def compute_retained_experts(self, n_experts_to_drop: int, n_experts_to_drop_per_group: int | None, moe_attrs: MoeModelAttrs) -> list[int]:
+    def compute_retained_experts(
+        self,
+        n_experts_to_drop: int,
+        n_experts_to_drop_per_group: int | None,
+        moe_attrs: MoeModelAttrs,
+    ) -> list[int]:
         """Select which experts to keep, dropping the lowest-saliency ones."""
         saliency = self.mean_saliency
 
@@ -265,9 +294,13 @@ class REAPSaliencyTracker:
             for g in range(moe_attrs.n_group):
                 lo = g * moe_attrs.group_size
                 grp = saliency[lo : lo + moe_attrs.group_size]
-                _, drop_local = torch.topk(grp, n_experts_to_drop_per_group, largest=False)
+                _, drop_local = torch.topk(
+                    grp, n_experts_to_drop_per_group, largest=False
+                )
                 drop_set = {lo + int(i) for i in drop_local.tolist()}
-                retained.extend(i for i in range(lo, lo + moe_attrs.group_size) if i not in drop_set)
+                retained.extend(
+                    i for i in range(lo, lo + moe_attrs.group_size) if i not in drop_set
+                )
 
         return retained
 
@@ -316,7 +349,9 @@ def prune_moe_layer(
             non_expert_modules[key] = module
 
     # Rebuild with retained experts
-    new_modules = OrderedDict(((str(i), experts[pos]) for i, pos in enumerate(retained)))
+    new_modules = OrderedDict(
+        ((str(i), experts[pos]) for i, pos in enumerate(retained))
+    )
 
     # Re-add non-expert modules
     new_modules.update(non_expert_modules)
@@ -331,7 +366,7 @@ def prune_moe_layer(
         for key in NUM_EXPERTS_MODULE_KEYS:
             if isinstance(getattr(holder, key, None), int):
                 setattr(holder, key, len(retained))
-    
+
     return retained
 
 
@@ -376,5 +411,6 @@ def update_model_config(
     old_val = getattr(config, moe_attrs.num_experts_config_key)
     setattr(config, moe_attrs.num_experts_config_key, new_num_experts)
     logger.info(
-        f"Updated {config.__class__.__name__}.{moe_attrs.num_experts_config_key}: {old_val} -> {new_num_experts}"
+        f"Updated {config.__class__.__name__}."
+        f"{moe_attrs.num_experts_config_key}: {old_val} -> {new_num_experts}"
     )

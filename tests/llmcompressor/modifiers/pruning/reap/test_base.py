@@ -5,16 +5,15 @@ import torch.nn.functional as F
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.core import Event, EventType, State
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.modifiers.pruning.reap.utils import (
-    MoeModelAttrs,
     REAPSaliencyTracker,
     get_moe_attrs,
     prune_moe_layer,
     update_model_config,
 )
-from llmcompressor.modeling.moe.linear_experts import LinearExperts2D, ExpertMLP
 
 # ---------------------------------------------------------------------------
 # Helpers: tiny synthetic MoE model with LinearExperts2D for testing
@@ -32,7 +31,7 @@ class FakeMoEConfig(PretrainedConfig):
         hidden_size: int = 32,
         intermediate_size: int = 64,
         num_hidden_layers: int = 2,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         # Required for MoEConfig.from_config
@@ -53,6 +52,7 @@ class FakeLinearExperts2D(LinearExperts2D):
     LinearExperts2D subclass with class variables set for testing.
     These match the standard MoE expert format (gate + up projections).
     """
+
     is_concatenated = False
     is_transposed = False
     has_bias = False
@@ -160,7 +160,9 @@ class FakeMoEBlock(nn.Module):
         router_logits, router_weights, selected_experts = self.gate(hidden_states_flat)
 
         # Process tokens through selected experts
-        expert_output = self.experts(hidden_states_flat, selected_experts, router_weights)
+        expert_output = self.experts(
+            hidden_states_flat, selected_experts, router_weights
+        )
 
         # Reshape back to [batch_size, seq_len, hidden_dim]
         output = expert_output.view(batch_size, seq_len, hidden_dim)
@@ -177,9 +179,9 @@ class FakeMoEModel(nn.Module):
     def __init__(self, config: FakeMoEConfig):
         super().__init__()
         self.config = config
-        self.layers = nn.ModuleList([
-            FakeMoEBlock(config) for _ in range(config.num_hidden_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [FakeMoEBlock(config) for _ in range(config.num_hidden_layers)]
+        )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """
@@ -212,8 +214,8 @@ class TestREAPSaliencyTracker:
         # expert_norms_dict: only experts that received tokens
         expert_norms_dict = {
             0: torch.tensor([3.0, 1.0]),  # expert 0 got 2 tokens
-            1: torch.tensor([2.0]),       # expert 1 got 1 token
-            2: torch.tensor([4.0]),       # expert 2 got 1 token
+            1: torch.tensor([2.0]),  # expert 1 got 1 token
+            2: torch.tensor([4.0]),  # expert 2 got 1 token
             # expert 3 got 0 tokens, not in dict
         }
 
@@ -250,9 +252,7 @@ class TestREAPSaliencyTracker:
         moe_attrs = get_moe_attrs(FakeMoEModel(config), ignore=[])
 
         retained = tracker.compute_retained_experts(
-            n_experts_to_drop=3,
-            n_experts_to_drop_per_group=None,
-            moe_attrs=moe_attrs
+            n_experts_to_drop=3, n_experts_to_drop_per_group=None, moe_attrs=moe_attrs
         )
         # drop the 3 lowest: experts 0 (0.1), 5 (0.2), 3 (0.3)
         assert retained == [1, 2, 4, 6, 7]
@@ -274,9 +274,7 @@ class TestREAPSaliencyTracker:
         moe_attrs.group_size = 4
 
         retained = tracker.compute_retained_experts(
-            n_experts_to_drop=2,
-            n_experts_to_drop_per_group=1,
-            moe_attrs=moe_attrs
+            n_experts_to_drop=2, n_experts_to_drop_per_group=1, moe_attrs=moe_attrs
         )
         # group 0 [0,1,2,3]: drop expert 0 (0.1) -> keep 1,2,3
         # group 1 [4,5,6,7]: drop expert 5 (0.2) -> keep 4,6,7
@@ -347,7 +345,8 @@ class TestPruning:
 
         # Store references to original expert modules
         original_experts = [
-            expert for expert in moe_block.experts.children()
+            expert
+            for expert in moe_block.experts.children()
             if isinstance(expert, ExpertMLP)
         ]
 
@@ -363,7 +362,8 @@ class TestPruning:
 
         # Verify correct experts retained (by object identity)
         pruned_experts = [
-            expert for expert in moe_block.experts.children()
+            expert
+            for expert in moe_block.experts.children()
             if isinstance(expert, ExpertMLP)
         ]
         assert len(pruned_experts) == 5
@@ -371,7 +371,9 @@ class TestPruning:
             assert pruned_experts[i] is original_experts[original_idx]
 
         # Verify router weights correctly sliced
-        torch.testing.assert_close(moe_block.gate.weight, original_gate_weight[retained])
+        torch.testing.assert_close(
+            moe_block.gate.weight, original_gate_weight[retained]
+        )
 
     def test_prune_resizes_correction_bias(self):
         # group-limited routers carry a per-expert score-correction bias buffer
@@ -554,10 +556,7 @@ def test_reap_full_lifecycle():
     torch.manual_seed(42)
 
     config = FakeMoEConfig(
-        num_experts=8,
-        hidden_size=16,
-        intermediate_size=32,
-        num_hidden_layers=2
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
     )
     model = FakeMoEModel(config)
     model.eval()
@@ -666,10 +665,7 @@ def test_reap_forward_pass_after_pruning():
     torch.manual_seed(0)
 
     config = FakeMoEConfig(
-        num_experts=8,
-        hidden_size=16,
-        intermediate_size=32,
-        num_hidden_layers=2
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
     )
     model = FakeMoEModel(config)
     model.eval()
