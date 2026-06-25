@@ -201,6 +201,7 @@ class REAPSaliencyTracker:
                 self.num_experts, dtype=torch.float64, device=device
             )
 
+    @torch.no_grad()
     def update(
         self,
         topk_indices: torch.Tensor,
@@ -280,8 +281,8 @@ class REAPSaliencyTracker:
     def mean_saliency(self) -> torch.Tensor:
         if self.sum_saliency is None:
             return torch.zeros(self.num_experts, dtype=torch.float64)
-        sum_saliency = self.sum_saliency.detach().to("cpu", torch.float64)
-        count = self.count.detach().to("cpu", torch.float64)
+        sum_saliency = self.sum_saliency.to("cpu", torch.float64)
+        count = self.count.to("cpu", torch.float64)
         return sum_saliency / count.clamp(min=1.0)
 
 
@@ -355,13 +356,13 @@ def _prune_router(router: nn.Module, retained: list[int]):
     # Direct attribute assignment replaces a parameter/buffer with a different
     # shape and is correct for both offloaded modules (routed through the
     # OffloadCache, which re-offloads the new shape) and ordinary modules.
-    router.weight = nn.Parameter(new_weight, requires_grad=False)
+    router.weight = nn.Parameter(new_weight, requires_grad=router.weight.requires_grad)
     if new_bias is not None:
-        router.bias = nn.Parameter(new_bias, requires_grad=False)
+        router.bias = nn.Parameter(new_bias, requires_grad=router.bias.requires_grad)
     if new_correction is not None:
         router.e_score_correction_bias = new_correction
 
-    if isinstance(router, nn.Linear):
+    if isinstance(getattr(router, "out_features", None), int):
         router.out_features = len(retained)
 
 
