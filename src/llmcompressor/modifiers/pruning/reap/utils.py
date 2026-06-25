@@ -260,7 +260,7 @@ def prune_moe_layer(
             non_expert_modules[key] = module
 
     # Rebuild with retained experts
-    new_modules = OrderedDict(((str(i), experts[i]) for i in retained))
+    new_modules = OrderedDict(((str(i), experts[pos]) for i, pos in enumerate(retained)))
 
     # Re-add non-expert modules
     new_modules.update(non_expert_modules)
