@@ -325,30 +325,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             )
             if needs_multi_gpu:
                 # Let AutoRound own placement within the rank-local GPU group.
-                # The incoming block may already be split across local devices,
-                # so anchoring to first_param.device can place residual modules
-                # (e.g. norms) on local cuda:1 while hidden states begin on
-                # local cuda:0, causing cross-device forward failures.
                 device = get_main_device()
-                # Move decoding layer to CPU first, then the submodules
-                # will be re-dispatched by AutoRound.
                 decoding_layer.to("cpu")
                 auto_offload = True
-                # Move cached inputs to the anchor device — they may have
-                # been captured on different GPUs during calibration.
-                cur_inputs = [
-                    (
-                        tuple(
-                            x.to(device) if isinstance(x, torch.Tensor) else x
-                            for x in args
-                        ),
-                        {
-                            k: v.to(device) if isinstance(v, torch.Tensor) else v
-                            for k, v in kwargs.items()
-                        },
-                    )
-                    for args, kwargs in cur_inputs
-                ]
+
+            # Ensure cached inputs are on the same device as the block.
+            # Calibration forward may have run on a different GPU.
+            cur_inputs = self._move_inputs_to(cur_inputs, device)
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
@@ -439,6 +422,24 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for _, mod in model.named_modules():
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
+
+    @staticmethod
+    def _move_inputs_to(
+        inputs: list[tuple[tuple, dict]], device: torch.device
+    ) -> list[tuple[tuple, dict]]:
+        """Move all tensors in cached forward inputs to *device*."""
+        return [
+            (
+                tuple(
+                    x.to(device) if isinstance(x, torch.Tensor) else x for x in args
+                ),
+                {
+                    k: v.to(device) if isinstance(v, torch.Tensor) else v
+                    for k, v in kwargs.items()
+                },
+            )
+            for args, kwargs in inputs
+        ]
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
