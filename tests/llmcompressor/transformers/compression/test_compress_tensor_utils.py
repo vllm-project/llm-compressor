@@ -147,6 +147,54 @@ def test_no_duplicate_tied_lm_head_on_save(offload, tie_word_embeddings, tmp_pat
         assert "lm_head.weight" in saved_keys
 
 
+def test_tied_quantized_embedding_no_duplicate_head(tmp_path):
+    """Identically-quantizing both embeddings of a tied model stores one table.
+
+    The input and output embeddings are untied during calibration and quantized
+    independently (so the head gets its own qparams and the config declares
+    both). At save, identical packed weights are re-tied into a single shared
+    table; the tie is reconstructed at load from ``tie_word_embeddings=True``.
+    """
+    import json
+
+    from llmcompressor import oneshot
+    from llmcompressor.modifiers.quantization import QuantizationModifier
+
+    model_path = "Qwen/Qwen3-0.6B"
+    save_path = tmp_path / "save_path"
+
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
+    model = model.to("cpu")
+    assert model.config.tie_word_embeddings
+
+    # Data-free (RTN) weight-only quantization of BOTH embeddings, identically.
+    weights = {
+        "num_bits": 4,
+        "type": "int",
+        "symmetric": True,
+        "strategy": "group",
+        "group_size": 64,
+    }
+    recipe = QuantizationModifier(
+        config_groups={
+            "input": {"targets": ["Embedding"], "weights": dict(weights)},
+            "output": {"targets": ["re:.*lm_head$"], "weights": dict(weights)},
+        }
+    )
+    oneshot(model=model, recipe=recipe)
+
+    modify_save_pretrained(model)
+    model.save_pretrained(save_path, safe_serialization=True)
+
+    # Re-tied: config stays tied and only one packed table is written.
+    config = json.loads((save_path / "config.json").read_text())
+    assert config["tie_word_embeddings"] is True
+
+    saved_keys = _saved_weight_keys(save_path)
+    assert "model.embed_tokens.weight_packed" in saved_keys
+    assert not any(k.startswith("lm_head") for k in saved_keys)
+
+
 class DummyLinearModel(nn.Module):
     """
     A dummy linear model for testing purposes, simulating a quantized linear layer.

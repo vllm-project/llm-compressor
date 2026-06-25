@@ -246,7 +246,19 @@ class QuantizationMixin(HooksMixin):
         """
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
+            # Untie so the input and output embeddings can be quantized
+            # independently (each gets its own qparams). `untie_word_embeddings`
+            # clears the config flag; preserve it so the save step can re-tie the
+            # results into a single shared tensor when they end up identical.
+            config = getattr(model, "config", None)
+            get_text_config = getattr(config, "get_text_config", None)
+            text_config = (
+                get_text_config(decoder=True) if callable(get_text_config) else config
+            )
+            was_tied = getattr(text_config, "tie_word_embeddings", False)
             untie_word_embeddings(model)
+            if was_tied and text_config is not None:
+                text_config.tie_word_embeddings = True
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)

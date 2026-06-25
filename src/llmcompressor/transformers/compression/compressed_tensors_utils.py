@@ -9,6 +9,11 @@ from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated
+
+try:
+    from compressed_tensors.offload import tie_offload_parameter
+except ImportError:  # compressed-tensors without the tie-offload primitive
+    tie_offload_parameter = None
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -18,6 +23,111 @@ from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
 __all__ = ["modify_save_pretrained"]
+
+
+_PACKED_PARAM_NAMES = ("weight_packed", "weight_scale", "weight_shape")
+
+
+def _tie_offload_parameter(dst_module, dst_name, src_module, src_name):
+    """Alias dst's compressed parameter to src's storage (no copy).
+
+    Compressed parameters live in a compressed-tensors offload cache, whose
+    ``__setitem__`` copies into the module's own storage, leaving two
+    independent tensors. Prefer the compressed-tensors ``tie_offload_parameter``
+    primitive; fall back to aliasing the offload cache directly on versions
+    without it.
+    """
+    if tie_offload_parameter is not None:
+        tie_offload_parameter(dst_module, dst_name, src_module, src_name)
+        return
+
+    dst_params = dst_module._parameters
+    src_params = src_module._parameters
+    src_offloaded = getattr(src_params, "offloaded_values", None)
+    dst_offloaded = getattr(dst_params, "offloaded_values", None)
+    if (
+        src_offloaded is not None
+        and dst_offloaded is not None
+        and src_name in src_offloaded
+    ):
+        dst_offloaded[dst_name] = src_offloaded[src_name]
+    else:
+        dst_params[dst_name] = src_params[src_name]
+
+
+def _retie_quantized_embeddings(model: PreTrainedModel):
+    """Re-tie identically-quantized input and output embeddings before saving.
+
+    When embeddings are targeted they are untied during calibration so the input
+    and output embeddings can be quantized independently (each with its own
+    qparams). At save time, if the model is tied and the two were quantized to
+    identical packed values, share their packed parameters so transformers'
+    tied-weight de-duplication writes a single shared table (and the reload tie
+    is reconstructed from ``tie_word_embeddings=True``).
+
+    If the two were quantized differently (or only one was quantized), they are
+    left as separate tensors and the config is marked untied, with a warning --
+    both weights are kept so the model's integrity is preserved.
+
+    Only the packed (compressed) case is handled here; the dense/uncompressed
+    tie is handled by ``_retie_offloaded_weights``/transformers.
+
+    Args:
+        model: The model about to be saved.
+    """
+    config = getattr(model, "config", None)
+    get_text_config = getattr(config, "get_text_config", None)
+    text_config = get_text_config(decoder=True) if callable(get_text_config) else config
+    if not getattr(text_config, "tie_word_embeddings", False):
+        return
+
+    try:
+        input_embed = model.get_input_embeddings()
+        output_embed = model.get_output_embeddings()
+    except (AttributeError, NotImplementedError):
+        return
+
+    if input_embed is None or output_embed is None or input_embed is output_embed:
+        return
+
+    # Only act once the input embedding has been compressed to packed weights.
+    if input_embed._parameters.get("weight_packed") is None:
+        return
+
+    def _mark_untied(reason: str):
+        if hasattr(text_config, "tie_word_embeddings"):
+            text_config.tie_word_embeddings = False
+        logger.warning(
+            f"{reason} Saving input and output embeddings as separate weights (untied)."
+        )
+
+    if output_embed._parameters.get("weight_packed") is None:
+        _mark_untied(
+            "Tied model, but the output embedding was not quantized "
+            "(target it alongside the input embedding to keep them tied)."
+        )
+        return
+
+    identical = all(
+        torch.equal(input_embed._parameters[name], output_embed._parameters[name])
+        for name in ("weight_packed", "weight_scale")
+    )
+    if not identical:
+        _mark_untied(
+            "Tied model, but input and output embeddings were quantized differently."
+        )
+        return
+
+    # Alias the packed storage so transformers' save-time de-duplication keeps
+    # one copy. The module's ``_tied_weights_keys`` (e.g. ``lm_head.weight``)
+    # matches the packed names by prefix, so the duplicates are dropped cleanly.
+    for name in _PACKED_PARAM_NAMES:
+        if input_embed._parameters.get(name) is not None:
+            _tie_offload_parameter(output_embed, name, input_embed, name)
+    logger.info(
+        "Re-tied identically-quantized input/output embeddings; saving a single "
+        "shared packed table."
+    )
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -77,6 +187,11 @@ def modify_save_pretrained(model: PreTrainedModel):
             # redundant copy. Doing this before `to_accelerate` keeps accelerate's
             # tied-parameter bookkeeping consistent.
             _retie_offloaded_weights(model)
+
+            # Embeddings are untied during calibration so input and output can be
+            # quantized independently; if they ended up identical, re-tie the
+            # packed weights so save de-duplicates them into one shared table.
+            _retie_quantized_embeddings(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
