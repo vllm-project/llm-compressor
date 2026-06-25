@@ -97,6 +97,8 @@ class Observer(InternalModule, RegistryMixin):
                     fused_obs(fused_mod.weight)
                 global_absmax = torch.max(global_absmax, -fused_obs.min_vals.min())
                 global_absmax = torch.max(global_absmax, fused_obs.max_vals.max())
+                del fused_obs.min_vals
+                del fused_obs.max_vals
             global_scale = generate_gparam(
                 -global_absmax.reshape(1), global_absmax.reshape(1)
             )
