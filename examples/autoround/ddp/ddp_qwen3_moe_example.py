@@ -20,10 +20,10 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 
-MODEL = "/storage/yiliu7/Qwen/Qwen3-235B-A22B-Instruct-2507"
+MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
 SCHEME = "W4A16"
-ITERS = 1
-NSAMPLES = 4
+ITERS = 200
+NSAMPLES = 256
 
 ###### DDP INIT #####
 gpus_per_group = int(os.environ.get("GPUS_PER_GROUP", "1"))
