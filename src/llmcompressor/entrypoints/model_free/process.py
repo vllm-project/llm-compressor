@@ -31,7 +31,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
-from llmcompressor.observers import Observer
+from llmcompressor.observers import FusionHandler
 
 __all__ = [
     "validate_file",
@@ -207,7 +207,7 @@ def process_file_microscale_scheme(
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
         # 2. fuse observers, observe weights, and get qparams
-        Observer.fuse([(mod.weight_observer, mod) for mod in named_modules.values()])
+        FusionHandler.fuse([(mod.weight_observer, mod) for mod in named_modules.values()])
         observe(named_modules.values(), base_name="weight")
         update_qparams(named_modules.values(), base_name="weight")
 
