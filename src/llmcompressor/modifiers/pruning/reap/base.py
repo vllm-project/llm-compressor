@@ -16,12 +16,7 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.reap.utils import (
     MoEModelAttrs,
     REAPSaliencyTracker,
-    assert_homogeneous_moe,
-    assert_routing_feasible,
-    compute_retained_experts,
-    detect_moe_attrs,
-    find_moe_layers,
-    get_num_experts,
+    get_moe_attrs,
     prune_moe_layer,
     update_model_config,
 )
@@ -47,12 +42,9 @@ class REAPPruningModifier(Modifier):
 
     The lowest-saliency experts are removed per layer. REAP runs during the
     sequential calibration pipeline: saliency is accumulated via hooks on the MoE
-    calibration wrappers (which route every token through every expert), the
-    drop decision for a layer is finalized as soon as its calibration subgraph
-    completes (``SEQUENTIAL_EPOCH_END``) so its activation buffers can be freed,
-    and the structural pruning is applied at ``on_finalize`` (after the
-    calibration context has exited and a layer's second error-propagation pass,
-    if any, has run).
+    experts, the structural pruning for a layer is executed when it 
+    completes (``SEQUENTIAL_EPOCH_END``). The config is updated to reflect the new
+    number of experts in ``on_finalize``.
 
     :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
@@ -66,18 +58,14 @@ class REAPPruningModifier(Modifier):
     sparsity: float
     ignore: list[str] = Field(default_factory=list)
 
-    _attrs: MoEModelAttrs | None = PrivateAttr(default=None)
-    _moe_layer_names: list[str] = PrivateAttr(default_factory=list)
+    _moe_attrs: MoEModelAttrs | None = PrivateAttr(default=None)
     _saliency_trackers: dict[str, REAPSaliencyTracker] = PrivateAttr(
         default_factory=dict
     )
-    _top_k: int = PrivateAttr(default=2)
-    _num_experts: int = PrivateAttr(default=0)
     _n_experts_to_drop: int = PrivateAttr(default=0)
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
-    _pruned: set[str] = PrivateAttr(default_factory=set)
     _original_moe_calibrate_all_experts: bool | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
@@ -89,56 +77,39 @@ class REAPPruningModifier(Modifier):
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
 
-        self._attrs = detect_moe_attrs(model)
-        if self._attrs is None:
-            raise ValueError(
-                "Could not detect a supported MoE architecture. REAP requires access",
-                " to the experts block of each MoE layer, as well at the router's ",
-                "num-experts attribute. Update EXPERTS_ATTRS and/or ",
-                "NUM_EXPERTS_ATTRS in utils.py to add more support."
-            )
+        self._moe_attrs = get_moe_attrs(model, self.ignore)
 
-        moe_layers = find_moe_layers(model, self._attrs, self.ignore)
-        if not moe_layers:
-            raise ValueError("No valid MoE layers found in model.")
-        self._moe_layer_names = list(moe_layers.keys())
-
-        config = model.config
-        text_config = getattr(config, "text_config", config)
-        self._top_k = getattr(text_config, "num_experts_per_tok", 2)
-
-        # fast fail if all layers do not have same num_experts
-        assert_homogeneous_moe(moe_layers, self._attrs)
-
-        sample_module = next(iter(moe_layers.values()))
-        self._num_experts = get_num_experts(sample_module, self._attrs)
-        self._n_experts_to_drop = int(self._num_experts * self.sparsity)
+        self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
-            logger.warning(
+            raise ValueError(
                 f"sparsity={self.sparsity} results in 0 "
-                f"experts to drop (out of {self._num_experts}). No pruning will "
+                f"experts to drop (out of {self._moe_attrs.num_experts}). No pruning will "
                 "be performed."
             )
         else:
             # fail fast (before calibration) if the requested sparsity would
             # leave the router unable to select top_k experts per token
-            assert_routing_feasible(
-                self._num_experts,
-                self._n_experts_to_drop,
-                self._top_k,
-            )
+            available = self._moe_attrs.num_experts - self._n_experts_to_drop
+
+            if self._moe_attrs.top_k > available:
+                raise ValueError(
+                    f"REAP sparsity is too aggressive: the router selects top_k={self._moe_attrs.top_k} "
+                    f"experts per token, but only {available} experts would remain "
+                    f"reachable after pruning "
+                    f"(num_experts={self._moe_attrs.num_experts}, dropping≈{self._n_experts_to_drop})."
+                    f" Reduce the sparsity"
+                )
 
         logger.info(
-            f"REAP initialized: {len(moe_layers)} MoE layers, "
-            f"{self._num_experts} experts/layer, will drop "
+            f"REAP initialized: {len(self._moe_attrs.moe_layer_names)} MoE layers, "
+            f"{self._moe_attrs.num_experts} experts/layer, will drop "
             f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
         )
 
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
         model = state.model
 
         # Prevent calibration of all experts
@@ -151,29 +122,28 @@ class REAPPruningModifier(Modifier):
             " of calibration."
         )
 
-        for layer_name in self._moe_layer_names:
+        for layer_name in self._moe_attrs.moe_layer_names:
             module = model.get_submodule(layer_name)
 
-            self._saliency_trackers[layer_name] = REAPSaliencyTracker(self._num_experts)
+            self._saliency_trackers[layer_name] = REAPSaliencyTracker(self._moe_attrs.num_experts)
             self._norm_buffers[layer_name] = {}
 
-            # one hook per expert to record its per-token output norm
-            experts = getattr(module, self._attrs.experts_attr)
-            expert_list = [expert for expert in experts.children() if isinstance(expert, ExpertMLP)] # Filter out the activation function
+            # One hook per expert to record its per-token output norm and store in the layer's norm buffer
+            experts = getattr(module, self._moe_attrs.experts_attr)
+            expert_list = [expert for expert in experts.children() if isinstance(expert, ExpertMLP)] # Filter out the activation function submodule
             for idx, expert in enumerate(expert_list): 
                 self.register_hook(
                     expert, partial(self._expert_hook, layer_name, idx), "forward"
                 )
             
-            # hook for the experts block to capture the router's top-k routing decisions and weights
+            # Hook for the experts block to capture the router's top-k routing decisions and weights.
+            # This hook also executes pruning, which requires the expert output norms. Therefore, it must
+            # be a forward hook, so that it runs after the individual expert hooks have populated the norm buffer
             self.register_hook(
                 experts, partial(self._experts_block_hook, layer_name), "forward"
             )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-        # fallback for pipelines that never fire SEQUENTIAL_EPOCH_END
-        self.on_sequential_epoch_end(state, event, **kwargs)
         self.remove_hooks()
 
         # restore the original calibrate all experts flag
@@ -189,18 +159,11 @@ class REAPPruningModifier(Modifier):
         # Apply structural pruning here (after the calibration context has
         # exited): the decisions were finalized at SEQUENTIAL_EPOCH_END, so this
         # only mutates module structure -- it does not need calibration data.
-        if not self.ended_:
-            self.on_calibration_end(state, None)
-
-        if self._n_experts_to_drop == 0:
-            logger.info("REAP: nothing to prune (n_experts_to_drop=0)")
-            return True
 
         model = state.model
 
-        sample_module = model.get_submodule(self._moe_layer_names[0])
-        new_num_experts = get_num_experts(sample_module, self._attrs)
-        update_model_config(model, self._attrs, new_num_experts)
+        new_num_experts = self._moe_attrs.num_experts - self._n_experts_to_drop
+        update_model_config(model, self._moe_attrs, new_num_experts)
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
@@ -212,22 +175,19 @@ class REAPPruningModifier(Modifier):
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         """Finalize drop decisions for any tracked layer whose saliency is
         complete, then release its activation buffers."""
-        if self._n_experts_to_drop == 0:
-            return
 
         model = state.model
 
         for layer_name, tracker in list(self._saliency_trackers.items()):
-            if layer_name in self._pruned:
-                continue
             if tracker.total_count <= 0:
                 continue
 
-            retained = compute_retained_experts(
-                tracker.mean_saliency, self._n_experts_to_drop
+            retained = tracker.compute_retained_experts(
+                self._n_experts_to_drop
             )
-            prune_moe_layer(model, layer_name, retained, self._attrs)
-            self._pruned.add(layer_name)
+            assert len(retained) == self._moe_attrs.num_experts - self._n_experts_to_drop, f"Expected {self._moe_attrs.num_experts - self._n_experts_to_drop} retained experts, got {len(retained)}"
+
+            prune_moe_layer(model, layer_name, retained, self._moe_attrs)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]
@@ -245,6 +205,7 @@ class REAPPruningModifier(Modifier):
     ):
         """Record expert ``f_j`` output norms for every token this batch."""
         if layer_name not in self._norm_buffers:
+            # Layer has already been pruned
             return
         if isinstance(output, tuple):
             output = output[0]
