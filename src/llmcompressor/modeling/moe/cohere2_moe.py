@@ -7,8 +7,6 @@ from transformers.models.cohere2_moe.modeling_cohere2_moe import Cohere2MoeTopKR
 from llmcompressor.modeling.fuse import fuse_norm_linears
 from llmcompressor.modeling.moe.linearize import linearize_moe
 
-__all__ = ["LinearRouter", "prepare_cohere2_moe_for_spinquant"]
-
 
 class LinearRouter(torch.nn.Module):
     """

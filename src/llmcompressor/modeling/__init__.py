@@ -12,5 +12,4 @@ needed for efficient compression.
 # trigger registration
 from .offset_norm import CalibrationOffsetNorm  # noqa: F401
 
-from .cohere2_moe import *
 from .fuse import *
