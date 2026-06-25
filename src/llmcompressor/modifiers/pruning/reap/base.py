@@ -63,6 +63,7 @@ class REAPPruningModifier(Modifier):
         default_factory=dict
     )
     _n_experts_to_drop: int = PrivateAttr(default=0)
+    _n_experts_to_drop_per_group: int | None = PrivateAttr(default=None)
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
@@ -80,32 +81,59 @@ class REAPPruningModifier(Modifier):
         self._moe_attrs = get_moe_attrs(model, self.ignore)
 
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
-
+        
         if self._n_experts_to_drop == 0:
             raise ValueError(
                 f"sparsity={self.sparsity} results in 0 "
                 f"experts to drop (out of {self._moe_attrs.num_experts}). No pruning will "
                 "be performed."
             )
+        
+        if self._moe_attrs.n_group is not None:
+            self._n_experts_to_drop_per_group = round(self._n_experts_to_drop / self._moe_attrs.n_group)
+
+            if self._n_experts_to_drop_per_group == 0:
+                raise ValueError(
+                    f"Group-limited router detected: sparsity={self.sparsity} results in 0 "
+                    f"experts to drop per group (out of {self._moe_attrs.group_size}). No pruning will "
+                    "be performed."
+                )
+
+        # fail fast (before calibration) if the requested sparsity would
+        # leave the router unable to select top_k experts per token
+        if self._moe_attrs.n_group is not None:
+            retained_per_group = self._moe_attrs.group_size - self._n_experts_to_drop_per_group
+            available = self._moe_attrs.top_k_group * retained_per_group
         else:
-            # fail fast (before calibration) if the requested sparsity would
-            # leave the router unable to select top_k experts per token
             available = self._moe_attrs.num_experts - self._n_experts_to_drop
 
-            if self._moe_attrs.top_k > available:
-                raise ValueError(
-                    f"REAP sparsity is too aggressive: the router selects top_k={self._moe_attrs.top_k} "
-                    f"experts per token, but only {available} experts would remain "
-                    f"reachable after pruning "
-                    f"(num_experts={self._moe_attrs.num_experts}, dropping≈{self._n_experts_to_drop})."
-                    f" Reduce the sparsity"
-                )
+        if self._moe_attrs.top_k > available:
+            raise ValueError(
+                f"REAP sparsity is too aggressive: the router selects top_k={self._moe_attrs.top_k} "
+                f"experts per token, but only {available} experts would remain "
+                f"reachable after pruning "
+                f"(num_experts={self._moe_attrs.num_experts}, dropping≈{self._n_experts_to_drop})."
+                f" Reduce the sparsity"
+            )
 
         logger.info(
             f"REAP initialized: {len(self._moe_attrs.moe_layer_names)} MoE layers, "
             f"{self._moe_attrs.num_experts} experts/layer, will drop "
             f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
         )
+        if self._n_experts_to_drop_per_group is not None:
+            logger.info(
+                f"Group-limited router detected: will drop "
+                f"{self._n_experts_to_drop_per_group} experts/group "
+                f"(out of {self._moe_attrs.group_size} in each of {self._moe_attrs.n_group} groups)"
+            )
+            if self._n_experts_to_drop_per_group * self._moe_attrs.n_group != self._n_experts_to_drop:
+                logger.warning(
+                    f"REAP: group-limited routing requires an equal drop per group; "
+                    f"dropping {self._n_experts_to_drop_per_group * self._moe_attrs.n_group} experts instead of the requested "
+                    f"{self._n_experts_to_drop} (n_group={self._moe_attrs.n_group})"
+                )
+                self._n_experts_to_drop = self._n_experts_to_drop_per_group * self._moe_attrs.n_group
 
         return True
 
@@ -183,7 +211,7 @@ class REAPPruningModifier(Modifier):
                 continue
 
             retained = tracker.compute_retained_experts(
-                self._n_experts_to_drop
+                self._n_experts_to_drop, self._n_experts_to_drop_per_group, self._moe_attrs
             )
             assert len(retained) == self._moe_attrs.num_experts - self._n_experts_to_drop, f"Expected {self._moe_attrs.num_experts - self._n_experts_to_drop} retained experts, got {len(retained)}"
 

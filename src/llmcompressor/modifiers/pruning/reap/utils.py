@@ -34,11 +34,16 @@ class MoeModelAttrs:
     num_experts: int
     top_k: int
     has_text_config: bool
+    n_group: int | None
+    top_k_group: int | None
+    group_size: int | None
 
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
 NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
 TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
+N_GROUP_CONFIG_KEYS = ["n_group"]
+TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
 NUM_EXPERTS_MODULE_KEYS = ["num_experts", "n_experts", "n_routed_experts"]
 
 def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
@@ -79,6 +84,35 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             "top_k attribute is in TOP_K_CONFIG_KEYS in reap/utils.py"
         )
     
+    n_group = None
+
+    for key in N_GROUP_CONFIG_KEYS:
+        if hasattr(config, key):
+            n_group = getattr(config, key)
+            break
+    
+    top_k_group = None
+
+    for key in TOP_K_GROUP_CONFIG_KEYS:
+        if hasattr(config, key):
+            top_k_group = getattr(config, key)
+            break
+    
+    if (n_group is None) != (top_k_group is None):
+        raise ValueError(
+            f"Detected one group-limited router attribute ({'n_group' if n_group is not None else 'top_k_group'} is set) but could not find a config attribute for the other. "
+            "Make sure the name of the model config's n_group and top_k_group attributes are in N_GROUP_CONFIG_KEYS and TOP_K_GROUP_CONFIG_KEYS in reap/utils.py"
+        )
+
+    group_size = None
+
+    # Group-limited router checks
+    if n_group is not None:
+        if num_experts % n_group != 0:
+            raise ValueError(f"Group limited router detected, but {num_experts} experts not divisible by n_group={n_group}")
+
+        group_size = num_experts // n_group
+    
     for _, module in model.named_modules():
         for e_attr in EXPERTS_ATTRS:
             if hasattr(module, e_attr):
@@ -104,13 +138,23 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
                 continue
             experts = getattr(module, experts_attr)
             if not isinstance(experts, LinearExperts2D):
+                logger.warning(f"Skipping layer {name}: experts module is not LinearExperts2D")
                 continue
             if isinstance(experts, GraniteMoeLinearExperts):
+                logger.warning(f"Skipping unsupported GraniteMoeLinearExperts layer: {name}")
                 continue
             if isinstance(experts, Llama4LinearExperts):
+                logger.warning(f"Skipping unsupported Llama4LinearExperts layer: {name}")
                 continue
             moe_layer_names.append(name)
 
+    if not moe_layer_names:
+        raise ValueError(
+            "Could not find any supported MoE layers with experts in LinearExperts2D format. "
+            "Make sure the model has MoE layers (excluding GraniteMoeLinearExperts and Llama4LinearExperts), and that the name of its "
+            "experts module is in EXPERTS_ATTRS and it the name of its router module is in ROUTER_ATTRS in reap/utils.py"
+        )
+    
     logger.info(f"Found {len(moe_layer_names)} MoE layers with experts in LinearExperts2D format")
 
     return MoeModelAttrs(
@@ -121,6 +165,9 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
         num_experts=num_experts,
         top_k=top_k,
         has_text_config=has_text_config,
+        n_group=n_group,
+        top_k_group=top_k_group,
+        group_size=group_size,
     )
 
 
@@ -204,14 +251,22 @@ class REAPSaliencyTracker:
             self.count[expert_idx] += len(contrib)
 
 
-    def compute_retained_experts(self, n_experts_to_drop: int) -> list[int]:
+    def compute_retained_experts(self, n_experts_to_drop: int, n_experts_to_drop_per_group: int | None, moe_attrs: MoeModelAttrs) -> list[int]:
         """Select which experts to keep, dropping the lowest-saliency ones."""
         saliency = self.mean_saliency
-        num_experts = len(saliency)
 
-        _, drop_indices = torch.topk(saliency, n_experts_to_drop, largest=False)
-        drop_set = set(int(i) for i in drop_indices.tolist())
-        retained = [i for i in range(num_experts) if i not in drop_set]
+        if n_experts_to_drop_per_group is None:
+            _, drop_indices = torch.topk(saliency, n_experts_to_drop, largest=False)
+            drop_set = set(int(i) for i in drop_indices.tolist())
+            retained = [i for i in range(self.num_experts) if i not in drop_set]
+        else:
+            retained: list[int] = []
+            for g in range(moe_attrs.n_group):
+                lo = g * moe_attrs.group_size
+                grp = saliency[lo : lo + moe_attrs.group_size]
+                _, drop_local = torch.topk(grp, n_experts_to_drop_per_group, largest=False)
+                drop_set = {lo + int(i) for i in drop_local.tolist()}
+                retained.extend(i for i in range(lo, lo + moe_attrs.group_size) if i not in drop_set)
 
         return retained
 
@@ -288,6 +343,14 @@ def _prune_router(router: nn.Module, retained: list[int]):
         new_bias = None
         if getattr(router, "bias", None) is not None:
             new_bias = router.bias.detach()[retained_t].contiguous()
+        # group-limited routers (DeepSeek-V3 / GLM4 / GLM-DSA) carry a per-expert
+        # score-correction bias buffer that must be shrunk in lockstep
+        correction = getattr(router, "e_score_correction_bias", None)
+        new_correction = (
+            correction.detach()[retained_t].contiguous()
+            if correction is not None
+            else None
+        )
 
     # Direct attribute assignment replaces a parameter/buffer with a different
     # shape and is correct for both offloaded modules (routed through the
@@ -295,6 +358,8 @@ def _prune_router(router: nn.Module, retained: list[int]):
     router.weight = nn.Parameter(new_weight, requires_grad=False)
     if new_bias is not None:
         router.bias = nn.Parameter(new_bias, requires_grad=False)
+    if new_correction is not None:
+        router.e_score_correction_bias = new_correction
 
     if isinstance(router, nn.Linear):
         router.out_features = len(retained)
