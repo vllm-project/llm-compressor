@@ -14,7 +14,7 @@ from pydantic import Field, PrivateAttr, model_validator
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.reap.utils import (
-    MoEModelAttrs,
+    MoeModelAttrs,
     REAPSaliencyTracker,
     get_moe_attrs,
     prune_moe_layer,
@@ -58,7 +58,7 @@ class REAPPruningModifier(Modifier):
     sparsity: float
     ignore: list[str] = Field(default_factory=list)
 
-    _moe_attrs: MoEModelAttrs | None = PrivateAttr(default=None)
+    _moe_attrs: MoeModelAttrs | None = PrivateAttr(default=None)
     _saliency_trackers: dict[str, REAPSaliencyTracker] = PrivateAttr(
         default_factory=dict
     )

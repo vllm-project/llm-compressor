@@ -16,10 +16,10 @@ from loguru import logger
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
-from transformers.src.transformers.configuration_utils import PreTrainedConfig
+from transformers.configuration_utils import PreTrainedConfig
 
 __all__ = [
-    "MoEModelAttrs",
+    "MoeModelAttrs",
     "REAPSaliencyTracker",
     "get_moe_attrs",
     "prune_moe_layer",
@@ -38,7 +38,7 @@ class MoeModelAttrs:
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
 NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
-TOP_K_CONFIG_KEYS = ["top_k", "moe_top_k"]
+TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
 NUM_EXPERTS_MODULE_KEYS = ["num_experts", "n_experts", "n_routed_experts"]
 
 def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
@@ -59,12 +59,11 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             break
     
     if num_experts_config_key is None:
-        logger.warning(
+        raise ValueError(
             "Could not find a config attribute for the number of experts. "
             "Make sure the name of the model config's "
             "num_experts attribute is in NUM_EXPERTS_CONFIG_KEYS in reap/utils.py"
         )
-        return None
 
     top_k = None
 
@@ -74,12 +73,11 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             break
     
     if top_k is None:
-        logger.warning(
+        raise ValueError(
             "Could not find a config attribute for the top_k. "
             "Make sure the name of the model config's "
             "top_k attribute is in TOP_K_CONFIG_KEYS in reap/utils.py"
         )
-        return None
     
     for _, module in model.named_modules():
         for e_attr in EXPERTS_ATTRS:
@@ -241,7 +239,7 @@ def prune_moe_layer(
     model: nn.Module,
     layer_name: str,
     retained: list[int],
-    moe_attrs: MoEModelAttrs,
+    moe_attrs: MoeModelAttrs,
 ) -> list[int]:
     """
     Structurally prune a MoE block to keep only ``retained`` experts: rebuild the
@@ -304,7 +302,7 @@ def _prune_router(router: nn.Module, retained: list[int]):
 
 def update_model_config(
     model: nn.Module,
-    moe_attrs: MoEModelAttrs,
+    moe_attrs: MoeModelAttrs,
     new_num_experts: int,
 ):
     config = model.config.text_config if moe_attrs.has_text_config else model.config
