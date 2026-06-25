@@ -61,12 +61,10 @@ _default_mappings = SpinQuantMapping(
 )
 
 
-# Cohere2MoE uses a parallel block (single input_layernorm feeding attention and the
-# MLP/router) with batched MoE experts. Experts must be linearized and the router must be
-# converted to expose an nn.Linear before use; see
+# Cohere2MoE: parallel block with batched MoE experts. Experts must be linearized and
+# the router converted to an nn.Linear before use; see
 # `llmcompressor.modeling.moe.cohere2_moe.prepare_cohere2_moe_for_spinquant`. The router
-# (`mlp.gate.linear`) is included in `mlp_in` so the R1 rotation is applied to it, which
-# keeps routing invariant under R1.
+# (`mlp.gate.linear`) is in `mlp_in` so R1 applies to it, keeping routing invariant.
 _cohere2_moe_mappings = SpinQuantMapping(
     embedding="re:.*embed_tokens$",
     attn="re:.*self_attn$",

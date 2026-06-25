@@ -44,10 +44,10 @@ _default_mappings = [
 ]
 
 # Cohere2MoE uses a parallel block: a single input_layernorm feeds attention (q/k/v), the
-# MLP (gate/up) AND the router. Those consumers span different parents and the router is
-# absent in the dense first layer, so they cannot be grouped by `match_modules_set`. The
-# input_layernorm fusion is therefore handled per-layer in
-# `prepare_cohere2_moe_for_spinquant`; only the final norm -> lm_head fusion remains here.
+# MLP (gate/up) AND the router; these span different parents and the router is absent in 
+# the dense first layer, so `match_modules_set` can't group them. 
+# Input_layernorm fusion is handled per-layer in `prepare_cohere2_moe_for_spinquant`; 
+# only the final norm -> lm_head fusion remains here.
 _cohere2_moe_mappings = [
     NormMapping(
         norm="model.norm",

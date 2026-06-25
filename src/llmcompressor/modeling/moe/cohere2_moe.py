@@ -10,18 +10,12 @@ from llmcompressor.modeling.moe.linearize import linearize_moe
 
 class LinearRouter(torch.nn.Module):
     """
-    Drop-in replacement for ``Cohere2MoeTopKRouter`` which performs the router
-    projection through a child ``nn.Linear`` rather than a raw ``nn.Parameter``.
+    Drop-in replacement for ``Cohere2MoeTopKRouter`` that wraps the router weight in an
+    ``nn.Linear``. SpinQuant can only fuse rotations into ``nn.Linear``/``nn.Embedding``,
+    so this exposes the router projection to R1 (keeping routing invariant). Output is
+    numerically identical to the original router.
 
-    SpinQuant (and the underlying ``compressed_tensors`` transform engine) can only
-    fuse rotations into ``nn.Linear`` / ``nn.Embedding`` modules. Exposing the router
-    projection as an ``nn.Linear`` allows the R1 rotation to be applied to it, which is
-    required for routing to remain invariant under R1 (the router reads the same
-    normalized residual stream as the q/k/v and mlp projections).
-
-    The forward pass is numerically identical to the original router.
-
-    :param router: original ``Cohere2MoeTopKRouter`` module to replace
+    :param router: original ``Cohere2MoeTopKRouter`` to replace
     """
 
     def __init__(self, router: Cohere2MoeTopKRouter):
@@ -64,10 +58,9 @@ class LinearRouter(torch.nn.Module):
 
 def _layer_norm_consumers(layer: torch.nn.Module) -> list[torch.nn.Linear]:
     """
-    Collect every ``nn.Linear`` that consumes the output of a decoder layer's
-    ``input_layernorm``. Cohere2MoE uses a parallel block, so this is the union of the
-    attention q/k/v projections and all MLP input projections (gate/up for the dense
-    layer or every expert, plus the router).
+    All ``nn.Linear`` consumers of a decoder layer's ``input_layernorm``. Cohere2MoE
+    uses a parallel block, so this is the q/k/v projections plus the MLP inputs
+    (gate/up for the dense layer or each expert, plus the router).
     """
     linears = [
         layer.self_attn.q_proj,
@@ -92,30 +85,25 @@ def _layer_norm_consumers(layer: torch.nn.Module) -> list[torch.nn.Linear]:
 
 def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
     """
-    Prepare a ``Cohere2MoeForCausalLM`` model so that SpinQuant rotations can be applied.
+    Prepare a ``Cohere2MoeForCausalLM`` model for SpinQuant rotations.
 
-    This performs the architecture-specific transformations that the generic SpinQuant
-    pipeline cannot, all of which are mathematically lossless:
+    Applies architecture-specific transformations the generic pipeline cannot, all
+    lossless:
 
-    1. Linearizes the batched MoE experts (3D ``nn.Parameter`` -> per-expert
-       ``nn.Linear``) via :func:`linearize_moe`, so R1/R4 can target the expert
-       projections.
-    2. Replaces each MoE router (:class:`Cohere2MoeTopKRouter`) with a
-       :class:`LinearRouter` (exposing an ``nn.Linear``), so the R1 rotation can be
-       applied to it (the router reads the rotated residual stream and must be rotated
-       for routing to remain invariant).
-    3. Fuses every ``input_layernorm`` scale into all of its consumers and resets the
-       norm to ones. Cohere2MoE uses a parallel block: a single ``input_layernorm``
-       feeds attention (q/k/v), the MLP (gate/up), AND the router. These consumers span
-       different parents and the router is absent in the dense first layer, so they
-       cannot be grouped by the generic norm-fusing pass (``match_modules_set``); we
-       therefore fuse them here, per layer. The final ``model.norm`` -> ``lm_head``
-       fusion is left to the modifier (it must run after embeddings are untied).
+    1. Linearize batched MoE experts (3D ``nn.Parameter`` -> per-expert ``nn.Linear``)
+       via :func:`linearize_moe`, exposing them to R1/R4.
+    2. Replace each MoE router with :class:`LinearRouter` so R1 can be applied (the
+       router reads the rotated residual stream and must rotate with it).
+    3. Fuse each ``input_layernorm`` into all of its consumers and reset the norm to
+       ones. Cohere2MoE's single ``input_layernorm`` feeds attention, the MLP, and the
+       router; these span different parents (and the router is absent in the dense first
+       layer), so the generic ``match_modules_set`` pass can't group them. The final
+       ``model.norm`` -> ``lm_head`` fusion is left to the modifier (must run after
+       embeddings are untied).
 
-    This should be called before running ``SpinQuantModifier`` (e.g. before
-    ``oneshot``).
+    Call before ``SpinQuantModifier`` (e.g. before ``oneshot``).
 
-    :param model: ``Cohere2MoeForCausalLM`` model to prepare in-place
+    :param model: ``Cohere2MoeForCausalLM`` to prepare in-place
     """
     linearize_moe(model)
 
