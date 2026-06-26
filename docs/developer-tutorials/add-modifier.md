@@ -24,6 +24,8 @@ Modifiers express what they want to do at each stage by implementing lifecycle h
 All modifiers subclass `llmcompressor.modifiers.Modifier` and must implement `on_initialize`. All other lifecycle hooks are optional.
 
 ```python
+import torch
+
 from llmcompressor.modifiers import Modifier
 from llmcompressor.core import State, Event
 
@@ -80,7 +82,9 @@ class MyModifier(Modifier):
         # the calibration pass (e.g., set up observers, reset statistics).
         ...
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         # Called at the end of a sequential layer group (sequential pipeline) or
         # once for the entire model (basic/data-free pipelines).
         # This is where quantization modifiers compute weight and activation

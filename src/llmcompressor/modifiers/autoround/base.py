@@ -223,8 +223,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        modules = kwargs.pop("modules", None)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         self.apply_autoround(state, modules)
         self.post_autoround_cleanup()
 
