@@ -1,9 +1,10 @@
 import torch
-from compressed_tensors.offload import dispatch_model
+from compressed_tensors.offload import dispatch_model, load_offloaded_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # NOTE: Use this example when deploying Qwen3-Next in thinking mode.
@@ -24,7 +25,8 @@ NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 4096
 
 recipe = [
-    AWQModifier(
+    AWQModifier(),
+    QuantizationModifier(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         scheme="W4A16",
         targets=["Linear"],
@@ -89,8 +91,11 @@ def data_collator(batch):
 
 
 if __name__ == "__main__":
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto", device_map="auto")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    with load_offloaded_model():
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID, torch_dtype="auto", device_map="auto_offload"
+        )
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
     oneshot(
         model=model,
@@ -112,7 +117,7 @@ if __name__ == "__main__":
         return_tensors="pt",
     ).to(model.device)
     output = model.generate(input_ids, max_new_tokens=4096)
-    print(tokenizer.decode(output[0][input_ids.shape[-1]:], skip_special_tokens=False))
+    print(tokenizer.decode(output[0][input_ids.shape[-1] :], skip_special_tokens=False))
     print("==========================================================\n")
 
     model.save_pretrained(SAVE_DIR, save_compressed=True)
