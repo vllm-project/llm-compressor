@@ -53,7 +53,6 @@ def preprocess_function(example):
         tokenize=True,
         return_dict=True,
         add_generation_prompt=False,
-        enable_thinking=False,
         processor_kwargs={
             "return_tensors": "pt",
             "padding": False,
