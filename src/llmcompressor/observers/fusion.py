@@ -102,6 +102,4 @@ class FusionHandler:
 
     @staticmethod
     def _delete_observer_statistics(observer: "Observer") -> None:
-        for attr in observer._stats_attrs:
-            if hasattr(observer, attr):
-                delattr(observer, attr)
+        observer.delete_statistics(check_fused=False)

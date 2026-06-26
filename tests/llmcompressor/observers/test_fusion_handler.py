@@ -187,3 +187,58 @@ class TestEagerFusedObservation:
         observers[0](modules[0].weight)
         for obs in observers:
             assert obs.has_statistics
+
+
+@pytest.mark.unit
+class TestNVFP4FusedLifecycle:
+    """End-to-end test simulating the NVFP4 fused module flow:
+    fuse -> observe -> get_qparams (global_scale + cooperative deletion)."""
+
+    def test_fused_qparams_share_global_scale(self):
+        observers, modules = _make_fused_group(3)
+        for obs, mod in zip(observers, modules):
+            obs(mod.weight)
+
+        qparams = [obs.get_qparams() for obs in observers]
+        for qp in qparams:
+            assert qp["global_scale"] is not None
+        for qp in qparams[1:]:
+            torch.testing.assert_close(qp["global_scale"], qparams[0]["global_scale"])
+
+    def test_stats_deleted_after_all_get_qparams(self):
+        observers, modules = _make_fused_group(3)
+        for obs, mod in zip(observers, modules):
+            obs(mod.weight)
+
+        # first two calls should NOT delete stats (group not fully consumed)
+        observers[0].get_qparams()
+        assert observers[1].has_statistics
+        observers[1].get_qparams()
+        assert observers[2].has_statistics
+
+        # third call completes the group — all stats deleted
+        observers[2].get_qparams()
+        for obs in observers:
+            assert not obs.has_statistics
+
+    def test_unfused_stats_deleted_immediately_after_get_qparams(self):
+        obs = _make_observer()
+        mod = _make_linear()
+        obs(mod.weight)
+        obs.get_qparams()
+        assert not obs.has_statistics
+
+    def test_can_re_observe_after_deletion(self):
+        observers, modules = _make_fused_group(3)
+        for obs, mod in zip(observers, modules):
+            obs(mod.weight)
+        for obs in observers:
+            obs.get_qparams()
+        # stats are deleted, re-observe
+        for obs, mod in zip(observers, modules):
+            obs(mod.weight)
+        for obs in observers:
+            assert obs.has_statistics
+        qparams = [obs.get_qparams() for obs in observers]
+        for qp in qparams:
+            assert qp["global_scale"] is not None

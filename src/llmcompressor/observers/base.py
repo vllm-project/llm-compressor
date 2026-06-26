@@ -8,6 +8,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationStrate
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
+
 from llmcompressor.observers.fusion import FusionHandler
 from llmcompressor.observers.helpers import flatten_for_calibration
 
@@ -60,14 +61,9 @@ class Observer(InternalModule, RegistryMixin):
     def has_statistics(self) -> bool:
         return all(hasattr(self, attr) for attr in self._stats_attrs)
 
-    def get_statistics(self) -> dict[str, torch.Tensor]:
-        """
-        Return this observer's current statistics.
-
-        :return: dict mapping each stats attr name to its tensor
-        """
-        assert self.has_statistics, "No statistics available. Call observer(value) first."
-        return {attr: getattr(self, attr) for attr in self._stats_attrs}
+    @property
+    def is_weight_obs(self) -> bool:
+        return self.base_name == "weight"
 
     @abstractmethod
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
@@ -97,9 +93,7 @@ class Observer(InternalModule, RegistryMixin):
             global_absmax = torch.max(global_absmax, -stats["min_vals"].min())
             global_absmax = torch.max(global_absmax, stats["max_vals"].max())
 
-        return generate_gparam(
-            -global_absmax.reshape(1), global_absmax.reshape(1)
-        )
+        return generate_gparam(-global_absmax.reshape(1), global_absmax.reshape(1))
 
     @torch.no_grad
     def get_qparams(self) -> QParamsDict:
@@ -124,7 +118,7 @@ class Observer(InternalModule, RegistryMixin):
             global_scale=global_scale,
         )
 
-        self.fusion_handler.maybe_delete_statistics()
+        self.delete_statistics()
 
         return {"scale": scale, "zero_point": zero_point, "global_scale": global_scale}
 
@@ -138,6 +132,9 @@ class Observer(InternalModule, RegistryMixin):
         :return: self for method chaining
         """
         if observed.numel() == 0:
+            return self
+
+        if self.is_weight_obs and self.has_statistics:
             return self
 
         observed = flatten_for_calibration(observed, self.base_name, self.args)
@@ -163,6 +160,32 @@ class Observer(InternalModule, RegistryMixin):
                     dist.all_reduce(as_broadcastable(val), op=reduce_op, async_op=True)
                 )
         return comms
+
+    def delete_statistics(self, check_fused: bool = True) -> None:
+        """
+        Delete this observer's statistics.
+
+        :param check_fused: if True (default), use cooperative fusion deletion
+            so stats are only removed when all fused observers are ready.
+            If False, delete immediately regardless of fusion state.
+        """
+        if check_fused:
+            self.fusion_handler.maybe_delete_statistics()
+        else:
+            for attr in self._stats_attrs:
+                if hasattr(self, attr):
+                    delattr(self, attr)
+
+    def get_statistics(self) -> dict[str, torch.Tensor]:
+        """
+        Return this observer's current statistics.
+
+        :return: dict mapping each stats attr name to its tensor
+        """
+        assert (
+            self.has_statistics
+        ), "No statistics available. Call observer(value) first."
+        return {attr: getattr(self, attr) for attr in self._stats_attrs}
 
     def attach(self, module: torch.nn.Module) -> None:
         """
