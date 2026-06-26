@@ -208,8 +208,8 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
 @contextmanager
 def suspend_distributed_timeout(
-    current_group: dist.ProcessGroup | None = None,
     timeout: datetime.timedelta = datetime.timedelta(hours=3),
+    current_group: dist.ProcessGroup | None = None,
 ):
     """
     Context manager that extends the timeout for distributed operations.
@@ -219,10 +219,10 @@ def suspend_distributed_timeout(
     distributed training environments. The context manager synchronizes all
     processes before and after the operation using barriers.
 
-    :param current_group: The current process group to synchronize. If None,
-        defaults to dist.group.WORLD
     :param timeout: The extended timeout for the temporary process group.
         Defaults to 3 hours
+    :param current_group: The current process group to synchronize. If None,
+        defaults to dist.group.WORLD
     """
     if not dist.is_initialized():
         yield
@@ -238,3 +238,4 @@ def suspend_distributed_timeout(
     finally:
         dist.barrier(group=suspend_group)
         dist.barrier(group=current_group)
+        dist.destroy_process_group(group=suspend_group)
