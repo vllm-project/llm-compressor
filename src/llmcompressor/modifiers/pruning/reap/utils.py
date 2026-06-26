@@ -1,5 +1,5 @@
 """
-Utilities for REAP: MoE detection, routing extraction, saliency tracking, and
+Utilities for REAP: MoE detection, saliency tracking, and
 expert pruning.
 """
 
@@ -147,6 +147,10 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             if any(re.search(pattern, name) for pattern in ignore):
                 continue
             experts = getattr(module, experts_attr)
+            # REAP currently only supports LinearExperts2D experts, as they receive the
+            # top_k indices and weights from the router in their forward pass.
+            # Granite and Llama4 experts diverge from this behavior, so they are unsupported
+            # for now.
             if not isinstance(experts, LinearExperts2D):
                 logger.warning(
                     f"Skipping layer {name}: experts module is not LinearExperts2D"
@@ -331,7 +335,7 @@ def prune_moe_layer(
     moe_attrs: MoeModelAttrs,
 ) -> list[int]:
     """
-    Structurally prune a MoE block to keep only ``retained`` experts: rebuild the
+    Structurally prune a MoE block to keep only ``retained`` experts: slice the
     expert ``ModuleList``, shrink the router, and update expert-count attributes.
     Offload-safe: experts are kept as existing module objects (offload state
     travels with them) and the small router is resized under

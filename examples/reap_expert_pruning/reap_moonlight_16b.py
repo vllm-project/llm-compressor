@@ -51,8 +51,8 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
+# Prune 25% of the experts in each MoE layer, based on saliency.
+# You can adjust this value to prune more or less aggressively.
 recipe = REAPPruningModifier(sparsity=0.25)
 
 # Apply algorithms.
@@ -64,7 +64,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-# Confirm generations of the quantized model look sane.
+# Confirm generations of the compressed model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_model(model)

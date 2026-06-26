@@ -52,7 +52,7 @@ class REAPPruningModifier(Modifier):
     Example recipe::
 
         REAPPruningModifier:
-          sparsity: 0.5
+          sparsity: 0.25
     """
 
     sparsity: float
@@ -154,7 +154,7 @@ class REAPPruningModifier(Modifier):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
-        # Prevent calibration of all experts
+        # Prevent unnecessary calibration of all experts
         session = active_session()
         self._original_moe_calibrate_all_experts = (
             session.state.moe_calibrate_all_experts
@@ -209,9 +209,7 @@ class REAPPruningModifier(Modifier):
             )
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        # Apply structural pruning here (after the calibration context has
-        # exited): the decisions were finalized at SEQUENTIAL_EPOCH_END, so this
-        # only mutates module structure -- it does not need calibration data.
+        """Finalize the model config to reflect the new number of experts."""
 
         model = state.model
 
@@ -226,8 +224,8 @@ class REAPPruningModifier(Modifier):
     # -- decision finalization ----------------------------------------------
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """Finalize drop decisions for any tracked layer whose saliency is
-        complete, then release its activation buffers."""
+        """Prune any tracked layer whose saliency is
+        complete, then release its activation norm buffers."""
 
         model = state.model
 
