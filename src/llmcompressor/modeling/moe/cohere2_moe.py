@@ -105,6 +105,20 @@ def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
 
     :param model: ``Cohere2MoeForCausalLM`` to prepare in-place
     """
+    # SpinQuant requires RMSNorm: Cohere2MoE uses Cohere2MoeLayerNorm (mean-centering)
+    # when `rms_norm_eps is None`, which breaks rotation invariance and norm fusion.
+    assert model.config.rms_norm_eps is not None, (
+        "SpinQuant requires RMSNorm, but this Cohere2MoE config uses "
+        "Cohere2MoeLayerNorm (rms_norm_eps is None); mean-centering breaks "
+        "rotation invariance and norm fusion."
+    )
+    # Shared experts also consume `input_layernorm` in the parallel block but are not
+    # handled by `_layer_norm_consumers`, so their norm would not be fused.
+    assert getattr(model.config, "num_shared_experts", 0) == 0, (
+        "prepare_cohere2_moe_for_spinquant does not support shared experts yet"
+        "(num_shared_experts > 0); their input_layernorm consumers are not fused."
+    )
+
     linearize_moe(model)
 
     num_routers = 0
