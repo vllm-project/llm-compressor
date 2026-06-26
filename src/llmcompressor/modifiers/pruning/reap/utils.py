@@ -149,8 +149,8 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             experts = getattr(module, experts_attr)
             # REAP currently only supports LinearExperts2D experts, as they receive the
             # top_k indices and weights from the router in their forward pass.
-            # Granite and Llama4 experts diverge from this behavior, so they are unsupported
-            # for now.
+            # Granite and Llama4 experts diverge from this behavior, so they are
+            # unsupported for now.
             if not isinstance(experts, LinearExperts2D):
                 logger.warning(
                     f"Skipping layer {name}: experts module is not LinearExperts2D"
