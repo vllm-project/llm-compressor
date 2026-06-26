@@ -10,22 +10,12 @@ from transformers.core_model_loading import (
     WeightRenaming,
     WeightTransform,
 )
-from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
-from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeExperts
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 __all__ = [
     "has_linearize_load_mappings",
     "get_linearize_load_mappings",
     "set_save_conversion_mapping",
 ]
-
-# TODO: in the future, we can potentially grep the source code for this
-ARCH_TO_EXPERTS_MODULE_CLS = {
-    "deepseek_v4": DeepseekV4Experts,
-    "qwen2_moe": Qwen2MoeExperts,
-    "qwen3_moe": Qwen3MoeExperts,
-}
 
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
@@ -64,6 +54,30 @@ ARCH_TO_2D_MAPPINGS = {
     ),
 }
 
+def get_experts_cls(model_type: str) -> type[torch.nn.Module]:
+    if model_type == "deepseek_v4":
+        from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
+
+        return DeepseekV4Experts
+
+    elif model_type == "qwen2_moe":
+        from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeExperts
+
+        return Qwen2MoeExperts
+
+    elif model_type == "qwen3_moe":
+        from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
+
+        return Qwen3MoeExperts
+
+    elif model_type == "glm_moe_dsa":
+        from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaExperts
+
+        return GlmMoeDsaExperts
+    
+    else:
+        raise ValueError()
+
 
 def has_linearize_load_mappings(model_type: str) -> bool:
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
@@ -74,7 +88,7 @@ def get_linearize_load_mappings(
     model_type: str,
 ) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
     """ """
-    experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
+    experts_cls = get_experts_cls(model_type)
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)

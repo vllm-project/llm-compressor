@@ -1,21 +1,24 @@
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from compressed_tensors.offload import init_dist
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.utils import load_context
 
 # Load the model
-model_id = "zai-org/GLM-5.1"
+init_dist()
+model_id = "zai-org/GLM-5.2"
 with load_context():
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        device_map="auto_offload",
+        max_memory={},
+        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder"
+    )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-# MoE calibration is now handled automatically by the pipeline.
-# The `CalibrationGlmMoeDsaMoE` modules (from `llmcompressor.modeling.glm_moe_dsa`)
-# will be applied during calibration to enable proper expert calibration.
-# These permanently unpack the fused 3D expert weights into individual nn.Linear
-# layers for quantization target matching and vLLM compatibility.
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -27,7 +30,9 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = load_dataset(
+    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
+)
 ds = ds.shuffle(seed=42)
 
 
@@ -68,20 +73,24 @@ moe_ignores = [
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with AWQ with a group size 128
 recipe = [
-    AWQModifier(),
-    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores),
+    QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=moe_ignores),
 ]
 
 # Apply algorithms.
 oneshot(
     model=model,
     dataset=ds,
+    batch_size=32,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+# Note: base checkpoint generation_config needs fixing for newer transformers versions
+model.generation_config.top_p = None
+SAVE_DIR = "/mnt/nvme-data/engine/kylesayrs/" + model_id.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
+
+torch.distributed.destroy_process_group()
