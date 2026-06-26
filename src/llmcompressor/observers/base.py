@@ -88,8 +88,7 @@ class Observer(InternalModule, RegistryMixin):
             return None
 
         all_stats = self.fusion_handler.get_fused_statistics()
-        device = all_stats[0]["min_vals"].device
-        global_absmax = torch.tensor(0.0, device=device)
+        global_absmax = all_stats[0]["max_vals"].max()
         for stats in all_stats:
             global_absmax = torch.max(global_absmax, -stats["min_vals"].min())
             global_absmax = torch.max(global_absmax, stats["max_vals"].max())
