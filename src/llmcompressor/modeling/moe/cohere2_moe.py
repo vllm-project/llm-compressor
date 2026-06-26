@@ -41,7 +41,7 @@ class LinearRouter(torch.nn.Module):
         router_scores, selected_experts = torch.topk(router_logits, self.top_k, dim=-1)
         if self.expert_selection_fn == "softmax":
             router_scores = torch.nn.functional.softmax(
-                router_scores, dim=1, dtype=torch.float
+                router_scores, dim=-1, dtype=torch.float
             )
         elif self.expert_selection_fn == "sigmoid":
             router_scores = torch.nn.functional.sigmoid(router_scores)
