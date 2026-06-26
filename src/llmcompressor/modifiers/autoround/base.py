@@ -19,14 +19,15 @@ from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.autoround.utils import fix_attention_mask
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
-__all__ = ["AutoRoundModifier"]
+__all__ = ["AutoRoundModifier", "fix_batch_if_needed"]
 
 
 class _LLModelWrapper(torch.nn.Module):
@@ -55,6 +56,20 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     first_param = next(layer.parameters())
     wrapped_model.dtype = first_param.dtype
     return wrapped_model
+
+
+def fix_batch_if_needed(
+    batch: dict[str, list[int] | list[list[int]]],
+) -> dict[str, list[int] | list[list[int]]]:
+    """
+    Normalize custom calibration batches so their attention masks work with AutoRound.
+    """
+    attention_mask = batch.get("attention_mask")
+    if attention_mask is None:
+        return batch
+
+    batch["attention_mask"] = fix_attention_mask(attention_mask).tolist()
+    return batch
 
 
 @contextmanager
@@ -111,12 +126,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - apply config to model
-    - on_start
+    - on_calibration_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
-    - on_finalize
+    - on_calibration_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -192,14 +207,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
-    def input_capture_hook(self, module, *args, **kwargs):
+    def input_capture_hook(self, module, args, kwargs):
         if module._tmp_name not in self._all_module_input:
             self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
@@ -210,19 +223,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = kwargs.pop("modules", None)
-            self.apply_autoround(state, modules)
-            self.post_autoround_cleanup()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        self.apply_autoround(state, modules)
+        self.post_autoround_cleanup()
 
     def apply_autoround(self, state, modules):
         """
@@ -291,6 +296,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             first_param = next(decoding_layer.parameters())
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
+            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
+            self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
             # Leave offload for LLMC to handle if `device_ids` is not set
             auto_offload = False
@@ -302,7 +309,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
-                inputs=cur_inputs,
+                inputs=ar_inputs,
                 q_input=self._q_input,
                 device=str(device),
                 auto_offload=auto_offload,
@@ -318,26 +325,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
 
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        """
-        disable the quantization observers used by the AutoRound algorithm
-
-        :param state: session state storing input model and calibration data
-        """
-        if not self.ended_:
-            self.on_end(state, None)
-
-        return True
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
@@ -595,3 +590,25 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             act_data_type=act_data_type,
         )
         return ar_quant_scheme
+
+    def _set_attention_masks(
+        self,
+        autoround: AutoRound,
+        block: torch.nn.Module,
+        captured_inputs: list[tuple[tuple, dict]],
+    ):
+        import inspect
+
+        sig = inspect.signature(block.forward)
+        attention_masks = []
+        for args, kwargs in captured_inputs:
+            try:
+                bound = sig.bind_partial(*args, **kwargs)
+                mask = bound.arguments.get("attention_mask")
+            except TypeError:
+                mask = kwargs.get("attention_mask")
+            if mask is not None:
+                attention_masks.append(fix_attention_mask(mask))
+
+        if attention_masks:
+            autoround.attention_mask = attention_masks
