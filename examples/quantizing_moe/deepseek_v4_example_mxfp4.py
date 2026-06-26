@@ -1,6 +1,8 @@
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
+    MXFP4,
+    MXFP8,
     QuantizationScheme,
 )
 from datasets import load_dataset
@@ -101,13 +103,13 @@ recipe = QuantizationModifier(
                 r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
                 r"re:.*attn\.compressor\.indexer\.q_b_proj$",
             ],
-            **FP8_BLOCK,
+            **MXFP8,
         ),
         "experts": QuantizationScheme(
             targets=[
                 r"re:.*mlp\..*(gate|up|down)_proj$",
             ],
-            **NVFP4,
+            **MXFP4,
         ),
     },
     ignore=[],
@@ -131,5 +133,6 @@ oneshot(
 
 # Save to disk compressed.
 SAVE_DIR = "/storage/yiliu7/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+SAVE_DIR = "/storage/yiliu7/" + MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4-MXFP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
