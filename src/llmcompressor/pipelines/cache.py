@@ -273,7 +273,11 @@ class IntermediatesCache:
         match value:
             case torch.Tensor():
                 # pin on-the-fly so only the active batch consumes pinned memory
-                if self.non_blocking and not value.is_pinned() and value.device.type == "cpu":
+                if (
+                    self.non_blocking
+                    and not value.is_pinned()
+                    and value.device.type == "cpu"
+                ):
                     value = value.pin_memory()
 
                 # use non_blocking when source is pinned and target is an accelerator
@@ -291,10 +295,7 @@ class IntermediatesCache:
             case tuple():
                 return tuple(self._onload_value(v) for v in value)
             case dict():
-                return {
-                    k: self._onload_value(v)
-                    for k, v in value.items()
-                }
+                return {k: self._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
                 for field in fields(value):
                     v = getattr(value, field.name)
