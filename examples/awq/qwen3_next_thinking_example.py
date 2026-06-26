@@ -1,6 +1,6 @@
 import torch
 from compressed_tensors.offload import dispatch_model
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -33,22 +33,20 @@ recipe = [
 
 
 def get_calib_dataset(tokenizer):
-    raw_ds = load_dataset(
+    ds = load_dataset(
         DATASET_ID,
         split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES * 5}]",
     ).shuffle(seed=42)
 
-    rows = []
-    for example in raw_ds:
-        if len(rows) >= NUM_CALIBRATION_SAMPLES:
-            break
-
+    def tokenize_and_mask(example):
         messages = [
-            {"role": "user",      "content": example["instruction"]},
+            {"role": "user", "content": example["instruction"]},
             {"role": "assistant", "content": example["response"]},
         ]
         tokens = tokenizer(
-            tokenizer.apply_chat_template(messages, tokenize=False, enable_thinking=True),
+            tokenizer.apply_chat_template(
+                messages, tokenize=False, enable_thinking=True
+            ),
             padding=False,
             max_length=MAX_SEQUENCE_LENGTH,
             truncation=True,
@@ -57,10 +55,10 @@ def get_calib_dataset(tokenizer):
         seq_len = len(tokens["input_ids"])
 
         # Build loss_mask: 1 for assistant tokens, 0 for prompt tokens.
-        # Render the user-only turn the same way the full conversation renders it
-        # (no add_generation_prompt) — Qwen3 thinking templates inject a `<think>\n`
-        # primer when add_generation_prompt=True that is NOT present in the full
-        # conversation, which would otherwise over-count prompt_len.
+        # Render the user-only turn without add_generation_prompt — Qwen3
+        # thinking templates inject a `<think>\n` primer with
+        # add_generation_prompt=True that is absent in the full conversation,
+        # which would over-count prompt_len.
         prompt_ids = tokenizer(
             tokenizer.apply_chat_template(
                 [{"role": "user", "content": example["instruction"]}],
@@ -71,18 +69,18 @@ def get_calib_dataset(tokenizer):
         )["input_ids"]
         prompt_len = min(len(prompt_ids), seq_len)
 
-        # Skip samples where the prompt fills the entire sequence window —
-        # all-zero loss_mask contributes nothing to AWQ optimization.
-        if prompt_len == seq_len:
-            continue
-
-        rows.append({
-            "input_ids":      tokens["input_ids"],
+        return {
+            "input_ids": tokens["input_ids"],
             "attention_mask": tokens["attention_mask"],
-            "loss_mask":      [0] * prompt_len + [1] * (seq_len - prompt_len),
-        })
+            "loss_mask": [0] * prompt_len + [1] * (seq_len - prompt_len),
+        }
 
-    return Dataset.from_list(rows)
+    ds = ds.map(tokenize_and_mask, remove_columns=ds.column_names)
+
+    # Drop samples where prompt fills entire window (all-zero loss_mask).
+    ds = ds.filter(lambda x: any(x["loss_mask"]))
+
+    return ds.select(range(min(NUM_CALIBRATION_SAMPLES, len(ds))))
 
 
 def data_collator(batch):
