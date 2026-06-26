@@ -1,3 +1,8 @@
+from compressed_tensors.quantization.quant_scheme import (
+    FP8_BLOCK,
+    NVFP4,
+    QuantizationScheme,
+)
 import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -5,7 +10,7 @@ from compressed_tensors.offload import init_dist
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import load_context
 
 # Load the model
@@ -61,26 +66,40 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-moe_ignores = [
-    # Layers 0-2: Dense layers - ignore entire layers
-    "re:model.layers.0.*",
-    "re:model.layers.1.*",
-    "re:model.layers.2.*",
-    # Ignore the output head
-    "lm_head",
-]
-
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with AWQ with a group size 128
-recipe = [
-    QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=moe_ignores),
-]
+# recipe = [
+#     QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=moe_ignores),
+# ]
+#r"re:.*self_attn\.(q_proj|q_a_proj|q_b_proj|kv_a_proj_with_mqa|kv_b_proj|o_proj)$",
+#r"re:.*self_attn\.indexer\.(wq_b|wk|weights_proj)$",
+recipe = GPTQModifier(
+    config_groups={
+        "attention": QuantizationScheme(
+            targets=[r"re:.*self_attn.*"],
+            **FP8_BLOCK,
+        ),
+        "mlp": QuantizationScheme(
+            targets=[r"re:.*mlp.*"],
+            **NVFP4,
+        ),
+    },
+    ignore=[
+        r"re:model\.layers\.0\.*",
+        r"re:model\.layers\.1\.*",
+        r"re:model\.layers\.2\.*",
+        r"re:model\.layers\.2\.*",
+        r"re:.*mlp\.gate.*",  # not technically necessary
+        # Ignore the output head
+        r"lm_head",
+    ],
+)
 
 # Apply algorithms.
 oneshot(
     model=model,
     dataset=ds,
-    batch_size=32,
+    batch_size=4,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
