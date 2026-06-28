@@ -1,3 +1,4 @@
+import torch
 from compressed_tensors.distributed import init_dist
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
@@ -13,7 +14,6 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.utils import load_context
 
 # Upstream BUG: norms should be loaded in float32, but usually aren't due to the base
@@ -22,10 +22,7 @@ from llmcompressor.utils import load_context
 DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 
 # Select model and load it.
-# MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
 MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/DeepSeek-V4-Pro-BF16"
-# MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
-# MODEL_ID = "inference-optimization/DSV4-tiny-empty"
 
 init_dist()
 with load_context():
@@ -124,14 +121,10 @@ recipe = QuantizationModifier(
     ignore=[],
 )
 
-import torch
-
-#torch.cuda.memory._record_memory_history()
-
 # Apply algorithms.
 # due to the large size of DeepSeek-V4, we specify sequential targets such that
 # only one block is loaded into GPU memory at a time
-#try:
+
 oneshot(
     model=model,
     processor=tokenizer,
@@ -139,12 +132,7 @@ oneshot(
     recipe=recipe,
     batch_size=4,
     shuffle_calibration_samples=False,
-    propagate_error=True,  # work around reliance on transformers cache
-    # something weird happens with the cache and propagation
 )
-#finally:
-#    if torch.distributed.get_rank() == 0:
-#        torch.cuda.memory._dump_snapshot("memory_snapshot4.pickle")
 
 # Save to disk compressed.
 # SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
