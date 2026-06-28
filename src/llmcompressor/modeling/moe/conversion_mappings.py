@@ -54,9 +54,12 @@ ARCH_TO_2D_MAPPINGS = {
     ),
 }
 
+
 def get_experts_cls(model_type: str) -> type[torch.nn.Module]:
     if model_type == "deepseek_v4":
-        from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
+        from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
+            DeepseekV4Experts,
+        )
 
         return DeepseekV4Experts
 
@@ -71,10 +74,12 @@ def get_experts_cls(model_type: str) -> type[torch.nn.Module]:
         return Qwen3MoeExperts
 
     elif model_type == "glm_moe_dsa":
-        from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaExperts
+        from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (
+            GlmMoeDsaExperts,
+        )
 
         return GlmMoeDsaExperts
-    
+
     else:
         raise ValueError()
 
