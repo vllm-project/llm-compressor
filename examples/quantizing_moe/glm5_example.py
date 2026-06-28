@@ -1,16 +1,16 @@
+import torch
+from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
     QuantizationScheme,
 )
-import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from compressed_tensors.offload import init_dist
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Load the model
@@ -21,7 +21,7 @@ with load_context():
         model_id,
         device_map="auto_offload",
         max_memory={},
-        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder"
+        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder",
     )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -67,20 +67,14 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with AWQ with a group size 128
-# recipe = [
-#     QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=moe_ignores),
-# ]
-#r"re:.*self_attn\.(q_proj|q_a_proj|q_b_proj|kv_a_proj_with_mqa|kv_b_proj|o_proj)$",
-#r"re:.*self_attn\.indexer\.(wq_b|wk|weights_proj)$",
-recipe = GPTQModifier(
+recipe = QuantizationModifier(
     config_groups={
         "attention": QuantizationScheme(
-            targets=[r"re:.*self_attn.*"],
+            targets=[r"re:.*self_attn\..*"],
             **FP8_BLOCK,
         ),
         "mlp": QuantizationScheme(
-            targets=[r"re:.*mlp.*"],
+            targets=[r"re:.*mlp\..*"],
             **NVFP4,
         ),
     },
@@ -88,9 +82,7 @@ recipe = GPTQModifier(
         r"re:model\.layers\.0\.*",
         r"re:model\.layers\.1\.*",
         r"re:model\.layers\.2\.*",
-        r"re:model\.layers\.2\.*",
         r"re:.*mlp\.gate.*",  # not technically necessary
-        # Ignore the output head
         r"lm_head",
     ],
 )
@@ -101,14 +93,17 @@ oneshot(
     dataset=ds,
     batch_size=4,
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    shuffle_calibration_samples=False,
 )
 
 # Save to disk compressed.
 # Note: base checkpoint generation_config needs fixing for newer transformers versions
 model.generation_config.top_p = None
-SAVE_DIR = "/mnt/nvme-data/engine/kylesayrs/" + model_id.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = (
+    "/mnt/nvme-data/engine/kylesayrs/"
+    + model_id.rstrip("/").split("/")[-1]
+    + "-FP8-NVFP4"
+)
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 
