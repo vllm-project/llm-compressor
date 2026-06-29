@@ -261,9 +261,11 @@ class REAPSaliencyTracker:
                 0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
             )
         else:
-            # Vectorized version for calibrate_all_experts=False
-            flat_idx = topk_indices.reshape(-1).to(torch.long)
-            flat_weights = topk_weights.reshape(-1).to(torch.float64)
+            # Flatten in (slot, token) order to match torch.where order
+            # in LinearExperts2D torch.where scans row-by-row (slot 0 all
+            # tokens, then slot 1 all tokens, etc.)
+            flat_idx = topk_indices.T.reshape(-1).to(torch.long)
+            flat_weights = topk_weights.T.reshape(-1).to(torch.float64)
 
             # Build flat norms tensor aligned with flat_idx
             flat_norms = torch.zeros_like(flat_weights)

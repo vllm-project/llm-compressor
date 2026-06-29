@@ -332,6 +332,109 @@ class TestREAPSaliencyTracker:
             # Restore original state
             context._CALIBRATE_ALL_EXPERTS = original_state
 
+    def test_real_forward_pass_equivalence(self):
+        """Test that real forward passes produce identical mean saliency
+        for both modes."""
+        import llmcompressor.modeling.moe.context as context
+
+        # Save original state
+        original_state = context._CALIBRATE_ALL_EXPERTS
+
+        try:
+            # Create first model for sparse mode
+            torch.manual_seed(42)
+            config = FakeMoEConfig(
+                num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+            )
+            model_sparse = FakeMoEModel(config)
+            model_sparse.eval()
+
+            # Save the model state
+            model_state_dict = model_sparse.state_dict()
+
+            # Create second model for dense mode with same weights
+            model_dense = FakeMoEModel(config)
+            model_dense.load_state_dict(model_state_dict)
+            model_dense.eval()
+
+            # Verify models have identical weights
+            for (name_s, param_s), (name_d, param_d) in zip(
+                model_sparse.named_parameters(), model_dense.named_parameters()
+            ):
+                assert name_s == name_d
+                assert torch.allclose(param_s, param_d), f"Weights differ for {name_s}"
+
+            # Test with calibrate_all_experts=False (sparse mode)
+            context._CALIBRATE_ALL_EXPERTS = False
+
+            modifier_sparse = REAPPruningModifier(sparsity=0.5)
+            state_sparse = _make_state(model_sparse)
+
+            modifier_sparse.initialize(state_sparse)
+            modifier_sparse.update_event(
+                state_sparse, Event(type_=EventType.CALIBRATION_START)
+            )
+
+            # Run forward passes
+            torch.manual_seed(100)  # Seed for data generation
+            with torch.no_grad():
+                for _ in range(5):
+                    x = torch.randn(2, 8, config.hidden_size)
+                    model_sparse(x)
+
+            # Get mean saliency from sparse mode
+            mean_saliency_sparse = [
+                tracker.mean_saliency.clone()
+                for tracker in modifier_sparse._saliency_trackers.values()
+            ]
+
+            # Test with calibrate_all_experts=True (dense mode)
+            context._CALIBRATE_ALL_EXPERTS = True
+
+            modifier_dense = REAPPruningModifier(sparsity=0.5)
+            state_dense = _make_state(model_dense)
+
+            modifier_dense.initialize(state_dense)
+            modifier_dense.update_event(
+                state_dense, Event(type_=EventType.CALIBRATION_START)
+            )
+
+            # Run forward passes (same data due to same seed)
+            torch.manual_seed(100)  # Same seed for data generation
+            with torch.no_grad():
+                for _ in range(5):
+                    x = torch.randn(2, 8, config.hidden_size)
+                    model_dense(x)
+
+            # Get mean saliency from dense mode
+            mean_saliency_dense = [
+                tracker.mean_saliency.clone()
+                for tracker in modifier_dense._saliency_trackers.values()
+            ]
+
+            # Verify both modes produce identical mean saliency
+            assert len(mean_saliency_sparse) == len(mean_saliency_dense) == 2
+
+            for layer_idx, (sparse, dense) in enumerate(
+                zip(mean_saliency_sparse, mean_saliency_dense)
+            ):
+                assert sparse.shape == dense.shape == torch.Size([8])
+                # Check that all expert saliencies match (within floating
+                # point precision). Small numerical differences can
+                # accumulate across multiple forward passes
+                for expert_idx in range(8):
+                    assert sparse[expert_idx].item() == pytest.approx(
+                        dense[expert_idx].item(), rel=1e-7, abs=1e-9
+                    ), (
+                        f"Layer {layer_idx}, Expert {expert_idx}: "
+                        f"sparse={sparse[expert_idx].item()}, "
+                        f"dense={dense[expert_idx].item()}"
+                    )
+
+        finally:
+            # Restore original state
+            context._CALIBRATE_ALL_EXPERTS = original_state
+
     def test_compute_retained_global(self):
         # 8 experts, drop 3 globally
         tracker = REAPSaliencyTracker(num_experts=8)
