@@ -54,7 +54,7 @@ FP8 can be applied using any quantization algorithm (RTN, AWQ, GPTQ), allowing y
 - **W8A8-FP8**: FP8 format with per-channel or per-tensor weight scales and dynamic per-token activation quantization
 - **MXFP8**: Microscaling FP8 format using per-group quantization (group_size=32) with E8M0 scales; fully dynamic activations with no calibration data required; supported on Blackwell (SM100) GPUs
 
-See [FP8 weight and activation quantization](/examples/quantization_w8a8_fp8/) for more information.
+See [FP8 weight and activation quantization](https://github.com/vllm-project/llm-compressor/tree/main/examples/quantization_w8a8_fp8) for more information.
 
 ## FP4 quantization (NVFP4/MXFP4)
 
