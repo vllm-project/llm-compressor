@@ -14,6 +14,7 @@ from pydantic import Field, PrivateAttr, model_validator
 from llmcompressor.core import Event, State
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
+from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.reap.utils import (
     MoeModelAttrs,
@@ -161,6 +162,15 @@ class REAPPruningModifier(Modifier):
                 "during calibration. Other modifiers may interfere with "
                 "the saliency tracking and pruning. Please only use one modifier "
                 "or use the independent pipeline."
+            )
+        
+        # Warn if calibrate_all_experts is enabled, which is not necessary for REAP
+        if get_calibrate_all_experts_flag():
+            logger.warning(
+                "REAP: calibrate_all_experts is enabled, which is not necessary"
+                " for REAP. If no other modifiers depend on this being set,"
+                " please disable it explicity with the dataset_args flag "
+                "in your call to oneshot()."
             )
 
         for layer_name in self._moe_attrs.moe_layer_names:

@@ -250,13 +250,6 @@ class REAPSaliencyTracker:
         self._ensure(next(iter(expert_norms_dict.values())).device)
 
         if get_calibrate_all_experts_flag():
-            logger.warning(
-                "REAP: calibrate_all_experts is enabled, which is not necessary"
-                " for REAP. If no other modifiers depend on this being set,"
-                " please disable it explicity with the dataset_args flag "
-                "in your call to oneshot()."
-            )
-
             stacked_norms = torch.stack(
                 [expert_norms_dict[i] for i in range(self.num_experts)], dim=1
             )

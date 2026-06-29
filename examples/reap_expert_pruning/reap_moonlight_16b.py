@@ -62,6 +62,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    moe_calibrate_all_experts=False,  # Disable calibrating all experts for REAP
 )
 
 # Confirm generations of the compressed model look sane.
