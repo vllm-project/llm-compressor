@@ -244,7 +244,6 @@ class Oneshot:
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
-                moe_calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
             )
 
             session.state.enable_compile = self.dataset_args.enable_compile
