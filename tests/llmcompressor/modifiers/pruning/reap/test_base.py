@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.core import Event, EventType, State
+from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
@@ -206,39 +207,125 @@ class FakeMoEModel(nn.Module):
 @pytest.mark.unit
 class TestREAPSaliencyTracker:
     def test_update_and_mean(self):
-        tracker = REAPSaliencyTracker(num_experts=4)
-        # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
-        topk_indices = torch.tensor([[0, 1], [0, 2]])
-        topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
+        """Test update and mean with calibrate_all_experts=False (sparse norms)."""
+        import llmcompressor.modeling.moe.context as context
 
-        # expert_norms_dict: only experts that received tokens
-        expert_norms_dict = {
-            0: torch.tensor([3.0, 1.0]),  # expert 0 got 2 tokens
-            1: torch.tensor([2.0]),  # expert 1 got 1 token
-            2: torch.tensor([4.0]),  # expert 2 got 1 token
-            # expert 3 got 0 tokens, not in dict
-        }
+        # Save original state and explicitly set calibrate_all_experts=False
+        original_state = context._CALIBRATE_ALL_EXPERTS
+        context._CALIBRATE_ALL_EXPERTS = False
 
-        tracker.update(topk_indices, topk_weights, expert_norms_dict)
+        try:
+            tracker = REAPSaliencyTracker(num_experts=4)
+            # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
+            topk_indices = torch.tensor([[0, 1], [0, 2]])
+            topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
 
-        mean = tracker.mean_saliency
-        # expert 0: (0.6*3.0 + 0.5*1.0) / 2 = 2.3 / 2 = 1.15
-        assert mean[0].item() == pytest.approx(1.15)
-        # expert 1: 0.4*2.0 / 1 = 0.8
-        assert mean[1].item() == pytest.approx(0.8)
-        # expert 2: 0.5*4.0 / 1 = 2.0
-        assert mean[2].item() == pytest.approx(2.0)
-        # expert 3: never routed -> 0
-        assert mean[3].item() == pytest.approx(0.0)
+            # expert_norms_dict: only experts that received tokens (sparse)
+            expert_norms_dict = {
+                0: torch.tensor([3.0, 1.0]),  # expert 0 got 2 tokens
+                1: torch.tensor([2.0]),  # expert 1 got 1 token
+                2: torch.tensor([4.0]),  # expert 2 got 1 token
+                # expert 3 got 0 tokens, not in dict
+            }
+
+            tracker.update(topk_indices, topk_weights, expert_norms_dict)
+
+            mean = tracker.mean_saliency
+            # expert 0: (0.6*3.0 + 0.5*1.0) / 2 = 2.3 / 2 = 1.15
+            assert mean[0].item() == pytest.approx(1.15)
+            # expert 1: 0.4*2.0 / 1 = 0.8
+            assert mean[1].item() == pytest.approx(0.8)
+            # expert 2: 0.5*4.0 / 1 = 2.0
+            assert mean[2].item() == pytest.approx(2.0)
+            # expert 3: never routed -> 0
+            assert mean[3].item() == pytest.approx(0.0)
+        finally:
+            # Restore original state
+            context._CALIBRATE_ALL_EXPERTS = original_state
+
+    def test_update_and_mean_calibrate_all(self):
+        """Test update and mean with calibrate_all_experts=True (dense norms)."""
+        import llmcompressor.modeling.moe.context as context
+
+        # Save original state and explicitly set calibrate_all_experts=True
+        original_state = context._CALIBRATE_ALL_EXPERTS
+        context._CALIBRATE_ALL_EXPERTS = True
+
+        try:
+            tracker = REAPSaliencyTracker(num_experts=4)
+            # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
+            topk_indices = torch.tensor([[0, 1], [0, 2]])
+            topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
+
+            # expert_norms_dict: all experts have norms for all tokens (dense)
+            # In dense mode, expert_norms_dict[i] has shape [num_tokens]
+            # When stacked, it creates [num_tokens, num_experts] matrix
+            expert_norms_dict = {
+                0: torch.tensor([3.0, 1.0]),  # expert 0's norms for tokens [0, 1]
+                1: torch.tensor([2.0, 5.0]),  # expert 1's norms for tokens [0, 1]
+                2: torch.tensor([6.0, 4.0]),  # expert 2's norms for tokens [0, 1]
+                3: torch.tensor([7.0, 8.0]),  # expert 3's norms for tokens [0, 1] (never routed)
+            }
+
+            tracker.update(topk_indices, topk_weights, expert_norms_dict)
+
+            mean = tracker.mean_saliency
+            # Stacked norms: [[3.0, 2.0, 6.0, 7.0],  # token 0
+            #                 [1.0, 5.0, 4.0, 8.0]]  # token 1
+            # gathered_norms using topk_indices [[0, 1], [0, 2]]:
+            #   token 0, slot 0 (expert 0): 3.0
+            #   token 0, slot 1 (expert 1): 2.0
+            #   token 1, slot 0 (expert 0): 1.0
+            #   token 1, slot 1 (expert 2): 4.0
+            # expert 0: (0.6*3.0 + 0.5*1.0) / 2 = 2.3 / 2 = 1.15
+            assert mean[0].item() == pytest.approx(1.15)
+            # expert 1: (0.4*2.0) / 1 = 0.8
+            assert mean[1].item() == pytest.approx(0.8)
+            # expert 2: (0.5*4.0) / 1 = 2.0
+            assert mean[2].item() == pytest.approx(2.0)
+            # expert 3: never routed -> 0
+            assert mean[3].item() == pytest.approx(0.0)
+        finally:
+            # Restore original state
+            context._CALIBRATE_ALL_EXPERTS = original_state
 
     def test_accumulates_across_batches(self):
-        tracker = REAPSaliencyTracker(num_experts=2)
-        idx = torch.tensor([[0]])
-        tracker.update(idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])})
-        tracker.update(idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])})
-        # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
-        assert tracker.mean_saliency[0].item() == pytest.approx(1.1)
-        assert tracker.total_count == pytest.approx(2.0)
+        """Test accumulation across batches with both calibrate_all_experts modes."""
+        import llmcompressor.modeling.moe.context as context
+
+        # Save original state
+        original_state = context._CALIBRATE_ALL_EXPERTS
+
+        try:
+            # Test 1: calibrate_all_experts=False (sparse norms)
+            context._CALIBRATE_ALL_EXPERTS = False
+            tracker = REAPSaliencyTracker(num_experts=2)
+            idx = torch.tensor([[0]])
+            tracker.update(idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])})
+            tracker.update(idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])})
+            # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
+            assert tracker.mean_saliency[0].item() == pytest.approx(1.1)
+            assert tracker.total_count == pytest.approx(2.0)
+
+            # Test 2: calibrate_all_experts=True (dense norms)
+            context._CALIBRATE_ALL_EXPERTS = True
+            tracker2 = REAPSaliencyTracker(num_experts=2)
+            idx = torch.tensor([[0]])  # token 0 routes to expert 0
+            # Dense norms: all experts have norms for all tokens
+            tracker2.update(
+                idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0]), 1: torch.tensor([5.0])}
+            )
+            tracker2.update(
+                idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0]), 1: torch.tensor([2.0])}
+            )
+            # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
+            assert tracker2.mean_saliency[0].item() == pytest.approx(1.1)
+            # expert 1: never routed -> 0 (even though it has norms in the dict)
+            assert tracker2.mean_saliency[1].item() == pytest.approx(0.0)
+            assert tracker2.total_count == pytest.approx(2.0)
+        finally:
+            # Restore original state
+            context._CALIBRATE_ALL_EXPERTS = original_state
 
     def test_compute_retained_global(self):
         # 8 experts, drop 3 globally
