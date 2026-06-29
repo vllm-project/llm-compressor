@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
@@ -264,7 +263,9 @@ class TestREAPSaliencyTracker:
                 0: torch.tensor([3.0, 1.0]),  # expert 0's norms for tokens [0, 1]
                 1: torch.tensor([2.0, 5.0]),  # expert 1's norms for tokens [0, 1]
                 2: torch.tensor([6.0, 4.0]),  # expert 2's norms for tokens [0, 1]
-                3: torch.tensor([7.0, 8.0]),  # expert 3's norms for tokens [0, 1] (never routed)
+                3: torch.tensor(
+                    [7.0, 8.0]
+                ),  # expert 3's norms for tokens [0, 1] (never routed)
             }
 
             tracker.update(topk_indices, topk_weights, expert_norms_dict)
@@ -313,10 +314,14 @@ class TestREAPSaliencyTracker:
             idx = torch.tensor([[0]])  # token 0 routes to expert 0
             # Dense norms: all experts have norms for all tokens
             tracker2.update(
-                idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0]), 1: torch.tensor([5.0])}
+                idx,
+                torch.tensor([[0.6]]),
+                {0: torch.tensor([3.0]), 1: torch.tensor([5.0])},
             )
             tracker2.update(
-                idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0]), 1: torch.tensor([2.0])}
+                idx,
+                torch.tensor([[0.4]]),
+                {0: torch.tensor([1.0]), 1: torch.tensor([2.0])},
             )
             # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
             assert tracker2.mean_saliency[0].item() == pytest.approx(1.1)

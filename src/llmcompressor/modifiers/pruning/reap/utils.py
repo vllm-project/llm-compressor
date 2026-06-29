@@ -261,39 +261,31 @@ class REAPSaliencyTracker:
                 0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
             )
         else:
-            # For each expert, find which tokens/slots routed to it and
-            # compute contributions
-            for expert_idx in range(self.num_experts):
-                # If the expert did not receive any tokens in this batch,
-                # it won't be in the norms dict
-                if expert_idx not in expert_norms_dict:
-                    continue
+            # Vectorized version for calibrate_all_experts=False
+            flat_idx = topk_indices.reshape(-1).to(torch.long)
+            flat_weights = topk_weights.reshape(-1).to(torch.float64)
 
-                # Find all (token, slot) positions where this expert was selected
-                mask = topk_indices == expert_idx
-                # (token_indices, slot_indices)
-                positions = mask.nonzero(as_tuple=True)
-                token_indices, slot_indices = positions
+            # Build flat norms tensor aligned with flat_idx
+            flat_norms = torch.zeros_like(flat_weights)
+            for expert_idx, expert_norms in expert_norms_dict.items():
+                mask = flat_idx == expert_idx
 
-                # Get corresponding norms and weights
-                expert_norms = expert_norms_dict[expert_idx]
-                assert len(expert_norms) == len(token_indices), (
+                # Assertion check: number of norms must match number of routed tokens
+                assert len(expert_norms) == mask.sum().item(), (
                     f"REAP saliency tracker: expert {expert_idx} has "
                     f"{len(expert_norms)} norms but router sent "
-                    f"{len(token_indices)} tokens to it. This indicates a bug in "
+                    f"{mask.sum().item()} tokens to it. This indicates a bug in "
                     f"the expert hook or routing extraction logic."
                 )
 
-                expert_weights = topk_weights[token_indices, slot_indices]
+                flat_norms[mask] = expert_norms.to(torch.float64)
 
-                # Compute contributions
-                contrib = expert_weights.to(torch.float64) * expert_norms.to(
-                    torch.float64
-                )
-
-                # Sum contributions for this expert
-                self.sum_saliency[expert_idx] += contrib.sum()
-                self.count[expert_idx] += len(contrib)
+            # Vectorized computation using index_add_
+            contrib = flat_weights * flat_norms
+            self.sum_saliency.index_add_(0, flat_idx, contrib)
+            self.count.index_add_(
+                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
+            )
 
     def compute_retained_experts(
         self,

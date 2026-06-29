@@ -13,8 +13,6 @@ from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import PreTrainedModel
 
-from llmcompressor.core.session_functions import active_session
-from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.utils import get_embeddings
 
 __all__ = [
