@@ -1,0 +1,100 @@
+steps:
+  - group: ":test_tube: Base Tests (H100)"
+    key: "base-tests"
+    steps:
+      - label: ":python: Base Tests py{{matrix.python}}"
+        agents:
+          queue: RedHat-H100-WDC
+
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 3
+            - exit_status: 255
+              limit: 3
+            - signal_reason: agent_stop
+              limit: 3
+
+        plugins:
+          - kubernetes:
+              podSpec:
+                serviceAccountName: buildkite-anyuid
+                securityContext:
+                  fsGroup: 0
+                  runAsUser: 0
+                  runAsGroup: 0
+                nodeSelector:
+                  vllm.ci/gpu-pool: upstream-ci-h100
+
+                containers:
+                  - name: tests
+                    image: buildkite/agent:3-ubuntu
+                    command:
+                      - chmod +x .buildkite/gpu-tests/scripts/run-tests.sh
+                      - .buildkite/gpu-tests/scripts/run-tests.sh base
+
+                    resources:
+                      limits:
+                        nvidia.com/gpu: 1
+
+                    volumeMounts:
+                      - name: model-cache
+                        mountPath: /model-cache
+                        readOnly: false
+                      - name: devshm
+                        mountPath: /dev/shm
+
+                    env:
+                      - name: PYTHON_VERSION
+                        value: "{{matrix.python}}"
+                      - name: HF_TOKEN
+                        valueFrom:
+                          secretKeyRef:
+                            name: hf-token-secret
+                            key: token
+
+                volumes:
+                  - name: model-cache
+                    hostPath:
+                      path: /var/mnt/model-cache
+                      type: DirectoryOrCreate
+                  - name: devshm
+                    emptyDir:
+                      medium: Memory
+
+        matrix:
+          setup:
+            python: ["3.10", "3.13"]
+
+  - label: ":bar_chart: Combine Coverage"
+    depends_on: "base-tests"
+    allow_dependency_failure: true
+    agents:
+      queue: RedHat-ModelOpt-Util
+    command:
+      - chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
+      - .buildkite/gpu-tests/scripts/combine-coverage.sh
+
+  - label: ":mag: Detect changes for Transformers Tests"
+    agents:
+      queue: RedHat-ModelOpt-Util
+    command: |
+      if [ "$${BUILDKITE_PULL_REQUEST}" = "false" ]; then
+        echo "Push to branch — uploading transformers tests"
+        buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
+      else
+        git fetch --unshallow 2>/dev/null || true
+        git fetch origin "$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}"
+        CHANGED=$$(git diff --name-only "origin/$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD" \
+          | grep -E '^(src/|tests/|setup\.py$$|MANIFEST\.in$$|\.buildkite/)' \
+          | grep -vE '^tests/(e2e|lmeval|examples)/' \
+          | grep -vE '\.md$$' \
+          || true)
+        if [ -n "$${CHANGED}" ]; then
+          echo "Relevant changes detected:"
+          echo "$${CHANGED}"
+          buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
+        else
+          echo "No relevant changes — skipping transformers tests"
+        fi
+      fi
