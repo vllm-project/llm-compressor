@@ -136,8 +136,6 @@ def calibration_forward_context(model: torch.nn.Module):
         stack.enter_context(eval_context(model))
         stack.enter_context(disable_hf_kernels(model))
         stack.enter_context(disable_lm_head(model))
-        if active_session().state.moe_calibrate_all_experts:
-            stack.enter_context(moe_calibration_context())
         yield
 
 

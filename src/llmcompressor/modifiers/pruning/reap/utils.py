@@ -12,6 +12,7 @@ import torch.nn as nn
 from compressed_tensors import align_module_device
 from loguru import logger
 
+from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
@@ -248,37 +249,58 @@ class REAPSaliencyTracker:
 
         self._ensure(next(iter(expert_norms_dict.values())).device)
 
-        # For each expert, find which tokens/slots routed to it and
-        # compute contributions
-        for expert_idx in range(self.num_experts):
-            # If the expert did not receive any tokens in this batch,
-            # it won't be in the norms dict
-            if expert_idx not in expert_norms_dict:
-                continue
-
-            # Find all (token, slot) positions where this expert was selected
-            mask = topk_indices == expert_idx
-            # (token_indices, slot_indices)
-            positions = mask.nonzero(as_tuple=True)
-            token_indices, slot_indices = positions
-
-            # Get corresponding norms and weights
-            expert_norms = expert_norms_dict[expert_idx]
-            assert len(expert_norms) == len(token_indices), (
-                f"REAP saliency tracker: expert {expert_idx} has "
-                f"{len(expert_norms)} norms but router sent "
-                f"{len(token_indices)} tokens to it. This indicates a bug in "
-                f"the expert hook or routing extraction logic."
+        if get_calibrate_all_experts_flag():
+            logger.warning(
+                "REAP: calibrate_all_experts is enabled, which is not necessary"
+                " for REAP. If no other modifiers depend on this being set,"
+                " please disable it explicity with the dataset_args flag "
+                "in your call to oneshot()."
             )
 
-            expert_weights = topk_weights[token_indices, slot_indices]
+            stacked_norms = torch.stack(
+                [expert_norms_dict[i] for i in range(self.num_experts)], dim=1
+            )
+            flat_idx = topk_indices.reshape(-1).to(torch.long)
+            gathered_norms = stacked_norms.gather(1, topk_indices.to(torch.long))
+            contrib = topk_weights.to(torch.float64) * gathered_norms.to(torch.float64)
+            self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
+            self.count.index_add_(
+                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
+            )
+        else:
+            # For each expert, find which tokens/slots routed to it and
+            # compute contributions
+            for expert_idx in range(self.num_experts):
+                # If the expert did not receive any tokens in this batch,
+                # it won't be in the norms dict
+                if expert_idx not in expert_norms_dict:
+                    continue
 
-            # Compute contributions
-            contrib = expert_weights.to(torch.float64) * expert_norms.to(torch.float64)
+                # Find all (token, slot) positions where this expert was selected
+                mask = topk_indices == expert_idx
+                # (token_indices, slot_indices)
+                positions = mask.nonzero(as_tuple=True)
+                token_indices, slot_indices = positions
 
-            # Sum contributions for this expert
-            self.sum_saliency[expert_idx] += contrib.sum()
-            self.count[expert_idx] += len(contrib)
+                # Get corresponding norms and weights
+                expert_norms = expert_norms_dict[expert_idx]
+                assert len(expert_norms) == len(token_indices), (
+                    f"REAP saliency tracker: expert {expert_idx} has "
+                    f"{len(expert_norms)} norms but router sent "
+                    f"{len(token_indices)} tokens to it. This indicates a bug in "
+                    f"the expert hook or routing extraction logic."
+                )
+
+                expert_weights = topk_weights[token_indices, slot_indices]
+
+                # Compute contributions
+                contrib = expert_weights.to(torch.float64) * expert_norms.to(
+                    torch.float64
+                )
+
+                # Sum contributions for this expert
+                self.sum_saliency[expert_idx] += contrib.sum()
+                self.count[expert_idx] += len(contrib)
 
     def compute_retained_experts(
         self,

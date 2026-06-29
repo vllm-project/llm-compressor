@@ -67,7 +67,6 @@ class REAPPruningModifier(Modifier):
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
-    _original_moe_calibrate_all_experts: bool | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
@@ -154,17 +153,15 @@ class REAPPruningModifier(Modifier):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
 
-        # Prevent unnecessary calibration of all experts
+        # Ensure that REAP is the only modifier for this calibration pass
         session = active_session()
-        self._original_moe_calibrate_all_experts = (
-            session.state.moe_calibrate_all_experts
-        )
-        session.state.moe_calibrate_all_experts = False
-        logger.warning(
-            "REAP: setting moe_calibrate_all_experts=False to prevent excess "
-            "forward passes during calibration. Flag will be restored at the end"
-            " of calibration."
-        )
+        if len(session.lifecycle.recipe.modifiers) > 1:
+            raise ValueError(
+                "REAPPruningModifier must be the only modifier in the recipe "
+                "during calibration. Other modifiers may interfere with "
+                "the saliency tracking and pruning. Please only use one modifier "
+                "or use the independent pipeline."
+            )
 
         for layer_name in self._moe_attrs.moe_layer_names:
             module = model.get_submodule(layer_name)
@@ -196,17 +193,6 @@ class REAPPruningModifier(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
-
-        # restore the original calibrate all experts flag
-        if self._original_moe_calibrate_all_experts is not None:
-            session = active_session()
-            session.state.moe_calibrate_all_experts = (
-                self._original_moe_calibrate_all_experts
-            )
-            logger.info(
-                "REAP: restored original moe_calibrate_all_experts="
-                f"{self._original_moe_calibrate_all_experts} after calibration."
-            )
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """Finalize the model config to reflect the new number of experts."""
