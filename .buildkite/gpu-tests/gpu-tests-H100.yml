@@ -38,7 +38,7 @@ steps:
                         nvidia.com/gpu: 1
 
                     volumeMounts:
-                      - name: model-cache
+                      - name: ci-cache
                         mountPath: /model-cache
                         readOnly: false
                       - name: devshm
@@ -54,9 +54,9 @@ steps:
                             key: token
 
                 volumes:
-                  - name: model-cache
+                  - name: ci-cache
                     hostPath:
-                      path: /var/mnt/model-cache
+                      path: /var/mnt/ci-cache
                       type: DirectoryOrCreate
                   - name: devshm
                     emptyDir:
@@ -86,7 +86,7 @@ steps:
         git fetch --unshallow 2>/dev/null || true
         git fetch origin "$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}"
         CHANGED=$$(git diff --name-only "origin/$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD" \
-          | grep -E '^(src/|tests/|setup\.py$$|MANIFEST\.in$$|\.buildkite/)' \
+          | grep -E '^(src/|tests/|setup\.py$$|MANIFEST\.in$$|\.buildkite/gpu-tests/transformers-tests-|\.buildkite/gpu-tests/scripts/run-tests\.sh$$)' \
           | grep -vE '^tests/(e2e|lmeval|examples)/' \
           | grep -vE '\.md$$' \
           || true)

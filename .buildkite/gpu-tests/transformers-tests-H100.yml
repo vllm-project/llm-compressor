@@ -37,7 +37,7 @@ steps:
                         nvidia.com/gpu: 1
 
                     volumeMounts:
-                      - name: model-cache
+                      - name: ci-cache
                         mountPath: /model-cache
                         readOnly: false
                       - name: devshm
@@ -53,9 +53,9 @@ steps:
                             key: token
 
                 volumes:
-                  - name: model-cache
+                  - name: ci-cache
                     hostPath:
-                      path: /var/mnt/model-cache
+                      path: /var/mnt/ci-cache
                       type: DirectoryOrCreate
                   - name: devshm
                     emptyDir:
