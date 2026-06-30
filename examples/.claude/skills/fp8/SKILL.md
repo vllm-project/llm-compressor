@@ -36,6 +36,7 @@ Ask the user (or infer from context) for:
      - Escape any literal dots: `mlp.gate` → `mlp\.gate`
      - Anchor with `$` to prevent partial matches on layers sharing the same prefix (e.g. `mlp\.gate$` matches `mlp.gate` but not `mlp.gate_proj`)
      - Prepend `.*` to match at any depth: `"re:.*mlp\.gate$"`
+     - **Always use a raw string (`r"..."`) for any ignore pattern containing a backslash** to avoid Python `SyntaxWarning: invalid escape sequence`
 
 ## Templates
 
