@@ -57,6 +57,10 @@ Some of the exciting new features include:
   - [gemma-4-31B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-Dynamic)
   - [gemma-4-26B-A4B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic)
   - [gemma-4-26B-A4B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-NVFP4)
+* **REAP Expert Pruning Modifier**: [REAP](https://arxiv.org/pdf/2510.13999) reduces the VRAM requirements to run Mixture-of-Experts models by structurally removing less-relevant experts in each layer. With relevancy proxied by a saliency metric calculated from calibration forward pass data, REAP achieves a desired expert sparsity (set by the user) while aiming to minimize the impact of the pruned experts. The modifier implementation is in [`modifiers/pruning/reap`](src/llmcompressor/modifiers/pruning/reap) and can be used as a template for implementing other expert pruning algorithms. Examples and additional documentation can be found below:
+  - [REAP Pruning README](examples/reap_expert_pruning/README.md)
+  - [REAP Prune Qwen/Qwen3-30B-A3B-Instruct-2507 to 25% Sparsity](examples/reap_expert_pruning/reap_qwen3_30b.py)
+  - [REAP Prune moonshotai/Moonlight-16B-A3B-Instruct to 25% Sparsity](examples/reap_expert_pruning/reap_moonlight_16b.py)
 
 
 ### Supported Precisions and Types
