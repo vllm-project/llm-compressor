@@ -172,7 +172,7 @@ Common MoE gating patterns (always verify against the model's actual layer names
 - Laguna-M.1: `"re:.*mlp\.gate$"` (targets `mlp.gate` routing layers; avoids false match on `gate_proj`)
 
 If the gate/router layer is an `nn.Parameter` (not `nn.Linear`) it will not be targeted by `targets="Linear"`, but it should still be explicitly listed in `ignore` to document intent and guard against future changes.
-
+Some deepseek-like architectures use an `attn.indexer` and `attn.indexer.compressor`. These weights are sensitive to quantization and should be ignored.
 ### Multimodal (vision / audio)
 - Use `AutoProcessor` instead of `AutoTokenizer`
 - Always fetch the model's `config.json` to get the specific class from the `architectures` field (e.g. `Gemma4ForConditionalGeneration`, `Llama4ForConditionalGeneration`) — **never use `AutoModelForCausalLM` for VLMs**
