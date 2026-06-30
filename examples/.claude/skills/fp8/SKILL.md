@@ -186,7 +186,7 @@ Some deepseek-like architectures use an `attn.indexer` and `attn.indexer.compres
   ```
 - Add `trust_remote_code=True` if the class is not in standard transformers
 - Always ignore vision tower layers using a single regex that covers the model's actual layer names (verify against the architecture — one pattern is sufficient since regex search matches substrings):
-  - Vision: `"re:visual.*"` (matches `visual.*` and `model.visual.*`)
+  - Vision: `["re:.*visual.*, ".*vision_tower.*"]`
   - Audio: `"re:audio.*"` (matches `audio_tower.*` etc.)
 
 ## Step 4 — Write the file
