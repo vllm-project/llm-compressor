@@ -29,21 +29,9 @@ def accumulate_hessian(
     num_added = inp.shape[0]  # note this is the number of dataset samples, not
     # multiplied by the sequence length
 
-    match module:
-        case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
-        case torch.nn.Conv2d():
-            unfold = torch.nn.Unfold(
-                module.kernel_size,
-                dilation=module.dilation,
-                padding=module.padding,
-                stride=module.stride,
-            )
-            inp = unfold(inp)
-            inp = inp.permute([1, 0, 2])
-            inp = inp.flatten(1)
+    if len(inp.shape) == 3:
+        inp = inp.reshape((-1, inp.shape[-1]))
+    inp = inp.t()
 
     H *= num_samples / (num_samples + num_added)
     num_samples += num_added
@@ -57,19 +45,19 @@ def accumulate_hessian(
 
 def sparsify_weight(
     module: torch.nn.Module,
-    hessians_dict: dict[torch.nn.Module, torch.Tensor],
+    hessian: torch.Tensor,
     sparsity: float,
     prune_n: int,
     prune_m: int,
     block_size: int,
     dampening_frac: float,
     preserve_sparsity_mask: bool,
-) -> torch.Tensor:
+) -> tuple[float, torch.Tensor]:
     """
     Run pruning on the layer up to the target sparsity value.
 
     :param module: module with weight being sparsified
-    :param hessian_dict: dictionary containing preaccumulated hessian for sparsification
+    :param hessian: preaccumulated hessian for sparsification
     :param sparsity: target sparsity to reach for layer
     :param prune_n: N for N:M pruning
     :param prune_m: M for N:M pruning
@@ -81,8 +69,7 @@ def sparsify_weight(
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.clone()
-    H = hessians_dict[module]  # unfortunately python does not have a `move` keyword
-    del hessians_dict[module]  # so we have to delete the original reference manually
+    H = hessian
 
     # standardize shape and dtype
     match module:

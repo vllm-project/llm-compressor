@@ -1,5 +1,3 @@
-import contextlib
-
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
@@ -25,7 +23,7 @@ from torch import distributed as dist
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
-    accumulate_hessian,
+    calculate_hessian,
     make_empty_hessian,
     quantize_weight,
 )
@@ -35,6 +33,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
 
@@ -127,9 +126,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
-        default_factory=dict
+    # cache for Module: [hessian, count]
+    _hessians_cache: IntermediatesCache[torch.nn.Module, list[torch.Tensor]] = (
+        PrivateAttr(default=None)
     )
 
     def resolve_quantization_config(self) -> QuantizationConfig:
@@ -210,6 +209,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
 
+        # Initialize hessians cache with optional offloading
+        offload_device = torch.device("cpu") if self.offload_hessians else None
+        self._hessians_cache = IntermediatesCache(offload_device=offload_device)
+
         # register gptq hooks
         added_hook = False
         for _, module in match_named_modules(
@@ -262,24 +265,23 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # Assume that first argument is the input
         inp = args[0]
 
+        device = get_execution_device(module)
         # Initialize hessian if not present
-        if module not in self._num_samples:
-            init_device = (
-                "cpu" if self.offload_hessians else get_execution_device(module)
-            )
-            self._hessians[module] = make_empty_hessian(module, device=init_device)
-            self._num_samples[module] = torch.zeros(
-                tuple(), device=get_execution_device(module)
+        if module not in self._hessians_cache:
+            self._hessians_cache.update(
+                module,
+                [
+                    make_empty_hessian(module, device=device),
+                    torch.zeros(tuple(), device=device),
+                ],
             )
 
-        # Accumulate hessian with input with optional offloading
-        with self._maybe_onload_hessian(module):
-            self._hessians[module], self._num_samples[module] = accumulate_hessian(
-                inp,
-                module,
-                self._hessians[module],
-                self._num_samples[module],
-            )
+        # Fetch hessian (onloads to original device automatically)
+        hessian, count = self._hessians_cache.fetch_no_onload(module)
+        new_hessian, new_count = calculate_hessian(inp, hessian.device)
+        hessian += new_hessian
+        count += new_count
+        self._hessians_cache.update(module, [hessian, count], device)
 
     def compress_modules(self):
         """
@@ -287,7 +289,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         ### Not Distributed
         if not is_distributed():
-            self.compress_module_list(list(self._num_samples.keys()))
+            self.compress_module_list(self._hessians_cache.iter_keys())
             return
 
         ### Distributed
@@ -296,9 +298,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Assign modules to ranks
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
-            list(self._hessians.keys()),
+            list(self._hessians_cache.iter_keys()),
             world_size,
-            item_weight_fn=lambda mod: self._hessians[mod].shape[0],
+            item_weight_fn=lambda mod: self._hessians_cache[mod].shape[0],
         )
 
         # send hessians to assigned ranks
@@ -312,20 +314,22 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def compress_module_list(self, module_list):
         for module in module_list:
             name = self._module_names[module]
-            num_samples = self._num_samples[module]
+            hessian, count = self._hessians_cache[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name} using {int(num_samples)} samples")
+            logger.info(f"Quantizing {name} using {int(count)} samples")
             with (
                 torch.no_grad(),
                 align_module_device(module),
-                self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
+                hessian = hessian / count
+                self._hessians_cache.delete(module)
+
                 loss, q_param_dict = quantize_weight(
                     module=module,
                     quant_args=quant_args,
-                    hessian=self._hessians.pop(module) / self._num_samples.pop(module),
+                    hessian=hessian,
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
@@ -339,26 +343,26 @@ class GPTQModifier(Modifier, QuantizationMixin):
         pending_comms = []
         for module in module_list:
             target_rank = module_to_rank[module]
-            with self._maybe_onload_hessian(module):
-                pending_comms.append(
-                    dist.reduce(
-                        self._hessians[module],
-                        op=dist.ReduceOp.SUM,
-                        dst=target_rank,
-                        async_op=True,
-                    )
+            hessian, count = self._hessians_cache[module]
+
+            pending_comms.append(
+                dist.reduce(
+                    hessian,
+                    op=dist.ReduceOp.SUM,
+                    dst=target_rank,
+                    async_op=True,
                 )
-                pending_comms.append(
-                    dist.reduce(
-                        self._num_samples[module],
-                        op=dist.ReduceOp.SUM,
-                        dst=target_rank,
-                        async_op=True,
-                    )
+            )
+            pending_comms.append(
+                dist.reduce(
+                    count,
+                    op=dist.ReduceOp.SUM,
+                    dst=target_rank,
+                    async_op=True,
                 )
-                if rank != target_rank:
-                    self._hessians.pop(module, None)
-                    self._num_samples.pop(module, None)
+            )
+            if rank != target_rank:
+                self._hessians_cache.delete(module)
         wait_for_comms(pending_comms)
 
     def _broadcast_quantized_params(self, module_list, module_to_rank):
@@ -387,22 +391,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        if len(self._num_samples) > 0:
-            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+        if len(self._hessians_cache) > 0:
+            raise ValueError(f"Failed to compress {len(self._hessians_cache)} modules")
 
-        self._hessians = dict()
-        self._num_samples = dict()
+        self._hessians_cache.clear() if self._hessians_cache else None
 
         return True
-
-    @contextlib.contextmanager
-    def _maybe_onload_hessian(self, module: torch.nn.Module):
-        if self.offload_hessians:
-            device = get_execution_device(module)
-            self._hessians[module] = self._hessians[module].to(device=device)
-
-        yield
-
-        if self.offload_hessians:
-            if module in self._hessians:  # may have been deleted in context
-                self._hessians[module] = self._hessians[module].to(device="cpu")

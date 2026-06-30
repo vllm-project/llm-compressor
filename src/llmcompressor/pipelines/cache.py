@@ -1,72 +1,58 @@
 from __future__ import annotations
 
-import sys
-import warnings
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Generator
+from dataclasses import dataclass
+from typing import Any, Generator, Generic, TypeVar
 from weakref import WeakKeyDictionary
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_flatten, tree_unflatten
 from tqdm import tqdm
+
+TKey = TypeVar("TKey", bound=Any)
+TValue = TypeVar("TValue", bound=Any)
 
 
 @dataclass
 class IntermediateValue:
     """
-    Dataclass which recursively defines offloaded values and which device to onload to
+    Wrapper for offloaded tensors, tracking the device to onload to.
 
-    :param value: either an offloaded Tensor, an primative value, or a recursable value
-    :param device: if the value is a Tensor, then the device to onload the tensor to,
-        otherwise None
+    Only used at leaf tensor positions in pytrees stored in the cache.
     """
 
-    value: torch.Tensor | "IntermediateValue" | Any
+    value: torch.Tensor
     device: torch.device | None
 
 
-IntermediateValues = dict[str, IntermediateValue]
-
-
-class IntermediatesCache:
+class IntermediatesCache(Generic[TKey, TValue]):
     """
     Cache which stores intermediate values (activations) produced by batched, sequential
     execution of models. Values are offloaded to the `offload_device` when stored in
     the cache and onloaded to their original device when fetched from the cache. If
     `offload_device` is None, values will not be offloaded at all.
 
-    Currently supports nested offloading of dataclass instances and tuples
+    Uses pytree internally to handle nested containers (dicts, tuples, lists).
+    IntermediateValue wrappers are placed at tensor leaf positions only.
 
-    Construct using `empty` and `from_dataloader` class methods
+    Construct using `from_dataloader` class method or directly with offload_device
     """
 
-    batch_intermediates: list[IntermediateValues]
+    _store: dict[
+        TKey, TValue
+    ]  # Notice the tensor inside TValue is wrapped in IntermediateValue
     offload_device: torch.device | None
 
     # map of onload value -> offload value
     # used to avoid excess memory usage when shared tensors are offloaded
     offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
 
-    def __init__(
-        self,
-        batch_intermediates: list[IntermediateValues] | None = None,
-        offload_device: torch.device | None = "cpu",
-    ):
-        self.batch_intermediates = batch_intermediates or []
+    def __init__(self, offload_device: torch.device | None = None):
+        self._store = {}
+        self._prefix_counters: dict[tuple, int] = {}
+        self._prefix_indices: dict[tuple, set[int]] = {}
         self.offload_device = offload_device
-
-    @classmethod
-    def empty(cls, num_batches: int, offload_device: torch.device):
-        """
-        Construct an empty cache
-
-        :param num_batches: the expected number of batches to be stored
-        :param offload_device: device to offload values to
-        """
-        batch_intermediates = [{} for _ in range(num_batches)]
-        return cls(batch_intermediates, offload_device)
 
     @classmethod
     def from_dataloader(
@@ -76,144 +62,234 @@ class IntermediatesCache:
         offload_device: torch.device | None = torch.device("cpu"),
     ):
         """
-        Initialize a cache with data from the provided dataloader
-
-        This method iterates through all batches in the dataloader and offloads
-        them to the specified device. For faster cache preparation, consider:
-        - Increasing batch_size to reduce the number of iterations
-        - Using num_workers > 0 in the DataLoader for parallel loading (e.g. the
-          calibration DataLoader from format_calibration_data uses
-          dataloader_num_workers; when > 0, pin_memory and prefetch_factor are
-          also set where applicable, which speeds both cache build and calibration)
-        - Ensuring data preprocessing is done before creating the dataloader
+        Initialize a cache with data from the provided dataloader.
+        Stores each batch as a dict under key batch_idx.
 
         :param dataloader: dataloader which generates values to be cached
         :param model_device: device which values will be onloaded to when fetched
         :param offload_device: device to offload values to
         """
-        batch_intermediates = [
-            {
-                key: cls._offload_value(value, offload_device, model_device)
-                for key, value in batch.items()
-            }
-            for batch in tqdm(dataloader, desc="Preparing cache")
+        cache = cls(offload_device)
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Preparing cache")):
+            cache._store[batch_idx] = cls._offload_value(
+                batch, offload_device, model_device
+            )
+        cache._prefix_counters[()] = len(dataloader)
+        cache._prefix_indices[()] = set(range(len(dataloader)))
+        return cache
+
+    def __getitem__(self, key: TKey) -> TValue:
+        """
+        Fetch a value by key, onloading it to the original device
+
+        :param key: key to fetch
+        :return: onloaded value
+        :raises KeyError: if key is not found in cache
+        """
+        if key not in self._store:
+            raise KeyError(f"Key {key} not found in cache")
+        return self._onload_value(self._store[key])
+
+    def fetch_no_onload(self, key: TKey) -> TValue:
+        """
+        Fetch a value by key WITHOUT onloading
+
+        :param key: key to fetch
+        :return: raw offloaded value (IntermediateValue wrappers at tensor positions)
+        :raises KeyError: if key is not found in cache
+        """
+        if key not in self._store:
+            raise KeyError(f"Key {key} not found in cache")
+        leaves, spec = tree_flatten(self._store[key])
+        cleaned_leaves = [
+            x.value if isinstance(x, IntermediateValue) else x for x in leaves
         ]
+        return tree_unflatten(cleaned_leaves, spec)
 
-        return cls(batch_intermediates, offload_device)
-
-    def fetch(
-        self, batch_index: int, input_names: list[str] | None = None
-    ) -> dict[str, Any]:
+    def update(self, key: TKey, value: TValue, onload_device=None) -> None:
         """
-        Fetch values belonging to a batch
+        Update/put a value for a key, offloading any tensors
 
-        :param batch_index: index of batch whose values are being fetched
-        :param input_names: list of keys whose values are being fetched
-        :return: dictionary mapping keys to onloaded values
+        :param key: key to store value under
+        :param value: value to store (tensors will be offloaded)
         """
-        intermediates = self.batch_intermediates[batch_index]
+        self._store[key] = self._offload_value(
+            value, self.offload_device, onload_device
+        )
 
-        return {
-            key: self._onload_value(subgraph_input)
-            for key, subgraph_input in intermediates.items()
-            if input_names is None or key in input_names
-        }
+        # Update prefix counter and indices to ensure append doesn't overwrite
+        if isinstance(key, int):
+            prefix = ()
+            idx = key
+        elif isinstance(key, tuple) and len(key) > 0 and isinstance(key[-1], int):
+            prefix = key[:-1]
+            idx = key[-1]
+        else:
+            return
 
-    def update(self, batch_index: int, values: dict[str, Any]):
+        current_max = self._prefix_counters.get(prefix, 0)
+        if idx >= current_max:
+            self._prefix_counters[prefix] = idx + 1
+
+        self._prefix_indices.setdefault(prefix, set()).add(idx)
+
+    def append(
+        self, key_prefix: TKey | None, value: TValue, onload_device=None
+    ) -> tuple[TKey, int]:
         """
-        Update/put values belonging to a batch
+        Append a value with an auto-generated index.
 
-        :param batch_index: index of batch whose values will be updated
-        :param values: dictionary mapping keys to values used for update
+        If key_prefix is None, uses integer keys directly (0, 1, 2, ...).
+        Otherwise, creates keys as (key_prefix, index).
+
+        :param key_prefix: key prefix for storing the value, or None for integer keys
+        :param value: value to store
+        :return: tuple of (full_key, index) where full_key is the complete key used
         """
-        device = self.offload_device
-        intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
-        self.batch_intermediates[batch_index].update(intermediates)
+        if key_prefix is None:
+            prefix = ()
+        elif isinstance(key_prefix, tuple):
+            prefix = key_prefix
+        else:
+            prefix = (key_prefix,)
 
-    def delete(self, batch_index: int, consumed_names: list[str] | None = None):
+        next_idx = self._prefix_counters.get(prefix, 0)
+        self._prefix_counters[prefix] = next_idx + 1
+
+        if prefix == ():
+            full_key = next_idx
+        else:
+            full_key = prefix + (next_idx,)
+
+        self._store[full_key] = self._offload_value(
+            value, self.offload_device, onload_device
+        )
+        self._prefix_indices.setdefault(prefix, set()).add(next_idx)
+        return full_key, next_idx
+
+    def delete(self, key: TKey) -> None:
         """
-        Delete values from the cache
+        Delete a value from the cache
 
-        :param batch_index: index of batch whose values will be deleted
-        :param consumed_names: list of keys whose values will be deleted, defaults to
-            removing all keys
+        :param key: key to delete
         """
-        intermediates = self.batch_intermediates[batch_index]
+        # Avoid raising KeyError if key doesn't exist
+        if key not in self._store:
+            return
+        del self._store[key]
 
-        if consumed_names is None:
-            consumed_names = list(intermediates.keys())
+        # Remove from prefix indices
+        if isinstance(key, int):
+            prefix = ()
+            idx = key
+        elif isinstance(key, tuple) and len(key) > 0 and isinstance(key[-1], int):
+            prefix = key[:-1]
+            idx = key[-1]
+        else:
+            return
 
-        for name in consumed_names:
-            del intermediates[name]
+        if prefix in self._prefix_indices:
+            self._prefix_indices[prefix].discard(idx)
 
-    def append(self, values: dict[str, Any]):
+        # Decrement counter if deleted index was the max
+        if prefix in self._prefix_counters and self._prefix_counters[prefix] == idx + 1:
+            self._prefix_counters[prefix] = idx
+
+    def __contains__(self, key: TKey) -> bool:
         """
-        Append new values to the cache. The new values will be assigned the next
-        available batch index
+        Check if a key is in the cache
 
-        :param values: dictionary mapping keys to values used for update
+        :param key: key to check
+        :return: True if key is in cache, False otherwise
         """
-        batch_index = len(self.batch_intermediates)
-        self.batch_intermediates.append({})
-        self.update(batch_index, values)
+        return key in self._store
 
-    def size(self) -> dict[torch.device, int]:
+    def iter_keys(self, prefix: TKey | None = None) -> list[TKey]:
         """
-        Returns the memory used by cached values, keyed by device, in bytes
+        Get keys matching a prefix.
 
-        :return: dictionary mapping torch device to number of bytes in cache
+        For prefix like (module,), returns all keys (module, 0), (module, 1), etc.
+        Non-tuple prefixes are treated as single-element tuples.
+
+        :param prefix: prefix to match keys starting with this prefix
+        :return: list of matching keys (sorted by final index if integer,
+            otherwise unsorted)
         """
-        sizes = defaultdict(lambda: 0)
-        memo = set()
+        if prefix is None:
+            return list(self._store.keys())
 
-        def _size_helper(intermediate: IntermediateValue) -> int:
-            value = intermediate.value
+        if isinstance(prefix, tuple):
+            p = prefix
+        else:
+            p = (prefix,)
 
-            match value:
-                case torch.Tensor():
-                    if value not in memo:
-                        sizes[value.device] += value.nbytes
-                    memo.add(value)
-                case list() | tuple():
-                    for v in value:
-                        _size_helper(v)
-                case dict():
-                    for v in value.values():
-                        _size_helper(v)
-                case _ if is_dataclass(value):
-                    for field in fields(value):
-                        _size_helper(getattr(value, field.name))
-                case _:
-                    # this handles primitive values that don't match any other cases
-                    sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
+        # Use prefix indices for O(K) lookup if available
+        if p in self._prefix_indices:
+            indices = sorted(self._prefix_indices[p])
+            return [p + (idx,) for idx in indices]
 
-        for intermediates in self.batch_intermediates:
-            for value in intermediates.values():
-                _size_helper(value)
+        # Fallback: scan store for keys matching prefix (handles non-integer suffixes)
+        keys = []
+        for k in self._store.keys():
+            if isinstance(k, tuple) and len(k) == len(p) + 1 and k[:-1] == p:
+                keys.append(k)
 
-        return dict(sizes)
+        # Sort by final element if it's an integer
+        if keys and isinstance(keys[0][-1], int):
+            keys = sorted(keys, key=lambda k: k[-1])
 
-    def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
-        for batch_index in range(len(self.batch_intermediates)):
-            yield self.fetch(batch_index, input_names)
+        return keys
+
+    def iter(self, keys: list[TKey] | None = None) -> Generator[TValue, None, None]:
+        """
+        Iterate over keys with values onloaded in the current thread.
+
+        Keys that are not exact matches are treated as prefixes.
+        For example, [module] matches (module, 0), (module, 1), etc.
+
+        :param keys: list of keys or prefixes to iterate over. If None, iterates over
+            all keys.
+        """
+        if keys is None:
+            keys = list(self._store.keys())
+        else:
+            resolved_keys = []
+            for key in keys:
+                if key in self._store:
+                    resolved_keys.append(key)
+                else:
+                    resolved_keys.extend(self.iter_keys(key))
+            keys = resolved_keys
+
+        for key in keys:
+            yield self._onload_value(self._store[key])
 
     def iter_prefetch(
-        self, input_names: list[str] | None = None
-    ) -> Generator[Any, None, None]:
+        self, keys: list[TKey] | None = None
+    ) -> Generator[TValue, None, None]:
         """
-        Iterate over batches with the next batch prefetched in a background thread.
-        Overlaps onload from offload_device with consumption of the current batch,
-        which can reduce wall-clock time when offloading to CPU.
+        Iterate over keys with values prefetched in a background thread.
+        Overlaps onload from offload_device with consumption of the current value.
 
-        When CUDA is available, uses non_blocking transfers (requires pinned CPU
-        tensors, set up by _offload_value) and synchronises via CUDA events so the
-        main stream waits for each H2D copy before running GPU kernels on the data.
+        Keys that are not exact matches are treated as prefixes.
+        For example, [module] matches (module, 0), (module, 1), etc.
 
-        Yields the same fetched batch dicts as :meth:`iter`; only the timing
-        of onloads differs.
+        :param keys: list of keys or prefixes to iterate over. If None, iterates over
+            all keys.
         """
-        num_batches = len(self.batch_intermediates)
-        if num_batches == 0:
+        if keys is None:
+            keys = list(self._store.keys())
+        else:
+            resolved_keys = []
+            for key in keys:
+                if key in self._store:
+                    resolved_keys.append(key)
+                else:
+                    resolved_keys.extend(self.iter_keys(key))
+            keys = resolved_keys
+
+        num_keys = len(keys)
+        if num_keys == 0:
             return
 
         # Create a dedicated CUDA stream for H2D transfers so they run on a
@@ -222,26 +298,26 @@ class IntermediatesCache:
         # all operations and prevents any overlap.
         h2d_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
 
-        def _fetch_and_record(batch_index):
+        def _fetch_and_record(key):
             event = None
             if h2d_stream is not None:
                 with torch.cuda.stream(h2d_stream):
-                    data = self.fetch(batch_index, input_names)
+                    data = self._onload_value(self._store[key])
                 event = torch.cuda.Event()
                 event.record(h2d_stream)
             else:
-                data = self.fetch(batch_index, input_names)
+                data = self._onload_value(self._store[key])
             return data, event
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = None
-            for batch_index in range(num_batches):
+            for idx, key in enumerate(keys):
                 if future is not None:
                     current, event = future.result()
                 else:
-                    current, event = _fetch_and_record(batch_index)
-                if batch_index + 1 < num_batches:
-                    future = executor.submit(_fetch_and_record, batch_index + 1)
+                    current, event = _fetch_and_record(key)
+                if idx + 1 < num_keys:
+                    future = executor.submit(_fetch_and_record, keys[idx + 1])
                 else:
                     future = None
                 # Make the main CUDA stream wait for the background H2D copy
@@ -250,122 +326,100 @@ class IntermediatesCache:
                     torch.cuda.current_stream().wait_event(event)
                 yield current
 
-    def __iter__(self) -> Generator[Any, None, None]:
-        yield from self.iter()
+    def __iter__(self) -> Generator[TValue, None, None]:
+        """
+        Iterate over all values in the cache
+        """
+        for key in self._store:
+            yield self._onload_value(self._store[key])
+
+    def clear(self) -> None:
+        """Clear all entries from the cache."""
+        self._store.clear()
+        self._prefix_counters.clear()
+        self._prefix_indices.clear()
 
     def __len__(self) -> int:
-        return len(self.batch_intermediates)
+        """Return the number of entries in the cache."""
+        return len(self._store)
 
     @classmethod
-    def _onload_value(cls, intermediate: IntermediateValue) -> Any:
+    def _onload_value(cls, value: TValue) -> TValue:
         """
-        Onload a value's tensors to the onload device
+        Onload a value's tensors to their original devices.
 
-        :param intermediate: intermediates value representation to onload
-        :return: original value with tensors onloaded to the onload device
+        Uses pytree to flatten, onload tensor leaves wrapped in IntermediateValue,
+        then unflatten back to original structure.
+
+        :param value: pytree with IntermediateValue at tensor leaf positions
+        :return: original value with tensors onloaded
         """
-        value = intermediate.value
-        device = intermediate.device
-
-        match value:
-            case torch.Tensor():
-                # use non_blocking when source is pinned and target is an accelerator
-                # so the H2D DMA can overlap with compute on a separate stream
-                non_blocking = (
-                    value.is_pinned()
-                    and device is not None
-                    and torch.accelerator.is_available()
-                    and torch.device(device).type
-                    == torch.accelerator.current_accelerator().type
-                )
-                return value.to(device=device, non_blocking=non_blocking)
-            case list():
-                return [cls._onload_value(v) for v in value]
-            case tuple():
-                return tuple(cls._onload_value(v) for v in value)
-            case dict():
-                return {k: cls._onload_value(v) for k, v in value.items()}
-            case _ if is_dataclass(value):
-                for field in fields(value):
-                    v = getattr(value, field.name)
-                    setattr(value, field.name, cls._onload_value(v))
-                return value
-            case _:
-                # handles primitive values that should be returned as is.
-                # without this, a MatchError would be raised for unhandled types.
-                return value
+        leaves, spec = tree_flatten(value)
+        onloaded_leaves = []
+        for leaf in leaves:
+            if not isinstance(leaf, IntermediateValue):
+                onloaded_leaves.append(leaf)
+                continue
+            tensor = leaf.value
+            device = leaf.device
+            non_blocking = (
+                tensor.is_pinned()
+                and torch.accelerator.is_available()
+                and torch.device(device).type
+                == torch.accelerator.current_accelerator().type
+            )
+            tensor = tensor.to(device=device, non_blocking=non_blocking)
+            onloaded_leaves.append(tensor)
+        return tree_unflatten(onloaded_leaves, spec)
 
     @classmethod
     def _offload_value(
         cls,
-        value: Any,
+        value: TValue,
         offload_device: torch.device | None,
         onload_device: torch.device | None = None,
-    ) -> IntermediateValue:
+    ) -> TValue:
         """
-        Offload a value's tensors to the offload device
+        Offload a value's tensors to the offload device.
+
+        Uses pytree to flatten, wrap tensor leaves in IntermediateValue,
+        then unflatten back to original structure.
 
         :param value: value to offload
-        :param offload_device: device to offload `torch.Tensor` values to
-        :param onload_device: device used when onloading `torch.Tensor` values.
-            If None is provided, use the tensor's current device
-        :return: Instance of IntermediateValue representing the offloaded value
+        :param offload_device: device to offload tensors to
+        :param onload_device: device to onload tensors to. If None, use tensor's
+            current device
+        :return: pytree with IntermediateValue at tensor leaf positions
         """
-        kwargs = {"offload_device": offload_device, "onload_device": onload_device}
-        match value:
-            case torch.Tensor():
-                with OverrideEqMode():
-                    # check for cache hit between shared tensors
-                    if value in cls.offload_values:
-                        offloaded = cls.offload_values[value]
-                    else:
-                        # move to offload if no hit
-                        offloaded = value.to(device=offload_device)
-                        if offloaded is not value:  # avoid circular ref
-                            # pin CPU tensors so onload can use non_blocking DMA
-                            if (
-                                torch.device(offload_device).type == "cpu"
-                                and torch.accelerator.is_available()
-                                and not offloaded.is_pinned()
-                            ):
-                                offloaded = offloaded.pin_memory()
-                            cls.offload_values[value] = offloaded
+        leaves, spec = tree_flatten(value)
+        offloaded_leaves = []
+        do_pin = str(offload_device) == "cpu" and torch.accelerator.is_available()
+        for leaf in leaves:
+            if not isinstance(leaf, torch.Tensor):
+                offloaded_leaves.append(leaf)
+                continue
 
-                return IntermediateValue(
-                    value=offloaded,
-                    device=(onload_device if onload_device else value.device),
+            with OverrideEqMode():
+                # check for cache hit between shared tensors
+                if leaf in cls.offload_values:
+                    offloaded_tensor = cls.offload_values[leaf]
+                else:
+                    # move to offload if no hit
+                    offloaded_tensor = leaf.to(device=offload_device)
+                    if offloaded_tensor is not leaf:
+                        cls.offload_values[leaf] = (
+                            offloaded_tensor.pin_memory()
+                            if do_pin
+                            else offloaded_tensor
+                        )
+
+            offloaded_leaves.append(
+                IntermediateValue(
+                    value=offloaded_tensor,
+                    device=(onload_device if onload_device else leaf.device),
                 )
-            case list():
-                return IntermediateValue(
-                    value=[cls._offload_value(v, **kwargs) for v in value],
-                    device=None,
-                )
-            case tuple():
-                return IntermediateValue(
-                    value=tuple(cls._offload_value(v, **kwargs) for v in value),
-                    device=None,
-                )
-            case dict():
-                return IntermediateValue(
-                    value={
-                        k: cls._offload_value(v, **kwargs) for k, v in value.items()
-                    },
-                    device=None,
-                )
-            case _ if is_dataclass(value):
-                for field in fields(value):
-                    v = getattr(value, field.name)
-                    setattr(value, field.name, cls._offload_value(v, **kwargs))
-                return IntermediateValue(value=value, device=None)
-            case _:
-                # handles primitive values and provides a warning for unsupported types.
-                # without this, values trigger a MatchError exception.
-                if not isinstance(
-                    value,
-                    (int, str, float, bool, torch.dtype, torch.device, type(None)),
-                ):
-                    warnings.warn(f"Offloading not implemented for type {type(value)}.")
-                return IntermediateValue(value=value, device=None)
+            )
+        return tree_unflatten(offloaded_leaves, spec)
 
 
 class OverrideEqMode(TorchDispatchMode):
