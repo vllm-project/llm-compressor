@@ -37,108 +37,20 @@ Ask the user (or infer from context) for:
      - Anchor with `$` to prevent partial matches on layers sharing the same prefix (e.g. `mlp\.gate$` matches `mlp.gate` but not `mlp.gate_proj`)
      - Prepend `.*` to match at any depth: `"re:.*mlp\.gate$"`
 
+## Templates
+
+Templates are located in `.claude/skills/fp8/templates/`:
+
+- `oneshot.py` — dense-model base template for `oneshot` with `QuantizationModifier`
+- `model_free_ptq.py` — template for `model_free_ptq` (no transformers class, or ~1TB+ models)
+
 ## Step 2 — Choose the template
 
 ### `oneshot` with `QuantizationModifier` (standard path)
 
-**Dense models** — use `AutoModelForCausalLM`:
+Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments in Step 3 before writing the final file.
 
-```python
-from compressed_tensors.offload import dispatch_model
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
-
-MODEL_ID = "<MODEL_ID>"
-
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-recipe = QuantizationModifier(
-    targets="Linear",
-    scheme="<SCHEME>",  # FP8_DYNAMIC | FP8_BLOCK | MXFP8
-    ignore=["lm_head"],  # add model-specific vision tower and gating/routing layers — see Step 3
-)
-
-oneshot(model=model, recipe=recipe)
-
-print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(model.device)
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
-
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-<SCHEME>"
-model.save_pretrained(SAVE_DIR)
-tokenizer.save_pretrained(SAVE_DIR)
-```
-
-**MoE models** — use `AutoModelForCausalLM` like dense models; just add gate/router layers to `ignore` (see Step 3).
-
-**VLM models** — always use the specific architecture class from `config.json`. **Never use `AutoModelForCausalLM` for VLM models.**
-
-```python
-from compressed_tensors.offload import dispatch_model
-from transformers import SpecificClass, AutoProcessor  # e.g. Llama4ForConditionalGeneration
-
-from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import load_context
-
-MODEL_ID = "<MODEL_ID>"
-
-# Use the exact class from config.json `architectures` field.
-# If the class requires trust_remote_code (custom architecture not in standard transformers),
-# add trust_remote_code=True to both from_pretrained calls.
-with load_context(SpecificClass):
-    model = SpecificClass.from_pretrained(MODEL_ID)
-processor = AutoProcessor.from_pretrained(MODEL_ID)
-
-recipe = QuantizationModifier(
-    targets="Linear",
-    scheme="<SCHEME>",  # FP8_DYNAMIC | FP8_BLOCK | MXFP8
-    ignore=[
-        "lm_head",
-        # add model-specific vision tower and gating/routing layers — see Step 3
-    ],
-)
-
-oneshot(model=model, recipe=recipe)
-
-print("========== SAMPLE GENERATION ==============")
-dispatch_model(model)
-input_ids = processor("Hello my name is", return_tensors="pt").input_ids.to(model.device)
-output = model.generate(input_ids, max_new_tokens=20)
-print(processor.decode(output[0]))
-print("==========================================")
-
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-<SCHEME>"
-model.save_pretrained(SAVE_DIR)
-processor.save_pretrained(SAVE_DIR)
-```
-
-### `model_free_ptq` (no transformers model definition, or very large models ~1TB+)
-
-```python
-from llmcompressor import model_free_ptq
-
-MODEL_ID = "<MODEL_ID>"
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-<SCHEME>"
-
-model_free_ptq(
-    model_stub=MODEL_ID,
-    save_directory=SAVE_DIR,
-    scheme="<SCHEME>",  # FP8_DYNAMIC | FP8_BLOCK
-    ignore=[
-        "lm_head",
-        # add model-specific vision tower and gating/routing layers — see Step 3
-    ],
-    max_workers=15,
-    device="cuda:0",
-)
-```
+**Sample generation:** Check the model's parameter count from its name or by fetching `config.json` (look for a size indicator in the model ID such as `70B`, `72B`, `405B`). If the model exceeds **70B parameters**, omit the entire sample generation block (from `dispatch_model` through the closing `print`) to avoid OOM.
 
 ## Step 3 — Apply model-type adjustments
 
@@ -181,7 +93,11 @@ Some deepseek-like architectures use an `attn.indexer` and `attn.indexer.compres
   - Vision: `["re:.*visual.*, ".*vision_tower.*"]`
   - Audio: `"re:audio.*"` (matches `audio_tower.*` etc.)
 
-## Step 4 — Write the file
+## Step 4 — `model_free_ptq` (no transformers model definition, or very large models ~1TB+)
+
+Read `templates/model_free_ptq.py` and use it as the starting point. Apply the same `ignore` adjustments from Step 3 (gate/router layers, vision tower layers) before writing the final file.
+
+## Step 5 — Write the file
 
 Place the file in the appropriate directory under `examples/`:
 - `quantization_w8a8_fp8/` for FP8_DYNAMIC or FP8_BLOCK (oneshot path)
