@@ -26,3 +26,5 @@ run W7A8   "$SCRIPT_DIR/weight_and_activation.py" --weight_bits 7 --act_bits 8
 
 echo "Done. Saved directories:"
 ls -d "$MODEL_ID"*/  2>/dev/null | sed 's/^/  /' || true
+
+sh /home/HDCharles/repos/llm-compressor/examples/pack_quantized_rtn/run_evals.sh
