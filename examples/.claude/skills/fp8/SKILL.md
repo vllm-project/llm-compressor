@@ -21,15 +21,16 @@ Ask the user (or infer from context) for:
    - `MXFP8` — weights and activations in MX fp8 format. No calibration. AMD MI300X target.
 3. **Model type** — dense, MoE, or multimodal (vision/audio)
 4. **Use `model_free_ptq`?** — use `model_free_ptq` if (a) the model does **not** have a definition in the `transformers` library (custom architectures must go through this path), or (b) the model is extremely large (~1TB+) and you want to quantize directly from safetensors files without loading the full model. Otherwise use `oneshot`.
-5. **Architecture class (MoE and VLM models only, REQUIRED)** — for any MoE or multimodal model, fetch the model's `config.json` from HuggingFace to get the exact architecture class before writing the file:
-   - Fetch `https://huggingface.co/{MODEL_ID}/raw/main/config.json` and read the `architectures` field (e.g. `["LagunaForCausalLM"]`, `["Llama4ForConditionalGeneration"]`)
+5. **Architecture class (VLM models only, REQUIRED)** — for any multimodal model, fetch the model's `config.json` from HuggingFace to get the exact architecture class before writing the file:
+   - Fetch `https://huggingface.co/{MODEL_ID}/raw/main/config.json` and read the `architectures` field (e.g. `["Llama4ForConditionalGeneration"]`)
    - Use that class directly in the import and `from_pretrained` call instead of `AutoModelForCausalLM`
    - To check if the class is in standard `transformers`, run: `python -c "from transformers import <ClassName>"`. If it imports successfully, no `trust_remote_code` needed. If it fails with `ImportError`, add `trust_remote_code=True` to both `from_pretrained` calls.
-   - Do **not** use `AutoModelForCausalLM` for MoE or VLM models — always use the specific class
+   - Do **not** use `AutoModelForCausalLM` for VLM models — always use the specific class
+   - MoE models can use `AutoModelForCausalLM` like dense models
 
 6. **Gate/router layer names (MoE models only, REQUIRED)** — for any MoE model you **must** determine the exact names of the gate/router layers before writing the file. Do one of the following:
    - Ask the user: *"What are the gating/routing layer names in this model? (e.g. `mlp.gate`, `router`)"*
-   - Or inspect the model config: search HuggingFace, existing examples in `examples/`, or the model's `config.json` for architecture details to derive the correct regex pattern.
+   - Or inspect the model config: fetch `https://huggingface.co/{MODEL_ID}/raw/main/config.json`, search HuggingFace, or look at existing examples in `examples/` for architecture details to derive the correct regex pattern.
    - Do **not** write the file until the gate/router layer pattern is confirmed. These layers produce logits that control expert routing — quantizing them degrades routing decisions and causes accuracy loss.
    - Once you have the layer name, construct the regex as follows:
      - Escape any literal dots: `mlp.gate` → `mlp\.gate`
@@ -51,7 +52,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "<MODEL_ID>"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, low_cpu_mem_usage=True)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 recipe = QuantizationModifier(
@@ -74,11 +75,13 @@ model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-**MoE and VLM models** — always use the specific architecture class from `config.json`. **Never use `AutoModelForCausalLM` for MoE or VLM models.**
+**MoE models** — use `AutoModelForCausalLM` like dense models; just add gate/router layers to `ignore` (see Step 3).
+
+**VLM models** — always use the specific architecture class from `config.json`. **Never use `AutoModelForCausalLM` for VLM models.**
 
 ```python
 from compressed_tensors.offload import dispatch_model
-from transformers import SpecificClass, AutoTokenizer  # e.g. Llama4ForConditionalGeneration
+from transformers import SpecificClass, AutoProcessor  # e.g. Llama4ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -90,8 +93,8 @@ MODEL_ID = "<MODEL_ID>"
 # If the class requires trust_remote_code (custom architecture not in standard transformers),
 # add trust_remote_code=True to both from_pretrained calls.
 with load_context(SpecificClass):
-    model = SpecificClass.from_pretrained(MODEL_ID, low_cpu_mem_usage=True)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = SpecificClass.from_pretrained(MODEL_ID)
+processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 recipe = QuantizationModifier(
     targets="Linear",
@@ -106,14 +109,14 @@ oneshot(model=model, recipe=recipe)
 
 print("========== SAMPLE GENERATION ==============")
 dispatch_model(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(model.device)
+input_ids = processor("Hello my name is", return_tensors="pt").input_ids.to(model.device)
 output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
+print(processor.decode(output[0]))
 print("==========================================")
 
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-<SCHEME>"
 model.save_pretrained(SAVE_DIR)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
 ```
 
 ### `model_free_ptq` (no transformers model definition, or very large models ~1TB+)
@@ -145,26 +148,15 @@ model_free_ptq(
 `ignore=["lm_head"]` is sufficient.
 
 ### MoE models
-**Required:** Always add gate/router layers to `ignore`. These control expert routing — quantizing them causes routing degradation. The exact pattern must come from the model's actual architecture (see Step 1 item 5).
+**Required:** Always add gate/router layers to `ignore`. These control expert routing — quantizing them causes routing degradation. The exact pattern must come from the model's actual architecture (see Step 1 item 6).
 
-Always wrap the load in `load_context` using the specific architecture class:
-```python
-from transformers import SpecificClass  # e.g. Llama4ForConditionalGeneration
-from llmcompressor.utils import load_context
-
-with load_context(SpecificClass):
-    model = SpecificClass.from_pretrained(MODEL_ID, low_cpu_mem_usage=True)
-```
-
-For custom architectures not in standard transformers (requires `trust_remote_code=True`), pass the class name string or use `AutoModelForCausalLM` as the proxy — but always add `trust_remote_code=True` if required:
+Always wrap the load in `load_context` using `AutoModelForCausalLM`:
 ```python
 from transformers import AutoModelForCausalLM
 from llmcompressor.utils import load_context
 
 with load_context(AutoModelForCausalLM):
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, trust_remote_code=True, low_cpu_mem_usage=True
-    )
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 ```
 Common MoE gating patterns (always verify against the model's actual layer names before using):
 - Qwen MoE: `"re:.*mlp.gate$"`, `"re:.*shared_expert_gate.*"`
