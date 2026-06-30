@@ -182,7 +182,7 @@ Some deepseek-like architectures use an `attn.indexer` and `attn.indexer.compres
   from llmcompressor.utils import load_context
 
   with load_context(Llama4ForConditionalGeneration):
-      model = Llama4ForConditionalGeneration.from_pretrained(MODEL_ID, low_cpu_mem_usage=True)
+      model = Llama4ForConditionalGeneration.from_pretrained(MODEL_ID)
   ```
 - Add `trust_remote_code=True` if the class is not in standard transformers
 - Always ignore vision tower layers using a single regex that covers the model's actual layer names (verify against the architecture — one pattern is sufficient since regex search matches substrings):
