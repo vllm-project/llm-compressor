@@ -48,6 +48,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     shuffle_calibration_samples=False,
+    moe_calibrate_all_experts=False,
 )
 
 # Confirm generations of the quantized model look sane.
