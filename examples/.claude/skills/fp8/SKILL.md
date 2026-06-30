@@ -57,7 +57,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="<SCHEME>",  # FP8_DYNAMIC | FP8_BLOCK | MXFP8
-    ignore=["lm_head"],
+    ignore=["lm_head"],  # add model-specific vision tower and gating/routing layers — see Step 3
 )
 
 oneshot(model=model, recipe=recipe)
