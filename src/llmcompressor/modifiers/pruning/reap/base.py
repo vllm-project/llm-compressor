@@ -164,13 +164,14 @@ class REAPPruningModifier(Modifier):
                 "or use the independent pipeline."
             )
 
-        # Warn if moe_calibrate_all_experts is enabled, which is not necessary for REAP
+        # Info if moe_calibrate_all_experts is enabled, which is not necessary for REAP
         if get_calibrate_all_experts_flag():
-            logger.warning(
+            logger.info(
                 "REAP: moe_calibrate_all_experts is enabled, which is not necessary"
-                " for REAP. If no other modifiers depend on this being set,"
-                " please disable it explicity by setting moe_calibrate_all_experts="
-                "False in your oneshot() call."
+                " for REAP. You can disable it explicity by setting "
+                "moe_calibrate_all_experts=False in your oneshot() call. This may "
+                "result in faster and/or more memory-efficient calibration, "
+                "depending on your model and hardware."
             )
 
         for layer_name in self._moe_attrs.moe_layer_names:
