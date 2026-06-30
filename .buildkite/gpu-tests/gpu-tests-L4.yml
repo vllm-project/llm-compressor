@@ -79,7 +79,8 @@ steps:
       else
         git fetch --unshallow 2>/dev/null || true
         git fetch origin "$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}"
-        CHANGED=$$(git diff --name-only "origin/$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD" \
+        DIFF_FILES=$$(git diff --name-only "origin/$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD")
+        CHANGED=$$(echo "$${DIFF_FILES}" \
           | grep -E '^(src/|tests/|setup\.py$$|MANIFEST\.in$$|\.buildkite/gpu-tests/transformers-tests-|\.buildkite/gpu-tests/scripts/run-tests\.sh$$)' \
           | grep -vE '^tests/(e2e|lmeval|examples)/' \
           | grep -vE '\.md$$' \

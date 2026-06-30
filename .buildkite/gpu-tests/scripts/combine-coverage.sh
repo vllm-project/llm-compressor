@@ -17,7 +17,7 @@ export PATH="$HOME/.local/bin:$PATH"
 uv venv covenv --python "3.12"
 source covenv/bin/activate
 
-export UV_TORCH_BACKEND=cu130
+export UV_TORCH_BACKEND=auto
 uv pip install -U setuptools
 uv pip install coverage setuptools-scm
 make build
