@@ -156,7 +156,7 @@ with load_context(SpecificClass):
     model = SpecificClass.from_pretrained(MODEL_ID, low_cpu_mem_usage=True)
 ```
 
-For custom architectures not in standard transformers (requires `trust_remote_code=True`), pass the class name string or use `AutoModelForCausalLM` as the proxy — but always add `trust_remote_code=True`:
+For custom architectures not in standard transformers (requires `trust_remote_code=True`), pass the class name string or use `AutoModelForCausalLM` as the proxy — but always add `trust_remote_code=True` if required:
 ```python
 from transformers import AutoModelForCausalLM
 from llmcompressor.utils import load_context
