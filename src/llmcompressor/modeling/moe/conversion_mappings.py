@@ -11,6 +11,7 @@ from transformers.core_model_loading import (
     WeightTransform,
 )
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
+from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeExperts
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 __all__ = [
@@ -22,7 +23,8 @@ __all__ = [
 # TODO: in the future, we can potentially grep the source code for this
 ARCH_TO_EXPERTS_MODULE_CLS = {
     "deepseek_v4": DeepseekV4Experts,
-    "qwen2_moe": Qwen3MoeExperts,
+    "qwen2_moe": Qwen2MoeExperts,
+    "qwen3_moe": Qwen3MoeExperts,
 }
 
 ARCH_TO_2D_MAPPINGS = {
@@ -52,11 +54,11 @@ ARCH_TO_2D_MAPPINGS = {
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
             ),
         ],
     ),
@@ -72,8 +74,8 @@ def get_linearize_load_mappings(
     model_type: str,
 ) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
     """ """
-    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     experts_cls = ARCH_TO_EXPERTS_MODULE_CLS[model_type]
+    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
