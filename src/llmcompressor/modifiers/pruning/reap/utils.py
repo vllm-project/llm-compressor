@@ -167,7 +167,7 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             "Could not find any supported MoE layers with experts in "
             "LinearExperts2D format. Make sure the model has MoE layers "
             "(excluding Llama4LinearExperts), and that the name of its "
-            "experts module is in EXPERTS_ATTRS and it the name of its "
+            "experts module is in EXPERTS_ATTRS and that the name of its "
             "router module is in ROUTER_ATTRS in reap/utils.py"
         )
 
