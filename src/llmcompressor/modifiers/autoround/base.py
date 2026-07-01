@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import os
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,7 @@ from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from auto_round.utils import check_to_quantized
 from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.offload import get_execution_device, get_offloaded_device
+from compressed_tensors.offload.cache.base import OffloadCache
 from compressed_tensors.offload.module import offload_module, remove_module_offload
 from compressed_tensors.quantization import (
     QuantizationMetadata,
@@ -16,6 +18,7 @@ from compressed_tensors.quantization import (
     enable_quantization,
 )
 from compressed_tensors.utils import align_module_device, match_named_modules
+from llmcompressor.utils.dev import get_main_device
 from loguru import logger
 from pydantic import PrivateAttr
 
@@ -28,6 +31,15 @@ from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["AutoRoundModifier", "fix_batch_if_needed"]
+
+
+def _get_local_gpu_group_size() -> int:
+    return int(
+        os.environ.get(
+            "GPUS_PER_GROUP",
+            os.environ.get("GPUS_PER_RANK", "1"),
+        )
+    )
 
 
 class _LLModelWrapper(torch.nn.Module):
@@ -79,7 +91,7 @@ def suspend_offloading(model: nn.Module):
     """
     offloading_info = dict()
     for name, module in model.named_modules():
-        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+        if not isinstance(module._parameters, OffloadCache):
             continue
         offloading_info[name] = (
             get_execution_device(module),
@@ -90,7 +102,7 @@ def suspend_offloading(model: nn.Module):
     yield
 
     for name, module in model.named_modules():
-        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+        if name not in offloading_info:
             continue
         offload_module(module, *offloading_info[name])
 
@@ -176,9 +188,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks
+        # apply config to model and prepare calibration hooks.
+        # Wrap in disable_onloading to suppress DistributedCPUCache's
+        # per-param broadcast+barrier when creating quant params (scale,
+        # zero_point). With GPUS_PER_GROUP > 1, modules have varying GPU
+        # execution devices, causing GPU→CPU copy timing to vary between
+        # ranks → broadcast deadlock. Quant params are deterministic —
+        # each rank computes identical values, no sync needed.
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            from compressed_tensors.offload import disable_onloading
+
+            with disable_onloading():
+                QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
         self._add_temporary_names(state.model)
@@ -299,13 +320,25 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
             self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
-            # Leave offload for LLMC to handle if `device_ids` is not set
+            # Enable auto_offload when device_ids is explicitly set OR when
+            # GPUS_PER_GROUP > 1 (set by launch_multi_gpu.sh).
+            # This lets AutoRound load-balance the block's submodules
+            # across multiple GPUs within the rank.
             auto_offload = False
-            if self.device_ids is not None:
-                # When device_ids is set, we move decoding layer to CPU first,
-                # then the submodules will be re-dispatched by AutoRound.
+            needs_multi_gpu = (
+                self.device_ids is not None
+                or _get_local_gpu_group_size() > 1
+                or torch.cuda.device_count() > 1
+            )
+            if needs_multi_gpu:
+                # Let AutoRound own placement within the rank-local GPU group.
+                device = get_main_device()
                 decoding_layer.to("cpu")
                 auto_offload = True
+
+            # Ensure cached inputs are on the same device as the block.
+            # Calibration forward may have run on a different GPU.
+            cur_inputs = self._move_inputs_to(cur_inputs, device)
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
@@ -347,12 +380,21 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def _update_device_map_for_dp(self, ar_kwargs):
         if torch.distributed.is_initialized():
-            rank = torch.distributed.get_rank()
-            ar_kwargs["device_map"] = (
-                f"{torch.accelerator.current_accelerator().type}:{rank}"
-                if torch.accelerator.is_available()
-                else "cpu"
-            )
+            if self.device_ids is not None:
+                return  # user explicitly set device_ids, respect it
+            gpus_per_group = _get_local_gpu_group_size()
+            if gpus_per_group > 1:
+                local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+                start_gpu = local_rank * gpus_per_group
+                ar_kwargs["device_map"] = ",".join(
+                    str(start_gpu + i) for i in range(gpus_per_group)
+                )
+            else:
+                ar_kwargs["device_map"] = (
+                    f"{torch.accelerator.current_accelerator().type}:0"
+                    if torch.accelerator.is_available()
+                    else "cpu"
+                )
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
@@ -375,6 +417,24 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for _, mod in model.named_modules():
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
+
+    @staticmethod
+    def _move_inputs_to(
+        inputs: list[tuple[tuple, dict]], device: torch.device
+    ) -> list[tuple[tuple, dict]]:
+        """Move all tensors in cached forward inputs to *device*."""
+        return [
+            (
+                tuple(
+                    x.to(device) if isinstance(x, torch.Tensor) else x for x in args
+                ),
+                {
+                    k: v.to(device) if isinstance(v, torch.Tensor) else v
+                    for k, v in kwargs.items()
+                },
+            )
+            for args, kwargs in inputs
+        ]
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
