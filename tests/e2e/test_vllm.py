@@ -207,6 +207,7 @@ class TestvLLM:
         json_llm_kwargs = json.dumps(llm_kwargs)
         prompts = [sp.prompt for sp in SANITY_PROMPTS]
         json_prompts = json.dumps(prompts)
+        json_sampling_params = json.dumps(self.config.sampling_params)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -224,6 +225,7 @@ class TestvLLM:
                 f"'{json_scheme}'",
                 f"'{json_llm_kwargs}'",
                 f"'{json_prompts}'",
+                f"'{json_sampling_params}'",
             ]
             vllm_cmd = " ".join(cmds)
             vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm.bash")
@@ -269,6 +271,7 @@ class TestvLLM:
                     json_scheme,
                     json_llm_kwargs,
                     json_prompts,
+                    json_sampling_params,
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
