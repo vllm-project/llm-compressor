@@ -8,6 +8,7 @@ from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from torch import distributed as dist
+from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import MinMaxTuple, Observer
@@ -28,8 +29,9 @@ class IMatrixMSEObserver(Observer):
     Supports CHANNEL, GROUP, and TENSOR_GROUP for weight-only Linear modules.
     Falls back to uniform MSE when importance data is unavailable.
 
-    Importance is accumulated as raw ``_imatrix_sum`` / ``_imatrix_count``
-    and synced across DDP ranks via ``_act_sync_dict`` before observation.
+    Importance is accumulated on the observer as raw ``_imatrix_sum`` /
+    ``_imatrix_count`` and synced across DDP ranks via ``_act_sync_dict``
+    before observation.
     """
 
     _act_sync_dict = {
@@ -48,6 +50,7 @@ class IMatrixMSEObserver(Observer):
 
         self._imatrix_sum: Optional[torch.Tensor] = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
+        self._imatrix_hook: Optional[RemovableHandle] = None
 
         if self.grid <= 0:
             raise ValueError(f"grid must be > 0, got {self.grid}")
@@ -67,25 +70,21 @@ class IMatrixMSEObserver(Observer):
     # ------------------------------------------------------------------
 
     def attach(self, module: torch.nn.Module) -> None:
-        """Attach a forward-pre hook to accumulate E[x²] per input channel.
-
-        If raw accumulators (``_imatrix_sum`` / ``_imatrix_count``) already
-        exist on the module (second pass after IMatrixGatherer), copy them
-        to the observer and skip hook registration.
-        """
-        if hasattr(module, "_imatrix_sum"):
-            self._imatrix_sum = module._imatrix_sum
-            self._imatrix_count = module._imatrix_count
-            del module._imatrix_sum
-            del module._imatrix_count
-            return
+        """Attach a forward-pre hook to accumulate E[x²] per input channel."""
+        if self._imatrix_hook is not None:
+            self._imatrix_hook.remove()
+            self._imatrix_hook = None
 
         if not hasattr(module, "in_features"):
             return
 
         in_features = module.in_features
-        module._imatrix_sum = torch.zeros(in_features, dtype=IMATRIX_PRECISION)
-        module._imatrix_count = torch.tensor(0, dtype=torch.int64)
+        param = next(module.parameters(), None)
+        device = param.device if param is not None else None
+        self._imatrix_sum = torch.zeros(
+            in_features, dtype=IMATRIX_PRECISION, device=device
+        )
+        self._imatrix_count = torch.tensor(0, dtype=torch.int64, device=device)
 
         def _hook(mod, args):
             if (
@@ -105,25 +104,19 @@ class IMatrixMSEObserver(Observer):
             n_tokens = math.prod(x_f.shape[:-1])
             token_sum = x_f.pow(2).sum(dim=list(range(x_f.dim() - 1)))
 
-            mod._imatrix_sum = mod._imatrix_sum.to(device)
-            mod._imatrix_count = mod._imatrix_count.to(device)
+            self._imatrix_sum = self._imatrix_sum.to(device)
+            self._imatrix_count = self._imatrix_count.to(device)
 
-            mod._imatrix_sum.add_(token_sum)
-            mod._imatrix_count += n_tokens
+            self._imatrix_sum.add_(token_sum)
+            self._imatrix_count += n_tokens
 
-        module._imatrix_hook = module.register_forward_pre_hook(_hook)
+        self._imatrix_hook = module.register_forward_pre_hook(_hook)
 
     def detach(self, module: torch.nn.Module) -> None:
-        """Remove hooks and leave raw sum/count on module for second-pass pickup.
-
-        Case 1 – accumulators present on module: leave them for next
-        observer's ``attach()`` to pick up.
-
-        Case 2 – no accumulators (second-pass cleanup): nothing to do.
-        """
-        if hasattr(module, "_imatrix_hook"):
-            module._imatrix_hook.remove()
-            del module._imatrix_hook
+        """Remove the activation collection hook."""
+        if self._imatrix_hook is not None:
+            self._imatrix_hook.remove()
+            self._imatrix_hook = None
 
     # ------------------------------------------------------------------
 

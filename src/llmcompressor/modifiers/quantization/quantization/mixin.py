@@ -305,6 +305,18 @@ class QuantizationMixin(HooksMixin):
             and self.kv_cache_scheme is None
         )
 
+    def requires_weight_observer_calibration_data(self) -> bool:
+        """
+        Determine if a weight observer needs calibration data.
+        """
+        config = self.resolve_quantization_config()
+        return any(
+            scheme.weights is not None
+            and scheme.weights.observer is not None
+            and scheme.weights.observer.lower() == "imatrix_mse"
+            for scheme in config.config_groups.values()
+        )
+
     def resolve_quantization_config(self) -> QuantizationConfig:
         """
         Returns the quantization config specified by this modifier

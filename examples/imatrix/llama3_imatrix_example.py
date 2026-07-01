@@ -4,7 +4,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3.1-8B"
@@ -21,14 +20,13 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Configure the quantization algorithm to run.
-#   * trigger a calibration pass with IMatrixGatherer so the observer can collect E[x²]
+#   * collect E[x²] during calibration through the imatrix_mse observer
 #   * quantize the weights to 4 bit with group size 128
 #   * use imatrix_mse observer to weight quantization error by channel importance
 scheme = preset_name_to_scheme("W4A16", ["Linear"])
 scheme.weights.observer = "imatrix_mse"
 
 recipe = [
-    IMatrixGatherer(ignore=["lm_head"]),
     QuantizationModifier(
         config_groups={"group_0": scheme},
         ignore=["lm_head"],
