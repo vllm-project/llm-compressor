@@ -167,13 +167,21 @@ class DummyModel(torch.nn.Module):
 @pytest.mark.parametrize(
     "config_cls,experts_cls,kwargs",
     [
-        (AfmoeConfig, AfmoeExperts, {}),
+        (
+            AfmoeConfig,
+            AfmoeExperts,
+            {"hidden_size": 512, "intermediate_size": 1024, "num_experts": 16},
+        ),
         (
             DeepseekV3Config,
             DeepseekV3Experts,
-            {"hidden_size": 512, "moe_intermediate_size": 1024},
+            {"hidden_size": 512, "moe_intermediate_size": 1024, "n_routed_experts": 16},
         ),
-        (DeepseekV4Config, DeepseekV4Experts, {}),
+        (
+            DeepseekV4Config,
+            DeepseekV4Experts,
+            {"hidden_size": 512, "moe_intermediate_size": 1024, "n_routed_experts": 16},
+        ),
         (
             Gemma4TextConfig,
             Gemma4TextExperts,
@@ -182,13 +190,17 @@ class DummyModel(torch.nn.Module):
         (Glm4MoeConfig, Glm4MoeExperts, {}),
         (Glm4MoeLiteConfig, Glm4MoeLiteExperts, {}),
         (GlmMoeDsaConfig, GlmMoeDsaExperts, {"hidden_size": 512}),
-        (GraniteMoeConfig, GraniteMoeExperts, {}),
+        (
+            GraniteMoeConfig,
+            GraniteMoeExperts,
+            {"hidden_size": 512, "intermediate_size": 1024, "num_local_experts": 4},
+        ),
         (Qwen3_5MoeTextConfig, Qwen3_5MoeExperts, {}),
         (Qwen3MoeConfig, Qwen3MoeExperts, {}),
         (Qwen3NextConfig, Qwen3NextExperts, {}),
         (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts, {}),
         (GptOssConfig, GptOssExperts, {}),
-        (HYV3Config, HYV3Experts, {}),
+        (HYV3Config, HYV3Experts, {"hidden_size": 512, "moe_intermediate_size": 1024}),
         (
             NemotronHConfig,
             NemotronHExperts,
