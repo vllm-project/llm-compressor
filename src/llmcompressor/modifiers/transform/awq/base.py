@@ -677,6 +677,7 @@ class AWQModifier(Modifier):
                         orig_layer_weights[balance_layer].to(_scalesview.device)
                         * _scalesview
                     )
+                    balance_layer.weight_observer.delete_statistics(check_fused=False)
 
                 # calculate qparams
                 observe(balance_layers_to_patch, "weight")
