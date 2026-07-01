@@ -24,10 +24,10 @@ def get_torch_hardware_info():
         npu_devices = []
         if torch.accelerator.is_available():
             for i in range(torch.accelerator.device_count()):
-                name = torch.accelerator.get_device_name(i)
-                if "AMD" in name.upper():
+                name = torch.get_device_module().get_device_name(i)
+                if "GFX" in name.upper():
                     amd_devices.append(name)
-                elif "NPU" in name.upper():
+                elif "ASCEND" in name.upper():
                     npu_devices.append(name)
                 else:
                     cuda_devices.append(name)
