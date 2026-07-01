@@ -149,7 +149,7 @@ def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
 
     model_id = "nm-testing/tinysmokellama-3.2"
     output = tmp_path / "nvfp4_gptq_output"
-    device = "cuda:0" if torch.accelerator.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     # NVFP4 GPTQ recipe targeting one layer
     recipe = GPTQModifier(
