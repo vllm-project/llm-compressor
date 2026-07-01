@@ -1,9 +1,17 @@
-from compressed_tensors.offload.dist_utils import is_source_process as is_src
+import torch
+import torch.distributed as dist
+from compressed_tensors.distributed import (
+    as_broadcastable,
+    greedy_bin_packing,
+    is_distributed,
+    wait_for_comms,
+)
+from compressed_tensors.offload import get_execution_device
+from compressed_tensors.quantization.utils import is_module_quantized
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
-    get_modules,
     observe,
     update_qparams,
 )
@@ -11,6 +19,8 @@ from llmcompressor.modifiers.quantization.quantization.mixin import Quantization
 from llmcompressor.observers import ACTIVATION_OBS
 
 __all__ = ["QuantizationModifier"]
+
+_WEIGHT_Q_PARAMS = ["weight_scale", "weight_zero_point", "weight_global_scale"]
 
 
 class QuantizationModifier(Modifier, QuantizationMixin):
@@ -66,36 +76,62 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
         Begin calibrating activations.
         """
-        self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        modules = [module for module in modules if is_module_quantized(module)]
+        self.sync_obs_act_stats(modules)
+        update_qparams(modules, ACTIVATION_OBS)
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            parents = kwargs.get("modules", [])
-            modules = get_modules(parents)
-            self.sync_obs_act_stats(modules)
+        ### Not Distributed
+        if not is_distributed():
             observe(modules, "weight")
-            update_qparams(modules, ACTIVATION_OBS + ("weight",), not is_src())
+            update_qparams(modules, "weight")
+            return
 
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
+        ### Distributed
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
 
-    def on_end(self, state: State, event: Event, **kwargs):
+        module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
+            modules,
+            world_size,
+            item_weight_fn=lambda mod: mod.weight.numel(),
+        )
+
+        observe(rank_to_modules[rank], "weight")
+        update_qparams(rank_to_modules[rank], "weight")
+        dist.barrier()  # wait for async offload updates to finish
+        self._broadcast_qparam_onloads(module_list, module_to_rank)
+
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
 
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        if not self.ended_:
-            self.on_end(state, None)
+    def _broadcast_qparam_onloads(
+        self,
+        module_list: list[torch.nn.Module],
+        module_to_rank: dict[torch.nn.Module, int],
+    ):
+        pending_comms = []
+        for module in module_list:
+            if get_execution_device(module) != torch.device("cpu"):
+                for qparam_name in _WEIGHT_Q_PARAMS:
+                    if (qparam := getattr(module, qparam_name, None)) is not None:
+                        pending_comms.append(
+                            dist.broadcast(
+                                as_broadcastable(qparam),
+                                src=module_to_rank[module],
+                                async_op=True,
+                            )
+                        )
+
+        wait_for_comms(pending_comms)
