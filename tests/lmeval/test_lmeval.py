@@ -125,7 +125,7 @@ class TestLMEval:
         torch.use_deterministic_algorithms(True)
 
         if torch.accelerator.is_available():
-            torch.accelerator.manual_seed_all(self.config.seed)
+            torch.get_device_module().manual_seed_all(self.config.seed)
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 

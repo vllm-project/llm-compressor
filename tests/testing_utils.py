@@ -350,7 +350,7 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     """
 
     vram_bytes = sum(
-        torch.accelerator.mem_get_info(device_id)[1]
+        torch.get_device_module().mem_get_info(device_id)[1]
         for device_id in range(torch.accelerator.device_count())
     )
     actual_vram = vram_bytes / 1024**3
@@ -376,7 +376,7 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     if not torch.accelerator.is_available():
         return pytest.mark.skip(reason="CUDA not available")
 
-    device_capability = torch.accelerator.get_device_capability(0)
+    device_capability = torch.get_device_module().get_device_capability(0)
     has_capability = device_capability[0] > major or (
         device_capability[0] == major and device_capability[1] >= minor
     )

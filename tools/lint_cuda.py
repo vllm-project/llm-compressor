@@ -29,12 +29,13 @@ class TorchCudaLinter(ast.NodeVisitor):
             "torch.cuda.set_device": "torch.accelerator.set_device_index",
             "torch.cuda.synchronize": "torch.accelerator.synchronize",
             "torch.cuda.Stream": "torch.Stream",
+            "torch.cuda.stream": "torch.Stream",
             "torch.cuda.Event": "torch.Event",
-            "torch.cuda.get_device_name": "torch.get_device_module().get_device_name",
-            "torch.cuda.get_device_properties": "torch.get_device_module().get_device_properties",  # noqa: E501
             "torch.cuda.memory_allocated": "torch.accelerator.memory_allocated",
             "torch.cuda.memory_reserved": "torch.accelerator.memory_reserved",
             "torch.cuda.empty_cache": "torch.accelerator.empty_cache",
+            "torch.cuda.max_memory_allocated": "torch.accelerator.max_memory_allocated",
+            "torch.cuda.reset_peak_memory_stats": "torch.accelerator.reset_peak_memory_stats",
         }
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
@@ -89,12 +90,12 @@ class TorchCudaLinter(ast.NodeVisitor):
                 return suggestion
 
         # Generic suggestion
-        return cuda_call.replace("torch.cuda", "torch.accelerator")
+        return cuda_call.replace("torch.cuda", "torch.get_device_module()")
 
 
 def apply_fixes(filepath: Path, issues: List[Tuple[int, int, str, str]], verbose: bool = False) -> bool:
     """
-    Apply automatic fixes to a file by replacing torch.cuda with torch.accelerator.
+    Apply automatic fixes to a file using the suggested replacements.
 
     Args:
         filepath: Path to the Python file to fix
@@ -116,6 +117,7 @@ def apply_fixes(filepath: Path, issues: List[Tuple[int, int, str, str]], verbose
             issues_by_line[line_num].append((col_offset, usage, suggestion))
 
         modified = False
+        changes_made = []  # Track what actually changed for warning message
 
         # Process lines in reverse order to maintain positions
         for line_num in sorted(issues_by_line.keys(), reverse=True):
@@ -123,21 +125,39 @@ def apply_fixes(filepath: Path, issues: List[Tuple[int, int, str, str]], verbose
                 continue
 
             line_idx = line_num - 1
-            line = lines[line_idx]
-            original_line = line
+            original_line = lines[line_idx]
+            new_line = original_line
 
-            # Simple string replacement for all torch.cuda occurrences
-            if "torch.cuda" in line:
-                new_line = line.replace("torch.cuda", "torch.accelerator")
-                if new_line != line:
-                    lines[line_idx] = new_line
-                    modified = True
+            # Apply each suggested fix on this line
+            # Sort by column offset in reverse to maintain positions during replacement
+            sorted_issues = sorted(issues_by_line[line_num], key=lambda x: x[0], reverse=True)
+
+            for col_offset, usage, suggestion in sorted_issues:
+                # Apply the suggested replacement
+                if usage in new_line:
+                    new_line = new_line.replace(usage, suggestion, 1)
                     if verbose:
-                        print(f"  Fixed line {line_num}: torch.cuda → torch.accelerator")
+                        print(f"  Fixed line {line_num}: {usage} → {suggestion}")
+
+            if new_line != original_line:
+                lines[line_idx] = new_line
+                modified = True
+                # Track unique changes for the summary
+                for _, usage, suggestion in sorted_issues:
+                    change = (usage, suggestion)
+                    if change not in changes_made:
+                        changes_made.append(change)
 
         if modified:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.writelines(lines)
+
+            # Print warning about what changed
+            print(f"\n⚠️  Applied fixes to {filepath}:")
+            for usage, suggestion in changes_made:
+                print(f"   {usage} → {suggestion}")
+            print()
+
             return True
         return False
 
@@ -277,11 +297,22 @@ def main():
             fixed_files = 0
             total_issues = 0
 
+            print(f"{'='*70}")
+            print("Fixing `torch.cuda` to `torch.accelerator`...")
+            print(f"{'='*70}\n")
+
             for filename, issues in sorted(all_issues.items()):
                 total_issues += len(issues)
                 if apply_fixes(Path(filename), issues, verbose=args.verbose):
                     fixed_files += 1
-                    print(f"Fixed {len(issues)} issue(s) in {filename}")
+
+            print(f"{'='*70}")
+            print(f"✓ Fixed {total_issues} issue(s) across {fixed_files} file(s)")
+            print(
+                "  Please check that the applied changes "
+                "do not break device-specific functionality"
+            )
+            print(f"{'='*70}")
 
         else:
             # Check mode: just report issues
@@ -297,7 +328,6 @@ def main():
             if args.fail_on_issues:
                 sys.exit(1)
     else:
-        print("No torch.cuda usage found!")
         sys.exit(0)
 
 

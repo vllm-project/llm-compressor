@@ -85,7 +85,7 @@ with torch.cuda.stream(stream):
     line, col, usage, suggestion = linter.issues[0]
     assert usage == "torch.cuda.stream"
     # Generic replacement since torch.cuda.stream is not in the specific suggestions
-    assert suggestion == "torch.accelerator.stream"
+    assert suggestion == "torch.Stream"
     print("✓ test_detect_torch_cuda_context_manager passed")
 
 
