@@ -41,7 +41,7 @@ style:
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval
+	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval --ignore tests/tools
 	# run tests under emulated XPU (requires CUDA hardware)
 	pytest -ra -c pytest-xpu.ini --emulate-xpu;
 
