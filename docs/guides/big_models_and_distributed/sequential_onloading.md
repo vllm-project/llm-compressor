@@ -17,7 +17,7 @@ Then sequential onloading is the technique by which the order of the two for loo
 ```python
 for layer in model.layers:
     for i in range(len(activations)):
-        dataset[i] = layer(dataset[i])
+        activations[i] = layer(activations[i])
 ```
 
 ## Implementation ##
@@ -34,6 +34,9 @@ Before a model can be sequentially onloaded, it must first be broken up into dis
 You can use sequential onloading by calling `oneshot` with the `pipeline="sequential"` argument. Note that this pipeline is the default for all oneshot calls which require calibration data. If the sequential pipeline proves to be problematic, you can specify `pipeline="basic"` to use a basic pipeline which does not require sequential onloading, but only works performantly when the model is small enough to fit into the available VRAM.
 
 If you are compressing a model using a GPU with a small amount of memory, you may need to change your sequential targets. Sequential targets control how many weights to onload to the GPU at a time. By default, the sequential targets are decoder layers which may include large MoE layers. In these cases, setting the `sequential_targets="Linear"` argument in `oneshot` will result in lower VRAM usage, but a longer runtime.
+
+!!! warning
+    Using a highly granular sequential target such as `"Linear"` is not supported for NVFP4/NVFP4A16 quantization, which requires that fused weights (qkv, gate_up, etc.) all be a part of the same sequential target.
 
 ![sequential_onloading](../../assets/seq_targets.jpg)
 
