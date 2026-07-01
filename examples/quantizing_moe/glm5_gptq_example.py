@@ -10,7 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import load_context
 
 # Load the model
@@ -67,7 +67,13 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(
+#   * quantize the weights to 4 bit with AWQ with a group size 128
+# recipe = [
+#     QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=moe_ignores),
+# ]
+# r"re:.*self_attn\.(q_proj|q_a_proj|q_b_proj|kv_a_proj_with_mqa|kv_b_proj|o_proj)$",
+# r"re:.*self_attn\.indexer\.(wq_b|wk|weights_proj)$",
+recipe = GPTQModifier(
     config_groups={
         "attention": QuantizationScheme(
             targets=[r"re:.*self_attn\..*"],
@@ -79,8 +85,12 @@ recipe = QuantizationModifier(
         ),
     },
     ignore=[
-        r"re:^model\.layers\.[0-2]\..*"
+        r"re:model\.layers\.0\.*",
+        r"re:model\.layers\.1\.*",
+        r"re:model\.layers\.2\.*",
+        r"re:model\.layers\.2\.*",
         r"re:.*mlp\.gate.*",  # not technically necessary
+        # Ignore the output head
         r"lm_head",
     ],
 )
@@ -91,7 +101,8 @@ oneshot(
     dataset=ds,
     batch_size=4,
     recipe=recipe,
-    shuffle_calibration_samples=False,
+    sequential_targets=["GlmMoeDsaAttention", "ExpertMLP"],
+    sequential_targets_per_subgraph=(384 // 4 + 10),
 )
 
 # Save to disk compressed.
