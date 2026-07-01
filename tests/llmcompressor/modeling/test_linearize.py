@@ -10,7 +10,7 @@ from transformers import initialization as init
 from transformers.models.afmoe.configuration_afmoe import AfmoeConfig
 from transformers.models.afmoe.modeling_afmoe import AfmoeExperts
 from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3NaiveMoe
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3Experts
 from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4Experts,
@@ -19,17 +19,17 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
 from transformers.models.gemma4.modeling_gemma4 import Gemma4TextExperts
 from transformers.models.glm4_moe.configuration_glm4_moe import Glm4MoeConfig
-from transformers.models.glm4_moe.modeling_glm4_moe import Glm4MoeNaiveMoe
+from transformers.models.glm4_moe.modeling_glm4_moe import Glm4MoeExperts
 from transformers.models.glm4_moe_lite.configuration_glm4_moe_lite import (
     Glm4MoeLiteConfig,
 )
-from transformers.models.glm4_moe_lite.modeling_glm4_moe_lite import Glm4MoeLiteNaiveMoe
+from transformers.models.glm4_moe_lite.modeling_glm4_moe_lite import Glm4MoeLiteExperts
 from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import GlmMoeDsaConfig
-from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaNaiveMoe
+from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaExperts
 from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
 from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
 from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
-from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
+from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeExperts
 from transformers.models.hy_v3.configuration_hy_v3 import HYV3Config
 from transformers.models.hy_v3.modeling_hy_v3 import HYV3Experts
 from transformers.models.llama4.configuration_llama4 import (
@@ -170,7 +170,7 @@ class DummyModel(torch.nn.Module):
         (AfmoeConfig, AfmoeExperts, {}),
         (
             DeepseekV3Config,
-            DeepseekV3NaiveMoe,
+            DeepseekV3Experts,
             {"hidden_size": 512, "moe_intermediate_size": 1024},
         ),
         (DeepseekV4Config, DeepseekV4Experts, {}),
@@ -179,9 +179,10 @@ class DummyModel(torch.nn.Module):
             Gemma4TextExperts,
             {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
         ),
-        (Glm4MoeConfig, Glm4MoeNaiveMoe, {}),
-        (Glm4MoeLiteConfig, Glm4MoeLiteNaiveMoe, {}),
-        (GlmMoeDsaConfig, GlmMoeDsaNaiveMoe, {"hidden_size": 512}),
+        (Glm4MoeConfig, Glm4MoeExperts, {}),
+        (Glm4MoeLiteConfig, Glm4MoeLiteExperts, {}),
+        (GlmMoeDsaConfig, GlmMoeDsaExperts, {"hidden_size": 512}),
+        (GraniteMoeConfig, GraniteMoeExperts, {}),
         (Qwen3_5MoeTextConfig, Qwen3_5MoeExperts, {}),
         (Qwen3MoeConfig, Qwen3MoeExperts, {}),
         (Qwen3NextConfig, Qwen3NextExperts, {}),
@@ -228,33 +229,6 @@ def test_linearize_moe(config_cls, experts_cls, kwargs):
         assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
         assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
-
-
-def test_linearize_moe_granite():
-    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
-    experts = GraniteMoeParallelExperts(
-        config.num_local_experts, config.hidden_size, config.intermediate_size
-    )
-    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
-
-    mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
-    assert mock_model.module is not experts
-
-    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
-    expert_size = [
-        (NUM_TEST_TOKENS // config.num_local_experts)
-        for _ in range(config.num_local_experts)
-    ]
-    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
-    true_outputs = experts(hidden_states, expert_size)
-    outputs = mock_model(hidden_states, expert_size)
-    with moe_calibration_context():
-        calib_outputs = mock_model(hidden_states, expert_size)
-
-    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
-    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
-    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
 def test_linearize_moe_llama4():
