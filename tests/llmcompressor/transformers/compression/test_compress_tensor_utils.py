@@ -1,8 +1,14 @@
+import datetime
+import os
+import time
+
 import pytest
 import torch
+import torch.distributed as dist
 from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors.compressors.format import infer_model_format
+from compressed_tensors.distributed import is_source_process
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
@@ -14,9 +20,10 @@ from transformers import AutoModelForCausalLM
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
+    suspend_distributed_timeout,
 )
 from llmcompressor.utils import untie_word_embeddings
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import requires_gpu, torchrun
 
 
 @requires_gpu
@@ -98,6 +105,53 @@ def test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path):
 )
 def test_model_reload_gpu(offload, dtype, tie_word_embeddings, device, tmp_path):
     test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path)
+
+
+def _saved_weight_keys(save_path):
+    """Return the set of tensor names actually written to disk."""
+    import json
+    import os
+
+    from safetensors import safe_open
+
+    index_path = os.path.join(save_path, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        with open(index_path) as f:
+            return set(json.load(f)["weight_map"].keys())
+
+    with safe_open(os.path.join(save_path, "model.safetensors"), framework="pt") as f:
+        return set(f.keys())
+
+
+@pytest.mark.parametrize("offload", [False, True])
+@pytest.mark.parametrize("tie_word_embeddings", [True, False])
+def test_no_duplicate_tied_lm_head_on_save(offload, tie_word_embeddings, tmp_path):
+    """A tied lm_head must not be written as a duplicate of the embeddings on save.
+
+    Offloading splits the tied embedding and lm_head into separate parameters,
+    so without re-tying before save a redundant, identical ``lm_head.weight`` is
+    written. Untied models must still keep their separate head.
+    """
+    model_path = "Qwen/Qwen3-0.6B"
+    save_path = tmp_path / "save_path"
+
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
+    if offload:
+        model = dispatch_model(model, {"": "cpu"}, force_hooks=True)
+    else:
+        model = model.to("cpu")
+
+    if not tie_word_embeddings:
+        untie_word_embeddings(model)
+
+    modify_save_pretrained(model)
+    model.save_pretrained(save_path, safe_serialization=True)
+
+    saved_keys = _saved_weight_keys(save_path)
+    if tie_word_embeddings:
+        assert "lm_head.weight" not in saved_keys
+    else:
+        assert "lm_head.weight" in saved_keys
 
 
 class DummyLinearModel(nn.Module):
@@ -216,3 +270,26 @@ def test_correct_compressor_inferred(
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
     assert infer_model_format(model) == expected_format
+
+
+@requires_gpu(2)
+@torchrun(world_size=2, init_dist=False)
+def test_suspend_distributed_timeout():
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{local_rank}")
+
+    dist.init_process_group(
+        backend="nccl",
+        init_method="env://",
+        rank=rank,
+        world_size=world_size,
+        device_id=device,
+        timeout=datetime.timedelta(seconds=10),
+    )
+    dist.barrier()
+
+    with suspend_distributed_timeout(datetime.timedelta(seconds=30)):
+        if is_source_process():
+            time.sleep(20)

@@ -33,6 +33,8 @@ __all__ = ["Oneshot", "oneshot"]
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
 
+    from llmcompressor.recipe import RecipeInput
+
 
 TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
 
@@ -244,6 +246,8 @@ class Oneshot:
                 sequential_targets=self.dataset_args.sequential_targets,
             )
 
+            session.state.enable_compile = self.dataset_args.enable_compile
+
             user_pipeline = self.dataset_args.pipeline
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
@@ -270,7 +274,7 @@ def oneshot(
     save_compressed: bool = True,
     model_revision: str = "main",
     # Recipe arguments
-    recipe: str | list[str] | None = None,
+    recipe: RecipeInput | None = None,
     recipe_args: list[str] | None = None,
     clear_sparse_session: bool = False,
     stage: str | None = None,
@@ -315,6 +319,7 @@ def oneshot(
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
+    enable_compile: bool = False,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -341,8 +346,9 @@ def oneshot(
         tag, or commit id).
 
     # Recipe arguments
-    :param recipe: Path to a LLM Compressor recipe, or a list of paths
-      to multiple LLM Compressor recipes.
+    :param recipe: A LLM Compressor recipe. Accepts a path (or list
+        of paths) to recipe YAML file(s), a Modifier instance (or
+        list), or a Recipe object (or list).
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/
@@ -408,6 +414,8 @@ def oneshot(
         Nothing is saved if None.
     :param log_dir: Path to save logs during oneshot run.
         Nothing is logged to file if None.
+    :param enable_compile: If True, use torch.compiled MSE observer inner loop
+        for faster calibration. Default False.
 
     :return: The calibrated PreTrainedModel
     """
