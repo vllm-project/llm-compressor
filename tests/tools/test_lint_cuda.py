@@ -47,7 +47,7 @@ stream = torch.cuda.Stream()
     assert len(linter.issues) == 1
     line, col, usage, suggestion = linter.issues[0]
     assert usage == "torch.cuda.Stream"
-    assert suggestion == "torch.accelerator.Stream"
+    assert suggestion == "torch.Stream"
     print("✓ test_detect_torch_cuda_stream passed")
 
 
@@ -65,7 +65,7 @@ event = torch.cuda.Event()
     assert len(linter.issues) == 1
     line, col, usage, suggestion = linter.issues[0]
     assert usage == "torch.cuda.Event"
-    assert suggestion == "torch.accelerator.Event"
+    assert suggestion == "torch.Event"
     print("✓ test_detect_torch_cuda_event passed")
 
 
@@ -84,7 +84,8 @@ with torch.cuda.stream(stream):
     assert len(linter.issues) == 1
     line, col, usage, suggestion = linter.issues[0]
     assert usage == "torch.cuda.stream"
-    assert "torch.accelerator.stream" in suggestion
+    # Generic replacement since torch.cuda.stream is not in the specific suggestions
+    assert suggestion == "torch.accelerator.stream"
     print("✓ test_detect_torch_cuda_context_manager passed")
 
 
