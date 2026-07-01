@@ -69,7 +69,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm to run.
 recipe = QuantizationModifier(
     config_groups={
-        "attention": QuantizationScheme(
+        "attention_shared_experts": QuantizationScheme(
             targets=[r"re:.*self_attn\..*"],
             **FP8_BLOCK,
         ),
@@ -81,6 +81,9 @@ recipe = QuantizationModifier(
     ignore=[
         r"re:^model\.layers\.[0-2]\..*"
         r"re:.*mlp\.gate.*",  # not technically necessary
+        r"re:.*indexer\.weights_proj$",  # sensitive to quantization
+#        r"re:.*indexer\.wk$",  # fused with weights_proj
+#        r"re:.*shared_experts.*",
         r"lm_head",
     ],
 )
@@ -100,7 +103,7 @@ model.generation_config.top_p = None
 SAVE_DIR = (
     "/mnt/nvme-data/engine/kylesayrs/"
     + model_id.rstrip("/").split("/")[-1]
-    + "-FP8-NVFP4"
+    + "-NVFP4-FP8-fp32scales"
 )
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
