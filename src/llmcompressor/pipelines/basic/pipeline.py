@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import contextlib
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import torch
 import tqdm
@@ -25,7 +27,7 @@ class BasicPipeline(CalibrationPipeline):
     def __call__(
         model: torch.nn.Module,
         dataloader: DataLoader,
-        dataset_args: Union["DatasetArguments", None],
+        dataset_args: "DatasetArguments" | None,
     ):
         """
         Run a basic data pipeline.
