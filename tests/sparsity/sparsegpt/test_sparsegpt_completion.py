@@ -79,7 +79,7 @@ def _test_oneshot_completion(
     oneshot(
         model=model,
         dataset=dataset,
-        splits={"calibration": f"train[:{num_samples}]"},
+        splits=f"train[:{num_samples}]",
         recipe=recipe,
         max_seq_length=512,
         num_calibration_samples=num_samples,

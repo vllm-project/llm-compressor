@@ -17,7 +17,7 @@ import time
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from datasets import load_dataset
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -26,6 +26,7 @@ from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.utils import load_context
 
 # ---------------------------------------------------------------------------
 # Config
@@ -41,10 +42,9 @@ MAX_SEQUENCE_LENGTH = 2048
 # ---------------------------------------------------------------------------
 init_dist()
 
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        dtype="auto",
         device_map="auto_offload",
     )
 

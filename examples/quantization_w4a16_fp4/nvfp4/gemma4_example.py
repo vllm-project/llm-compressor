@@ -1,7 +1,6 @@
-# Gemma 4 requires transformers >= 5.5.0 (model_type: gemma4).
-# If your llmcompressor pins an older version, install with:
-#   pip install llmcompressor
-#   pip install transformers>=5.5
+# NOTE: LLM Compressor quantization with Gemma4 requires `transformers>=5.5.0`
+# Please install using the following command:
+#   pip install -U transformers>=5.5.0
 
 from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -11,7 +10,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Load model.
 MODEL_ID = "google/gemma-4-E4B-it"
-model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForImageTextToText.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.

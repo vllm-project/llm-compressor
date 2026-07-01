@@ -8,7 +8,7 @@ Loading your model directly onto CPU is simple using `transformers`:
 
 ```python
 # model is on cpu
-model = AutoModelForCausalLM.from_pretrained(model_stub, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_stub)
 ```
 
 However, there are some exceptions when it is required to change this logic to handle more advanced loading. The table below shows the behavior of different model loading configurations.
@@ -35,7 +35,6 @@ with load_offloaded_model():
     model_id = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
         max_memory={"cpu": 6e8},  # optional argument to specify how much cpu memory to use
         offload_folder="./offload_folder",  # file system with lots of storage
@@ -54,13 +53,11 @@ from compressed_tensors.offload import init_dist, load_offloaded_model
 
 init_dist()
 with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype="auto", device_map="auto_offload"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ```
 
 ## Basic Pipeline ##
-It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxillary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
+It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxiliary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
 
 In these cases, you can load the model directly onto your GPU devices, and call oneshot with the relevant argument.
 

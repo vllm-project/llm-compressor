@@ -4,7 +4,6 @@ from compressed_tensors.entrypoints.convert import (
     FP8BlockDequantizer,
     convert_checkpoint,
 )
-from compressed_tensors.offload import load_offloaded_model
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
@@ -15,6 +14,7 @@ from transformers import AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modeling.deepseekv32.model import DeepseekV32ForCausalLM
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 # This script first dequantizes the original DeepSeek-V3.2 checkpoint to bfloat16,
 # then quantizes attention layers to FP8_BLOCK and mlp layers to NVFP4.
@@ -56,16 +56,16 @@ with open(f"{BFLOAT16_SAVE_DIR}/config.json", "w") as f:
 
 
 # 3) Apply oneshot to bfloat16 model
-with load_offloaded_model():
+#    note that `load_quantizable_moe` is not required because we are using the
+#    custom model def `DeepseekV32ForCausalLM` which is already linearized
+with load_context(DeepseekV32ForCausalLM):
     model = DeepseekV32ForCausalLM.from_pretrained(
         BFLOAT16_SAVE_DIR,
-        dtype="auto",
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        trust_remote_code=True,
         offload_folder="./offload_folder",
         max_memory={"cpu": 500e9},  # don't exceed 500GB RAM
     )
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "ultrachat-200k"

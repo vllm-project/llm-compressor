@@ -23,7 +23,7 @@ recipe = [
 To use your own model, start with an existing example change the `model_id` to match your own model stub.
 ```python
 model_id = "path/to/your/model"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 ```
 
 ## Adding Mappings ##
