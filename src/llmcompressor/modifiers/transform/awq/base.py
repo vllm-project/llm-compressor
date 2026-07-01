@@ -276,6 +276,21 @@ class AWQModifier(Modifier):
 
         return True
 
+    @staticmethod
+    def _get_head_dim(model: Module) -> int | None:
+        config = getattr(model, "config", None)
+        if config is None:  # fallback in case model.config doesn't exist
+            return None
+        # match dynamic_mappings.py for text config
+        text_config = getattr(config, "text_config", config)
+        head_dim = getattr(text_config, "head_dim", None)
+        if head_dim is None:
+            num_heads = getattr(text_config, "num_attention_heads", None)
+            hidden = getattr(text_config, "hidden_size", None)
+            if num_heads and hidden:
+                head_dim = hidden // num_heads
+        return head_dim
+
     def _set_resolved_mappings(self, model: Module) -> None:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -321,12 +336,15 @@ class AWQModifier(Modifier):
                     ]
                 )
 
-                all_compatible = _check_layers_are_compatible(
-                    smooth_layer, smooth_name, balance_layers, balance_names
+                compatible = _check_layers_are_compatible(
+                    smooth_layer,
+                    smooth_name,
+                    balance_layers,
+                    balance_names,
                 )
 
                 # Incompatibility occurs frequently depending on model size
-                if not all_compatible:
+                if not compatible:
                     num_incompatible += 1
                     logger.debug(
                         f"Skipping {smooth_name} for mapping {mapping} because "
@@ -489,6 +507,7 @@ class AWQModifier(Modifier):
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_stats
         ]
+        head_dim = self._get_head_dim(model)
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
@@ -530,7 +549,7 @@ class AWQModifier(Modifier):
                 }
 
                 best_scales = self._compute_best_scale(
-                    mapping, fp16_outputs, orig_layer_weights
+                    mapping, fp16_outputs, orig_layer_weights, head_dim
                 )
 
                 @torch.no_grad()
@@ -539,11 +558,18 @@ class AWQModifier(Modifier):
                 ):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
+                        balance_scales = scales
+                        if module.in_features > scales.size(0) and head_dim:
+                            balance_scales = _expand_scales_for_gqa(
+                                scales,
+                                module.in_features,
+                                head_dim,
+                            )
                         update_offload_parameter(
                             module,
                             "weight",
                             orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1),
+                            * balance_scales.view(1, -1),
                         )
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
@@ -560,7 +586,7 @@ class AWQModifier(Modifier):
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
                             weight = module.weight
-                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            weight[-scales.size(0) :].div_(scales.reshape(-1, 1))
                             update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
@@ -598,6 +624,7 @@ class AWQModifier(Modifier):
         mapping: ResolvedMapping,
         fp16_outputs: list[torch.Tensor],
         orig_layer_weights: dict[torch.nn.Module, torch.Tensor],
+        head_dim: int | None = None,
     ) -> torch.Tensor:
         """
         Select best scales for a given mapping in a grid search
@@ -630,6 +657,24 @@ class AWQModifier(Modifier):
 
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
+
+        # compress activation/weight stats to kv_dim for GQA mappings
+        kv_dim = mapping.smooth_layer.out_features
+        hidden_dim = mapping.balance_layers[0].in_features
+        gqa_expand_dim = None
+        if hidden_dim > kv_dim and hidden_dim % kv_dim == 0 and head_dim:
+            gqa_expand_dim = x_mean.size(0)
+            x_mean = _compress_scales_for_gqa(
+                x_mean,
+                kv_dim,
+                head_dim,
+            )
+            if self.duo_scaling:
+                w_mean = _compress_scales_for_gqa(
+                    w_mean,
+                    kv_dim,
+                    head_dim,
+                )
 
         # Where appropriate, replace observers with memoryless_minmax
         # for duration of grid search
@@ -668,7 +713,18 @@ class AWQModifier(Modifier):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                _scalesview = scales.view(1, -1).to(device)
+                if gqa_expand_dim is not None:
+                    _scalesview = (
+                        _expand_scales_for_gqa(
+                            scales,
+                            gqa_expand_dim,
+                            head_dim,
+                        )
+                        .view(1, -1)
+                        .to(device)
+                    )
+                else:
+                    _scalesview = scales.view(1, -1).to(device)
 
                 # (W * s)
                 for balance_layer in balance_layers_to_patch:
@@ -965,31 +1021,52 @@ def _check_layers_are_compatible(
     smooth_name: str,
     balance_layers: list[Module],
     balance_names: list[str],
-):
+) -> bool:
     """
-    returns True if they are all compatible
-    returns False if any smooth & balance layers are incompatible
+    returns True if all smooth & balance layers have compatible shapes
     """
     for balance_layer, balance_name in zip(balance_layers, balance_names):
-        # exclude v_proj->o_proj mappings whose shapes are incompatible
-        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-        if (
+        if not (
             isinstance(smooth_layer, torch.nn.Linear)
             and isinstance(balance_layer, torch.nn.Linear)
             and balance_name.endswith(".o_proj")
-            and (
-                (
-                    smooth_name.endswith(".v_proj")
-                    and smooth_layer.out_features != balance_layer.in_features
-                )
-                or (
-                    smooth_name.endswith(".qkv_proj")
-                    and smooth_layer.out_features != 3 * balance_layer.in_features
-                )
-            )
         ):
+            continue
+
+        if smooth_name.endswith(".v_proj"):
+            if smooth_layer.out_features == balance_layer.in_features:
+                continue
+            if balance_layer.in_features % smooth_layer.out_features == 0:
+                continue
             return False
+
+        elif smooth_name.endswith(".qkv_proj"):
+            if smooth_layer.out_features != 3 * balance_layer.in_features:
+                return False
+
     return True
+
+
+def _compress_scales_for_gqa(
+    scales: torch.Tensor, target_dim: int, head_dim: int
+) -> torch.Tensor:
+    # avg scales across GQA repeat groups to match v_proj dimension
+    num_repeats = scales.size(0) // target_dim
+    num_kv_heads = target_dim // head_dim
+    return scales.reshape(num_kv_heads, num_repeats, head_dim).mean(dim=1).reshape(-1)
+
+
+def _expand_scales_for_gqa(
+    scales: torch.Tensor, target_dim: int, head_dim: int
+) -> torch.Tensor:
+    # expand kv_dim scales to hidden_dim by repeating across GQA groups
+    num_kv_heads = scales.size(0) // head_dim
+    num_repeats = target_dim // scales.size(0)
+    return (
+        scales.reshape(num_kv_heads, head_dim)
+        .repeat_interleave(num_repeats, dim=0)
+        .reshape(-1)
+    )
 
 
 def get_lowest_common_ancestor_with_avoid(
