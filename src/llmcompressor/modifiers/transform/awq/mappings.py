@@ -60,7 +60,32 @@ _moe_default_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*post_attention_layernorm$",
-        ["re:.*mlp.experts.*.gate_proj$", "re:.*mlp.experts.*.up_proj$"],
+        [
+            "re:.*mlp.gate$",
+            "re:.*mlp.experts.*.gate_proj$",
+            "re:.*mlp.experts.*.up_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
+# Llama4TextDecoderLayer calls mlp layer feed_forward
+_llama4_default_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        [
+            "re:.*feed_forward.router$",
+            "re:.*feed_forward.*.gate_proj$",
+            "re:.*feed_forward.*.up_proj$",
+        ],
     ),
     AWQMapping(
         "re:.*up_proj$",
@@ -140,6 +165,26 @@ _deepseek_mappings = [
     AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
     AWQMapping(
         "re:.*post_attention_layernorm$",
+        ["re:.*mlp.gate$", "re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
+# GLM-4.7-Flash (Glm4MoeLiteForCausalLM) uses MLA attention (same as DeepSeek)
+# but has a mixed dense/MoE architecture: layer 0 is dense (first_k_dense_replace=1)
+# and layers 1+ are MoE. The dense layer 0 has no mlp.gate router, so we cannot
+# include mlp.gate in the balance layers (it would break per-layer grouping in
+# match_modules_set). The gate_proj$/up_proj$ patterns still match both
+# dense (mlp.gate_proj / mlp.up_proj) and MoE (mlp.experts.*.gate_proj / up_proj).
+_glm4_moe_lite_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*(q|q_a)_proj$", "re:.*kv_a_proj_with_mqa$"],
+    ),
+    AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
+    AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
         ["re:.*gate_proj$", "re:.*up_proj$"],
     ),
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
@@ -182,7 +227,7 @@ _afmoe_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_mlp_layernorm$",
-        ["re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
+        ["re:.*mlp.router$", "re:.*mlp.*gate_proj$", "re:.*mlp.*up_proj$"],
     ),
     AWQMapping(
         "re:.*up_proj$",
@@ -225,17 +270,20 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
-    "Glm4MoeForCausalLM": default_mappings,
+    "Glm4MoeForCausalLM": _moe_default_mappings,
+    "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
     "GlmMoeDsaForCausalLM": _deepseek_mappings,
     "LlamaForCausalLM": default_mappings,
-    "Llama4ForConditionalGeneration": default_mappings,
+    "Llama4ForConditionalGeneration": _llama4_default_mappings,
     "Mistral3ForConditionalGeneration": default_mappings,
     "MistralForCausalLM": default_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
     "Qwen2ForCausalLM": default_mappings,
+    "Qwen2_5OmniModel": default_mappings,
     "Qwen2_5OmniThinkerForConditionalGeneration": default_mappings,
+    "Qwen2_5_VLForConditionalGeneration": default_mappings,
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,

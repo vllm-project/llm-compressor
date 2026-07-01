@@ -8,7 +8,6 @@ one-shot calibration workflows.
 """
 
 import math
-import re
 from collections.abc import Iterator, Sized
 from typing import Any, Callable, Optional
 
@@ -29,18 +28,13 @@ BS_WARNING_THRESHOLD = 16
 def get_processed_dataset(
     dataset_args: DatasetArguments,
     processor: Processor | None = None,
-    do_oneshot: bool = False,
-    do_train: bool = True,
-) -> dict[str, Dataset] | None:
+) -> Dataset | None:
     """
-    Loads datasets for each flow based on dataset_args, stores a Dataset for each
-    enabled flow in datasets
+    Loads dataset based on dataset_args.
     :param dataset_args: DatasetArguments that contain dataset loading and
         processing params
     :param processor: processor or tokenizer to use for dataset tokenization
-    :param do_oneshot: True for oneshot pathway
-    :param do_train: True for train pathway
-    :return: A dataset corresponding to either train or calibration (oneshot)
+    :return: A Dataset corresponding to the single split for calibration
     """
     if dataset_args.dataset is None:
         logger.warning(
@@ -50,51 +44,81 @@ def get_processed_dataset(
         return
 
     splits = dataset_args.splits
-    tokenized_datasets = {}
-
-    def _get_split_name(inp_str):
-        # strip out split name, for ex train[60%:] -> train
-        split_name_match = re.match(r"(\w*)\[.*\]", inp_str)
-        if split_name_match is not None:
-            return split_name_match.group(1)
-        return inp_str
 
     match splits:
         case None:
-            splits = {"all": None}
+            split_str = None
         case str():
-            splits = {_get_split_name(splits): splits}
-        case list():
-            splits = {_get_split_name(s): s for s in splits}
+            split_str = splits
         case dict():
-            pass
+            if "calibration" in splits:
+                split_str = splits["calibration"]
+                if len(splits) > 1:
+                    ignored_keys = set(splits.keys()) - {"calibration"}
+                    logger.warning(
+                        f"Ignoring extra keys in splits: {list(ignored_keys)}. "
+                        "Only the 'calibration' split is used."
+                    )
+            else:
+                raise ValueError(
+                    "Passing `splits` as a dict is only supported when it contains a "
+                    "`'calibration'` key during the deprecation period. "
+                    "Please pass a split string instead."
+                )
+
+            logger.warning(
+                "Passing `splits` as a dictionary is deprecated. "
+                f"Extracted split string: '{split_str}'. "
+                "Please pass `splits` as a string instead."
+            )
+        case list():
+            split_str = splits[0] if len(splits) > 0 else None
+            logger.warning(
+                "Passing `splits` as a list is deprecated. "
+                f"Using first element: '{split_str}'. "
+                "Please pass `splits` as a string instead."
+            )
         case _:
-            raise ValueError(f"Invalid splits type: {type(splits)}")
+            raise ValueError(
+                f"Invalid splits type: {type(splits)}. Expected a split string "
+                "or the deprecated `{'calibration': ...}` form."
+            )
 
     # default to custom dataset if dataset provided isn't a string
     registry_id = (
         dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
     )
-    for split_name, split_str in splits.items():
-        dataset = dataset_args.dataset
-        if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
-            # dataset is already tokenized
-            tokenized_datasets[split_name] = dataset
-        else:
-            # dataset needs to be tokenized
-            dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
-                dataset_args=dataset_args,
-                split=split_str,
-                processor=processor,
-            )
-            tokenized_datasets[split_name] = dataset_manager(add_labels=do_train)
 
-    return make_dataset_splits(
-        tokenized_datasets,
-        do_oneshot=do_oneshot,
-        do_train=do_train,
-    )
+    dataset = dataset_args.dataset
+    if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
+        # dataset is already tokenized
+        return dataset
+    else:
+        # dataset needs to be tokenized
+        dataset_manager = TextGenerationDataset.load_from_registry(
+            registry_id,
+            dataset_args=dataset_args,
+            split=split_str,
+            processor=processor,
+        )
+        dataset = dataset_manager()
+
+        # If no split was specified, a DatasetDict format is typically returned.
+        # Fallback to the 'train' split for backward compatibility.
+        if not isinstance(dataset, Dataset):
+            if "train" in dataset:
+                logger.warning(
+                    "No split was specified, but a multi-split dataset was loaded. "
+                    "Falling back to the 'train' split for calibration."
+                )
+                dataset = dataset["train"]
+            else:
+                raise ValueError(
+                    "No split specified and 'train' split not found in dataset. "
+                    "Please specify `splits` explicitly."
+                )
+
+        return dataset
 
 
 def get_calibration_dataloader(
@@ -119,13 +143,13 @@ def get_calibration_dataloader(
     if isinstance(dataset_args.dataset, DataLoader):
         return dataset_args.dataset
 
-    datasets = get_processed_dataset(
+    calibration_dataset = get_processed_dataset(
         dataset_args=dataset_args,
         processor=processor,
-        do_oneshot=True,
-        do_train=False,
     )
-    calibration_dataset = datasets.get("calibration")
+
+    if calibration_dataset is None:
+        return None
 
     return format_calibration_data(dataset_args, calibration_dataset, processor)
 
@@ -155,45 +179,6 @@ def format_calibration_data(
     )
 
 
-def make_dataset_splits(
-    tokenized_datasets: dict[str, Any],
-    do_oneshot: bool = True,
-    do_train: bool = False,
-) -> dict[str, Dataset]:
-    """
-    Restructures the datasets dictionary based on what tasks will be run
-    train
-    :param tokenized_datasets: dictionary of processed datasets
-    :param do_oneshot: Whether to store the calibration dataset
-    :return: A dataset corresponding to either train or calibration (oneshot)
-    """
-
-    # handles case where all splits are contained in a single dataset
-    if "all" in tokenized_datasets and len(tokenized_datasets) == 1:
-        tokenized_datasets = tokenized_datasets.get("all")
-        if isinstance(tokenized_datasets, Dataset):
-            tokenized_datasets = {"train": tokenized_datasets}
-
-    train_split = calib_split = None
-
-    if do_train:
-        if "train" not in tokenized_datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_split = tokenized_datasets["train"]
-    if do_oneshot:
-        calib_split = tokenized_datasets.get("calibration")
-        if calib_split is None:
-            if "train" not in tokenized_datasets:
-                raise ValueError("--do_oneshot requires a calibration dataset")
-            calib_split = tokenized_datasets["train"]
-
-    split_datasets = {
-        "train": train_split,
-        "calibration": calib_split,
-    }
-    return split_datasets
-
-
 def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
     if isinstance(args.data_collator, Callable):
         return args.data_collator
@@ -208,7 +193,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
                 "to use more uniform sequence lengths"
             )
 
-        return data_collator_with_truncation
+        return DataCollatorWithTruncation(args.max_seq_length)
 
     elif args.data_collator == "padding":
         if args.batch_size > BS_WARNING_THRESHOLD:
@@ -224,6 +209,12 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
         if tokenizer.pad_token is None or tokenizer.pad_token_id < 0:
             logger.debug("Could not find padding token. Setting PAD token to EOS token")
             tokenizer.pad_token = tokenizer.eos_token
+
+        if args.max_seq_length is not None:
+            logger.warning(
+                "Cannot use `data_collator='padding'` with `max_seq_length`. Ignoring "
+                "truncation specified by `max_seq_length`"
+            )
 
         return DataCollatorWithPadding(tokenizer)
 
@@ -304,18 +295,24 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
         )
 
 
-def data_collator_with_truncation(
-    features: list[dict[str, Any]], return_tensors: str = "pt"
-) -> dict[str, Any]:
-    for key in ("input_ids", "labels", "attention_mask", "loss_mask"):
-        if any(key not in feature for feature in features):
-            continue
+class DataCollatorWithTruncation:
+    def __init__(self, max_seq_length: int | None = None):
+        self.max_seq_length = max_seq_length
 
-        min_len = min(len(feature[key]) for feature in features)
-        for feature in features:
-            feature[key] = feature[key][:min_len]
+    def __call__(
+        self, features: list[dict[str, Any]], return_tensors: str = "pt"
+    ) -> dict[str, Any]:
+        for key in ("input_ids", "labels", "attention_mask", "loss_mask"):
+            if any(key not in feature for feature in features):
+                continue
 
-    return default_data_collator(features, return_tensors)
+            min_len = min(len(feature[key]) for feature in features)
+            if self.max_seq_length is not None:
+                min_len = min(min_len, self.max_seq_length)
+            for feature in features:
+                feature[key] = feature[key][:min_len]
+
+        return default_data_collator(features, return_tensors)
 
 
 class LengthAwareSampler(Sampler[int]):
@@ -400,7 +397,8 @@ class LengthAwareSampler(Sampler[int]):
 
 def get_rank_partition(split: str, num_samples: int) -> str:
     """
-    Utility for splitting data in a distributed setting
+    Utility for splitting data in a distributed setting and
+    also works in non-distributed setting
 
     :param split: the split string to partition, e.g. "train"
     :param num_samples: the total number of samples in the dataset to partition
@@ -426,7 +424,8 @@ def get_rank_partition(split: str, num_samples: int) -> str:
         "[" not in split
     ), "Split string should not already contain partitioning brackets"
 
-    start, end = _get_partition_start_end(
-        num_samples, dist.get_rank(), dist.get_world_size()
-    )
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+
+    start, end = _get_partition_start_end(num_samples, rank, world_size)
     return f"{split}[{start}:{end}]"

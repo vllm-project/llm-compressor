@@ -1,14 +1,13 @@
 import contextlib
 import inspect
-from collections import deque
+from collections import UserDict, deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
-from accelerate.hooks import remove_hook_from_module
-from compressed_tensors.offload import disable_onloading, offload_model
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -21,7 +20,6 @@ from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
-from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
@@ -29,12 +27,7 @@ from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 if TYPE_CHECKING:
     pass
 
-__all__ = [
-    "trace_subgraphs",
-    "Subgraph",
-    "dispatch_for_sequential",
-    "handle_sequential_oom",
-]
+__all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
 
 
 @dataclass
@@ -70,11 +63,20 @@ class Subgraph:
         with append_autowrap_source_on_fail():
             return forward_fn(*args, **kwargs)
 
-    def submodules(self, model: Module, recurse: bool = False) -> set[Module]:
+    def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
         nodes = self.graph.find_nodes(op="call_module")
-        modules = set(model.get_submodule(node.target) for node in nodes)
+        modules = [model.get_submodule(node.target) for node in nodes]
+
+        # collect all modules while preserving order
+        # deterministic module order is required for downstream ddp
         if recurse:
-            modules = set(m for module in modules for m in module.modules())
+            direct_modules, modules = modules, []
+            seen = set()
+            for direct_module in direct_modules:
+                for submodule in direct_module.modules():
+                    if submodule not in seen:
+                        modules.append(submodule)
+                        seen.add(submodule)
 
         return modules
 
@@ -104,10 +106,9 @@ def trace_subgraphs(
         module for _, module in match_named_modules(model, sequential_targets)
     )
     ancestors = get_sequential_ancestors(model, targets)
-    offloaded = set()  # TODO: cleanup logic
 
     # initialize arguments
-    tracer = SequentialTracer(ancestors, offloaded)
+    tracer = SequentialTracer(ancestors)
     concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
@@ -173,29 +174,14 @@ class SequentialTracer(HFTracer):
     inside of sequential targets, nor any modules which are not call graph ancestors of
     sequential targets
 
-    Tracing within sequential targets is unnecessary, and tracing within offloaded
-    modules may result in meta tensors being added to the model graph
-
     :param ancestors: modules which are ancestors of sequential targets
-    :param offloaded: modules which have offloaded params and should not be traced
     """
 
-    def __init__(self, ancestors: set[Module], offloaded: set[Module]):
+    def __init__(self, ancestors: set[Module]):
         self.ancestors = ancestors
-        self.offloaded = offloaded
 
         # skip any mask creation functions not already caught by the autowrapper
         super().__init__(autowrap_functions=_get_autowrap_functions())
-
-        # check unlikely case that ancestors have direct params which are offloaded
-        offloaded_ancestors = offloaded & ancestors
-        for ancestor in offloaded_ancestors:
-            remove_hook_from_module(ancestor, recurse=False)
-            self.offloaded.remove(ancestor)
-            logger.warning(
-                f"Direct parameters attached to {ancestor.__class__.__name__} have "
-                "been onloaded in order to ensure safe graph capture and execution"
-            )
 
     def create_arg(self, a: Any) -> Argument:
         # special extension allows models which depend on config values to be traced
@@ -203,12 +189,16 @@ class SequentialTracer(HFTracer):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
 
+        # special extension for supporting `UserDict`s (Gemma4 uses this)
+        elif isinstance(a, UserDict):
+            return self.create_arg(dict(a))
+
         else:
             return super().create_arg(a)
 
     def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-        # do not trace non-ancestors or modules with offloaded params
-        return module not in self.ancestors or module in self.offloaded
+        # do not trace non-ancestors; trace sequential ancestors only
+        return module not in self.ancestors
 
 
 def populate_concrete_args(model: Module, sample_input: dict) -> dict:
@@ -299,17 +289,25 @@ def topological_partition(
     while len(queue) > 0:
         node = queue.popleft()
 
-        # assign to partition
-        partitions[partition_index].append(node)
+        is_target = node in target_nodes
+        if is_target:
+            # put all nodes prior to first target into separate subgraph
+            is_head = partition_index == 0 and len(partitions[partition_index]) > 0
 
-        # guarantee targets are assigned to disjoint partitions
-        if node in target_nodes:
-            targets_seen += 1
+            # finish creating subgraph when number of targets has been seen
+            is_complete = targets_seen >= targets_per_subgraph
 
-            if targets_seen >= targets_per_subgraph:
+            if is_head or is_complete:
                 partition_index += 1
                 partitions.append([])
                 targets_seen = 0
+
+        # assign to partition
+        partitions[partition_index].append(node)
+
+        # increment after assignment so is_complete fires after the target is placed
+        if is_target:
+            targets_seen += 1
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition
@@ -470,24 +468,6 @@ def get_sequential_ancestors(model: Module, targets: set[Module]) -> set[Module]
 
     is_ancestor(model)
     return ancestors
-
-
-def dispatch_for_sequential(
-    model: PreTrainedModel,
-    onload_device: Optional[torch.device | str] = None,
-    offload_device: Optional[torch.device | str] = None,
-) -> PreTrainedModel:
-    """
-    Dispatch a model for sequential calibration using a sequential pipeline.
-    The model will be offloaded to the CPU and dispatched to CUDA/XPU device
-    if available. Removes any existing hooks.
-
-    :param model: model to dispatch
-    :return: dispatched model
-    """
-    if onload_device is None:
-        onload_device = get_main_device()
-    return offload_model(model, onload_device, offload_device)
 
 
 def _get_autowrap_functions() -> tuple[Callable[[Any], Any], ...]:

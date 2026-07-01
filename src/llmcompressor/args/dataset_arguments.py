@@ -119,12 +119,13 @@ class DatasetArguments(CustomDatasetArguments):
             "help": ("The configuration name of the dataset to use"),
         },
     )
-    max_seq_length: int = field(
-        default=384,
+    max_seq_length: int | None = field(
+        default=None,
         metadata={
             "help": "The maximum total input sequence length after tokenization. "
-            "Sequences longer  than this will be truncated, sequences shorter will "
-            "be padded."
+            "Sequences longer than this will be truncated, sequences shorter will "
+            "be padded. If None, no truncation is applied (tokenizer uses its "
+            "model_max_length)."
         },
     )
     concatenate_data: bool = field(
@@ -139,7 +140,14 @@ class DatasetArguments(CustomDatasetArguments):
     )
     splits: None | str | list[str] | dict[str, str] = field(
         default=None,
-        metadata={"help": "Optional percentages of each split to download"},
+        metadata={
+            "help": (
+                "Optional dataset split selector. Passing a string like 'train' or "
+                "'train[:50%]' is strongly recommended. Legacy dict input is "
+                "deprecated and only supported for calibration compatibility "
+                "(for example: {'calibration': 'train[:50%]'})."
+            )
+        },
     )
     num_calibration_samples: int | None = field(
         default=512,
@@ -251,10 +259,17 @@ class DatasetArguments(CustomDatasetArguments):
     quantization_aware_calibration: bool = field(
         default=True,
         metadata={
-            "help": "Whether to enable quantization-aware calibration in the pipeline. "
-            "When True, quantization is applied during forward pass in calibration. "
-            "When False, quantization is disabled during forward pass in calibration. "
-            "Default is set to True."
+            "help": "Deprecated. This argument has no effect and will be removed "
+            "in a future release."
+        },
+    )
+    propagate_error: bool = field(
+        default=True,
+        metadata={
+            "help": "Only relevant for the sequential pipeline. If True, use quantized "
+            "layer outputs as the inputs to the next sequential layer. If False, use "
+            "unquantized layer outputs as the inputs to the next sequential layer. "
+            "Default is True"
         },
     )
     use_loss_mask: bool = field(
@@ -280,6 +295,13 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "When using the sequential pipeline, prefetch the next batch in a "
             "background thread to overlap onload with forward. Default False; set True "
             "for faster calibration when GPU memory allows (two batches on device)."
+        },
+    )
+    enable_compile: bool = field(
+        default=False,
+        metadata={
+            "help": "If True, use torch.compiled functions where available"
+            "calibration. Default False."
         },
     )
 

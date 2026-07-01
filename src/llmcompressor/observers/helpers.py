@@ -13,15 +13,22 @@ from compressed_tensors.quantization.utils import (
     maybe_pad_tensor_for_block_quant,
     strategy_cdiv,
 )
+from torch.nn import Module
 
-__all__ = ["flatten_for_calibration"]
+__all__ = [
+    "flatten_for_calibration",
+    "fuse_weight_observers",
+    "FUSED_LAYER_NAMES",
+    "ACTIVATION_OBS",
+]
+
+ACTIVATION_OBS = ("input", "output", "q", "k", "v")
 
 
 def flatten_for_calibration(
     value: torch.Tensor,
     base_name: str,
     args: QuantizationArgs,
-    g_idx: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Reshapes the value according to the quantization strategy for the purposes of
@@ -41,11 +48,10 @@ def flatten_for_calibration(
     :param base_name: weight, input, output, q/k/v. Used to characterize the value as
         being a weight, activation, or attention state
     :param args: quantization args for determining how the value is flattened
-    :param g_idx: optional gidx for weight activation ordering
     :return: value which has been reshaped for calibration
     """
     if base_name == "weight":
-        return _flatten_weight(value, args, g_idx)
+        return _flatten_weight(value, args)
     elif base_name in ("input", "output"):
         return _flatten_activation(value, args)
     elif base_name in ("q", "k", "v"):
@@ -54,9 +60,7 @@ def flatten_for_calibration(
         raise ValueError(f"Unknown quantization base name: {base_name}")
 
 
-def _flatten_weight(
-    value: torch.Tensor, args: QuantizationArgs, g_idx: torch.Tensor | None = None
-):
+def _flatten_weight(value: torch.Tensor, args: QuantizationArgs):
     # value.shape = (num_rows, num_cols)
 
     if args.strategy == QuantizationStrategy.TENSOR:
@@ -71,9 +75,6 @@ def _flatten_weight(
         return value.unsqueeze(-2).unsqueeze(0)
 
     if args.strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        if g_idx is not None:
-            value = value.index_select(dim=1, index=torch.argsort(g_idx))
-
         # (1, num_rows, num_groups, group_size)
         return value.unflatten(-1, (-1, args.group_size)).unsqueeze(0)
 
@@ -154,3 +155,66 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
         return value.transpose(1, 2).flatten(0, 1).unsqueeze(-2).unsqueeze(-2)
 
     raise ValueError(f"Unknown strategy {args.strategy}")
+
+
+# Defines which layer names should have their global_scale fused together.
+# These sets are used for TENSOR_GROUP quantization (e.g., NVFP4).
+FUSED_LAYER_NAMES = [
+    # MLP / expert layers have fused gate_up_proj
+    ("gate_proj", "up_proj"),
+    # Attention layers have fused qkv_proj
+    ("q_proj", "k_proj", "v_proj"),
+    # DeepSeek multi-latent attention has fused_qkv_a_proj
+    ("q_a_proj", "kv_a_proj_with_mqa"),
+    # MoE expert layers may use w1/w3 naming
+    ("w1", "w3"),
+]
+
+
+def fuse_weight_observers(model: Module):
+    """
+    Link weight observers across fused layer groups for shared global_scale.
+
+    For TENSOR_GROUP quantization (e.g. NVFP4), vLLM requires that fused
+    layers (Q/K/V attention, gate/up MLP) share the same global_scale.
+    This function links their observers so that get_qparams() computes
+    global_scale from the combined statistics of all observers in the group.
+
+    :param model: model whose weight observers should be linked
+    """
+    from llmcompressor.observers import Observer
+
+    for submodule in model.modules():
+        for fusion_name_group in FUSED_LAYER_NAMES:
+            if not all(hasattr(submodule, name) for name in fusion_name_group):
+                continue
+            layers_to_fuse = [getattr(submodule, name) for name in fusion_name_group]
+
+            only_obs = True
+            only_tensor_group = True
+            observers_and_modules = []
+            for layer in layers_to_fuse:
+                if layer is None:
+                    continue
+                obs = getattr(layer, "weight_observer", None)
+                if obs is None:
+                    only_obs = False
+                    continue
+                if obs.args.strategy != QuantizationStrategy.TENSOR_GROUP:
+                    only_tensor_group = False
+                    continue
+                observers_and_modules.append((obs, layer))
+            if len(observers_and_modules) == 0:
+                continue
+
+            start = f"Some layers in fused group: {fusion_name_group} have"
+            end = ", need all fused layers to have same quantization"
+            assert only_obs, f"{start} no weight observer{end}"
+            assert only_tensor_group, f"{start} non-TENSOR_GROUP quantization{end}"
+
+            Observer.fuse(observers_and_modules)
+
+
+def lerp(start: torch.Tensor, end: torch.Tensor, weight: float) -> torch.Tensor:
+    """Linear interpolation — torch.lerp is not implemented for all dtypes."""
+    return (start * (1.0 - weight)) + (end * weight)

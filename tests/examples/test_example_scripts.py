@@ -71,80 +71,131 @@ class TestCase(NamedTuple):
             ),
             marks=(requires_gpu(2), pytest.mark.multi_gpu),
         ),
-        TestCase(
-            "awq/llama_example.py",
-            compressed_format=CompressionFormat.pack_quantized,
-            prefix="awq-asym",
+        pytest.param(
+            TestCase(
+                "awq/llama_example.py",
+                compressed_format=CompressionFormat.pack_quantized,
+                prefix="awq-asym",
+            ),
         ),
-        TestCase(
-            "awq/qwen3_moe_example.py",
-            compressed_format=CompressionFormat.pack_quantized,
-            prefix="awq-sym",
+        pytest.param(
+            TestCase(
+                "awq/qwen3_moe_example.py",
+                compressed_format=CompressionFormat.pack_quantized,
+                prefix="awq-sym",
+            ),
         ),
-        TestCase(
-            "big_models_with_sequential_onloading/llama3.3_70b.py",
-            compressed_format=CompressionFormat.int_quantized,
-            prefix="W8A8",
+        pytest.param(
+            TestCase(
+                "big_models_with_sequential_onloading/llama3.3_70b.py",
+                compressed_format=CompressionFormat.int_quantized,
+                prefix="W8A8",
+            ),
         ),
-        TestCase(
-            "quantization_kv_cache/llama3_fp8_kv_example.py",
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="FP8-KV",
+        pytest.param(
+            TestCase(
+                "quantization_kv_cache/llama3_fp8_kv_example.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="FP8-KV",
+            ),
         ),
-        TestCase(
-            "quantization_w4a16/llama3_example.py",
-            compressed_format=CompressionFormat.pack_quantized,
-            prefix="W4A16-G128",
+        pytest.param(
+            TestCase(
+                "quantization_w4a16/llama3_example.py",
+                compressed_format=CompressionFormat.pack_quantized,
+                prefix="W4A16-G128",
+            ),
         ),
-        TestCase(
-            "quantization_w8a8_fp8/fp8_block_example.py",
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="30B-A3B-FP8-BLOCK",
+        pytest.param(
+            TestCase(
+                "quantization_w8a8_fp8/fp8_block_example.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="30B-A3B-FP8-BLOCK",
+            ),
         ),
-        TestCase(
-            "quantization_w8a8_fp8/llama3_example.py",
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="FP8-Dynamic",
+        pytest.param(
+            TestCase(
+                "quantization_w8a8_fp8/llama3_example.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="FP8-Dynamic",
+            ),
         ),
-        TestCase(
-            "quantization_w8a8_fp8/qwen3_vl_moe_fp8_example.py",
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="235B-A22B-Instruct-FP8-DYNAMIC",
+        pytest.param(
+            TestCase(
+                "quantization_w8a8_fp8/qwen3_vl_moe_fp8_example.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="235B-A22B-Instruct-FP8-DYNAMIC",
+            ),
         ),
-        TestCase(
-            "disk_offloading/qwen3_example.py",
-            compressed_format=CompressionFormat.nvfp4_pack_quantized,
-            prefix="NVFP4-Disk-Offload",
+        pytest.param(
+            TestCase(
+                "disk_offloading/qwen3_example.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="NVFP4-Disk-Offload",
+            ),
         ),
-        TestCase(
-            "model_free_ptq/qwen3_fp8_block.py",
-            compressed_format=CompressionFormat.float_quantized,
-            prefix="FP8-BLOCK",
+        pytest.param(
+            TestCase(
+                "model_free_ptq/qwen3_fp8_block.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="FP8-BLOCK",
+            ),
         ),
-        TestCase(
-            "multimodal_vision/qwen3_vl_example.py",
-            compressed_format=CompressionFormat.pack_quantized,
-            prefix="W4A16",
+        pytest.param(
+            TestCase(
+                "multimodal_vision/qwen3_vl_example.py",
+                compressed_format=CompressionFormat.pack_quantized,
+                prefix="W4A16",
+            ),
         ),
-        TestCase(
-            "quantization_w4a16_fp4/mxfp4/qwen3_example.py",
-            compressed_format=CompressionFormat.mxfp4_pack_quantized,
-            prefix="MXFP4A16",
+        pytest.param(
+            TestCase(
+                "quantization_w4a16_fp4/mxfp4/qwen3_example.py",
+                compressed_format=CompressionFormat.mxfp4_pack_quantized,
+                prefix="MXFP4A16",
+            ),
         ),
-        TestCase(
-            "quantization_w4a4_fp4/llama4_example.py",
-            compressed_format=CompressionFormat.nvfp4_pack_quantized,
-            prefix="NVFP4",
+        pytest.param(
+            TestCase(
+                "quantization_w4a4_fp4/llama4_example.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="NVFP4",
+            ),
         ),
-        TestCase(
-            "quantization_w4a4_fp4/qwen_30b_a3b.py",
-            compressed_format=CompressionFormat.nvfp4_pack_quantized,
-            prefix="30B-A3B-NVFP4",
+        pytest.param(
+            TestCase(
+                "quantization_w4a4_fp4/qwen_30b_a3b.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="30B-A3B-NVFP4",
+            ),
         ),
-        TestCase(
-            "quantization_w4a4_fp4/llama3_gptq_example.py",
-            compressed_format=CompressionFormat.nvfp4_pack_quantized,
-            prefix="NVFP4-GPTQ",
+        pytest.param(
+            TestCase(
+                "quantization_w4a4_fp4/llama3_gptq_example.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="NVFP4-GPTQ",
+            ),
+        ),
+        pytest.param(
+            TestCase(
+                "quantization_w4a4_fp4/gemma4_example.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="NVFP4",
+            ),
+        ),
+        pytest.param(
+            TestCase(
+                "model_free_ptq/gemma4_fp8_block.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="FP8_BLOCK",
+            ),
+        ),
+        pytest.param(
+            TestCase(
+                "quantization_w4a4_fp4/qwen3_5_example.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="NVFP4",
+            ),
         ),
     ],
     ids=repr,

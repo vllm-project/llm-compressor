@@ -7,6 +7,7 @@ model size. This module provides runtime detection and mapping generation
 for such architectures (e.g. Qwen3Next, Qwen3.5).
 """
 
+import re
 from collections.abc import Callable
 
 from loguru import logger
@@ -16,6 +17,9 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
     AWQMapping,
     default_mappings,
+)
+from llmcompressor.modifiers.transform.utils.hybrid_attention import (
+    get_hybrid_attention_config,
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
 
@@ -60,7 +64,7 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
 
     Returns None if the model is not a hybrid attention model.
     """
-    result = _get_hybrid_attention_config(model)
+    result = get_hybrid_attention_config(model)
     if result is None:
         return None
 
@@ -113,8 +117,10 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
             AWQMapping(
                 "re:.*post_attention_layernorm$",
                 [
+                    # TODO: should add "re:.*mlp.gate.weight$" but is a Parameter
                     "re:.*mlp.experts.*.gate_proj$",
                     "re:.*mlp.experts.*.up_proj$",
+                    "re:.*mlp.shared_expert_gate$",
                     "re:.*mlp.shared_expert.gate_proj$",
                     "re:.*mlp.shared_expert.up_proj$",
                 ],
@@ -140,41 +146,89 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
     return mappings
 
 
+def build_step3p5_mappings(model: Module) -> list[AWQMapping] | None:
+    """
+    Dynamically build AWQ mappings for Step3p5 models.
+
+    Step-3.5-Flash uses dense FFN layers early in the stack and MoE FFN layers
+    later in the stack. The dense and MoE post-attention mappings must be
+    layer-index-specific so AWQ only groups each norm with balance layers that
+    exist in the same decoder layer.
+    """
+    dense_indices, moe_indices = _detect_step3p5_ffn_layer_indices(model)
+
+    if not dense_indices and not moe_indices:
+        logger.warning(
+            "Step3p5 model detected but dense/MoE FFN layer indices could not be "
+            "inferred. Falling back."
+        )
+        return None
+
+    mappings = [
+        AWQMapping(
+            "re:.*input_layernorm$",
+            [
+                "re:.*self_attn.q_proj$",
+                "re:.*self_attn.k_proj$",
+                "re:.*self_attn.v_proj$",
+                "re:.*self_attn.g_proj$",
+            ],
+        ),
+        AWQMapping("re:.*self_attn.v_proj$", ["re:.*self_attn.o_proj$"]),
+    ]
+
+    if dense_indices:
+        dense_re = "|".join(str(i) for i in dense_indices)
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({dense_re})\\.post_attention_layernorm$",
+                [
+                    "re:.*mlp.gate_proj$",
+                    "re:.*mlp.up_proj$",
+                ],
+            )
+        )
+
+    if moe_indices:
+        moe_re = "|".join(str(i) for i in moe_indices)
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({moe_re})\\.post_attention_layernorm$",
+                [
+                    "re:.*moe.gate$",
+                    "re:.*moe.gate_proj$",
+                    "re:.*moe.up_proj$",
+                    "re:.*share_expert.gate_proj$",
+                    "re:.*share_expert.up_proj$",
+                ],
+            )
+        )
+
+    # The packed moe.up_proj -> moe.down_proj path is intentionally excluded
+    # because AWQ's smooth-layer update assumes a 1D/2D smooth weight.
+    mappings.append(
+        AWQMapping(
+            "re:.*(mlp|share_expert).up_proj$",
+            ["re:.*(mlp|share_expert).down_proj$"],
+        )
+    )
+
+    logger.info(
+        f"Built dynamic Step3p5 AWQ mappings: "
+        f"{len(dense_indices)} dense layers, {len(moe_indices)} MoE layers"
+    )
+
+    return mappings
+
+
 AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | None]] = {
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForConditionalGeneration": build_hybrid_attention_mappings,
     "Qwen3_5MoeForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5MoeForConditionalGeneration": build_hybrid_attention_mappings,
+    "Step3p5ForCausalLM": build_step3p5_mappings,
 }
-
-
-def _get_hybrid_attention_config(model: Module) -> tuple[list[str], int] | None:
-    """
-    Extract layer_types and num_hidden_layers from a model with hybrid attention
-    (mix of full self-attention and linear/Gated DeltaNet attention).
-
-    Checks both top-level config and text_config (for VL models like Qwen3.5).
-    Returns (layer_types, num_hidden_layers) or None if not a hybrid model.
-    """
-    config = getattr(model, "config", None)
-    if config is None:
-        return None
-
-    # VL models nest text config under text_config
-    text_config = getattr(config, "text_config", config)
-    layer_types = getattr(text_config, "layer_types", None)
-    num_layers = getattr(text_config, "num_hidden_layers", None)
-
-    if layer_types is None or num_layers is None:
-        return None
-
-    has_full = "full_attention" in layer_types
-    has_linear = "linear_attention" in layer_types
-    if not (has_full and has_linear):
-        return None
-
-    return layer_types, num_layers
 
 
 def _detect_linear_attn_projections(model: Module) -> list[str]:
@@ -197,3 +251,30 @@ def _detect_linear_attn_projections(model: Module) -> list[str]:
             proj_names.append(sub)
     # Deduplicate while preserving order (same projections repeat per layer)
     return list(dict.fromkeys(proj_names))
+
+
+_STEP3P5_FFN_LAYER_PATTERN = re.compile(
+    r"(?:^|\.)layers\.(?P<idx>\d+)\.(?P<ffn>mlp|moe|share_expert)(?:\.|$)"
+)
+
+
+def _detect_step3p5_ffn_layer_indices(model: Module) -> tuple[list[int], list[int]]:
+    """
+    Detect which Step3p5 decoder layers use dense MLPs and which use MoE blocks.
+    """
+    dense_indices: set[int] = set()
+    moe_indices: set[int] = set()
+
+    for name, _ in model.named_modules():
+        match = _STEP3P5_FFN_LAYER_PATTERN.search(name)
+        if match is None:
+            continue
+
+        layer_idx = int(match.group("idx"))
+        ffn_type = match.group("ffn")
+        if ffn_type == "mlp":
+            dense_indices.add(layer_idx)
+        else:
+            moe_indices.add(layer_idx)
+
+    return sorted(dense_indices), sorted(moe_indices)

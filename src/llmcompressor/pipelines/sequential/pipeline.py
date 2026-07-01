@@ -2,7 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.utils import disable_offloading
+from compressed_tensors.offload import disable_offloading, set_onload_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -11,16 +11,11 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
-    dispatch_for_sequential,
     handle_sequential_oom,
     trace_subgraphs,
 )
 from llmcompressor.utils.dev import get_main_device
-from llmcompressor.utils.helpers import (
-    DISABLE_QAC_MODIFIERS,
-    DisableQuantization,
-    calibration_forward_context,
-)
+from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 if TYPE_CHECKING:
@@ -89,7 +84,14 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        dispatch_for_sequential(model, onload_device)
+        set_onload_device(model, onload_device)
+
+        # AutoRoundModifier optimizes each layer independently using its own
+        # forward passes, so quantization error should not be propagated between
+        # layers during the calibration stage
+        modifiers = session.lifecycle.recipe.modifiers
+        if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
+            dataset_args.propagate_error = False
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
@@ -108,21 +110,11 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
 
-        LifecycleCallbacks.calibration_epoch_start()
-
-        # TODO: remove this to enable quantization aware calibration
-        # for GPTQ, AWQ and AutoRound.
-        disable_qac = any(
-            type(mod).__name__ in DISABLE_QAC_MODIFIERS
-            for mod in session.lifecycle.recipe.modifiers
-        )
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-            # Optionally disable quantization
-            if not dataset_args.quantization_aware_calibration or disable_qac:
-                stack.enter_context(DisableQuantization(model))
-
+            stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
@@ -158,24 +150,32 @@ class SequentialPipeline(CalibrationPipeline):
                         sequential_prefetch,
                     ):
                         session.state.current_batch_idx = batch_idx
-                        subgraph.forward(model, **inputs)
+                        outputs = subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph)
-
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx, inputs in _get_batches(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            prop_desc,
-                            sequential_prefetch,
-                        ):
-                            output = subgraph.forward(model, **inputs)
+                        if not dataset_args.propagate_error:
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
+                                activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
+                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+
+                    if dataset_args.propagate_error:
+                        # this pass does not trigger modifier hooks
+                        # and is only used for capturing outputs of compressed modules
+                        with HooksMixin.disable_hooks():
+                            for batch_idx, inputs in _get_batches(
+                                activations,
+                                num_batches,
+                                subgraph.input_names,
+                                prop_desc,
+                                sequential_prefetch,
+                            ):
+                                output = subgraph.forward(model, **inputs)
+                                if subgraph_index < num_subgraphs - 1:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
+
             # redundant, finish any remaining compression
-            LifecycleCallbacks.calibration_epoch_end()
+            LifecycleCallbacks.calibration_end()

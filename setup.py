@@ -54,7 +54,7 @@ def localversion_func(version: ScmVersion) -> str:
     print(
         f"computing local version for {BUILD_TYPE} build with "
         f"{'dirty' if version.dirty else 'clean'} local repository"
-        "f{' and exact version from tag' if version.exact else ''}",
+        f"{' and exact version from tag' if version.exact else ''}",
         file=sys.stderr,
     )
 
@@ -114,40 +114,40 @@ setup(
         ("pyyaml>=6.0.1,<=6.0.3" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
         # librosa 0.11.0 supports numpy 2.x
         # https://librosa.org/doc/0.11.0/changelog.html
-        ("numpy>=2.0.0,<=2.4.2" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
+        ("numpy>=2.0.0,<=2.4.6" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         (
-            "requests>=2.32.2,<=2.32.5"
+            "requests>=2.32.2,<=2.34.2"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
-        ("tqdm>=4.66.3,<=4.67.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.10.0,<=2.11.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
+        ("tqdm>=4.66.3,<=4.68.2" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
+        ("torch>=2.10.0,<=2.12.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=4.56.1,<=4.57.6"
+            "transformers>=5.9.0,<=5.12.1"
             if BUILD_TYPE == "release"
-            else "transformers>=4.56.1,<=4.57.6"
+            else "transformers>=5.9.0"
         ),
-        ("datasets>=4.0.0,<=4.6.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("datasets>=4.8.4,<=5.0.0" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "auto-round>=0.10.2,<=0.10.2"
+            "auto-round>=0.10.2,<=0.13.0"
             if BUILD_TYPE == "release"
             else "auto-round>=0.10.2"
         ),
         (
-            "accelerate>=1.6.0,<=1.12.0"
+            "accelerate>=1.6.0,<=1.13.0"
             if BUILD_TYPE == "release"
             else "accelerate>=1.6.0"
         ),
         (
-            "nvidia-ml-py>=12.560.30,<=13.590.48"
+            "nvidia-ml-py>=12.560.30,<=13.610.43"
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<=12.1.1" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=10.4.0,<=12.2.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.14.0"
+            "compressed-tensors==0.17.1"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.15.1a2"
+            else "compressed-tensors>=0.17.2a2"
         ),
     ],
     extras_require={
@@ -156,7 +156,6 @@ setup(
             "pytest>=6.0.0",
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
-            "lm_eval==0.4.9.2",
             # test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm>=2024.1.14",
@@ -184,6 +183,7 @@ setup(
     entry_points={
         "console_scripts": [
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
+            # reindex_fused_weights is deprecated
             "llmcompressor.reindex_fused_weights=llmcompressor.entrypoints.model_free.reindex_fused_weights:main",
         ]
     },
