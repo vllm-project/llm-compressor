@@ -8,13 +8,12 @@ from typing import (
 )
 
 import torch
+from compressed_tensors.offload import disable_onloading
 from loguru import logger
 from transformers import PreTrainedConfig
 
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.typing import TorchModuleProtocol
-
-from compressed_tensors.offload import disable_onloading
 
 
 class FusedExpertsProtocol(TorchModuleProtocol):
@@ -43,7 +42,9 @@ class FusedExpertsProtocol(TorchModuleProtocol):
                 isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
                 and (
                     isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
-                    or isinstance(getattr(object, "gate_up_proj", None), torch.nn.Parameter)
+                    or isinstance(
+                        getattr(object, "gate_up_proj", None), torch.nn.Parameter
+                    )
                 )
                 and get_use_experts_implementation_args(object.__class__) is not None
             )
