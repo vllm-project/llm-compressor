@@ -1,0 +1,95 @@
+# NOTE: Multi-GPU tests exist (e.g. test_quantization_ddp.py with @requires_gpu(2),
+# example scripts with torchrun --nproc_per_node=2) but are skipped with 1 GPU.
+# tests/examples/ and tests/sparsity/ are also excluded from the base test suite.
+# To run multi-GPU tests, add a separate group requesting nvidia.com/gpu: 2.
+
+steps:
+  - group: ":test_tube: Base Tests (L4)"
+    key: "base-tests"
+    steps:
+      - label: ":python: Base Tests py{{matrix.python}}"
+        agents:
+          queue: RedHat-L4-GCP
+
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 3
+            - exit_status: 255
+              limit: 3
+            - signal_reason: agent_stop
+              limit: 3
+
+        plugins:
+          - kubernetes:
+              podSpec:
+                nodeSelector:
+                  pool: L4solo
+
+                containers:
+                  - name: tests
+                    image: buildkite/agent:3-ubuntu
+                    command:
+                      - chmod +x .buildkite/gpu-tests/scripts/run-tests.sh
+                      - .buildkite/gpu-tests/scripts/run-tests.sh base
+
+                    resources:
+                      limits:
+                        nvidia.com/gpu: 1
+
+                    volumeMounts:
+                      - name: model-cache
+                        mountPath: /model-cache
+                        readOnly: false
+                      - name: devshm
+                        mountPath: /dev/shm
+
+                    env:
+                      - name: PYTHON_VERSION
+                        value: "{{matrix.python}}"
+
+                volumes:
+                  - name: model-cache
+                    persistentVolumeClaim:
+                      claimName: buildkite-podpvc-ssd-blue
+                  - name: devshm
+                    emptyDir:
+                      medium: Memory
+
+        matrix:
+          setup:
+            python: ["3.10", "3.13"]
+
+  - label: ":bar_chart: Combine Coverage"
+    depends_on: "base-tests"
+    allow_dependency_failure: true
+    agents:
+      queue: RedHat-ModelOpt-Util
+    command:
+      - chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
+      - .buildkite/gpu-tests/scripts/combine-coverage.sh
+
+  - label: ":mag: Detect changes for Transformers Tests"
+    agents:
+      queue: RedHat-ModelOpt-Util
+    command: |
+      if [ "$${BUILDKITE_PULL_REQUEST}" = "false" ]; then
+        echo "Push to branch — uploading transformers tests"
+        buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-L4.yml
+      else
+        git fetch --unshallow 2>/dev/null || true
+        git fetch origin "$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}"
+        DIFF_FILES=$$(git diff --name-only "origin/$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD")
+        CHANGED=$$(echo "$${DIFF_FILES}" \
+          | grep -E '^(src/|tests/|setup\.py$$|MANIFEST\.in$$|\.buildkite/gpu-tests/transformers-tests-|\.buildkite/gpu-tests/scripts/run-tests\.sh$$)' \
+          | grep -vE '^tests/(e2e|lmeval|examples)/' \
+          | grep -vE '\.md$$' \
+          || true)
+        if [ -n "$${CHANGED}" ]; then
+          echo "Relevant changes detected:"
+          echo "$${CHANGED}"
+          buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-L4.yml
+        else
+          echo "No relevant changes — skipping transformers tests"
+        fi
+      fi
