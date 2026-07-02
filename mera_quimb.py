@@ -1,116 +1,152 @@
 """MERA compression using quimb tensor network library.
 
-Clean implementation following quimb best practices.
-Data: [seq_len, hidden_dim] flattened to dense state vector.
+Correct approach: Treat data [seq_len, hidden_dim] as a product-state MPS
+where each site has physical dimension = hidden_dim.
+
+NO FLATTENING - preserves structure and avoids exponential blowup.
 """
 
-import torch
 import numpy as np
-import quimb as qu
+import autoray
 import quimb.tensor as qtn
 from generate_tree_dataset import generate_power_law_tree_dataset
 
 
-def data_to_vector(data_sample):
-    """Convert data [seq_len, hidden_dim] to dense state vector.
+def data_to_tensor_network(data_matrix):
+    """Convert data [seq_len, hidden_dim] to tensor network (product-state MPS).
 
-    Simply flatten and normalize.
+    Each site i gets a tensor with physical index k{i} of dimension hidden_dim.
+    Bond dimension between sites = 1 (product state, no entanglement).
+
+    Args:
+        data_matrix: Array [seq_len, hidden_dim]
+
+    Returns:
+        TensorNetwork representing the data
     """
-    vec = data_sample.flatten()
-    norm = np.linalg.norm(vec)
-    if norm > 1e-10:
-        vec = vec / norm
-    return vec
+    # Ensure numpy array
+    if not isinstance(data_matrix, np.ndarray):
+        data_matrix = np.asarray(data_matrix)
+
+    seq_len, hidden_dim = data_matrix.shape
+
+    data_tensors = []
+    for i in range(seq_len):
+        # Local token vector of shape (hidden_dim,)
+        vec = data_matrix[i]
+
+        # Ensure it's a numpy array
+        if not isinstance(vec, np.ndarray):
+            vec = np.asarray(vec)
+
+        # Create tensor for this site with physical index k{i}
+        t = qtn.Tensor(data=vec, inds=(f"k{i}",), tags={f"I{i}", "DATA"})
+        data_tensors.append(t)
+
+    # Combine into unified tensor network
+    data_tn = qtn.TensorNetwork(data_tensors)
+
+    return data_tn
 
 
-def vector_to_data(vec, seq_len, hidden_dim):
-    """Convert dense state vector back to [seq_len, hidden_dim]."""
-    return vec.reshape(seq_len, hidden_dim)
+def initialize_mera(seq_len, hidden_dim, max_bond):
+    """Initialize MERA tensor network.
+
+    Args:
+        seq_len: Sequence length (must be power of 2)
+        hidden_dim: Physical dimension per site
+        max_bond: Maximum bond dimension
+
+    Returns:
+        MERA tensor network with numpy arrays
+    """
+    assert (seq_len & (seq_len - 1)) == 0, "seq_len must be power of 2"
+
+    print(f"\nInitializing MERA...")
+    print(f"  Sites: {seq_len}")
+    print(f"  Physical dim: {hidden_dim}")
+    print(f"  Max bond: {max_bond}")
+
+    mera = qtn.MERA.rand(L=seq_len, phys_dim=hidden_dim, D=max_bond, dtype="float64")
+
+    # Ensure all tensors are numpy arrays
+    for tid, tensor in mera.tensor_map.items():
+        if not isinstance(tensor.data, np.ndarray):
+            tensor.modify(data=np.asarray(tensor.data))
+        mera.tensor_map[tid] = tensor
+
+    print(f"  Number of tensors: {len(mera.tensor_map)}")
+    print(f"  Types: {[type(a) for a in mera.arrays]}")
+
+    return mera
 
 
-def train_mera_on_data(data, max_bond=16, num_steps=100, optimizer='L-BFGS-B', backend='torch'):
+def train_mera_on_data(mera, data, num_steps=100, optimizer="adam"):
     """Train MERA to compress activation data.
 
     Args:
-        data: Tensor [batch, seq_len, hidden_dim]
-        max_bond: Maximum bond dimension (chi)
+        mera: Initialized MERA tensor network
+        data: Array [batch, seq_len, hidden_dim]
         num_steps: Optimization steps
-        optimizer: Optimizer name ('L-BFGS-B', 'adam', etc.)
-        backend: Autodiff backend ('torch', 'jax', 'tensorflow')
+        optimizer: Optimizer name
+        backend: Autodiff backend
 
     Returns:
         Optimized MERA tensor network
     """
     batch_size, seq_len, hidden_dim = data.shape
 
-    # Verify seq_len is power of 2
-    assert (seq_len & (seq_len - 1)) == 0, "seq_len must be power of 2"
-
-    L = seq_len
-    phys_dim = hidden_dim
-
-    print(f"="*70)
+    print(f"=" * 70)
     print(f"MERA TRAINING")
-    print(f"="*70)
-    print(f"  Sites (L): {L}")
-    print(f"  Physical dim: {phys_dim}")
-    print(f"  Max bond (D): {max_bond}")
-    print(f"  Total state dimension: {phys_dim**L}")
+    print(f"=" * 70)
+    print(f"  Data: [{batch_size}, {seq_len}, {hidden_dim}]")
     print(f"  Optimizer: {optimizer}")
-    print(f"  Backend: {backend}")
+    print(f"  Steps: {num_steps}")
 
-    # Convert first sample to target state vector
-    # Move to CPU for numpy conversion, but keep on GPU if using torch backend
-    if backend == 'torch':
-        target_data = data[0]  # Keep as torch tensor on GPU
-        target_state = target_data.flatten()
-        target_state = target_state / torch.linalg.norm(target_state)
-    else:
-        target_data = data[0].cpu().numpy()
-        target_state = data_to_vector(target_data)
+    # Extract single sample and normalize
+    target_matrix = np.asarray(data[0], dtype=np.float64)
+    target_matrix = target_matrix / np.linalg.norm(target_matrix)
 
-    print(f"\nTarget state:")
-    print(f"  Shape: {target_state.shape}")
-    if backend == 'torch':
-        print(f"  Norm: {torch.linalg.norm(target_state).item():.6f}")
-        print(f"  Device: {target_state.device}")
-    else:
-        print(f"  Norm: {np.linalg.norm(target_state):.6f}")
+    print(f"\nTarget data:")
+    print(f"  Shape: {target_matrix.shape}")
+    print(f"  Norm: {np.linalg.norm(target_matrix):.6f}")
 
-    # Initialize MERA
-    print(f"\nInitializing random MERA...")
-    mera = qtn.MERA.rand(L=L, phys_dim=phys_dim, D=max_bond, dtype='float64')
-    print(f"  Number of tensors: {len(mera.tensor_map)}")
+    # Convert to tensor network
+    print(f"\nCreating data tensor network...")
+    data_tn = data_to_tensor_network(target_matrix)
+    print(f"  Number of tensors: {len(data_tn.tensor_map)}")
 
-    # Loss function: maximize overlap with target state
+    # Loss function: tensor network contraction for overlap
     def loss_fn(mera_tn):
-        # Contract MERA to dense vector and compute overlap
-        overlap = mera_tn.to_dense() | target_state
+        """Compute overlap via tensor network contraction.
+
+        Both MERA and data TN share physical indices k0, k1, ..., k{L-1}.
+        Contracting these gives the inner product ⟨MERA|data⟩.
+        """
+        # Contract MERA with data TN
+        overlap = mera_tn @ data_tn
+
         # Loss: 1 - |overlap|²
-        loss = 1.0 - abs(overlap)**2
+        loss = 1.0 - abs(overlap) ** 2
+
         return loss
 
-    # Norm function: maintain MERA normalization
+    # Norm function: skip normalization to avoid expensive contraction
+    # (normalization can be done periodically instead of every step)
     def norm_fn(mera_tn):
-        return mera_tn.norm()
+        return mera_tn  # Identity - no normalization
 
-    # Extract variables for optimization
-    x0, tags, guess_structure = mera.get_variables(tag_only=True)
-    print(f"\nOptimization variables:")
-    print(f"  Number of parameters: {len(x0)}")
-
-    # Create optimizer
+    # Create optimizer - TNOptimizer will extract variables automatically
     print(f"\nSetting up TNOptimizer...")
     tnopt = qtn.TNOptimizer(
         mera,
         loss_fn=loss_fn,
         norm_fn=norm_fn,
-        x0=x0,
-        tags=tags,
-        guess_structure=guess_structure,
         optimizer=optimizer,
-        autodiff_backend=backend
+        autodiff_backend="jax",
     )
+
+    print(f"  Number of parameters: {sum(t.size for t in mera.tensor_map.values())}")
 
     # Run optimization
     print(f"\nOptimizing for {num_steps} steps...")
@@ -119,32 +155,23 @@ def train_mera_on_data(data, max_bond=16, num_steps=100, optimizer='L-BFGS-B', b
 
     optimized_params = tnopt.optimize(n=num_steps)
 
-    # Get optimized MERA
-    optimized_mera = tnopt.get_compressed_tn()
+    # Get optimized MERA - it's stored in tnopt.tn
+    optimized_mera = tnopt.get_tn_opt()
     final_loss = loss_fn(optimized_mera)
 
     print(f"\nOptimization complete!")
     print(f"  Final loss: {final_loss:.6f}")
     print(f"  Loss reduction: {initial_loss - final_loss:.6f}")
-
-    # Test reconstruction
-    print(f"\nTesting reconstruction...")
-    reconstructed_vec = optimized_mera.to_dense()
-
-    if backend == 'torch':
-        reconstructed_data = reconstructed_vec.reshape(seq_len, hidden_dim)
-        reconstruction_error = torch.linalg.norm(reconstructed_data - target_data).item()
-    else:
-        reconstructed_data = vector_to_data(reconstructed_vec, seq_len, hidden_dim)
-        reconstruction_error = np.linalg.norm(reconstructed_data - target_data)
-
-    print(f"  Reconstruction error: {reconstruction_error:.6f}")
+    print(f"  Final overlap: {np.sqrt(1.0 - final_loss):.6f}")
 
     # Compute compression ratio
-    # MERA bond dimension vs full representation
     original_size = seq_len * hidden_dim
-    compressed_size = max_bond * max_bond * seq_len  # Rough estimate
-    compression_ratio = original_size / compressed_size
+    mera_params = sum(t.size for t in optimized_mera.tensors)
+    compression_ratio = original_size / mera_params
+
+    print(f"\nCompression analysis:")
+    print(f"  Original parameters: {original_size}")
+    print(f"  MERA parameters: {mera_params}")
     print(f"  Compression ratio: {compression_ratio:.2f}x")
 
     return optimized_mera
@@ -153,28 +180,28 @@ def train_mera_on_data(data, max_bond=16, num_steps=100, optimizer='L-BFGS-B', b
 if __name__ == "__main__":
     # Generate tree-structured test data
     print("\nGenerating tree-structured dataset (α=1.0)...")
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
 
     data = generate_power_law_tree_dataset(
-        batch_size=4,
-        seq_len=16,      # Start very small for testing
-        hidden_dim=4,    # Small dimension
+        batch_size=2,
+        seq_len=8,  # Very small to reduce memory
+        hidden_dim=4,  # Very small dimension
         alpha=1.0,
-        device=device
+        device="cpu",
     )
 
     print(f"Generated data shape: {data.shape}")
 
+    # Initialize MERA
+    mera = initialize_mera(seq_len=data.shape[1], hidden_dim=data.shape[2], max_bond=4)
+
     # Train MERA
     mera_opt = train_mera_on_data(
-        data,
-        max_bond=8,
-        num_steps=50,
-        optimizer='L-BFGS-B',
-        backend='torch'
+        mera=mera,
+        data=data,
+        num_steps=10,
+        optimizer="adam",
     )
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("DONE")
-    print("="*70)
+    print("=" * 70)
