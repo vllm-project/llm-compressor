@@ -11,6 +11,7 @@ from transformers.core_model_loading import (
     WeightTransform,
 )
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Experts
+from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaExperts
 from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeExperts
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
@@ -25,6 +26,7 @@ ARCH_TO_EXPERTS_MODULE_CLS = {
     "deepseek_v4": DeepseekV4Experts,
     "qwen2_moe": Qwen2MoeExperts,
     "qwen3_moe": Qwen3MoeExperts,
+    "glm_moe_dsa": GlmMoeDsaExperts,
 }
 
 ARCH_TO_2D_MAPPINGS = {
