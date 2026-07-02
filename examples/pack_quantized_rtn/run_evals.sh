@@ -25,10 +25,12 @@ if [ $# -eq 0 ]; then
         "${MODEL_BASE}-W2A16-RTN" \
         "${MODEL_BASE}-W3A16-RTN" \
         "${MODEL_BASE}-W5A16-RTN" \
+        "${MODEL_BASE}-W6A16-RTN" \
         "${MODEL_BASE}-W7A16-RTN" \
         "${MODEL_BASE}-W2A4-RTN"  \
         "${MODEL_BASE}-W3A4-RTN"  \
         "${MODEL_BASE}-W5A8-RTN"  \
+        "${MODEL_BASE}-W6A8-RTN"  \
         "${MODEL_BASE}-W7A8-RTN"
 fi
 

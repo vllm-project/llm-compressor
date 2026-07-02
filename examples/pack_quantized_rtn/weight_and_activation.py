@@ -27,7 +27,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--weight_bits", type=int, required=True, choices=[2, 3, 5, 7])
+parser.add_argument("--weight_bits", type=int, required=True, choices=[2, 3, 5, 6, 7])
 parser.add_argument("--act_bits", type=int, required=True, choices=[4, 8])
 parser.add_argument("--model_id", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct")
 args = parser.parse_args()

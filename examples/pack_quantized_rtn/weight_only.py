@@ -1,32 +1,26 @@
 """
-RTN weight-only quantization to int3 / int5 / int7 using pack-quantized format.
+RTN weight-only quantization to int2-7 using pack-quantized format.
 
 Usage:
-    python weight_only.py --num_bits 7
-    python weight_only.py --num_bits 5 --model_id meta-llama/Meta-Llama-3-8B-Instruct
+    python weight_only.py --scheme W7A16
+    python weight_only.py --scheme W3A16 --model_id meta-llama/Meta-Llama-3-8B-Instruct
 """
 
 import argparse
 import os
 
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-    QuantizationStrategy,
-    QuantizationType,
-)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--num_bits", type=int, required=True, choices=[2, 3, 5, 7])
+parser.add_argument("--scheme", type=str, required=True)
 parser.add_argument("--model_id", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct")
 args = parser.parse_args()
 
-SAVE_DIR = args.model_id.rstrip("/").split("/")[-1] + f"-W{args.num_bits}A16-RTN"
+SAVE_DIR = args.model_id.rstrip("/").split("/")[-1] + f"-{args.scheme}-RTN"
 
 if os.path.exists(SAVE_DIR):
     print(f"Output already exists at {SAVE_DIR!r}, skipping quantization.")
@@ -36,17 +30,8 @@ model = AutoModelForCausalLM.from_pretrained(args.model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(args.model_id)
 
 recipe = QuantizationModifier(
-    config_groups={
-        "group_0": QuantizationScheme(
-            targets=["Linear"],
-            weights=QuantizationArgs(
-                num_bits=args.num_bits,
-                type=QuantizationType.INT,
-                strategy=QuantizationStrategy.CHANNEL,
-                symmetric=True,
-            ),
-        )
-    },
+    targets=["Linear"],
+    scheme=args.scheme,
     ignore=["lm_head"],
 )
 
