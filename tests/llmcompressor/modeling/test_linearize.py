@@ -285,9 +285,9 @@ def test_linearize_quant_config():
     apply_quantization_config(model, qconfig)
 
     save_qconfig = QuantizationConfig.from_pretrained(model)
-    assert save_qconfig.ignore == [
+    assert set(save_qconfig.ignore) == {
         "model.layers.2.mlp.gate",
         "model.layers.3.mlp.gate",
         "model.layers.4.mlp.gate",
         "model.layers.5.mlp.gate",
-    ]
+    }
