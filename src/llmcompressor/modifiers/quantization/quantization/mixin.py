@@ -267,10 +267,11 @@ class QuantizationMixin(HooksMixin):
         """
         self.remove_hooks(self._calibration_hooks)
         unobserved_kv_cache = self._collect_unobserved_kv_cache_observers(model)
+        self._validate_kv_cache_scales(model, unobserved_kv_cache)
+
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
-        self._validate_kv_cache_scales(model, unobserved_kv_cache)
         model.apply(enable_quantization)  # keep quantization enabled
 
     def _iter_kv_cache_modules(

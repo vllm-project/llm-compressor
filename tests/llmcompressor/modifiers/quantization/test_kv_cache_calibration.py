@@ -146,7 +146,7 @@ def test_attention_module_not_named_self_attn_gets_calibrated():
 
 
 def test_kv_cache_calibration_requires_observed_scales():
-    model, modifier, _ = _prepare_model(dim=16, num_layers=1)
+    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
 
     with pytest.raises(ValueError) as exc_info:
         modifier.end_calibration(model)
@@ -155,6 +155,11 @@ def test_kv_cache_calibration_requires_observed_scales():
     assert "KV cache quantization calibration failed" in error_message
     assert "layers.0.attention.k_observer" in error_message
     assert "layers.0.attention.v_observer" in error_message
+
+    attention = attn_modules[0][1]
+    assert attention.quantization_status == QuantizationStatus.CALIBRATION
+    assert hasattr(attention, "k_observer")
+    assert hasattr(attention, "v_observer")
 
 
 def test_kv_cache_calibration_rejects_zero_scales():
@@ -168,6 +173,11 @@ def test_kv_cache_calibration_rejects_zero_scales():
     error_message = str(exc_info.value)
     assert "layers.0.attention.k_scale" in error_message
     assert "non-positive" in error_message
+
+    attention = attn_modules[0][1]
+    assert attention.quantization_status == QuantizationStatus.CALIBRATION
+    assert hasattr(attention, "k_observer")
+    assert hasattr(attention, "v_observer")
 
 
 def test_kv_cache_calibration_respects_ignore_list():
