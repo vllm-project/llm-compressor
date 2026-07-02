@@ -211,6 +211,7 @@ def test_end_calibration_can_run_after_kv_cache_is_frozen():
     _observe_kv_cache(attn_modules)
 
     modifier.end_calibration(model)
+    attn_modules[0][1].k_scale.data.zero_()
     modifier.end_calibration(model)
 
     assert attn_modules[0][1].quantization_status == QuantizationStatus.FROZEN

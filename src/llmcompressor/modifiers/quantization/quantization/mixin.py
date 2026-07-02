@@ -329,6 +329,12 @@ class QuantizationMixin(HooksMixin):
         }
         invalid_scales = []
         for module_name, module in kv_cache_modules:
+            if (
+                getattr(module, "quantization_status", None)
+                == QuantizationStatus.FROZEN
+            ):
+                continue
+
             for base_name in ("k", "v"):
                 param_name = f"{base_name}_scale"
                 full_param_name = self._format_kv_cache_param_name(
