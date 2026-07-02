@@ -281,9 +281,9 @@ class QuantizationMixin(HooksMixin):
             model, self.resolved_targets, self.ignore
         ):
             if (
-                hasattr(module, "quantization_scheme")
+                getattr(module, "quantization_scheme", None) is not None
                 and is_attention_module(module)
-                and hasattr(module, KV_CACHE_ATTR)
+                and getattr(module, KV_CACHE_ATTR, None) is not None
             ):
                 yield module_name, module
 
@@ -295,7 +295,10 @@ class QuantizationMixin(HooksMixin):
 
         unobserved = []
         for module_name, module in self._iter_kv_cache_modules(model):
-            if module.quantization_status == QuantizationStatus.FROZEN:
+            if (
+                getattr(module, "quantization_status", None)
+                == QuantizationStatus.FROZEN
+            ):
                 continue
 
             for base_name in ("k", "v"):
@@ -522,7 +525,7 @@ class QuantizationMixin(HooksMixin):
         return scheme
 
     def _initialize_observers(self, module: torch.nn.Module):
-        if not hasattr(module, "quantization_scheme"):
+        if getattr(module, "quantization_scheme", None) is None:
             return
 
         scheme: QuantizationScheme = module.quantization_scheme
@@ -555,7 +558,7 @@ class QuantizationMixin(HooksMixin):
 
     def _initialize_hooks(self, module: torch.nn.Module) -> set[RemovableHandle]:
         hooks = set()
-        if not hasattr(module, "quantization_scheme"):
+        if getattr(module, "quantization_scheme", None) is None:
             return hooks
 
         scheme: QuantizationScheme = module.quantization_scheme
