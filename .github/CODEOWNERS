@@ -10,3 +10,10 @@
 /src/llmcompressor/pytorch/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
 /src/llmcompressor/recipe/ @shanjiaz
 /src/llmcompressor/utils/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+
+
+# Modifiers
+src/llmcompressor/modifiers/awq/ @kylesayrs @HDCharles @brian-dellabetta
+src/llmcompressor/modifiers/smoothquant/ @kylesayrs @HDCharles @brian-dellabetta @rahul-tuli
+src/llmcompressor/modifiers/transform/ @kylesayrs @HDCharles @brian-dellabetta
+src/llmcompressor/modifiers/quantization/ @dsikka @kylesayrs @HDCharles
