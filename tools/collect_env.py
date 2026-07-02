@@ -22,17 +22,15 @@ def get_torch_hardware_info():
         cuda_devices = []
         amd_devices = []
         npu_devices = []
-        if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                name = torch.cuda.get_device_name(i)
-                if "AMD" in name.upper():
+        if torch.accelerator.is_available():
+            for i in range(torch.accelerator.device_count()):
+                name = torch.get_device_module().get_device_name(i)
+                if "GFX" in name.upper():
                     amd_devices.append(name)
+                elif "ASCEND" in name.upper():
+                    npu_devices.append(name)
                 else:
                     cuda_devices.append(name)
-        if hasattr(torch, "npu") and torch.npu.is_available():
-            for i in range(torch.npu.device_count()):
-                name = torch.npu.get_device_name(i)
-                npu_devices.append(name)
         return cuda_devices, amd_devices, npu_devices
     except ImportError:
         return [], [], []
