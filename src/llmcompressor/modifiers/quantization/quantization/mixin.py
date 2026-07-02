@@ -42,6 +42,9 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
+from llmcompressor.modifiers.quantization.scheme_consistency_validation import (
+    validate_scheme_consistency,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
@@ -230,6 +233,8 @@ class QuantizationMixin(HooksMixin):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
         apply_quantization_config(model, self.resolved_config)
+
+        validate_scheme_consistency(model)
 
         if not self.bypass_divisibility_checks:
             validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
