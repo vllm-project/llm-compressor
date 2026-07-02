@@ -11,9 +11,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
 )
 
-from llmcompressor.modeling.moe.context import (
-    moe_calibration_context,
-)
+from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.conversion_mappings import ARCH_TO_IMPORT_PATHS
 from llmcompressor.modeling.moe.helpers import (
     FusedExpertsProtocol,

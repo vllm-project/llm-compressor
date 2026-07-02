@@ -188,11 +188,11 @@ ARCH_TO_2D_MAPPINGS = {
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
             ),
         ],
     ),
