@@ -142,7 +142,7 @@ class DummyModel(torch.nn.Module):
 @torch.no_grad()
 @requires_gpu
 @pytest.mark.parametrize(
-    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4", "granitemoe"})
+    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4"})
 )
 def test_linearize_moe(model_type):
     config_path, experts_path = ARCH_TO_IMPORT_PATHS[model_type]
@@ -184,44 +184,6 @@ def test_linearize_moe(model_type):
         assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
         assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
-
-
-def test_linearize_moe_granite():
-    try:
-        from transformers.models.granitemoe.configuration_granitemoe import (
-            GraniteMoeConfig,
-        )
-        from transformers.models.granitemoe.modeling_granitemoe import (
-            GraniteMoeParallelExperts,
-        )
-    except ImportError:
-        pytest.skip("GraniteMoeParallelExperts has been removed")
-
-    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
-    experts = GraniteMoeParallelExperts(
-        config.num_local_experts, config.hidden_size, config.intermediate_size
-    )
-    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
-
-    mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
-    assert mock_model.module is not experts
-
-    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
-    expert_size = [
-        (NUM_TEST_TOKENS // config.num_local_experts)
-        for _ in range(config.num_local_experts)
-    ]
-    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
-    true_outputs = experts(hidden_states, expert_size)
-    outputs = mock_model(hidden_states, expert_size)
-    with moe_calibration_context():
-        calib_outputs = mock_model(hidden_states, expert_size)
-
-    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
-    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
-    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
-
 
 def test_linearize_moe_llama4():
     from transformers.models.llama4.configuration_llama4 import (

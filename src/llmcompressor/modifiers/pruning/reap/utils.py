@@ -13,7 +13,6 @@ from compressed_tensors import align_module_device
 from loguru import logger
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
-from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
 
@@ -150,16 +149,10 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             experts = getattr(module, experts_attr)
             # REAP currently only supports LinearExperts2D experts, as they receive the
             # top_k indices and weights from the router in their forward pass.
-            # Granite and Llama4 experts diverge from this behavior, so they are
-            # unsupported for now.
+            # Llama4 experts diverge from this behavior, so they are unsupported for now.
             if not isinstance(experts, LinearExperts2D):
                 logger.warning(
                     f"Skipping layer {name}: experts module is not LinearExperts2D"
-                )
-                continue
-            if isinstance(experts, GraniteMoeLinearExperts):
-                logger.warning(
-                    f"Skipping unsupported GraniteMoeLinearExperts layer: {name}"
                 )
                 continue
             if isinstance(experts, Llama4LinearExperts):
@@ -173,7 +166,7 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
         raise ValueError(
             "Could not find any supported MoE layers with experts in "
             "LinearExperts2D format. Make sure the model has MoE layers "
-            "(excluding GraniteMoeLinearExperts and Llama4LinearExperts), "
+            "(excluding Llama4LinearExperts), "
             "and that the name of its experts module is in EXPERTS_ATTRS "
             "and it the name of its router module is in ROUTER_ATTRS in "
             "reap/utils.py"
