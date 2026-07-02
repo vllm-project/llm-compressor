@@ -233,11 +233,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
+        validation_modules = modules
         modules = [module for module in modules if is_module_quantized(module)]
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
         self.compress_modules()
+        self.validate_module_calibration(state.model, validation_modules)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """

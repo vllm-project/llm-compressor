@@ -42,6 +42,12 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
+from llmcompressor.modifiers.quantization.quantization.mixin_helpers import (
+    collect_calibration_modules,
+    format_calibration_error,
+    get_invalid_static_kv_cache_scales,
+    get_unvalidated_calibration_observers,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
@@ -261,145 +267,50 @@ class QuantizationMixin(HooksMixin):
         Remove calibration hooks and observers, and set the model status to frozen.
         Keep quantization enabled for future operations
 
-        :raises ValueError: if static KV cache quantization scales are invalid or
-            unobserved
+        :raises ValueError: if calibration observers are unobserved or if static
+            KV cache quantization scales are invalid
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        kv_cache_modules = list(self._iter_kv_cache_modules(model))
-        unobserved_kv_cache = self._collect_unobserved_kv_cache_observers(
-            kv_cache_modules
-        )
-        self._validate_kv_cache_scales(kv_cache_modules, unobserved_kv_cache)
+        self.validate_module_calibration(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
 
-    def _iter_kv_cache_modules(
-        self, model: torch.nn.Module
-    ) -> Iterator[tuple[str, torch.nn.Module]]:
-        for module_name, module in match_named_modules(
-            model, self.resolved_targets, self.ignore
-        ):
-            if (
-                getattr(module, "quantization_scheme", None) is not None
-                and is_attention_module(module)
-                and getattr(module, KV_CACHE_ATTR, None) is not None
-            ):
-                yield module_name, module
-
-    def _collect_unobserved_kv_cache_observers(
-        self, kv_cache_modules: list[tuple[str, torch.nn.Module]]
-    ) -> list[str]:
-        if self._skip_kv_cache_scale_validation():
-            return []
-
-        unobserved = []
-        for module_name, module in kv_cache_modules:
-            if (
-                getattr(module, "quantization_status", None)
-                == QuantizationStatus.FROZEN
-            ):
-                continue
-
-            for base_name in ("k", "v"):
-                observer = getattr(module, f"{base_name}_observer", None)
-                if observer is None or not observer.has_statistics:
-                    unobserved.append(
-                        self._format_kv_cache_param_name(
-                            module_name, f"{base_name}_observer"
-                        )
-                    )
-
-        return unobserved
-
-    def _validate_kv_cache_scales(
+    def validate_module_calibration(
         self,
-        kv_cache_modules: list[tuple[str, torch.nn.Module]],
-        unobserved_kv_cache: list[str],
+        model: torch.nn.Module,
+        modules: Iterator[torch.nn.Module] | None = None,
     ):
-        if self._skip_kv_cache_scale_validation():
+        """
+        Validate that quantized modules were exercised during calibration.
+
+        :raises ValueError: if calibration observers were not invoked or if static
+            KV cache quantization scales are invalid
+        :param model: full model being calibrated
+        :param modules: optional sequential chunk to validate
+        """
+        calibration_modules = collect_calibration_modules(
+            model,
+            self.resolved_targets,
+            self.ignore,
+            modules,
+        )
+        unobserved_observers = get_unvalidated_calibration_observers(
+            calibration_modules,
+            self.resolved_config.kv_cache_scheme,
+        )
+        invalid_scales = get_invalid_static_kv_cache_scales(
+            calibration_modules,
+            self.resolved_config.kv_cache_scheme,
+            unobserved_observers,
+        )
+        if not unobserved_observers and not invalid_scales:
             return
 
-        unobserved_scales = {
-            observer_name.removesuffix("_observer") + "_scale"
-            for observer_name in unobserved_kv_cache
-        }
-        invalid_scales = []
-        for module_name, module in kv_cache_modules:
-            if (
-                getattr(module, "quantization_status", None)
-                == QuantizationStatus.FROZEN
-            ):
-                continue
-
-            for base_name in ("k", "v"):
-                param_name = f"{base_name}_scale"
-                full_param_name = self._format_kv_cache_param_name(
-                    module_name, param_name
-                )
-                if full_param_name in unobserved_scales:
-                    continue
-
-                scale = getattr(module, param_name, None)
-                invalid_reason = self._get_invalid_scale_reason(scale)
-                if invalid_reason is not None:
-                    invalid_scales.append(f"{full_param_name} ({invalid_reason})")
-
-        if not unobserved_kv_cache and not invalid_scales:
-            return
-
-        details = []
-        if unobserved_kv_cache:
-            details.append(
-                "missing or unobserved calibration observers: "
-                f"{', '.join(unobserved_kv_cache)}"
-            )
-        if invalid_scales:
-            details.append(f"invalid scales: {', '.join(invalid_scales)}")
-
-        raise ValueError(
-            "KV cache quantization calibration failed. "
-            "KV cache scales must be observed and finite positive values before "
-            "saving a quantized checkpoint. "
-            f"Found {'; '.join(details)}. "
-            "This usually means the model accessed the KV cache without routing "
-            "key/value tensors through the calibration hooks."
-        )
-
-    def _skip_kv_cache_scale_validation(self) -> bool:
-        kv_cache_scheme = self.resolved_config.kv_cache_scheme
-        if kv_cache_scheme is None:
-            return True
-
-        return bool(kv_cache_scheme.dynamic)
-
-    @staticmethod
-    def _get_invalid_scale_reason(scale: torch.Tensor | None) -> str | None:
-        if scale is None:
-            return "missing"
-
-        scale = scale.detach() if isinstance(scale, torch.Tensor) else torch.as_tensor(
-            scale
-        )
-        if scale.is_meta:
-            return "stored on meta device"
-        if scale.numel() == 0:
-            return "empty"
-
-        scale = scale.to(device="cpu")
-        if not torch.isfinite(scale).all().item():
-            return "non-finite"
-        if (scale <= 0).any().item():
-            return "non-positive"
-
-        return None
-
-    @staticmethod
-    def _format_kv_cache_param_name(module_name: str, param_name: str) -> str:
-        return f"{module_name}.{param_name}" if module_name else param_name
+        raise ValueError(format_calibration_error(unobserved_observers, invalid_scales))
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """

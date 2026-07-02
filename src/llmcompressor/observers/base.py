@@ -55,11 +55,14 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
+        self.num_observations = 0
         self.fusion_handler = FusionHandler(self)
 
     @property
     def has_statistics(self) -> bool:
-        return all(hasattr(self, attr) for attr in self._stats_attrs)
+        return self.num_observations > 0 and all(
+            hasattr(self, attr) for attr in self._stats_attrs
+        )
 
     @property
     def is_weight_obs(self) -> bool:
@@ -139,9 +142,8 @@ class Observer(InternalModule, RegistryMixin):
 
         observed = flatten_for_calibration(observed, self.base_name, self.args)
         self.update_statistics_from_observed(observed)
-
+        self.num_observations += 1
         self.fusion_handler.get_fused_statistics()
-
         return self
 
     def sync_activation_stats(self) -> List[dist.Work]:
