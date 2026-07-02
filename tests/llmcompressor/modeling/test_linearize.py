@@ -266,3 +266,28 @@ def test_linearize_moe_llama4():
     assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
     assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
     assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
+
+
+def test_linearize_quant_config():
+    from compressed_tensors.quantization import (
+        QuantizationConfig,
+        QuantizationScheme,
+        apply_quantization_config,
+    )
+    from compressed_tensors.quantization.quant_scheme import W4A16
+
+    with load_quantizable_moe():
+        model = AutoModelForCausalLM.from_pretrained(
+            "inference-optimization/GLM-5.2-0.8B-A0.8B"
+        )
+    qscheme = QuantizationScheme(targets=["Linear"], **W4A16)
+    qconfig = QuantizationConfig(config_groups={"": qscheme})
+    apply_quantization_config(model, qconfig)
+
+    save_qconfig = QuantizationConfig.from_pretrained(model)
+    assert save_qconfig.ignore == [
+        "model.layers.2.mlp.gate",
+        "model.layers.3.mlp.gate",
+        "model.layers.4.mlp.gate",
+        "model.layers.5.mlp.gate",
+    ]
