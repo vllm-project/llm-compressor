@@ -1,3 +1,8 @@
+# NOTE: Multi-GPU tests exist (e.g. test_quantization_ddp.py with @requires_gpu(2),
+# example scripts with torchrun --nproc_per_node=2) but are skipped with 1 GPU.
+# tests/examples/ and tests/sparsity/ are also excluded from the base test suite.
+# To run multi-GPU tests, add a separate group requesting nvidia.com/gpu: 2.
+
 steps:
   - group: ":test_tube: Base Tests (H100)"
     key: "base-tests"
