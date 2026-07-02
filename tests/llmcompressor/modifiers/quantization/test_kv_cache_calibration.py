@@ -155,6 +155,7 @@ def test_kv_cache_calibration_requires_observed_scales():
     assert "KV cache quantization calibration failed" in error_message
     assert "layers.0.attention.k_observer" in error_message
     assert "layers.0.attention.v_observer" in error_message
+    assert "invalid scales" not in error_message
 
     attention = attn_modules[0][1]
     assert attention.quantization_status == QuantizationStatus.CALIBRATION

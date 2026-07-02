@@ -266,8 +266,11 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        unobserved_kv_cache = self._collect_unobserved_kv_cache_observers(model)
-        self._validate_kv_cache_scales(model, unobserved_kv_cache)
+        kv_cache_modules = list(self._iter_kv_cache_modules(model))
+        unobserved_kv_cache = self._collect_unobserved_kv_cache_observers(
+            kv_cache_modules
+        )
+        self._validate_kv_cache_scales(kv_cache_modules, unobserved_kv_cache)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
@@ -288,13 +291,13 @@ class QuantizationMixin(HooksMixin):
                 yield module_name, module
 
     def _collect_unobserved_kv_cache_observers(
-        self, model: torch.nn.Module
+        self, kv_cache_modules: list[tuple[str, torch.nn.Module]]
     ) -> list[str]:
         if self._skip_kv_cache_scale_validation():
             return []
 
         unobserved = []
-        for module_name, module in self._iter_kv_cache_modules(model):
+        for module_name, module in kv_cache_modules:
             if (
                 getattr(module, "quantization_status", None)
                 == QuantizationStatus.FROZEN
@@ -314,23 +317,30 @@ class QuantizationMixin(HooksMixin):
 
     def _validate_kv_cache_scales(
         self,
-        model: torch.nn.Module,
+        kv_cache_modules: list[tuple[str, torch.nn.Module]],
         unobserved_kv_cache: list[str],
     ):
         if self._skip_kv_cache_scale_validation():
             return
 
+        unobserved_scales = {
+            observer_name.removesuffix("_observer") + "_scale"
+            for observer_name in unobserved_kv_cache
+        }
         invalid_scales = []
-        for module_name, module in self._iter_kv_cache_modules(model):
+        for module_name, module in kv_cache_modules:
             for base_name in ("k", "v"):
                 param_name = f"{base_name}_scale"
+                full_param_name = self._format_kv_cache_param_name(
+                    module_name, param_name
+                )
+                if full_param_name in unobserved_scales:
+                    continue
+
                 scale = getattr(module, param_name, None)
                 invalid_reason = self._get_invalid_scale_reason(scale)
                 if invalid_reason is not None:
-                    invalid_scales.append(
-                        f"{self._format_kv_cache_param_name(module_name, param_name)} "
-                        f"({invalid_reason})"
-                    )
+                    invalid_scales.append(f"{full_param_name} ({invalid_reason})")
 
         if not unobserved_kv_cache and not invalid_scales:
             return
