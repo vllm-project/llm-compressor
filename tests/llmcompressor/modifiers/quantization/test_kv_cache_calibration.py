@@ -68,14 +68,18 @@ class _StubModel(nn.Module):
         return x
 
 
-def _kv_cache_modifier(dynamic: bool = False, ignore: list[str] | None = None):
+def _kv_cache_modifier(dynamic: bool | str = False, ignore: list[str] | None = None):
+    strategy = "tensor_group" if dynamic == "local" else "tensor"
+    group_size = 16 if dynamic == "local" else None
+
     return QuantizationModifier(
         targets=["Linear"],
         ignore=ignore or [],
         kv_cache_scheme=QuantizationArgs(
             num_bits=8,
             type="float",
-            strategy="tensor",
+            strategy=strategy,
+            group_size=group_size,
             dynamic=dynamic,
             symmetric=True,
         ),
@@ -89,7 +93,7 @@ def _attention_modules(model):
 def _prepare_model(
     dim: int = 16,
     num_layers: int = 2,
-    dynamic: bool = False,
+    dynamic: bool | str = False,
     ignore: list[str] | None = None,
 ):
     model = _StubModel(dim=dim, num_layers=num_layers)
@@ -181,5 +185,11 @@ def test_kv_cache_calibration_respects_ignore_list():
 
 def test_dynamic_kv_cache_calibration_skips_static_scale_validation():
     model, modifier, _ = _prepare_model(dim=16, num_layers=1, dynamic=True)
+
+    modifier.end_calibration(model)
+
+
+def test_local_dynamic_kv_cache_calibration_skips_static_scale_validation():
+    model, modifier, _ = _prepare_model(dim=16, num_layers=1, dynamic="local")
 
     modifier.end_calibration(model)

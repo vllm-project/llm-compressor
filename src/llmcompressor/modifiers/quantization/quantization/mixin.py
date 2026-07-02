@@ -347,8 +347,7 @@ class QuantizationMixin(HooksMixin):
         if kv_cache_scheme is None:
             return True
 
-        dynamic = kv_cache_scheme.dynamic
-        return dynamic is True or dynamic == DynamicType.LOCAL
+        return bool(kv_cache_scheme.dynamic)
 
     @staticmethod
     def _get_invalid_scale_reason(scale: torch.Tensor | None) -> str | None:
