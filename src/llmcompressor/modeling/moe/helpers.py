@@ -1,11 +1,8 @@
 import ast
+import importlib
 import inspect
 from dataclasses import dataclass
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-)
+from typing import Any, Callable, ClassVar
 
 import torch
 from loguru import logger
@@ -154,6 +151,21 @@ class MoEConfig:
                 ret.hidden_act = "silu"
 
         return ret
+
+
+def import_or_none(paths: str | list[str]) -> object | None:
+    if isinstance(paths, str):
+        paths = [paths]
+
+    for path in paths:
+        try:
+            module_path, attr_name = path.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            return getattr(module, attr_name)
+        except (ImportError, AttributeError):
+            pass
+
+    return None
 
 
 def _getattr_fallbacks(

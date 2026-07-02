@@ -7,96 +7,19 @@ from compressed_tensors.utils import patch_attr
 from safetensors import safe_open
 from transformers import AutoModelForCausalLM
 from transformers import initialization as init
-from transformers.models.afmoe.configuration_afmoe import AfmoeConfig
-from transformers.models.afmoe.modeling_afmoe import AfmoeExperts
-from transformers.models.cohere2_moe.configuration_cohere2_moe import Cohere2MoeConfig
-from transformers.models.cohere2_moe.modeling_cohere2_moe import Cohere2MoeExperts
-from transformers.models.deepseek_ocr2.configuration_deepseek_ocr2 import (
-    DeepseekOcr2TextConfig,
-)
-from transformers.models.deepseek_ocr2.modeling_deepseek_ocr2 import (
-    DeepseekOcr2TextExperts,
-)
-from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3NaiveMoe
-from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
-    DeepseekV4Experts,
     DeepseekV4PreTrainedModel,
 )
-from transformers.models.exaone_moe.configuration_exaone_moe import ExaoneMoeConfig
-from transformers.models.exaone_moe.modeling_exaone_moe import ExaoneMoeExperts
-from transformers.models.flex_olmo.configuration_flex_olmo import FlexOlmoConfig
-from transformers.models.flex_olmo.modeling_flex_olmo import FlexOlmoExperts
-from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
-from transformers.models.gemma4.modeling_gemma4 import Gemma4TextExperts
-from transformers.models.glm4_moe.configuration_glm4_moe import Glm4MoeConfig
-from transformers.models.glm4_moe.modeling_glm4_moe import Glm4MoeNaiveMoe
-from transformers.models.glm4_moe_lite.configuration_glm4_moe_lite import (
-    Glm4MoeLiteConfig,
-)
-from transformers.models.glm4_moe_lite.modeling_glm4_moe_lite import Glm4MoeLiteNaiveMoe
-from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import GlmMoeDsaConfig
-from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaNaiveMoe
-from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
-from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
-from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
-from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
-from transformers.models.hy_v3.configuration_hy_v3 import HYV3Config
-from transformers.models.hy_v3.modeling_hy_v3 import HYV3Experts
-from transformers.models.jamba.configuration_jamba import JambaConfig
-from transformers.models.jamba.modeling_jamba import JambaExperts
-from transformers.models.laguna.configuration_laguna import LagunaConfig
-from transformers.models.laguna.modeling_laguna import LagunaExperts
-from transformers.models.lfm2_moe.configuration_lfm2_moe import Lfm2MoeConfig
-from transformers.models.lfm2_moe.modeling_lfm2_moe import Lfm2MoeExperts
-from transformers.models.llama4.configuration_llama4 import (
-    Llama4Config,
-    Llama4TextConfig,
-)
-from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
-from transformers.models.mellum.configuration_mellum import MellumConfig
-from transformers.models.mellum.modeling_mellum import MellumExperts
-from transformers.models.minimax.configuration_minimax import MiniMaxConfig
-from transformers.models.minimax.modeling_minimax import MiniMaxExperts
-from transformers.models.minimax_m2.configuration_minimax_m2 import MiniMaxM2Config
-from transformers.models.minimax_m2.modeling_minimax_m2 import MiniMaxM2Experts
-from transformers.models.mixtral.configuration_mixtral import MixtralConfig
-from transformers.models.mixtral.modeling_mixtral import MixtralExperts
-from transformers.models.nemotron_h.configuration_nemotron_h import NemotronHConfig
-from transformers.models.nemotron_h.modeling_nemotron_h import NemotronHExperts
-from transformers.models.olmoe.configuration_olmoe import OlmoeConfig
-from transformers.models.olmoe.modeling_olmoe import OlmoeExperts
-from transformers.models.openai_privacy_filter.configuration_openai_privacy_filter import (  # noqa: E501
-    OpenAIPrivacyFilterConfig,
-)
-from transformers.models.openai_privacy_filter.modeling_openai_privacy_filter import (
-    OpenAIPrivacyFilterExperts,
-)
-from transformers.models.phimoe.configuration_phimoe import PhimoeConfig
-from transformers.models.phimoe.modeling_phimoe import PhimoeExperts
-from transformers.models.qwen2_moe.configuration_qwen2_moe import Qwen2MoeConfig
-from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeExperts
-from transformers.models.qwen3_5_moe.configuration_qwen3_5_moe import (
-    Qwen3_5MoeTextConfig,
-)
-from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeExperts
-from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
-from transformers.models.qwen3_next.configuration_qwen3_next import Qwen3NextConfig
-from transformers.models.qwen3_next.modeling_qwen3_next import Qwen3NextExperts
-from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
-    Qwen3VLMoeTextConfig,
-)
-from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
 
 from llmcompressor.modeling.moe.context import (
     moe_calibration_context,
 )
+from llmcompressor.modeling.moe.conversion_mappings import ARCH_TO_IMPORT_PATHS
 from llmcompressor.modeling.moe.helpers import (
     FusedExpertsProtocol,
     MoEConfig,
     _getattr_fallbacks,
+    import_or_none,
 )
 from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
 from tests.testing_utils import requires_gpu
@@ -104,6 +27,16 @@ from tests.testing_utils import requires_gpu
 NUM_TEST_TOKENS = 64
 MODEL_MSE = 1e-2
 MODULE_MSE = 1e-10
+CONFIG_OVERRIDES = {
+    "deepseek_ocr2": {"num_experts_per_tok": 16},
+    "deepseek_v3": {"hidden_size": 512, "moe_intermediate_size": 1024},
+    "cohere2_moe": {"hidden_size": 256, "intermediate_size": 256},
+    "gemma4": {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
+    "glm_moe_dsa": {"hidden_size": 512},
+    "hy_v3": {"hidden_size": 256, "moe_intermediate_size": 256, "num_experts": 16},
+    "jamba": {"hidden_size": 256, "intermediate_size": 256, "num_experts": 16},
+    "nemotron_h": {"hidden_size": 32, "moe_intermediate_size": 64},
+}
 
 
 @pytest.fixture
@@ -140,6 +73,14 @@ def patch_deepseek_fp32_modules():
                 "model.layers.2.mlp.experts.1.down_proj.weight",
             ],
         ),
+        (
+            "inference-optimization/GLM-5.2-0.8B-A0.8B",
+            [
+                "model.layers.2.mlp.experts.2.up_proj.weight",
+                "model.layers.3.mlp.experts.0.gate_proj.weight",
+                "model.layers.4.mlp.experts.1.down_proj.weight",
+            ],
+        ),
     ],
 )
 def test_load_quantizable_moe(
@@ -165,10 +106,10 @@ def test_load_quantizable_moe(
     save_dir = tmp_path / "save_path"
     os.mkdir(save_dir)
     model2.save_pretrained(save_dir)
-    assert keys_exist(save_dir, exp_keys)
+    assert_keys_exist(save_dir, exp_keys)
 
 
-def keys_exist(model_path: Path, keys: list[str]) -> bool:
+def assert_keys_exist(model_path: Path, keys: list[str]):
     """
     Utility to check that expected expert keys exist in a saved model.
 
@@ -187,7 +128,7 @@ def keys_exist(model_path: Path, keys: list[str]) -> bool:
         with safe_open(st_file, framework="pt", device="cpu") as f:
             all_keys.update(f.keys())
 
-    return keys <= all_keys
+    assert keys <= all_keys, all_keys
 
 
 class DummyModel(torch.nn.Module):
@@ -203,66 +144,18 @@ class DummyModel(torch.nn.Module):
 @torch.no_grad()
 @requires_gpu
 @pytest.mark.parametrize(
-    "config_cls,experts_cls,kwargs",
-    [
-        (AfmoeConfig, AfmoeExperts, {}),
-        (
-            Cohere2MoeConfig,
-            Cohere2MoeExperts,
-            {"hidden_size": 256, "intermediate_size": 256},
-        ),
-        (DeepseekOcr2TextConfig, DeepseekOcr2TextExperts, {"num_experts_per_tok": 16}),
-        (
-            DeepseekV3Config,
-            DeepseekV3NaiveMoe,
-            {"hidden_size": 512, "moe_intermediate_size": 1024},
-        ),
-        (DeepseekV4Config, DeepseekV4Experts, {}),
-        (ExaoneMoeConfig, ExaoneMoeExperts, {}),
-        (FlexOlmoConfig, FlexOlmoExperts, {}),
-        (
-            Gemma4TextConfig,
-            Gemma4TextExperts,
-            {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
-        ),
-        (Glm4MoeConfig, Glm4MoeNaiveMoe, {}),
-        (Glm4MoeLiteConfig, Glm4MoeLiteNaiveMoe, {}),
-        (GlmMoeDsaConfig, GlmMoeDsaNaiveMoe, {"hidden_size": 512}),
-        (GptOssConfig, GptOssExperts, {}),
-        (
-            HYV3Config,
-            HYV3Experts,
-            {"hidden_size": 256, "moe_intermediate_size": 256, "num_experts": 16},
-        ),
-        (
-            JambaConfig,
-            JambaExperts,
-            {"hidden_size": 256, "intermediate_size": 256, "num_experts": 16},
-        ),
-        (LagunaConfig, LagunaExperts, {}),
-        (Lfm2MoeConfig, Lfm2MoeExperts, {}),
-        (MellumConfig, MellumExperts, {}),
-        (MiniMaxConfig, MiniMaxExperts, {}),
-        (MiniMaxM2Config, MiniMaxM2Experts, {}),
-        (MixtralConfig, MixtralExperts, {}),
-        (
-            NemotronHConfig,
-            NemotronHExperts,
-            {"hidden_size": 32, "moe_intermediate_size": 64},
-        ),
-        (OlmoeConfig, OlmoeExperts, {}),
-        (OpenAIPrivacyFilterConfig, OpenAIPrivacyFilterExperts, {}),
-        (PhimoeConfig, PhimoeExperts, {}),
-        (Qwen2MoeConfig, Qwen2MoeExperts, {}),
-        (Qwen3_5MoeTextConfig, Qwen3_5MoeExperts, {}),
-        (Qwen3MoeConfig, Qwen3MoeExperts, {}),
-        (Qwen3NextConfig, Qwen3NextExperts, {}),
-        (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts, {}),
-    ],
+    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4", "granitemoe"})
 )
-def test_linearize_moe(config_cls, experts_cls, kwargs):
+def test_linearize_moe(model_type):
+    config_path, experts_path = ARCH_TO_IMPORT_PATHS[model_type]
+    config_cls = import_or_none(config_path)
+    experts_cls = import_or_none(experts_path)
+
+    assert config_cls is not None, f"Could not import config for {model_type}"
+    assert experts_cls is not None, f"Could not import experts for {model_type}"
+
     with torch.device("cuda"):
-        config = config_cls(**kwargs)
+        config = config_cls(**CONFIG_OVERRIDES.get(model_type, {}))
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
         up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
@@ -296,6 +189,16 @@ def test_linearize_moe(config_cls, experts_cls, kwargs):
 
 
 def test_linearize_moe_granite():
+    try:
+        from transformers.models.granitemoe.configuration_granitemoe import (
+            GraniteMoeConfig,
+        )
+        from transformers.models.granitemoe.modeling_granitemoe import (
+            GraniteMoeParallelExperts,
+        )
+    except ImportError:
+        pytest.skip("GraniteMoeParallelExperts has been removed")
+
     config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
     experts = GraniteMoeParallelExperts(
         config.num_local_experts, config.hidden_size, config.intermediate_size
@@ -323,6 +226,12 @@ def test_linearize_moe_granite():
 
 
 def test_linearize_moe_llama4():
+    from transformers.models.llama4.configuration_llama4 import (
+        Llama4Config,
+        Llama4TextConfig,
+    )
+    from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
+
     text_config = Llama4TextConfig(hidden_size=512, intermediate_size=1024)
     config = Llama4Config(text_config=text_config)
     experts = Llama4TextExperts(config.text_config)
