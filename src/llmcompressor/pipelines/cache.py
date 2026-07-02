@@ -53,9 +53,11 @@ class IntermediatesCache:
         self,
         batch_intermediates: list[IntermediateValues] | None = None,
         offload_device: torch.device | None = "cpu",
+        non_blocking: bool = True,
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
+        self.non_blocking = non_blocking
 
     @classmethod
     def empty(cls, num_batches: int, offload_device: torch.device):
@@ -102,7 +104,9 @@ class IntermediatesCache:
         return cls(batch_intermediates, offload_device)
 
     def fetch(
-        self, batch_index: int, input_names: list[str] | None = None
+        self,
+        batch_index: int,
+        input_names: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Fetch values belonging to a batch
@@ -256,8 +260,7 @@ class IntermediatesCache:
     def __len__(self) -> int:
         return len(self.batch_intermediates)
 
-    @classmethod
-    def _onload_value(cls, intermediate: IntermediateValue) -> Any:
+    def _onload_value(self, intermediate: IntermediateValue) -> Any:
         """
         Onload a value's tensors to the onload device
 
@@ -269,26 +272,34 @@ class IntermediatesCache:
 
         match value:
             case torch.Tensor():
+                # pin on-the-fly so only the active batch consumes pinned memory
+                if (
+                    self.non_blocking
+                    and not value.is_pinned()
+                    and value.device.type == "cpu"
+                ):
+                    value = value.pin_memory()
+
                 # use non_blocking when source is pinned and target is an accelerator
                 # so the H2D DMA can overlap with compute on a separate stream
-                non_blocking = (
+                use_non_blocking = (
                     value.is_pinned()
                     and device is not None
                     and torch.accelerator.is_available()
                     and torch.device(device).type
                     == torch.accelerator.current_accelerator().type
                 )
-                return value.to(device=device, non_blocking=non_blocking)
+                return value.to(device=device, non_blocking=use_non_blocking)
             case list():
-                return [cls._onload_value(v) for v in value]
+                return [self._onload_value(v) for v in value]
             case tuple():
-                return tuple(cls._onload_value(v) for v in value)
+                return tuple(self._onload_value(v) for v in value)
             case dict():
-                return {k: cls._onload_value(v) for k, v in value.items()}
+                return {k: self._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
                 for field in fields(value):
                     v = getattr(value, field.name)
-                    setattr(value, field.name, cls._onload_value(v))
+                    setattr(value, field.name, self._onload_value(v))
                 return value
             case _:
                 # handles primitive values that should be returned as is.
@@ -322,13 +333,6 @@ class IntermediatesCache:
                         # move to offload if no hit
                         offloaded = value.to(device=offload_device)
                         if offloaded is not value:  # avoid circular ref
-                            # pin CPU tensors so onload can use non_blocking DMA
-                            if (
-                                torch.device(offload_device).type == "cpu"
-                                and torch.accelerator.is_available()
-                                and not offloaded.is_pinned()
-                            ):
-                                offloaded = offloaded.pin_memory()
                             cls.offload_values[value] = offloaded
 
                 return IntermediateValue(
