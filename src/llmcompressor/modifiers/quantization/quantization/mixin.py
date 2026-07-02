@@ -264,10 +264,111 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
+        unobserved_kv_cache = self._collect_unobserved_kv_cache_observers(model)
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
+        self._validate_kv_cache_scales(model, unobserved_kv_cache)
         model.apply(enable_quantization)  # keep quantization enabled
+
+    def _collect_unobserved_kv_cache_observers(
+        self, model: torch.nn.Module
+    ) -> list[str]:
+        if self._skip_kv_cache_scale_validation():
+            return []
+
+        unobserved = []
+        for module_name, module in model.named_modules():
+            if not is_attention_module(module) or not hasattr(module, KV_CACHE_ATTR):
+                continue
+
+            for base_name in ("k", "v"):
+                observer = getattr(module, f"{base_name}_observer", None)
+                if observer is None or not observer.has_statistics:
+                    unobserved.append(
+                        self._format_kv_cache_param_name(
+                            module_name, f"{base_name}_observer"
+                        )
+                    )
+
+        return unobserved
+
+    def _validate_kv_cache_scales(
+        self,
+        model: torch.nn.Module,
+        unobserved_kv_cache: list[str],
+    ):
+        if self._skip_kv_cache_scale_validation():
+            return
+
+        invalid_scales = []
+        for module_name, module in model.named_modules():
+            if not is_attention_module(module) or not hasattr(module, KV_CACHE_ATTR):
+                continue
+
+            for base_name in ("k", "v"):
+                param_name = f"{base_name}_scale"
+                scale = getattr(module, param_name, None)
+                invalid_reason = self._get_invalid_scale_reason(scale)
+                if invalid_reason is not None:
+                    invalid_scales.append(
+                        f"{self._format_kv_cache_param_name(module_name, param_name)} "
+                        f"({invalid_reason})"
+                    )
+
+        if not unobserved_kv_cache and not invalid_scales:
+            return
+
+        details = []
+        if unobserved_kv_cache:
+            details.append(
+                "missing or unobserved calibration observers: "
+                f"{', '.join(unobserved_kv_cache)}"
+            )
+        if invalid_scales:
+            details.append(f"invalid scales: {', '.join(invalid_scales)}")
+
+        raise ValueError(
+            "KV cache quantization calibration failed. "
+            "KV cache scales must be observed and finite positive values before "
+            "saving a quantized checkpoint. "
+            f"Found {'; '.join(details)}. "
+            "This usually means the model accessed the KV cache without routing "
+            "key/value tensors through the calibration hooks."
+        )
+
+    def _skip_kv_cache_scale_validation(self) -> bool:
+        kv_cache_scheme = self.resolved_config.kv_cache_scheme
+        if kv_cache_scheme is None:
+            return True
+
+        dynamic = kv_cache_scheme.dynamic
+        return dynamic is True or dynamic == DynamicType.LOCAL
+
+    @staticmethod
+    def _get_invalid_scale_reason(scale: torch.Tensor | None) -> str | None:
+        if scale is None:
+            return "missing"
+
+        scale = scale.detach() if isinstance(scale, torch.Tensor) else torch.as_tensor(
+            scale
+        )
+        if scale.is_meta:
+            return "stored on meta device"
+        if scale.numel() == 0:
+            return "empty"
+
+        scale = scale.to(device="cpu")
+        if not torch.isfinite(scale).all().item():
+            return "non-finite"
+        if (scale <= 0).any().item():
+            return "non-positive"
+
+        return None
+
+    @staticmethod
+    def _format_kv_cache_param_name(module_name: str, param_name: str) -> str:
+        return f"{module_name}.{param_name}" if module_name else param_name
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
