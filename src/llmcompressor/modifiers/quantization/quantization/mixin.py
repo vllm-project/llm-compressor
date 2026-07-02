@@ -280,7 +280,11 @@ class QuantizationMixin(HooksMixin):
         for module_name, module in match_named_modules(
             model, self.resolved_targets, self.ignore
         ):
-            if is_attention_module(module) and hasattr(module, KV_CACHE_ATTR):
+            if (
+                hasattr(module, "quantization_scheme")
+                and is_attention_module(module)
+                and hasattr(module, KV_CACHE_ATTR)
+            ):
                 yield module_name, module
 
     def _collect_unobserved_kv_cache_observers(
@@ -291,6 +295,9 @@ class QuantizationMixin(HooksMixin):
 
         unobserved = []
         for module_name, module in self._iter_kv_cache_modules(model):
+            if module.quantization_status == QuantizationStatus.FROZEN:
+                continue
+
             for base_name in ("k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None or not observer.has_statistics:

@@ -203,3 +203,20 @@ def test_local_dynamic_kv_cache_calibration_skips_static_scale_validation():
     model, modifier, _ = _prepare_model(dim=16, num_layers=1, dynamic="local")
 
     modifier.end_calibration(model)
+
+
+def test_end_calibration_can_run_after_kv_cache_is_frozen():
+    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
+    _observe_kv_cache(attn_modules)
+
+    modifier.end_calibration(model)
+    modifier.end_calibration(model)
+
+    assert attn_modules[0][1].quantization_status == QuantizationStatus.FROZEN
+
+
+def test_kv_cache_validation_skips_modules_without_quantization_scheme():
+    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
+    delattr(attn_modules[0][1], "quantization_scheme")
+
+    modifier.end_calibration(model)
