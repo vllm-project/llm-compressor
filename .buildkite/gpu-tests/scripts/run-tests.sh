@@ -60,7 +60,7 @@ elif [ "${TEST_TYPE}" = "transformers" ]; then
   echo "+++ Running transformers tests"
   COV_APPEND=""
   for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
-    echo "--- Running: ${test_file}"
+    echo "=== Running: ${test_file} ==="
     pytest -vra ${COV_APPEND} "${test_file}" || TEST_EXIT_CODE=$?
     if [ "${CODE_COVERAGE}" = "true" ]; then
       COV_APPEND="--cov-append"

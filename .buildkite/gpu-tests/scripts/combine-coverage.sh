@@ -9,7 +9,7 @@ fi
 
 echo "--- Installing system packages"
 git fetch --tags --unshallow 2>/dev/null || git fetch --tags
-apt-get update -qq && apt-get install -y -qq curl make python3-dev
+apt-get update -qq && apt-get install -y -qq curl python3-dev
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -21,7 +21,7 @@ source covenv/bin/activate
 export UV_TORCH_BACKEND=auto
 uv pip install -U setuptools
 uv pip install coverage setuptools-scm
-make build
+python3 setup.py sdist bdist_wheel
 
 echo "--- Downloading coverage artifacts"
 buildkite-agent artifact download ".coverage.*" .
