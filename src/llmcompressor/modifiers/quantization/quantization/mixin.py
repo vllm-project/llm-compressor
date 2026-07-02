@@ -261,6 +261,8 @@ class QuantizationMixin(HooksMixin):
         Remove calibration hooks and observers, and set the model status to frozen.
         Keep quantization enabled for future operations
 
+        :raises ValueError: if static KV cache quantization scales are invalid or
+            unobserved
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
@@ -271,6 +273,15 @@ class QuantizationMixin(HooksMixin):
         self._validate_kv_cache_scales(model, unobserved_kv_cache)
         model.apply(enable_quantization)  # keep quantization enabled
 
+    def _iter_kv_cache_modules(
+        self, model: torch.nn.Module
+    ) -> Iterator[tuple[str, torch.nn.Module]]:
+        for module_name, module in match_named_modules(
+            model, self.resolved_targets, self.ignore
+        ):
+            if is_attention_module(module) and hasattr(module, KV_CACHE_ATTR):
+                yield module_name, module
+
     def _collect_unobserved_kv_cache_observers(
         self, model: torch.nn.Module
     ) -> list[str]:
@@ -278,10 +289,7 @@ class QuantizationMixin(HooksMixin):
             return []
 
         unobserved = []
-        for module_name, module in model.named_modules():
-            if not is_attention_module(module) or not hasattr(module, KV_CACHE_ATTR):
-                continue
-
+        for module_name, module in self._iter_kv_cache_modules(model):
             for base_name in ("k", "v"):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer is None or not observer.has_statistics:
@@ -302,10 +310,7 @@ class QuantizationMixin(HooksMixin):
             return
 
         invalid_scales = []
-        for module_name, module in model.named_modules():
-            if not is_attention_module(module) or not hasattr(module, KV_CACHE_ATTR):
-                continue
-
+        for module_name, module in self._iter_kv_cache_modules(model):
             for base_name in ("k", "v"):
                 param_name = f"{base_name}_scale"
                 scale = getattr(module, param_name, None)

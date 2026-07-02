@@ -68,9 +68,10 @@ class _StubModel(nn.Module):
         return x
 
 
-def _kv_cache_modifier(dynamic: bool = False):
+def _kv_cache_modifier(dynamic: bool = False, ignore: list[str] | None = None):
     return QuantizationModifier(
         targets=["Linear"],
+        ignore=ignore or [],
         kv_cache_scheme=QuantizationArgs(
             num_bits=8,
             type="float",
@@ -85,9 +86,14 @@ def _attention_modules(model):
     return [(name, m) for name, m in model.named_modules() if is_attention_module(m)]
 
 
-def _prepare_model(dim: int = 16, num_layers: int = 2):
+def _prepare_model(
+    dim: int = 16,
+    num_layers: int = 2,
+    dynamic: bool = False,
+    ignore: list[str] | None = None,
+):
     model = _StubModel(dim=dim, num_layers=num_layers)
-    modifier = _kv_cache_modifier()
+    modifier = _kv_cache_modifier(dynamic=dynamic, ignore=ignore)
     attn_modules = _attention_modules(model)
 
     apply_quantization_config(model, modifier.resolved_config)
@@ -158,3 +164,22 @@ def test_kv_cache_calibration_rejects_zero_scales():
     error_message = str(exc_info.value)
     assert "layers.0.attention.k_scale" in error_message
     assert "non-positive" in error_message
+
+
+def test_kv_cache_calibration_respects_ignore_list():
+    model, modifier, attn_modules = _prepare_model(
+        dim=16,
+        num_layers=2,
+        ignore=["layers.1.attention"],
+    )
+    _observe_kv_cache([attn_modules[0]])
+    attn_modules[1][1].k_scale.data.zero_()
+    attn_modules[1][1].v_scale.data.zero_()
+
+    modifier.end_calibration(model)
+
+
+def test_dynamic_kv_cache_calibration_skips_static_scale_validation():
+    model, modifier, _ = _prepare_model(dim=16, num_layers=1, dynamic=True)
+
+    modifier.end_calibration(model)
