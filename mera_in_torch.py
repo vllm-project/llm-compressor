@@ -1,202 +1,150 @@
-import quimb.tensor as qtn
-import quimb
 import torch
-import tqdm
-import warnings
-import cotengra as ctg
-
-# our ansatz and hamiltonian
-seq_len = 128
-hidden_dim = 2
-MAX_BOND = 2
-N_EPOCHS = 40
+import quimb.tensor as qtn
+from torch.utils.data import TensorDataset, DataLoader
+from generate_tree_dataset import generate_power_law_tree_dataset
 
 
-def norm_fn(psi: qtn.MERA):
-    # parametrize our tensors as isometric/unitary
-    # return psi.isometrize(method="cayley")
-    return psi.isometrize(method="exp")
-
-
-# def loss_fn(psi: qtn.MERA, ham: qtn.LocalHam1D, optimize="auto-hq"):
-#     # compute the total energy, here quimb handles constructing
-#     # and contracting all the appropriate lightcones
-#     return psi.compute_local_expectation(ham, max_bond=MAX_BOND, optimize=optimize)
-
-
-# def loss_fn(mera, terms, **kwargs):
-#     """Compute the total energy as a sum of all terms."""
-
-#     def local_expectation(mera, terms, where, optimize="auto-hq"):
-#         """Compute the energy for a single local term."""
-#         # get the lightcone for `where`
-#         tags = [mera.site_tag(coo) for coo in where]
-#         mera_ij = mera.select(tags, "any")
-
-#         # apply the local gate
-#         G = terms[where]
-#         mera_ij_G = mera_ij.gate(terms[where], where)
-
-#         # compute the overlap - this is where the real computation happens
-#         mera_ij_ex = mera_ij_G & mera_ij.H
-#         return mera_ij_ex.contract(all, optimize=optimize)
-
-#     return sum(local_expectation(mera, terms, where, **kwargs) for where in terms)
-
-
-def loss_fn(psi: qtn.MERA, ham: qtn.LocalHam1D, optimize="auto-hq"):
-    """Compute the total energy as a sum of all terms."""
-
-    total_energy = 0.0
-
-    # Force JAX to look at each local interaction pair independently
-    for sites, operator in ham.terms.items():
-        # compute expectation for JUST this localized pair
-        # This keeps the lightcone tight, small, and un-flattened
-        total_energy += psi.compute_local_expectation(
-            {sites: operator}, max_bond=MAX_BOND, optimize=optimize
-        )
-
-    return total_energy
-
-
-class MeraModel(torch.nn.Module):
-    def __init__(self, tn):
+class MeraLayer(torch.nn.Module):
+    def __init__(self, in_dim, out_dim):
         super().__init__()
-        # extract the raw arrays and a skeleton of the TN
-        params, self.skeleton = qtn.pack(tn)
-        # n.b. you might want to do extra processing here to e.g. store each
-        # parameter as a reshaped matrix (from left_inds -> right_inds), for
-        # some optimizers, and for some torch parametrizations
-        self.torch_params = torch.nn.ParameterDict(
-            {
-                # torch requires strings as keys
-                str(i): torch.nn.Parameter(initial)
-                for i, initial in params.items()
-            }
+        self.u = torch.nn.Parameter(
+            torch.eye(in_dim**2).view(in_dim, in_dim, in_dim, in_dim)
         )
+        self.w = torch.nn.Parameter(torch.randn(in_dim, in_dim, out_dim) * 0.1)
+        self.project_to_stiefel()
 
-    def get_psi(self):
-        # Reconstruct the current Tensor Network state
-        params = {int(i): p for i, p in self.torch_params.items()}
-        psi = qtn.unpack(params, self.skeleton)
-        return norm_fn(psi)
+    @torch.no_grad()
+    def project_to_stiefel(self):
+        shape_u = self.u.shape
+        u_mat = self.u.view(shape_u[0] * shape_u[1], -1)
+        U, _, Vh = torch.linalg.svd(u_mat, full_matrices=False)
+        self.u.copy_((U @ Vh).view(shape_u))
+
+        shape_w = self.w.shape
+        w_mat = self.w.view(shape_w[0] * shape_w[1], -1)
+        U, _, Vh = torch.linalg.svd(w_mat, full_matrices=False)
+        self.w.copy_((U @ Vh).view(shape_w))
 
 
+class ClassicalMeraNetwork(torch.nn.Module):
+    def __init__(self, seq_len, hidden_dim, max_bond):
+        super().__init__()
+        self.seq_len = seq_len
+        self.layer1 = MeraLayer(hidden_dim, max_bond)
+
+        # The output features will be exactly equal to max_bond (8 channels)
+        self.total_flat_features = max_bond
+        self.regression_head = torch.nn.Linear(self.total_flat_features, 1)
+
+    def forward(self, x):
+        batch_size, seq_len, hidden_dim = x.shape
+        batch_outputs = []
+        num_output_legs = seq_len // 2
+
+        for b in range(batch_size):
+            tensors = []
+            for i in range(seq_len):
+                tensors.append(
+                    qtn.Tensor(data=x[b, i], inds=(f"phys_{i}",), tags={f"INPUT_{i}"})
+                )
+            tn = qtn.TensorNetwork(tensors)
+
+            # 1. Apply Layer 1 Disentanglers
+            for i in range(0, seq_len, 2):
+                next_i = (i + 1) % seq_len
+                tn &= qtn.Tensor(
+                    data=self.layer1.u,
+                    inds=(f"phys_{i}", f"phys_{next_i}", f"u1_{i}", f"u1_{next_i}"),
+                    tags={"L1_U"},
+                )
+
+            # 2. Apply Layer 1 Isometries
+            for i in range(0, seq_len, 2):
+                next_i = (i + 1) % seq_len
+                tn &= qtn.Tensor(
+                    data=self.layer1.w,
+                    inds=(f"u1_{i}", f"u1_{next_i}", f"scale1_{i//2}"),
+                    tags={"L1_W"},
+                )
+
+            # 3. FIXED: Spatial Identity Average Pooling Matrix
+            # Create an [8, 8] identity matrix scaled by 1 / num_legs
+            # This routes channel i of site j directly to channel i of the global feature
+            pool_matrix = (
+                torch.eye(self.layer1.w.shape[-1], device=x.device) / num_output_legs
+            )
+
+            for j in range(num_output_legs):
+                tn &= qtn.Tensor(
+                    data=pool_matrix,
+                    inds=(f"scale1_{j}", "global_feature"),
+                    tags={"MEAN_POOL"},
+                )
+
+            # 4. Contract down to the 8-dimensional global feature channel index
+            sample_compressed = tn.contract(
+                output_inds=["global_feature"], optimize="greedy"
+            )
+
+            # sample_compressed.data now has the perfect shape: torch.Size([8])
+            batch_outputs.append(sample_compressed.data)
+
+        feature_matrix = torch.stack(batch_outputs)  # Shape: [Batch, max_bond]
+        predictions = self.regression_head(feature_matrix)
+        return predictions.squeeze(-1)
+
+
+# ==========================================
+# Training Loop Verification
+# ==========================================
 if __name__ == "__main__":
-    warnings.filterwarnings(
-        action="ignore", message=".*The contraction tree is not a compressed one.*"
-    )
-    device = (
-        torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    )
-    psi: qtn.MERA = qtn.MERA.rand_invar(
-        seq_len, phys_dim=hidden_dim, max_bond=MAX_BOND, seed=42, cyclic=False
-    )
-    ham: qtn.LocalHam1D = qtn.ham_1d_heis(seq_len)
+    total_samples = 1
+    batch_size = 1
+    seq_len = 4096
+    hidden_dim = 4
+    max_bond = 8
+    epochs = 50
 
-    psi.apply_to_arrays(lambda x: torch.tensor(x, dtype=torch.float32).to(device))
-    ham.apply_to_arrays(lambda x: torch.tensor(x, dtype=torch.float32).to(device))
-
-    # psi.draw(
-    #     color=["UNI", "ISO"],
-    #     fix={psi.site_ind(i): (i, 0) for i in range(seq_len)},
-    # )
-
-    print("CREATING MODEL")
-    model = MeraModel(psi)
-
-    print("CREATING HYPEROPTIMIZER")
-    # opt = "branch-2"
-    opt = ctg.ReusableHyperOptimizer(
-        progbar=True,
-        reconf_opts={},
-        max_repeats=16,
-        parallel="threads",
-        # directory=  # set this for persistent cache
+    print("Generating Dataset...")
+    raw_data = generate_power_law_tree_dataset(
+        total_samples, seq_len, hidden_dim, alpha=0.7
     )
 
-    with torch.no_grad():
-        # print("INITIAL LOSS", loss_fn(psi, ham, optimize=opt))
-        print("INITIAL OVERLAP", psi.H @ psi)
+    # Scale up target magnitude so the loss values are human-readable
+    mock_targets = torch.mean(raw_data, dim=[1, 2]) * 100.0
 
+    dataset = TensorDataset(raw_data, mock_targets)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    model = ClassicalMeraNetwork(seq_len, hidden_dim, max_bond)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    criterion = torch.nn.MSELoss()
 
-    print("TRAINING")
-    for epoch in (pbar := tqdm.tqdm(range(N_EPOCHS))):
-        optimizer.zero_grad()
+    print("\n" + "=" * 50)
+    print("STARTING REAL MERA TRAINING LOOP")
+    print("=" * 50)
+
+    for epoch in range(epochs):
         epoch_loss = 0.0
 
-        for sites, operator in ham.terms.items():
-            # 1. Regenerate a clean, isolated forward graph for this step
-            current_psi = model.get_psi()
+        for batch_x, batch_y in dataloader:
+            optimizer.zero_grad()
 
-            # 2. Extract ONLY the tensors inside the causal cone for these sites
-            site_tags = [current_psi.site_tag(s) for s in sites]
-            causal_cone = current_psi.select(site_tags, which="any")
+            # Forward pass through MERA + Linear Head
+            predictions = model(batch_x)
 
-            # 3. Apply the local Hamiltonian gate matrix to the cone
-            # (By default, quimb handles index matching for gates)
-            causal_cone_with_gate = causal_cone.gate(operator, sites)
+            loss = criterion(predictions, batch_y)
+            loss.backward()
+            optimizer.step()
 
-            # 4. Form the lazy inner product network: <psi_cone | H_local | psi_cone>
-            # The .H operator cleanly flips the bra/ket indices
-            local_expectation_network = causal_cone_with_gate & causal_cone.H
+            # Enforce the multi-scale physics manifold mapping
+            model.layer1.project_to_stiefel()
 
-            # 5. Contract the entire block in one perfectly-optimized pairwise sequence.
-            # Because we contract 'all', 'greedy' can smoothly zip up matching legs
-            # layer-by-layer without ever crossing PyTorch's 25-dimension threshold!
-            local_loss = local_expectation_network.contract(all, optimize=opt)
+            epoch_loss += loss.item() * batch_x.size(0)
 
-            # 6. Backpropagate and clear the VRAM for this term immediately
-            local_loss.backward()
+        total_epoch_loss = epoch_loss / total_samples
+        print(
+            f"Epoch {epoch+1:02d}/{epochs} | Avg Training Loss: {total_epoch_loss:.3e}"
+        )
 
-            epoch_loss += local_loss.item()
-
-        optimizer.step()
-        pbar.set_description(f"Energy (Loss): {epoch_loss:.6f}")
-
-    # for _ in (pbar := tqdm.tqdm(range(N_EPOCHS))):
-    #     optimizer.zero_grad()
-    #     epoch_loss = 0.0
-
-    #     # 4. CRITICAL: Accumulate gradients term-by-term
-    #     for sites, operator in ham.terms.items():
-    #         current_psi = model.get_psi()
-    #         # Compute expectation value for ONLY this local pair
-    #         local_loss = current_psi.compute_local_expectation(
-    #             {sites: operator}, max_bond=MAX_BOND, optimize=opt
-    #         )
-
-    #         # Backpropagate this isolated term immediately
-    #         local_loss.backward()
-
-    #         # Track the total energy scalar
-    #         epoch_loss += local_loss.item()
-
-    #     # 5. Take an optimization step once all terms have accumulated
-    #     optimizer.step()
-
-    #     pbar.set_description(f"Energy (Loss): {epoch_loss:.6f}")
-
-    # for _ in pbar:
-    #     optimizer.zero_grad()
-    #     loss = model(ham)
-    #     loss.backward()
-    #     optimizer.step()
-    #     pbar.set_description(f"Loss: {loss}")
-
-    mera_opt = psi.copy()
-    params = {
-        int(i): model.torch_params.get_parameter(str(i)).detach()
-        for i in mera_opt.get_params()
-    }
-    mera_opt.set_params(params)
-
-    # then we want the constrained form
-    mera_opt = norm_fn(mera_opt)
-
-    # compute the energy
-    with torch.no_grad():
-        # print("FINAL LOSS", loss_fn(mera_opt, ham, optimize=opt))
-        print("FINAL OVERLAP", mera_opt.H @ mera_opt)
+    print("\nTRAINING COMPLETE!")
