@@ -7,13 +7,8 @@ import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
-from compressed_tensors.offload import from_accelerate, to_accelerate
+from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated
-
-try:
-    from compressed_tensors.offload import tie_offload_parameter
-except ImportError:  # compressed-tensors without the tie-offload primitive
-    tie_offload_parameter = None
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -31,28 +26,16 @@ _PACKED_PARAM_NAMES = ("weight_packed", "weight_scale", "weight_shape")
 def _tie_offload_parameter(dst_module, dst_name, src_module, src_name):
     """Alias dst's compressed parameter to src's storage (no copy).
 
-    Compressed parameters live in a compressed-tensors offload cache, whose
-    ``__setitem__`` copies into the module's own storage, leaving two
-    independent tensors. Prefer the compressed-tensors ``tie_offload_parameter``
-    primitive; fall back to aliasing the offload cache directly on versions
-    without it.
+    Compressed parameters live in a compressed-tensors offload cache whose
+    ``__setitem__`` copies into the module's own storage, leaving two independent
+    tensors. Under ``disable_onloading`` the read and the assignment both go by
+    reference, so the two modules end up sharing one tensor and save-time
+    de-duplication keeps a single copy. The context can be dropped once
+    compressed-tensors makes ``__setitem__`` a non-copying replacement
+    (vllm-project/compressed-tensors#709).
     """
-    if tie_offload_parameter is not None:
-        tie_offload_parameter(dst_module, dst_name, src_module, src_name)
-        return
-
-    dst_params = dst_module._parameters
-    src_params = src_module._parameters
-    src_offloaded = getattr(src_params, "offloaded_values", None)
-    dst_offloaded = getattr(dst_params, "offloaded_values", None)
-    if (
-        src_offloaded is not None
-        and dst_offloaded is not None
-        and src_name in src_offloaded
-    ):
-        dst_offloaded[dst_name] = src_offloaded[src_name]
-    else:
-        dst_params[dst_name] = src_params[src_name]
+    with OffloadCache.disable_onloading():
+        setattr(dst_module, dst_name, getattr(src_module, src_name))
 
 
 def _retie_quantized_embeddings(model: PreTrainedModel):
