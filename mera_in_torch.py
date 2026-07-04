@@ -101,13 +101,15 @@ if __name__ == "__main__":
     total_samples = 1
     batch_size = 1
     seq_len = 4096
-    hidden_dim = 4
+    hidden_dim = 32
     max_bond = 8
     epochs = 50
 
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     print("Generating Dataset...")
     raw_data = generate_power_law_tree_dataset(
-        total_samples, seq_len, hidden_dim, alpha=0.7
+        total_samples, seq_len, hidden_dim, alpha=0.7, device=device
     )
 
     # Scale up target magnitude so the loss values are human-readable
@@ -116,7 +118,7 @@ if __name__ == "__main__":
     dataset = TensorDataset(raw_data, mock_targets)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    model = ClassicalMeraNetwork(seq_len, hidden_dim, max_bond)
+    model = ClassicalMeraNetwork(seq_len, hidden_dim, max_bond).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     criterion = torch.nn.MSELoss()
 
