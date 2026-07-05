@@ -1,5 +1,7 @@
+import datetime
 import os
 import weakref
+from contextlib import contextmanager
 from functools import wraps
 
 import torch
@@ -150,22 +152,22 @@ def modify_save_pretrained(model: PreTrainedModel):
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
-            if is_source_process():
-                # save model structure
-                original_save_fn.__get__(model, model_class)(save_directory, **kwargs)
+            with suspend_distributed_timeout():
+                if is_source_process():
+                    # save model structure
+                    original_save_fn.__get__(model, model_class)(
+                        save_directory, **kwargs
+                    )
 
-                # update config to reflect quantization
-                compressor.update_config(save_directory)
+                    # update config to reflect quantization
+                    compressor.update_config(save_directory)
 
-                # update existing recipe
-                update_and_save_recipe(model.name_or_path, save_directory)
+                    # update existing recipe
+                    update_and_save_recipe(model.name_or_path, save_directory)
 
-                # copy python files from cache dir to save_path if any
-                copy_python_files_from_model_cache(model, save_directory)
+                    # copy python files from cache dir to save_path if any
+                    copy_python_files_from_model_cache(model, save_directory)
 
-            # synchronize before converting back from accelerate
-            if dist.is_initialized():
-                dist.barrier()
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
 
@@ -271,3 +273,38 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+@contextmanager
+def suspend_distributed_timeout(
+    timeout: datetime.timedelta = datetime.timedelta(hours=3),
+    current_group: dist.ProcessGroup | None = None,
+):
+    """
+    Context manager that extends the timeout for distributed operations.
+
+    Creates a temporary process group with an extended timeout to prevent
+    timeout errors during long-running operations (e.g., model saving) in
+    distributed training environments. The context manager synchronizes all
+    processes before and after the operation using barriers.
+
+    :param timeout: The extended timeout for the temporary process group.
+        Defaults to 3 hours
+    :param current_group: The current process group to synchronize. If None,
+        defaults to dist.group.WORLD
+    """
+    if not dist.is_initialized():
+        yield
+        return
+
+    if current_group is None:
+        current_group = dist.group.WORLD
+    suspend_group = dist.new_group(backend="gloo", timeout=timeout)
+
+    try:
+        dist.barrier(group=current_group)
+        yield
+    finally:
+        dist.barrier(group=suspend_group)
+        dist.barrier(group=current_group)
+        dist.destroy_process_group(group=suspend_group)

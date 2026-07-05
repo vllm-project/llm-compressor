@@ -1,8 +1,14 @@
+import datetime
+import os
+import time
+
 import pytest
 import torch
+import torch.distributed as dist
 from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors.compressors.format import infer_model_format
+from compressed_tensors.distributed import is_source_process
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
@@ -14,9 +20,10 @@ from transformers import AutoModelForCausalLM
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
+    suspend_distributed_timeout,
 )
 from llmcompressor.utils import untie_word_embeddings
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import requires_gpu, torchrun
 
 
 @requires_gpu
@@ -311,3 +318,26 @@ def test_correct_compressor_inferred(
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
     assert infer_model_format(model) == expected_format
+
+
+@requires_gpu(2)
+@torchrun(world_size=2, init_dist=False)
+def test_suspend_distributed_timeout():
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{local_rank}")
+
+    dist.init_process_group(
+        backend="nccl",
+        init_method="env://",
+        rank=rank,
+        world_size=world_size,
+        device_id=device,
+        timeout=datetime.timedelta(seconds=10),
+    )
+    dist.barrier()
+
+    with suspend_distributed_timeout(datetime.timedelta(seconds=30)):
+        if is_source_process():
+            time.sleep(20)
