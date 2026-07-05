@@ -246,9 +246,6 @@ class QuantizationMixin(HooksMixin):
         """
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
-            # Untie so the input and output embeddings can be quantized
-            # independently (each gets its own qparams). They are re-tied at save
-            # if they end up identical (see `_retie_quantized_embeddings`).
             untie_word_embeddings(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
