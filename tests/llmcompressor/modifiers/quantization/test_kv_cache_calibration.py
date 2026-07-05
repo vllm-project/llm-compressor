@@ -1,10 +1,9 @@
 """
-Tests for calibration validation on quantized modules.
+Tests for static KV-cache calibration scale validation.
 
-KV cache quantization relies on key/value observers collecting calibration
-statistics before the final k_scale/v_scale values are frozen. These tests use
-small CPU-only stubs so the calibration lifecycle can be validated without
-downloading a model.
+KV-cache quantization relies on key/value observers collecting calibration
+statistics before k_scale/v_scale are saved. These tests use small CPU-only
+stubs so the calibration lifecycle can be validated without downloading a model.
 """
 
 import pytest
@@ -12,25 +11,18 @@ import torch
 import torch.nn as nn
 from compressed_tensors.quantization import (
     QuantizationArgs,
-    QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
     is_attention_module,
 )
 from transformers import PretrainedConfig
 
-from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
-from llmcompressor.observers.min_max import StaticMinMaxObserver
 
 
 class _StubAttention(nn.Module):
-    """Minimal attention module recognized by is_attention_module().
-
-    is_attention_module checks: "attention" in class name (lowercase) and
-    hasattr(k_proj) or hasattr(v_proj).
-    """
+    """Minimal attention module recognized by is_attention_module()."""
 
     def __init__(self, dim: int = 16):
         super().__init__()
@@ -71,15 +63,6 @@ class _StubModel(nn.Module):
         return x
 
 
-class _EmbeddingModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.embed = nn.Embedding(8, 4)
-
-    def forward(self, input_ids):
-        return self.embed(input_ids)
-
-
 def _quant_args(dynamic: bool | str = False):
     strategy = "tensor_group" if dynamic == "local" else "tensor"
     group_size = 16 if dynamic == "local" else None
@@ -102,33 +85,11 @@ def _kv_cache_modifier(dynamic: bool | str = False, ignore: list[str] | None = N
     )
 
 
-def _linear_modifier():
-    args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
-    return QuantizationModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=args,
-                input_activations=args,
-            )
-        }
-    )
-
-
-def _embedding_modifier():
-    args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
-    return QuantizationModifier(
-        config_groups={
-            "group_0": QuantizationScheme(targets=["Embedding"], weights=args)
-        }
-    )
-
-
 def _attention_modules(model):
     return [(name, m) for name, m in model.named_modules() if is_attention_module(m)]
 
 
-def _prepare_model(
+def _prepare_kv_model(
     dim: int = 16,
     num_layers: int = 2,
     dynamic: bool | str = False,
@@ -161,27 +122,9 @@ def _observe_kv_cache(attn_modules, dim: int = 16):
         update_qparams(module, ("k", "v"))
 
 
-def test_observer_tracks_num_observations():
-    args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
-    observer = StaticMinMaxObserver(base_name="input", args=args)
-
-    assert observer.num_observations == 0
-    assert not observer.has_statistics
-
-    observer(torch.empty(0))
-    assert observer.num_observations == 0
-
-    observer(torch.ones(2, 4))
-    assert observer.num_observations == 1
-    assert observer.has_statistics
-
-    observer(torch.full((2, 4), 2.0))
-    assert observer.num_observations == 2
-
-
 def test_attention_module_not_named_self_attn_gets_calibrated():
     """Attention modules named 'attention' should still get KV observers/hooks."""
-    model, modifier, attn_modules = _prepare_model(dim=16)
+    model, modifier, attn_modules = _prepare_kv_model(dim=16)
 
     assert len(attn_modules) == 2, "Expected 2 attention modules in _StubModel"
     for name, module in attn_modules:
@@ -209,18 +152,18 @@ def test_attention_module_not_named_self_attn_gets_calibrated():
         )
 
 
-def test_kv_cache_calibration_requires_observed_scales():
-    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
+def test_static_kv_cache_calibration_requires_observed_kv_tensors():
+    model, modifier, attn_modules = _prepare_kv_model(dim=16, num_layers=1)
     _observe_weight_observers(model)
 
     with pytest.raises(ValueError) as exc_info:
         modifier.end_calibration(model)
 
     error_message = str(exc_info.value)
-    assert "Quantization calibration failed" in error_message
+    assert "KV-cache quantization calibration failed" in error_message
     assert "layers.0.attention.k_observer" in error_message
     assert "layers.0.attention.v_observer" in error_message
-    assert "invalid static KV-cache scales" not in error_message
+    assert "update(...) API" in error_message
 
     attention = attn_modules[0][1]
     assert attention.quantization_status == QuantizationStatus.CALIBRATION
@@ -228,30 +171,52 @@ def test_kv_cache_calibration_requires_observed_scales():
     assert hasattr(attention, "v_observer")
 
 
-def test_kv_cache_calibration_rejects_zero_and_non_finite_scales():
-    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
+@pytest.mark.parametrize("scale_name", ["k_scale", "v_scale"])
+def test_static_kv_cache_calibration_rejects_zero_scales(scale_name):
+    model, modifier, attn_modules = _prepare_kv_model(dim=16, num_layers=1)
     _observe_weight_observers(model)
     _observe_kv_cache(attn_modules)
-    attn_modules[0][1].k_scale.data.zero_()
+    getattr(attn_modules[0][1], scale_name).data.zero_()
+
+    with pytest.raises(ValueError) as exc_info:
+        modifier.end_calibration(model)
+
+    error_message = str(exc_info.value)
+    assert f"layers.0.attention.{scale_name}" in error_message
+    assert "non-positive" in error_message
+
+
+@pytest.mark.parametrize("scale_name", ["k_scale", "v_scale"])
+def test_static_kv_cache_calibration_rejects_missing_scales(scale_name):
+    model, modifier, attn_modules = _prepare_kv_model(dim=16, num_layers=1)
+    _observe_weight_observers(model)
+    _observe_kv_cache(attn_modules)
+    delattr(attn_modules[0][1], scale_name)
+
+    with pytest.raises(ValueError) as exc_info:
+        modifier.end_calibration(model)
+
+    error_message = str(exc_info.value)
+    assert f"layers.0.attention.{scale_name}" in error_message
+    assert "missing" in error_message
+
+
+def test_static_kv_cache_calibration_rejects_non_finite_scales():
+    model, modifier, attn_modules = _prepare_kv_model(dim=16, num_layers=1)
+    _observe_weight_observers(model)
+    _observe_kv_cache(attn_modules)
     attn_modules[0][1].v_scale.data.fill_(float("nan"))
 
     with pytest.raises(ValueError) as exc_info:
         modifier.end_calibration(model)
 
     error_message = str(exc_info.value)
-    assert "layers.0.attention.k_scale" in error_message
-    assert "non-positive" in error_message
     assert "layers.0.attention.v_scale" in error_message
     assert "non-finite" in error_message
 
-    attention = attn_modules[0][1]
-    assert attention.quantization_status == QuantizationStatus.CALIBRATION
-    assert hasattr(attention, "k_observer")
-    assert hasattr(attention, "v_observer")
 
-
-def test_kv_cache_calibration_respects_ignore_list():
-    model, modifier, attn_modules = _prepare_model(
+def test_static_kv_cache_calibration_respects_ignore_list():
+    model, modifier, attn_modules = _prepare_kv_model(
         dim=16,
         num_layers=2,
         ignore=["layers.1.attention"],
@@ -265,21 +230,21 @@ def test_kv_cache_calibration_respects_ignore_list():
 
 
 def test_dynamic_kv_cache_calibration_skips_static_scale_validation():
-    model, modifier, _ = _prepare_model(dim=16, num_layers=1, dynamic=True)
+    model, modifier, _ = _prepare_kv_model(dim=16, num_layers=1, dynamic=True)
     _observe_weight_observers(model)
 
     modifier.end_calibration(model)
 
 
 def test_local_dynamic_kv_cache_calibration_skips_static_scale_validation():
-    model, modifier, _ = _prepare_model(dim=16, num_layers=1, dynamic="local")
+    model, modifier, _ = _prepare_kv_model(dim=16, num_layers=1, dynamic="local")
     _observe_weight_observers(model)
 
     modifier.end_calibration(model)
 
 
-def test_end_calibration_can_run_after_kv_cache_is_frozen():
-    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
+def test_end_calibration_can_run_after_static_kv_cache_is_frozen():
+    model, modifier, attn_modules = _prepare_kv_model(dim=16, num_layers=1)
     _observe_weight_observers(model)
     _observe_kv_cache(attn_modules)
 
@@ -290,82 +255,12 @@ def test_end_calibration_can_run_after_kv_cache_is_frozen():
     assert attn_modules[0][1].quantization_status == QuantizationStatus.FROZEN
 
 
-def test_kv_cache_validation_skips_modules_without_quantization_scheme():
-    model, modifier, attn_modules = _prepare_model(dim=16, num_layers=1)
-    delattr(attn_modules[0][1], "quantization_scheme")
-    _observe_weight_observers(model)
+def test_non_kv_quantization_flow_is_not_validated():
+    model = nn.Sequential(nn.Linear(4, 4))
+    modifier = QuantizationModifier(targets=["Linear"])
 
+    apply_quantization_config(model, modifier.resolved_config)
+    modifier.start_calibration(model)
     modifier.end_calibration(model)
 
-
-def test_sequential_epoch_end_validates_current_linear_chunk():
-    model = nn.Sequential(nn.Linear(4, 4))
-    modifier = _linear_modifier()
-    state = State(model=model)
-
-    modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
-
-    with pytest.raises(ValueError) as exc_info:
-        modifier.on_sequential_epoch_end(
-            state,
-            Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model.modules()),
-        )
-
-    error_message = str(exc_info.value)
-    assert "0.input_observer" in error_message
-    assert "0.weight_observer" not in error_message
-
-
-def test_local_dynamic_output_activation_observer_is_not_required():
-    model = nn.Sequential(nn.Linear(16, 16))
-    weight_args = QuantizationArgs(
-        num_bits=8,
-        type="int",
-        symmetric=True,
-        strategy="tensor",
-    )
-    output_args = QuantizationArgs(
-        num_bits=8,
-        type="float",
-        symmetric=True,
-        strategy="tensor_group",
-        group_size=16,
-        dynamic="local",
-    )
-    modifier = QuantizationModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=weight_args,
-                output_activations=output_args,
-            )
-        }
-    )
-    state = State(model=model)
-
-    modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
-
-    assert not hasattr(model[0], "output_observer")
-    observe(model[0], "weight")
-    update_qparams(model[0], "weight")
-    modifier.validate_module_calibration(model)
-
-def test_embedding_weight_observer_is_validated():
-    model = _EmbeddingModel()
-    modifier = _embedding_modifier()
-    state = State(model=model)
-
-    modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
-
-    with pytest.raises(ValueError) as exc_info:
-        modifier.validate_module_calibration(model)
-
-    assert "embed.weight_observer" in str(exc_info.value)
-
-    observe(model.embed, "weight")
-    update_qparams(model.embed, "weight")
-    modifier.validate_module_calibration(model)
+    assert model[0].quantization_status == QuantizationStatus.FROZEN

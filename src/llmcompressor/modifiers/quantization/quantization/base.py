@@ -83,7 +83,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        validation_modules = modules
         modules = [module for module in modules if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS)
@@ -92,7 +91,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         if not is_distributed():
             observe(modules, "weight")
             update_qparams(modules, "weight")
-            self.validate_module_calibration(state.model, validation_modules)
             return
 
         ### Distributed

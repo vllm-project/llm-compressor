@@ -43,10 +43,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin_helpers import (
-    collect_calibration_modules,
-    format_calibration_error,
-    get_invalid_static_kv_cache_scales,
-    get_unvalidated_calibration_observers,
+    validate_static_kv_cache_scales,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -267,50 +264,21 @@ class QuantizationMixin(HooksMixin):
         Remove calibration hooks and observers, and set the model status to frozen.
         Keep quantization enabled for future operations
 
-        :raises ValueError: if calibration observers are unobserved or if static
-            KV cache quantization scales are invalid
+        :raises ValueError: if static KV cache quantization scales are invalid
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        self.validate_module_calibration(model)
+        validate_static_kv_cache_scales(
+            model,
+            self.resolved_targets,
+            self.ignore,
+            self.resolved_config.kv_cache_scheme,
+        )
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
-
-    def validate_module_calibration(
-        self,
-        model: torch.nn.Module,
-        modules: Iterator[torch.nn.Module] | None = None,
-    ):
-        """
-        Validate that quantized modules were exercised during calibration.
-
-        :raises ValueError: if calibration observers were not invoked or if static
-            KV cache quantization scales are invalid
-        :param model: full model being calibrated
-        :param modules: optional sequential chunk to validate
-        """
-        calibration_modules = collect_calibration_modules(
-            model,
-            self.resolved_targets,
-            self.ignore,
-            modules,
-        )
-        unobserved_observers = get_unvalidated_calibration_observers(
-            calibration_modules,
-            self.resolved_config.kv_cache_scheme,
-        )
-        invalid_scales = get_invalid_static_kv_cache_scales(
-            calibration_modules,
-            self.resolved_config.kv_cache_scheme,
-            unobserved_observers,
-        )
-        if not unobserved_observers and not invalid_scales:
-            return
-
-        raise ValueError(format_calibration_error(unobserved_observers, invalid_scales))
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
@@ -452,7 +420,7 @@ class QuantizationMixin(HooksMixin):
         return scheme
 
     def _initialize_observers(self, module: torch.nn.Module):
-        if getattr(module, "quantization_scheme", None) is None:
+        if not hasattr(module, "quantization_scheme"):
             return
 
         scheme: QuantizationScheme = module.quantization_scheme
@@ -485,7 +453,7 @@ class QuantizationMixin(HooksMixin):
 
     def _initialize_hooks(self, module: torch.nn.Module) -> set[RemovableHandle]:
         hooks = set()
-        if getattr(module, "quantization_scheme", None) is None:
+        if not hasattr(module, "quantization_scheme"):
             return hooks
 
         scheme: QuantizationScheme = module.quantization_scheme

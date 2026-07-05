@@ -34,21 +34,14 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     state = State(model=model)
     modifier.on_initialize(state)
     modifier.on_calibration_start(state, None)
-    model[0].input_observer(torch.randn(1, 10))
 
     # Wrap update_statistics_from_observed to track which observers are called
     with patch.object(
-        model[0].weight_observer,
-        "update_statistics_from_observed",
-        wraps=model[0].weight_observer.update_statistics_from_observed,
+        model[0].weight_observer, "update_statistics_from_observed"
     ) as mock0, patch.object(
-        model[1].weight_observer,
-        "update_statistics_from_observed",
-        wraps=model[1].weight_observer.update_statistics_from_observed,
+        model[1].weight_observer, "update_statistics_from_observed"
     ) as mock1, patch.object(
-        model[2].weight_observer,
-        "update_statistics_from_observed",
-        wraps=model[2].weight_observer.update_statistics_from_observed,
+        model[2].weight_observer, "update_statistics_from_observed"
     ) as mock2:
         modifier.on_sequential_epoch_end(
             state,
@@ -128,7 +121,7 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
 
 def test_nested_parent_modules_produce_valid_global_scale():
     """When SEQUENTIAL_EPOCH_END receives parent modules (as the pipeline does),
-    child Linear layers must get finite, positive global_scale values -
+    child Linear layers must get finite, positive global_scale values —
     not uninitialized torch.empty garbage."""
     model = nn.Sequential(_FakeDecoderLayer())
     tg = QuantizationArgs(
