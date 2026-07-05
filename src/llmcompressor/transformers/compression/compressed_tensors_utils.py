@@ -61,8 +61,7 @@ def _retie_quantized_embeddings(model: PreTrainedModel):
     if "weight_packed" not in input_tensors:
         return
     if input_tensors.keys() != output_tensors.keys() or not all(
-        torch.equal(input_tensors[name], output_tensors[name])
-        for name in input_tensors
+        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
     ):
         return
 
