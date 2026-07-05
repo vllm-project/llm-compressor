@@ -1,13 +1,13 @@
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
 
 # Load model.
-model = Qwen2VLForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = Qwen2VLForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="FP8_DYNAMIC",
-    ignore=["re:.*lm_head", "re:visual.*"],
+    ignore=["re:.*lm_head", "re:.*visual.*"],
 )
 
 # Apply quantization and save to disk in compressed-tensors format.
@@ -25,7 +25,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

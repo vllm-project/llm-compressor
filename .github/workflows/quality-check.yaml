@@ -4,15 +4,30 @@ on:
     branches: [ main , 'release/*' ]
   pull_request:
     branches: [ main, 'release/*' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_SYSTEM_PYTHON: 1
+  UV_TORCH_BACKEND: "auto"
+
 jobs:
   quality-check:
-    runs-on: ubuntu-22.04
+    runs-on: gcp-k8s-vllm-util
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - name: Install make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
       - name: "⚙️ Install dependencies"
-        run: pip3 install .[dev]
+        run: uv pip install .[dev]
       - name: "🧹 Running quality checks"
         run: make quality

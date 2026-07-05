@@ -3,15 +3,15 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 import tqdm
-from compressed_tensors.utils import get_execution_device
+from compressed_tensors.offload import get_execution_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core import LifecycleCallbacks
-from llmcompressor.modeling.prepare import moe_calibration_context
-from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
+from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
-from llmcompressor.utils import calibration_forward_context, dispatch_for_generation
+from llmcompressor.utils import calibration_forward_context
+from llmcompressor.utils.helpers import DisableQuantization
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -39,23 +39,41 @@ class BasicPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
-        dispatch_for_generation(model)  # basic dispatch is identical to generation
+        session = active_session()
         model_device = get_execution_device(model)
+        if model_device == torch.device("cpu"):
+            logger.warning(
+                "Attempting to calibrate on CPU. Consider loading your model with"
+                " `device_map='auto'`"
+            )
+        use_loss_mask = (
+            getattr(dataset_args, "use_loss_mask", False) if dataset_args else False
+        )
 
-        LifecycleCallbacks.calibration_epoch_start()
+        # Initialize loss_masks list for AWQ masking support
+        if use_loss_mask:
+            session.state.loss_masks = []
+
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(DisableQuantization(model))
+            for batch_idx, batch in enumerate(
+                tqdm.tqdm(dataloader, desc="Calibrating")
+            ):
+                # Collect loss mask from this batch before moving to device
+                if use_loss_mask:
+                    session.state.loss_masks.append(batch.get("loss_mask"))
 
-            if dataset_args is not None and dataset_args.calibrate_moe_context:
-                moe_calibration_context(model, stack)
+                # Set current batch index before forward pass
+                session.state.current_batch_idx = batch_idx
 
-            for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
-                batch = apply_pad_mask_to_batch(batch)
                 batch = tensors_to_device(batch, model_device)
                 model(**batch)
 
-        LifecycleCallbacks.calibration_epoch_end()
+        LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
+        LifecycleCallbacks.calibration_end()
 
 
 def run_calibration(model: torch.nn.Module, dataloader: DataLoader):

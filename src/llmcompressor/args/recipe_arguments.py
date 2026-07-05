@@ -1,26 +1,25 @@
 """
 Recipe argument classes for LLM compression workflows.
 
-Defines dataclass-based argument containers for configuring sparsification
-recipes, compression sessions, and stage-based execution parameters used in
-model compression and optimization workflows.
+Defines dataclass-based argument containers for configuring recipes, compression
+sessions, and stage-based execution parameters used in model compression and\
+optimization workflows.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
 class RecipeArguments:
     """Recipe and session variables"""
 
-    recipe: Optional[str] = field(
+    recipe: str | None = field(
         default=None,
         metadata={
-            "help": "Path to a LLM Compressor sparsification recipe",
+            "help": "Path to a LLM Compressor recipe",
         },
     )
-    recipe_args: Optional[List[str]] = field(
+    recipe_args: list[str] | None = field(
         default=None,
         metadata={
             "help": (
@@ -29,16 +28,16 @@ class RecipeArguments:
             )
         },
     )
-    clear_sparse_session: Optional[bool] = field(
+    clear_sparse_session: bool | None = field(
         default=False,
         metadata={
             "help": (
-                "Whether to clear CompressionSession/CompressionLifecycle ",
-                "data between runs.",
+                "Whether to clear CompressionSession/CompressionLifecycle "
+                "data between runs."
             )
         },
     )
-    stage: Optional[str] = field(
+    stage: str | None = field(
         default=None,
-        metadata={"help": ("The stage of the recipe to use for oneshot / train.",)},
+        metadata={"help": ("The stage of the recipe to use for oneshot / train.")},
     )

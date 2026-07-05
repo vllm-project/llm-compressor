@@ -1,4 +1,4 @@
-# Quantizing Multimodal Audio Models #
+#  Multimodal Audio Model Quantization
 
 https://github.com/user-attachments/assets/6732c60b-1ebe-4bed-b409-c16c4415dff5
 
@@ -21,7 +21,7 @@ This directory contains example scripts for quantizing a variety of audio langua
 To use your own multimodal modal, start with an existing example change the `model_id` to match your own model stub.
 ```python3
 model_id = "path/to/your/model"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 ```
 
 ## Customizing GPTQModifier Parameters ##
@@ -44,7 +44,7 @@ Sequential targets are the modules which determine the granularity of error prop
 Choosing sequential targets with higher granularity (for example "Linear" instead of "LlamaDecoderLayer") will result in fewer hessians being allocated at the same time, decreasing the memory requirements for compression. This may also increase the recovered accuracy of the model, as compression error is propagated at a higher granularity. However, using higher granularity sequential targets may also increase compression time, as more time is spent offloading and onloading activations.
 
 ## Adding Your Own Smoothquant Mappings ##
-For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](/src/llmcompressor/modifiers/smoothquant/README.md).
+For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](/src/llmcompressor/modifiers/transform/smoothquant/README.md).
 
 ## Adding Your Own Data Collator ##
 Most examples utilize a generic `data_collator` which correctly correlates data for most multimodal datasets. If you find that your model needs custom data collation (as is the case with [pixtral](/examples/multimodal_vision/pixtral_example.py)), you can modify this function to reflect these model-specific requirements.

@@ -1,18 +1,3 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
 import pytest
 import torch
 from compressed_tensors.quantization import fake_quantize
@@ -50,7 +35,8 @@ def test_mse_observer(strategy, symmetric, exp_loss):
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
     assert isinstance(observer, MovingAverageMSEObserver)
 
-    scale, zero_point = observer(tensor)
+    qparams = observer(tensor).get_qparams()
+    scale, zero_point = qparams["scale"], qparams["zero_point"]
     q_tensor = fake_quantize(tensor, scale, zero_point, weights)
     mse_loss = torch.sum((tensor - q_tensor).abs_().pow_(2)) / tensor.numel()
     assert mse_loss == pytest.approx(exp_loss, abs=1e-10)
@@ -65,7 +51,8 @@ def test_mse_observer_symmetric_scale_range():
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    qparams = observer(tensor).get_qparams()
+    scale, zero_point = qparams["scale"], qparams["zero_point"]
 
     # if symmetric, max symmetric_range = abs(-128) / 255
     assert round(scale.item(), 4) <= 1.0039
@@ -84,21 +71,49 @@ def test_mse_fp4():
         group_size=3,
     )
 
-    observer = Observer.load_from_registry(
-        "mse", base_name="weight", args=weights, module=module
+    observer = Observer.load_from_registry("mse", base_name="weight", args=weights)
+
+    qparams = observer(module.weight).get_qparams()
+    scale, zero_point, global_scale = (
+        qparams["scale"],
+        qparams["zero_point"],
+        qparams["global_scale"],
     )
-
-    # must compute global scale first
-    with pytest.raises(ValueError):
-        scale, zero_point = observer(module.weight)
-
-    # compute qparams
-    global_scale = observer.get_global_scale(module.weight)
-    module.weight_global_scale = global_scale
-    scale, zero_point = observer(module.weight)
 
     # check mse loss
     qdq_tensor = fake_quantize(
         module.weight, scale, zero_point, weights, global_scale=global_scale
     )
     assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.0015  # 0.0013
+
+
+def test_mse_observer_torch_compile():
+    """Test that MSE observer produces correct results with compiled inner loop"""
+    from llmcompressor.core import active_session
+
+    args = QuantizationArgs(
+        num_bits=8,
+        type="int",
+        symmetric=True,
+        strategy="tensor",
+        observer="memoryless_mse",
+    )
+    observer = Observer.load_from_registry(
+        "memoryless_mse", base_name="weight", args=args
+    )
+    x = torch.randn(1, 1, 128)
+    try:
+        # eager baseline
+        active_session().state.enable_compile = False
+        eager_qparams = observer(x).get_qparams()
+        eager_scale, eager_zp = eager_qparams["scale"], eager_qparams["zero_point"]
+        # compiled inner loop
+        active_session().state.enable_compile = True
+        compiled_qparams = observer(x).get_qparams()
+        compiled_scale = compiled_qparams["scale"]
+        compiled_zp = compiled_qparams["zero_point"]
+        torch.testing.assert_close(eager_scale, compiled_scale)
+        torch.testing.assert_close(eager_zp, compiled_zp)
+    finally:
+        # always restore state, even if assertions fail
+        active_session().state.enable_compile = False

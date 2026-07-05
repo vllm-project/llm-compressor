@@ -1,16 +1,16 @@
+from compressed_tensors.offload import dispatch_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.utils import load_context
 
+# Load model
 MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-
-# Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+with load_context(AutoModelForCausalLM):
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-model = replace_modules_for_calibration(model)
+
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp8 with block size 128 via ptq
@@ -33,7 +33,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

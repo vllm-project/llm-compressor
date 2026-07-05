@@ -1,6 +1,6 @@
-# `fp8` Weight, Activation, and KV Cache Quantization
+# KV Cache Quantization
 
-`llmcompressor` now supports quantizing weights, activations, and KV cache to `fp8` for memory savings and inference acceleration with `vllm`.
+`llmcompressor` supports quantizing `fp8` KV Cache for memory savings and inference acceleration with `vllm`.
 
 > `fp8` computation is supported on NVIDIA GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
 
@@ -39,7 +39,7 @@ Load the model using `AutoModelForCausalLM`:
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 

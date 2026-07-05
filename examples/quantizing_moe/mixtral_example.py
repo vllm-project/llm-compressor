@@ -4,14 +4,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.utils import load_context
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
-)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -57,10 +55,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = QuantizationModifier(
     scheme="FP8",
     targets="Linear",
-    ignore=[
-        "lm_head",
-        "re:.*block_sparse_moe.gate",  # does not quantize well
-    ],
+    ignore=["lm_head", "re:.*mlp.gate"],
 )
 
 oneshot(
@@ -69,16 +64,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
 )
-
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-sample = tokenizer("Hello my name is", return_tensors="pt")
-sample = {key: value.to(model.device) for key, value in sample.items()}
-output = model.generate(**sample, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================")
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8"

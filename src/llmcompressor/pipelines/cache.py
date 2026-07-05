@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import sys
 import warnings
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Generator
+from weakref import WeakKeyDictionary
 
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
 
@@ -18,11 +23,11 @@ class IntermediateValue:
         otherwise None
     """
 
-    value: Union[torch.Tensor, "IntermediateValue", Any]
-    device: Union[torch.device, None]
+    value: torch.Tensor | "IntermediateValue" | Any
+    device: torch.device | None
 
 
-IntermediateValues = Dict[str, IntermediateValue]
+IntermediateValues = dict[str, IntermediateValue]
 
 
 class IntermediatesCache:
@@ -37,13 +42,17 @@ class IntermediatesCache:
     Construct using `empty` and `from_dataloader` class methods
     """
 
-    batch_intermediates: List[IntermediateValues]
-    offload_device: Optional[torch.device]
+    batch_intermediates: list[IntermediateValues]
+    offload_device: torch.device | None
+
+    # map of onload value -> offload value
+    # used to avoid excess memory usage when shared tensors are offloaded
+    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
 
     def __init__(
         self,
-        batch_intermediates: Optional[List[IntermediateValues]] = None,
-        offload_device: Optional[torch.device] = "cpu",
+        batch_intermediates: list[IntermediateValues] | None = None,
+        offload_device: torch.device | None = "cpu",
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
@@ -64,34 +73,37 @@ class IntermediatesCache:
         cls,
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device = torch.device("cpu"),
-        mask_padding: bool = True,
-        offload_device: Optional[torch.device] = torch.device("cpu"),
+        offload_device: torch.device | None = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
 
+        This method iterates through all batches in the dataloader and offloads
+        them to the specified device. For faster cache preparation, consider:
+        - Increasing batch_size to reduce the number of iterations
+        - Using num_workers > 0 in the DataLoader for parallel loading (e.g. the
+          calibration DataLoader from format_calibration_data uses
+          dataloader_num_workers; when > 0, pin_memory and prefetch_factor are
+          also set where applicable, which speeds both cache build and calibration)
+        - Ensuring data preprocessing is done before creating the dataloader
+
         :param dataloader: dataloader which generates values to be cached
         :param model_device: device which values will be onloaded to when fetched
-        :param mask_padding: zero out padding tokens if True. This affects modifiers
-            such as GPTQ and SparseGPT
         :param offload_device: device to offload values to
         """
-        # note: list comprehesion was found to not improve performance
-        batch_intermediates = []
-        for batch in tqdm(dataloader, desc="Preparing cache"):
-            values = {}
-            for key, value in batch.items():
-                if mask_padding and (key == "input_ids") and "attention_mask" in batch:
-                    value = cls._mask_padding(value, batch["attention_mask"])
-                values[key] = IntermediateValue(value=value, device=model_device)
-
-            batch_intermediates.append(values)
+        batch_intermediates = [
+            {
+                key: cls._offload_value(value, offload_device, model_device)
+                for key, value in batch.items()
+            }
+            for batch in tqdm(dataloader, desc="Preparing cache")
+        ]
 
         return cls(batch_intermediates, offload_device)
 
     def fetch(
-        self, batch_index: int, input_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        self, batch_index: int, input_names: list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Fetch values belonging to a batch
 
@@ -107,17 +119,18 @@ class IntermediatesCache:
             if input_names is None or key in input_names
         }
 
-    def update(self, batch_index: int, values: Dict[str, Any]):
+    def update(self, batch_index: int, values: dict[str, Any]):
         """
         Update/put values belonging to a batch
 
         :param batch_index: index of batch whose values will be updated
         :param values: dictionary mapping keys to values used for update
         """
-        intermediates = {k: self._offload_value(v) for k, v in values.items()}
+        device = self.offload_device
+        intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
-    def delete(self, batch_index: int, consumed_names: Optional[List[str]] = None):
+    def delete(self, batch_index: int, consumed_names: list[str] | None = None):
         """
         Delete values from the cache
 
@@ -133,7 +146,7 @@ class IntermediatesCache:
         for name in consumed_names:
             del intermediates[name]
 
-    def append(self, values: Dict[str, Any]):
+    def append(self, values: dict[str, Any]):
         """
         Append new values to the cache. The new values will be assigned the next
         available batch index
@@ -144,34 +157,35 @@ class IntermediatesCache:
         self.batch_intermediates.append({})
         self.update(batch_index, values)
 
-    def size(self) -> Dict[torch.device, int]:
+    def size(self) -> dict[torch.device, int]:
         """
         Returns the memory used by cached values, keyed by device, in bytes
 
         :return: dictionary mapping torch device to number of bytes in cache
         """
         sizes = defaultdict(lambda: 0)
+        memo = set()
 
         def _size_helper(intermediate: IntermediateValue) -> int:
             value = intermediate.value
 
-            if isinstance(value, torch.Tensor):
-                sizes[value.device] += value.nbytes
-
-            elif is_dataclass(value):
-                for field in fields(value):
-                    _size_helper(getattr(value, field.name))
-
-            elif isinstance(value, (tuple, list)):
-                for v in value:
-                    _size_helper(v)
-
-            elif isinstance(value, dict):
-                for v in value.values():
-                    _size_helper(v)
-
-            else:
-                sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
+            match value:
+                case torch.Tensor():
+                    if value not in memo:
+                        sizes[value.device] += value.nbytes
+                    memo.add(value)
+                case list() | tuple():
+                    for v in value:
+                        _size_helper(v)
+                case dict():
+                    for v in value.values():
+                        _size_helper(v)
+                case _ if is_dataclass(value):
+                    for field in fields(value):
+                        _size_helper(getattr(value, field.name))
+                case _:
+                    # this handles primitive values that don't match any other cases
+                    sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
 
         for intermediates in self.batch_intermediates:
             for value in intermediates.values():
@@ -179,11 +193,62 @@ class IntermediatesCache:
 
         return dict(sizes)
 
-    def iter(
-        self, input_names: Optional[List[str]] = None
-    ) -> Generator[Any, None, None]:
+    def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
+
+    def iter_prefetch(
+        self, input_names: list[str] | None = None
+    ) -> Generator[Any, None, None]:
+        """
+        Iterate over batches with the next batch prefetched in a background thread.
+        Overlaps onload from offload_device with consumption of the current batch,
+        which can reduce wall-clock time when offloading to CPU.
+
+        When CUDA is available, uses non_blocking transfers (requires pinned CPU
+        tensors, set up by _offload_value) and synchronises via CUDA events so the
+        main stream waits for each H2D copy before running GPU kernels on the data.
+
+        Yields the same fetched batch dicts as :meth:`iter`; only the timing
+        of onloads differs.
+        """
+        num_batches = len(self.batch_intermediates)
+        if num_batches == 0:
+            return
+
+        # Create a dedicated CUDA stream for H2D transfers so they run on a
+        # separate stream from the main thread's compute stream. Without this,
+        # both threads default to the null stream (stream 0) which serializes
+        # all operations and prevents any overlap.
+        h2d_stream = torch.Stream() if torch.accelerator.is_available() else None
+
+        def _fetch_and_record(batch_index):
+            event = None
+            if h2d_stream is not None:
+                with h2d_stream:
+                    data = self.fetch(batch_index, input_names)
+                event = torch.Event()
+                event.record(h2d_stream)
+            else:
+                data = self.fetch(batch_index, input_names)
+            return data, event
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = None
+            for batch_index in range(num_batches):
+                if future is not None:
+                    current, event = future.result()
+                else:
+                    current, event = _fetch_and_record(batch_index)
+                if batch_index + 1 < num_batches:
+                    future = executor.submit(_fetch_and_record, batch_index + 1)
+                else:
+                    future = None
+                # Make the main CUDA stream wait for the background H2D copy
+                # before any GPU kernel consumes the prefetched tensors
+                if event is not None:
+                    torch.accelerator.current_stream().wait_event(event)
+                yield current
 
     def __iter__(self) -> Generator[Any, None, None]:
         yield from self.iter()
@@ -191,78 +256,144 @@ class IntermediatesCache:
     def __len__(self) -> int:
         return len(self.batch_intermediates)
 
-    def _onload_value(self, intermediate: IntermediateValue) -> Any:
+    @classmethod
+    def _onload_value(cls, intermediate: IntermediateValue) -> Any:
+        """
+        Onload a value's tensors to the onload device
+
+        :param intermediate: intermediates value representation to onload
+        :return: original value with tensors onloaded to the onload device
+        """
         value = intermediate.value
         device = intermediate.device
 
-        if isinstance(value, torch.Tensor):
-            return value.to(device=device)
+        match value:
+            case torch.Tensor():
+                # use non_blocking when source is pinned and target is an accelerator
+                # so the H2D DMA can overlap with compute on a separate stream
+                non_blocking = (
+                    value.is_pinned()
+                    and device is not None
+                    and torch.accelerator.is_available()
+                    and torch.device(device).type
+                    == torch.accelerator.current_accelerator().type
+                )
+                return value.to(device=device, non_blocking=non_blocking)
+            case list():
+                return [cls._onload_value(v) for v in value]
+            case tuple():
+                return tuple(cls._onload_value(v) for v in value)
+            case dict():
+                return {k: cls._onload_value(v) for k, v in value.items()}
+            case _ if is_dataclass(value):
+                for field in fields(value):
+                    v = getattr(value, field.name)
+                    setattr(value, field.name, cls._onload_value(v))
+                return value
+            case _:
+                # handles primitive values that should be returned as is.
+                # without this, a MatchError would be raised for unhandled types.
+                return value
 
-        if is_dataclass(value):
-            for field in fields(value):  # `asdict` is recursive, not applicable here
-                v = getattr(value, field.name)
-                setattr(value, field.name, self._onload_value(v))
+    @classmethod
+    def _offload_value(
+        cls,
+        value: Any,
+        offload_device: torch.device | None,
+        onload_device: torch.device | None = None,
+    ) -> IntermediateValue:
+        """
+        Offload a value's tensors to the offload device
 
-            return value
+        :param value: value to offload
+        :param offload_device: device to offload `torch.Tensor` values to
+        :param onload_device: device used when onloading `torch.Tensor` values.
+            If None is provided, use the tensor's current device
+        :return: Instance of IntermediateValue representing the offloaded value
+        """
+        kwargs = {"offload_device": offload_device, "onload_device": onload_device}
+        match value:
+            case torch.Tensor():
+                with OverrideEqMode():
+                    # check for cache hit between shared tensors
+                    if value in cls.offload_values:
+                        offloaded = cls.offload_values[value]
+                    else:
+                        # move to offload if no hit
+                        offloaded = value.to(device=offload_device)
+                        if offloaded is not value:  # avoid circular ref
+                            # pin CPU tensors so onload can use non_blocking DMA
+                            if (
+                                torch.device(offload_device).type == "cpu"
+                                and torch.accelerator.is_available()
+                                and not offloaded.is_pinned()
+                            ):
+                                offloaded = offloaded.pin_memory()
+                            cls.offload_values[value] = offloaded
 
-        if isinstance(value, list):
-            return list(self._onload_value(v) for v in value)
+                return IntermediateValue(
+                    value=offloaded,
+                    device=(onload_device if onload_device else value.device),
+                )
+            case list():
+                return IntermediateValue(
+                    value=[cls._offload_value(v, **kwargs) for v in value],
+                    device=None,
+                )
+            case tuple():
+                return IntermediateValue(
+                    value=tuple(cls._offload_value(v, **kwargs) for v in value),
+                    device=None,
+                )
+            case dict():
+                return IntermediateValue(
+                    value={
+                        k: cls._offload_value(v, **kwargs) for k, v in value.items()
+                    },
+                    device=None,
+                )
+            case _ if is_dataclass(value):
+                for field in fields(value):
+                    v = getattr(value, field.name)
+                    setattr(value, field.name, cls._offload_value(v, **kwargs))
+                return IntermediateValue(value=value, device=None)
+            case _:
+                # handles primitive values and provides a warning for unsupported types.
+                # without this, values trigger a MatchError exception.
+                if not isinstance(
+                    value,
+                    (int, str, float, bool, torch.dtype, torch.device, type(None)),
+                ):
+                    warnings.warn(f"Offloading not implemented for type {type(value)}.")
+                return IntermediateValue(value=value, device=None)
 
-        if isinstance(value, tuple):
-            return tuple(self._onload_value(v) for v in value)
 
-        if isinstance(value, dict):
-            return {k: self._onload_value(v) for k, v in value.items()}
+class OverrideEqMode(TorchDispatchMode):
+    """
+    When using a torch.Tensor as a key in a dictionary, the equality
+    check must return a single value instead of a torch.Tensor
+    of bool values.
+    Use this override context for such cases, to swap out the torch.eq
+    equality check for a check on id
+    >>> a = torch.tensor([1,2,3])
+    >>> b = torch.tensor([1,2,3])
+    >>> a == b
+    tensor([True, True, True])
+    >>> with OverrideEqMode():
+    ...     a == b
+    tensor(True)
+    """
 
-        return value
+    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
+        kwargs = kwargs or {}
 
-    def _offload_value(self, value: Any) -> IntermediateValue:
-        if isinstance(value, torch.Tensor):
-            return IntermediateValue(
-                value=(
-                    value
-                    if self.offload_device is None
-                    else value.to(device=self.offload_device)
-                ),
-                device=value.device,
-            )
+        # Check if the operation is equality
+        if func is torch.ops.aten.eq.Tensor:
+            # Override to use torch.equal
+            assert len(args) == 2, "Exactly 2 args must be provided"
 
-        if is_dataclass(value):
-            for field in fields(value):  # `asdict` is recursive, not applicable here
-                v = getattr(value, field.name)
-                setattr(value, field.name, self._offload_value(v))
+            # NOTE: Errors out without cast to torch.tensor
+            return torch.tensor(id(args[0]) == id(args[1]))
 
-            return IntermediateValue(value=value, device=None)
-
-        if isinstance(value, list):
-            return IntermediateValue(
-                value=list(self._offload_value(v) for v in value), device=None
-            )
-
-        if isinstance(value, tuple):
-            return IntermediateValue(
-                value=tuple(self._offload_value(v) for v in value), device=None
-            )
-
-        if isinstance(value, dict):
-            return IntermediateValue(
-                value={k: self._offload_value(v) for k, v in value.items()}, device=None
-            )
-
-        if not isinstance(
-            value, (int, str, float, bool, torch.dtype, torch.device, type(None))
-        ):
-            warnings.warn(f"Offloading not implemented for type {type(value)}.")
-
-        return IntermediateValue(value=value, device=None)
-
-    @staticmethod
-    def _mask_padding(
-        input_ids: torch.Tensor, attention_mask: torch.Tensor
-    ) -> torch.Tensor:
-        if attention_mask.dim() == 4:
-            # some attention masks, such as those from pixtral, are are 4d
-            attention_mask = attention_mask[0, 0, 0].unsqueeze(0)
-
-        # Assumes that `attention_mask` only contains zeros and ones
-        return input_ids * attention_mask
+        # For all other operations, just run them normally
+        return func(*args, **kwargs)

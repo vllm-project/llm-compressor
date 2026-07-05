@@ -3,19 +3,16 @@ from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
-
-# NOTE: Requires a minimum of transformers 4.57.0
+from llmcompressor.utils import load_context
 
 MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 
 
 # Load model.
-model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+with load_context(Qwen3VLMoeForConditionalGeneration):
+    model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
-model = replace_modules_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 20
@@ -64,9 +61,8 @@ def data_collator(batch):
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights to fp8 with channel-wise quantization
-#   * quantize the activations to fp8 with dynamic token activations
-# NOTE: only datafree quantization is supported for Qwen3-VL-MoE currently
+#   * quantize the weights to fp4 with group-wise quantization
+#   * quantize the activations to fp4 with dynamic group activations
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="NVFP4",
@@ -87,14 +83,6 @@ oneshot(
     dataset=ds,
     data_collator=data_collator,
 )
-
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(processor.decode(output[0]))
-print("==========================================")
-
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"

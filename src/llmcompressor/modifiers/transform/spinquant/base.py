@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from enum import Enum
-from typing import Iterable, List, Literal, Optional
+from typing import Literal
 
 import torch
 from compressed_tensors import match_modules_set, match_named_modules
@@ -9,13 +10,16 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from compressed_tensors.utils import TorchDtype
+from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, ValidationInfo, field_validator
+from torch.utils._pytree import tree_leaves
 from transformers import PreTrainedModel
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
+from llmcompressor.typing import NamedModules
+from llmcompressor.utils import get_high_precision, untie_word_embeddings
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -34,7 +38,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     with learned rotations" (https://arxiv.org/abs/2405.16406)
 
     Transforms (rotations) are extra layers added to a model which reduce the accuracy
-    loss induced by quantization. This is achived through "rotating" weights and
+    loss induced by quantization. This is achieved through "rotating" weights and
     activations into a space with a smaller dynamic range of values, thus decreasing
     the range of scales required for quantization.
 
@@ -44,18 +48,16 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     rotations, meaning that they require additional computation at runtime.
 
     Lifecycle:
-        - on_initialize
-            - infer SpinQuantMappings & NormMappings
-            - as needed, create transform schemes for R1, R2, R3, & R4
-        - on_start
-            - normalize embeddings
-            - fuse norm layers into subsequent Linear layers
-            - apply TransformConfig
-                - fuse transforms into weights for mergeable transforms
-                - add hooks for online transforms
-        - on sequential epoch end
-        - on_end
-        - on_finalize
+
+    - on_initialize
+        - infer SpinQuantMappings & NormMappings
+        - as needed, create transform schemes for R1, R2, R3, & R4
+    - on_calibration_start
+        - normalize embeddings
+        - fuse norm layers into subsequent Linear layers
+        - apply TransformConfig
+            - fuse transforms into weights for mergeable transforms
+            - add hooks for online transforms
 
     :param rotations: A list containing the names of rotations to apply to the model.
         Possible rotations include R1, R2, R3, and R4
@@ -82,23 +84,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     :param transform_config: Optional transform config for overriding provided arguments
     """
 
-    rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
+    rotations: list[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="hadamard"
     )
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
-    precision: TorchDtype = Field(default=torch.float64)
-    transform_block_size: Optional[int] = Field(default=None)
+    precision: TorchDtype = Field(default=get_high_precision())
+    transform_block_size: int | None = Field(default=None)
 
     # norm mappings separate from spinquant mappings to allow users to
     # override spinquant mappings with transform_config without overriding norms
-    mappings: Optional[SpinQuantMapping] = Field(
+    mappings: SpinQuantMapping | None = Field(
         default=None,
         repr=False,
         exclude=True,
     )
-    norm_mappings: Optional[List[NormMapping]] = Field(
+    norm_mappings: list[NormMapping] | None = Field(
         default=None,
         repr=False,
         exclude=True,
@@ -106,7 +108,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     # optional override for more fine-grained control
     # also included in recipe serialization
-    transform_config: Optional[TransformConfig] = Field(default=None, repr=False)
+    transform_config: TransformConfig | None = Field(default=None, repr=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -126,16 +128,17 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self.mappings = infer_mapping_from_model(state.model)
         self.norm_mappings = infer_norm_mapping_from_model(state.model)
+        head_dim = get_head_dim(state.model.config)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
-            config_groups["R2"] = self._create_r2_scheme(state.model)
+            config_groups["R2"] = self._create_r2_scheme(head_dim)
 
         if SpinquantRotation.R3 in self.rotations:
-            config_groups["R3"] = self._create_r3_scheme()
+            config_groups["R3"] = self._create_r3_scheme(head_dim)
 
         if SpinquantRotation.R4 in self.rotations:
             config_groups["R4"] = self._create_r4_scheme()
@@ -144,35 +147,26 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
+    @torch.no_grad()
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
+        model = state.model
+
+        # untie embeddings to avoid unintended effects of `_center_embeddings`
+        untie_word_embeddings(model)
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
-        self._center_embeddings(state.model)
-        self._fuse_norms(state.model)
-        apply_transform_config(state.model, self.transform_config)
+        self._center_embeddings(model)
+        self._fuse_norms(model)
+        apply_transform_config(model, self.transform_config)
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            pass
-
-        elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        if not self.ended_:
-            self.on_end(state, None)
-
-        return True
+    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+        return [
+            (name, module)
+            for scheme in self.transform_config.config_groups.values()
+            for arg in scheme.apply
+            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+        ]
 
     def _center_embeddings(self, model: PreTrainedModel):
         for _, embedding in match_named_modules(
@@ -185,7 +179,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
             ):
-                fuse_norm_linears(norm, linears)
+                # match_modules_set returns a list of lists
+                assert len(norm) == 1
+                fuse_norm_linears(norm[0], tree_leaves(linears))
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(
@@ -217,24 +213,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r2_scheme(self, model: PreTrainedModel) -> TransformScheme:
-        config = model.config
-
-        if hasattr(config, "head_dim"):
-            head_dim = config.head_dim
-        elif hasattr(config, "hidden_size") and hasattr(config, "num_attention_heads"):
-            head_dim = config.hidden_size // config.num_attention_heads
-        else:
-            raise NotImplementedError()
-
-        if self.transform_block_size:
-            if head_dim % self.transform_block_size != 0:
-                raise ValueError(
-                    f"transform_block_size {self.transform_block_size} must be set "
-                    f"such that model's head_dim {head_dim} is evenly divisible by it"
-                )
-            head_dim = self.transform_block_size
-
+    def _create_r2_scheme(self, head_dim: int) -> TransformScheme:
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
@@ -251,9 +230,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r3_scheme(self) -> TransformScheme:
-        raise NotImplementedError(
-            "SpinQuant R3 rotations will be added in a future release"
+    def _create_r3_scheme(self, head_dim: int) -> TransformScheme:
+        return TransformScheme(
+            type=self.transform_type,
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+            head_dim=head_dim,
+            apply=[
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="q_attn",
+                ),
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="k_cache",
+                ),
+            ],
         )
 
     def _create_r4_scheme(self) -> TransformScheme:

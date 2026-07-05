@@ -3,14 +3,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.utils import load_context
 
 # NOTE: Requires a minimum of transformers 4.57.0
 
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 
@@ -68,31 +69,23 @@ recipe = QuantizationModifier(
 )
 
 # Apply quantization.
-# We see `calibrate_moe_context` to True to update all `Qwen3MoeSparseMoeBlock`
-# during calibration.
+# MoE calibration is now handled automatically by the pipeline.
+# We set `moe_calibrate_all_experts` to True to ensure all experts receive
+# calibration data. This temporarily updates the model definition to use
+# `CalibrationQwen3NextSparseMoeBlock` (from `llmcompressor.modeling.qwen3_next_moe`)
+# which replaces the original `Qwen3NextSparseMoeBlock` class.
+# This updates how the forward pass is handled in the MoE block during calibration.
 # Feel free to update the definition under
-# llm-compressor/src/llmcompressor/modeling/qwen3_moe.py` to play around with
-# this behaviour and evaluate its impact on quantization performance
+# llm-compressor/src/llmcompressor/modeling/qwen3_next_moe.py to play around with
+# this behavior and evaluate its impact on quantization performance.
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    calibrate_moe_context=True,
+    moe_calibrate_all_experts=True,
 )
-
-
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
-
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"

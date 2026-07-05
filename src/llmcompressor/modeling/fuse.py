@@ -7,10 +7,12 @@ from compressed_tensors import (
     update_offload_parameter,
 )
 
+from llmcompressor.utils import get_high_precision
+
 __all__ = ["center_embeddings", "fuse_norm_linears"]
 
 
-PRECISION = torch.float64
+PRECISION = get_high_precision()
 
 
 def center_embeddings(embedding: torch.nn.Module):
@@ -47,8 +49,9 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
     for linear in linears:
         # NOTE: spinquant does this op in float64
         exec_device = get_execution_device(norm)
-        with align_module_device(norm, exec_device), align_module_device(
-            linear, exec_device
+        with (
+            align_module_device(norm, exec_device),
+            align_module_device(linear, exec_device),
         ):
             weight_dtype = linear.weight.dtype
             new_weight = linear.weight.to(PRECISION) * norm.weight.to(PRECISION)

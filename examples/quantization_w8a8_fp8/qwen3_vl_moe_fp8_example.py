@@ -1,17 +1,17 @@
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 # NOTE: Requires a minimum of transformers 4.57.0
 
 MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 
 # Load model.
-model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+with load_context(Qwen3VLMoeForConditionalGeneration):
+    model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
-model = replace_modules_for_calibration(model)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
@@ -23,7 +23,6 @@ recipe = QuantizationModifier(
     scheme="FP8_DYNAMIC",
     ignore=[
         "re:.*lm_head",
-        "re:visual.*",
         "re:model.visual.*",
         "re:.*mlp.gate$",
     ],

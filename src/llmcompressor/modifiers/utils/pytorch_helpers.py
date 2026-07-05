@@ -7,8 +7,6 @@ detection. Supports MoE (Mixture of Experts) models and specialized
 tensor operations for compression workflows.
 """
 
-from typing import Dict
-
 import torch
 from torch.nn import Module
 
@@ -18,7 +16,7 @@ __all__ = [
 ]
 
 
-def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def apply_pad_mask_to_batch(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """
     Apply a mask to the input ids of a batch. This is used to zero out
     padding tokens so they do not contribute to the hessian calculation in the
@@ -52,10 +50,13 @@ def is_moe_model(model: Module) -> bool:
             return True
 
     # Check config for MoE attributes
+    # NOTE: transformers v5 PreTrainedConfig adds property `_experts_implementation`
+    # to all model configs. Skipping all attributes starting with `_` to avoid this.
     if hasattr(model, "config"):
         if any(
             "moe" in attr.lower() or "expert" in attr.lower()
             for attr in dir(model.config)
+            if not attr.startswith("_")
         ):
             return True
 

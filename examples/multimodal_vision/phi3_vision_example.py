@@ -2,18 +2,17 @@
 # https://huggingface.co/microsoft/Phi-3-vision-128k-instruct/discussions/69
 
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    torch_dtype="auto",
     trust_remote_code=True,
     _attn_implementation="eager",
 )
@@ -85,14 +84,13 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
     data_collator=data_collator,
     sequential_targets=["Phi3DecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )

@@ -1,4 +1,5 @@
-# Big Modeling with Sequential Onloading #
+# Big Model Quantization with Sequential Onloading
+
 ## What is Sequential Onloading? ##
 Sequential onloading is a memory-efficient approach for compressing large language models (LLMs) using only a single GPU. Instead of loading the entire model into memory—which can easily require hundreds of gigabytes—this method loads and compresses one layer at a time. The outputs are offloaded before the next layer is processed, dramatically reducing peak memory usage while maintaining high compression fidelity.
 
@@ -18,7 +19,7 @@ The Llama 3.3 70b is larger than 80 GB, surpassing the size of 1 A100. However, 
 
 ```python
 model_id = "meta-llama/Llama-3.3-70B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map=None)
+model = AutoModelForCausalLM.from_pretrained(model_id, device_map=None)
 ```
 
 The model is first loaded onto the `cpu`, as indicated through the use of `None` for the `device_map` argument in the `from_pretrained` method when loading the model.
@@ -35,11 +36,11 @@ oneshot(
 During `oneshot`, only one gpu is required which will be used to onload each layer for calibration in a sequential manner.
 
 ```python
-dispatch_for_generation(model)
+dispatch_model(model)
 sample = tokenizer("Hello my name is", return_tensors="pt")
 sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 ```
 
-Finally, we call `dispatch_for_generation` to evenly load the model across available devices (potentially offloading the model if required) and run sample generations on the newly quantized model.
+Finally, we call `dispatch_model` to evenly load the model across available devices (potentially offloading the model if required) and run sample generations on the newly quantized model.

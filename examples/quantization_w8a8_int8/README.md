@@ -38,7 +38,7 @@ Load the model using `AutoModelForCausalLM` for handling quantized saving and lo
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -63,7 +63,7 @@ ds = ds.shuffle(seed=42)
 
 # Preprocess the data into the format the model is trained with.
 def preprocess(example):
-    return {"text": tokenizer.apply_chat_template(example["messages"], tokenize=False,)}
+    return {"text": tokenizer.apply_chat_template(example["messages"], tokenize=False)}
 ds = ds.map(preprocess)
 
 # Tokenize the data (be careful with bos tokens - we need add_special_tokens=False since the chat_template already added it).
@@ -85,8 +85,8 @@ We first select the quantization algorithm. For W8A8, we want to:
 
 ```python
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 
 # Configure the quantization algorithms to run.
 recipe = [

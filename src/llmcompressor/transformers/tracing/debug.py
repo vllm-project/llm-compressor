@@ -1,4 +1,4 @@
-from typing import List, Type, Union, Optional, Dict, Tuple, Any
+from typing import Type, Tuple, Any
 
 import argparse
 from contextlib import nullcontext
@@ -27,19 +27,21 @@ def parse_args():
     parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
     parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
     parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
+    parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph")  # noqa: E501
     return parser.parse_args()
 
 
 def trace(
     model_id: str,
     model_class: Type[PreTrainedModel],
-    sequential_targets: Optional[Union[List[str], str]] = None,
-    ignore: Union[List[str], str] = DatasetArguments().tracing_ignore,
+    sequential_targets: list[str] | str | None = None,
+    ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
     trust_remote_code: bool = True,
     skip_weights: bool = True,
-    device_map: Union[str, Dict] = "cpu",
-) -> Tuple[PreTrainedModel, List[Subgraph], Dict[str, torch.Tensor]]:
+    device_map: str | dict = "cpu",
+    targets_per_subgraph: int = 1
+) -> Tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
 
@@ -51,6 +53,7 @@ def trace(
     :param ignore: patterns to ignore during tracing
     :param modality: data modality for dummy tracing data, defaults to 'text'
     :param trust_remote_code: trust remote model code
+    :param targets_per_subgraph: number of targets to include per subgraph
 
     Example usage from CLI
     llmcompressor.trace \
@@ -65,7 +68,6 @@ def trace(
         model = model_class.from_pretrained(
             model_id,
             device_map=device_map,
-            torch_dtype="auto",
             trust_remote_code=trust_remote_code,
         )
     processor = AutoProcessor.from_pretrained(
@@ -78,7 +80,7 @@ def trace(
     dataset = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split=dataset_args.splits["calibration"],
+        split=dataset_args.splits,
         processor=processor,
     )(add_labels=False)
     sample = next(iter(dataset))
@@ -103,28 +105,32 @@ def trace(
         f"    ignore={dataset_args.tracing_ignore}\n"
     )
     subgraphs = trace_subgraphs(
-        model, sample, sequential_targets, dataset_args.tracing_ignore
+        model,
+        sample,
+        sequential_targets,
+        dataset_args.tracing_ignore,
+        targets_per_subgraph
     )
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
     return model, subgraphs, sample
 
 
-def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
+def get_dataset_kwargs(modality: str, ignore: list[str]) -> dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
-            "splits": {"calibration": "test_sft[:1]"},
+            "splits": "test_sft[:1]",
             "max_seq_length": 4096,
         },
         "vision": {
             "dataset": "flickr",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
         "audio": {
             "dataset": "peoples_speech",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
     }
@@ -139,7 +145,7 @@ def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
     return dataset_kwargs[modality] | common_kwargs
 
 
-def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
+def collate_sample(sample: dict[str, Any], device: str) -> dict[str, torch.Tensor]:
     for name, value in sample.items():
         if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
             sample[name] = torch.tensor([value], device=device)
@@ -165,6 +171,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         skip_weights=args.skip_weights,
         device_map=args.device_map,
+        targets_per_subgraph=args.targets_per_subgraph
     )
 
 

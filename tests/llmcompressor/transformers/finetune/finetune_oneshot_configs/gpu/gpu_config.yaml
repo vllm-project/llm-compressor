@@ -1,7 +1,0 @@
-cadence: "nightly"
-test_type: "regression"
-model: "neuralmagic/Llama-2-7b-ultrachat200k"
-dataset: "ultrachat-200k"
-recipe: "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"
-num_train_epochs: 0.05
-concat_txt: False

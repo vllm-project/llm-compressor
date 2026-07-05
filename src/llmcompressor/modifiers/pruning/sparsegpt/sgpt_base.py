@@ -2,22 +2,20 @@ import warnings
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy
 import torch
+from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.pytorch.module import (
-    get_layers,
-    get_no_split_params,
-    get_prunable_layers,
-    match_targets,
-)
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
+
+PRUNABLE_LAYER_TYPES = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
 
 
 class SparsityModifierBase(Modifier):
@@ -27,24 +25,23 @@ class SparsityModifierBase(Modifier):
     """
 
     # modifier arguments
-    sparsity: Optional[Union[float, List[float]]]
-    sparsity_profile: Optional[str] = None
+    sparsity: float | list[float] | None
+    sparsity_profile: str | None = None
     mask_structure: str = "0:0"
-    owl_m: Optional[int] = None
-    owl_lmbda: Optional[float] = None
+    owl_m: int | None = None
+    owl_lmbda: float | None = None
 
     # data pipeline arguments
-    sequential_update: Optional[bool] = False  # deprecated
-    sequential_targets: Union[str, List[str], None] = None
-    targets: Union[str, List[str]] = ["Linear"]
-    ignore: List[str] = Field(default_factory=list)
+    sequential_update: bool | None = False  # deprecated
+    targets: str | list[str] = ["Linear"]
+    ignore: list[str] = Field(default_factory=list)
 
     # private variables
-    _prune_n: Optional[int] = PrivateAttr(default=None)
-    _prune_m: Optional[int] = PrivateAttr(default=None)
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _target_layers: Dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
-    _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _prune_n: int | None = PrivateAttr(default=None)
+    _prune_m: int | None = PrivateAttr(default=None)
+    _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _target_layers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
+    _module_sparsities: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -58,7 +55,7 @@ class SparsityModifierBase(Modifier):
         return True
 
     @field_validator("sparsity_profile", mode="before")
-    def validate_sparsity_profile(cls, value: Optional[str]) -> bool:
+    def validate_sparsity_profile(cls, value: str | None) -> bool:
         if value is None:
             return value
 
@@ -94,7 +91,7 @@ class SparsityModifierBase(Modifier):
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         raise NotImplementedError()
@@ -113,10 +110,14 @@ class SparsityModifierBase(Modifier):
         dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(model)
-        layers = get_layers(self.sequential_targets, model)
-        self._target_layers = get_layers(
-            self.targets, model
+        # Note: only pass sequential_targets from kwargs, not the full kwargs dict
+        # which may contain 'model' and cause duplicate argument errors
+        self._sequential_targets = infer_sequential_targets(
+            model, sequential_targets=kwargs.get("sequential_targets")
+        )
+        layers = dict(match_named_modules(model, self._sequential_targets))
+        self._target_layers = dict(
+            match_named_modules(model, self.targets)
         )  # layers containing targets
 
         # infer layer sparsities
@@ -138,22 +139,19 @@ class SparsityModifierBase(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
-            if isinstance(self.sparsity, dict):
-                layer_sparsity = self.sparsity[layer_name]
-            elif isinstance(self.sparsity, list):
-                layer_sparsity = self.sparsity[index]
-            else:
-                layer_sparsity = self.sparsity
+            match self.sparsity:
+                case list():
+                    layer_sparsity = self.sparsity[index]
+                case _:
+                    layer_sparsity = self.sparsity
 
-            for name, module in get_prunable_layers(layer).items():
+            for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
                 name = f"{layer_name}.{name}"
 
-                if match_targets(name, self.ignore)[0]:
+                if match_targets(name, module, self.ignore):
                     continue
 
                 # HACK: previously, embeddings were not quantized because they were not
@@ -173,44 +171,23 @@ class SparsityModifierBase(Modifier):
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        self.compress_modules()
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.compress_modules()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            self.compress_modules()
-
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
-
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module
-    ) -> Union[str, List[str]]:
-        if self.sequential_targets is None:
-            return get_no_split_params(model)
-        if isinstance(self.sequential_targets, str):
-            return [self.sequential_targets]
-        return self.sequential_targets
 
     def _infer_owl_layer_sparsity(
         self,
         model: torch.nn.Module,
-        layers: Dict[str, torch.nn.Module],
+        layers: dict[str, torch.nn.Module],
         dataloader: torch.utils.data.DataLoader,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         activations = self._get_activations(model, dataloader)
 
         groups = {}
         for name, layer in layers.items():
-            prunable_layers = get_prunable_layers(layer)
+            prunable_layers = dict(match_named_modules(layer, PRUNABLE_LAYER_TYPES))
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
                 for n, m in prunable_layers.items()
@@ -248,12 +225,12 @@ class SparsityModifierBase(Modifier):
             logger.info(f"Sparsity for {k}: {sparsities[k]}")
         return sparsities
 
-    def _get_activations(self, model, dataloader, nsamples=128) -> Dict[str, int]:
+    def _get_activations(self, model, dataloader, nsamples=128) -> dict[str, int]:
         from llmcompressor.pipelines.basic import run_calibration
 
         acts = defaultdict(int)
 
-        def save_acts(_module, input: Union[Tuple[Any, ...], torch.Tensor], name: str):
+        def save_acts(_module, input: tuple[Any, ...] | torch.Tensor, name: str):
             nonlocal acts
             if isinstance(input, tuple):
                 input = input[0]
@@ -270,6 +247,6 @@ class SparsityModifierBase(Modifier):
 
         return acts
 
-    def _split_mask_structure(self, mask_structure: str) -> Tuple[int, int]:
+    def _split_mask_structure(self, mask_structure: str) -> tuple[int, int]:
         n, m = mask_structure.split(":")
         return int(n), int(m)

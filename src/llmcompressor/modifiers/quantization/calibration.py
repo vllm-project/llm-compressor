@@ -1,37 +1,35 @@
-import inspect
-from typing import Any, Dict, Optional, Tuple
+from collections.abc import Iterable
+from itertools import product
+from typing import Any
 
 import torch
 from compressed_tensors.quantization import (
     DynamicType,
-    KVCacheScaleType,
     QuantizationArgs,
-    QuantizationScheme,
     QuantizationStatus,
-    QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils import align_module_device, update_offload_parameter
+from compressed_tensors.utils import (
+    getattr_chain,
+    update_offload_parameter,
+)
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
-from llmcompressor.utils.helpers import getattr_chain
 
 __all__ = [
     "initialize_observer",
-    "update_weight_zp_scale",
+    "observe",
+    "update_qparams",
     "calibrate_input_hook",
     "calibrate_output_hook",
-    "calibrate_kv_cache_input_hook",
-    "calibrate_kv_cache_output_hook",
-    "initialize_quantized_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
-    "update_weight_global_scale",
+    "calibrate_query_hook",
+    "calibrate_key_hook",
+    "calibrate_value_hook",
 ]
 
 
@@ -44,6 +42,8 @@ def initialize_observer(
     The name of the observer is fetched from the quantization_args.
     The name is then used to load the observer from the registry and attached
     to the module. The name of the observer uses the base_name provided.
+
+    This function always initializes memoryless observers for weights
 
     :param module: torch.nn.Module that the observer is being attached to
     :param base_name: str used to name the observer attribute
@@ -59,140 +59,117 @@ def initialize_observer(
     args: QuantizationArgs = getattr_chain(
         module, f"quantization_scheme.{arg_name}", None
     )
-    if args is not None and args.dynamic is not True:
-        observer = Observer.load_from_registry(
-            args.observer, base_name=base_name, args=args, module=module
+    observer = args.observer
+
+    # training is no longer supported: always use memoryless for weights
+    if base_name == "weight" and args.observer in ("static_minmax", "minmax"):
+        observer = "memoryless_minmax"
+        logger.warning(
+            "Overriding weight observer for lower memory usage "
+            f"({args.observer} -> {observer})",
+            log_once=True,
         )
+    if base_name == "weight" and args.observer in ("mse",):
+        observer = "memoryless_mse"
+        logger.warning(
+            "Overriding weight observer for lower memory usage "
+            f"({args.observer} -> {observer})",
+            log_once=True,
+        )
+
+    if args is not None and args.dynamic is not True:
+        observer = Observer.load_from_registry(observer, base_name=base_name, args=args)
         module.register_module(f"{base_name}_observer", observer)
+        observer.attach(module)
 
 
-def call_observer(
-    module: Module,
+def observe(
+    module: Module | Iterable[Module],
     base_name: str,
-    value: Optional[torch.Tensor] = None,
-    should_calculate_gparam: bool = False,
-    should_calculate_qparams: bool = True,
 ):
     """
-    Call a module's attached input/weight/output observer using a provided value.
-    Update the module's scale and zp using the observer's return values.
+    Run observers to accumulate statistics on modules.
+    Must be called before update_qparams.
 
-    :param module: torch.nn.Module
-    :param base_name: substring used to fetch the observer, scales, and zp
-    :param value: torch.Tensor to be passed to the observer for activations. If
-        base_name is "weight", then the module's weight tensor will be used
+    :param module: module or iterable of modules with observer attributes
+    :param base_name: substring used to fetch the observer and value to observe
     """
-    with align_module_device(module):
-        value = module.weight if base_name == "weight" else value
-        observer: Observer = getattr(module, f"{base_name}_observer")
-
-        if should_calculate_gparam:
-            global_scale = observer.get_global_scale(value)
-            update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
-
-        if should_calculate_qparams:
-            scale, zero_point = observer(value)
-            update_offload_parameter(module, f"{base_name}_scale", scale)
-            update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
-
-
-def update_weight_global_scale(module: Module):
-    if getattr_chain(module, "quantization_scheme.weights", None) is None:
+    if isinstance(module, Iterable):
+        for m in module:
+            observe(m, base_name)
         return
 
-    if (
-        getattr_chain(module, "quantization_scheme.weights.strategy", None)
-        != QuantizationStrategy.TENSOR_GROUP
-    ):
+    observer = getattr(module, f"{base_name}_observer", None)
+    if observer is None:
         return
 
-    call_observer(
-        module,
-        base_name="weight",
-        should_calculate_gparam=True,
-        should_calculate_qparams=False,
-    )
+    observer(getattr(module, base_name))
 
 
-def update_weight_zp_scale(module: Module):
+def update_qparams(
+    module: Module | Iterable[Module],
+    base_name: str | Iterable[str],
+    only_update_onload: bool = False,
+):
     """
-    marks a layer as ready for calibration which activates observers
-    to update scales and zero points on each forward pass
+    Compute quantization parameters from observer statistics and store on module.
 
-    apply to full model with `model.apply(update_weight_zp_scale)`
+    For dynamic quantization, scale/zp updates are skipped (scale/zp are
+    computed at inference time). For non-TENSOR_GROUP strategies, global_scale
+    is None and naturally skipped.
 
-    :param module: module to set for calibration
-    :param quantize_weights_upfront: whether to automatically
-       run weight quantization at the start of calibration
+    :param module: torch.nn.Module with attached observer (or iterable of modules)
+    :param base_name: substring used to fetch the observer, scales, and zp.
+        Can be a string or iterable of strings.
+    :only_update_onload: option to only update the onloaded value, useful
+        when we want to do a temporary update or in DDP situations where
+        we want only want one rank to update the offload+onload to avoid
+        multiple writes to the offload (rest just update onload)
     """
-    if getattr_chain(module, "quantization_scheme.weights", None) is None:
+    if isinstance(module, Iterable) or not isinstance(base_name, str):
+        modules = [module] if not isinstance(module, Iterable) else module
+        base_names = [base_name] if isinstance(base_name, str) else base_name
+        for m, b in product(modules, base_names):
+            update_qparams(m, b, only_update_onload=only_update_onload)
         return
 
-    if getattr(module, "quantization_status", None) != QuantizationStatus.CALIBRATION:
-        logger.warning(
-            "Attempting to calibrate weights of a module not in calibration mode"
-        )
-
-    call_observer(module=module, base_name="weight")
-
-
-def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
-    """
-    Calibrate input or output activations by calling the a module's attached
-    observer.
-
-    :param module: torch.nn.Module
-    :param base_name: substring used to fetch the observer, scales, and zp
-    :param value: torch.Tensor to be passed to the observer
-
-    """
-    # If empty tensor, can't update zp/scale
-    # Case for MoEs
-    if value.numel() == 0:
+    observer = getattr(module, f"{base_name}_observer", None)
+    if observer is None:
+        return
+    if not observer.has_statistics:
         return
 
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    quantization_args = getattr(quantization_scheme, f"{base_name}_activations", None)
+    # Dynamic (activation) quantization: only store global_scale, not scale/zp
+    args = observer.args
+    is_dynamic = getattr(args, "dynamic", False) in (True, DynamicType.LOCAL)
 
-    calculate_qparams = True
-    calculate_gparam = False
-
-    if quantization_args is not None:
-        if quantization_args.dynamic in (True, DynamicType.LOCAL):
-            calculate_qparams = False
-        if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            calculate_gparam = True
-
-    call_observer(
-        module=module,
-        base_name=base_name,
-        value=value,
-        should_calculate_gparam=calculate_gparam,
-        should_calculate_qparams=calculate_qparams,
-    )
+    qparams = observer.get_qparams()
+    for param_name, param_val in qparams.items():
+        if param_val is None:
+            continue
+        if is_dynamic and param_name in ("scale", "zero_point"):
+            continue
+        full_param_name = f"{base_name}_{param_name}"
+        if hasattr(module, full_param_name):
+            if not only_update_onload:  # update offload + onload
+                update_offload_parameter(module, full_param_name, param_val)
+            else:  # only update onload
+                getattr(module, full_param_name).data = param_val
 
 
 def calibrate_input_hook(module: Module, args: Any):
     """
-    Hook to calibrate input activations.
-    Will call the observers to update the scales/zp before applying
-    input QDQ in the module's forward pass.
+    Hook to calibrate input activations by accumulating statistics in the observer.
     """
     args = args[0] if isinstance(args, tuple) else args
-    calibrate_activations(module, value=args, base_name="input")
+    module.input_observer(args)
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
-    Hook to calibrate output activations.
-    Will call the observers to update the scales/zp before applying
-    output QDQ.
+    Hook to calibrate output activations by accumulating statistics in the observer.
     """
-    calibrate_activations(
-        module,
-        value=output,
-        base_name="output",
-    )
+    module.output_observer(output)
     output = forward_quantize(
         module=module,
         value=output,
@@ -202,60 +179,16 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     return output
 
 
-def calibrate_kv_cache_input_hook(
-    module: Module, args: Any, kwargs: Dict[str, Any]
-) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
-    """
-    Hook to update inputs to attention layers when running
-    kv_cache quantization. Will update the passed in
-    kv_cache to singleton QuantizedKVParameterCache.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    if not hasattr(module, "_past_kv_name"):
-        # Determine which past KV parameter name to use once and cache it
-        # TODO: Find a better place to cache this
-        module._past_kv_name = (
-            "past_key_value"  # transformers#39956
-            if "past_key_value" in inspect.signature(module.forward).parameters
-            else "past_key_values"
-        )
-
-    kwargs[module._past_kv_name] = kv_cache
-    kwargs["use_cache"] = False
-    return args, kwargs
+def calibrate_query_hook(module: Module, query_states: torch.Tensor):
+    module.q_observer(query_states)
 
 
-def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Tensor):
-    """
-    Hook to update k_scale and v_scale parameters when running kv_cache quantization.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    k_scale = kv_cache.k_scales[module.layer_idx]
-    v_scale = kv_cache.v_scales[module.layer_idx]
-    update_offload_parameter(module, KVCacheScaleType.KEY.value, k_scale)
-    update_offload_parameter(module, KVCacheScaleType.VALUE.value, v_scale)
+def calibrate_key_hook(module: Module, key_states: torch.Tensor):
+    module.k_observer(key_states)
 
 
-def initialize_quantized_kv_cache(module: Module):
-    """
-    Initialize a quantized kv_cache on a module (analogous to initializing an observer)
-    When a config specifying kv_cache quantization is applied to a model, the kv_cache
-    args are redefined as the output_activations targeting attention modules.
-
-    This function should be called on attention modules with output_activations
-    """
-    scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
-    existing_kv_cache = getattr(module, "kv_cache", None)
-
-    if (
-        scheme is None
-        or not is_kv_cache_quant_scheme(scheme)
-        or isinstance(existing_kv_cache, QuantizedKVParameterCache)
-    ):
-        return
-
-    quantized_kv_cache = QuantizedKVParameterCache(scheme.output_activations)
-    setattr(module, "kv_cache", quantized_kv_cache)
+def calibrate_value_hook(module: Module, value_states: torch.Tensor):
+    module.v_observer(value_states)
 
 
 def apply_calibration_status(module: Module):
@@ -284,15 +217,11 @@ def freeze_module_quantization(module: Module):
         return
 
     # remove observers
-    for name in ("input", "weight", "output"):
+    for name in ("input", "weight", "output", "q", "k", "v"):
         obs_name = f"{name}_observer"
         if hasattr(module, obs_name):
+            getattr(module, obs_name).detach(module)
             delattr(module, obs_name)
-
-    # remove quantized kv_cache
-    kv_cache = getattr(module, "kv_cache", None)
-    if isinstance(kv_cache, QuantizedKVParameterCache):
-        delattr(module, "kv_cache")
 
     module.quantization_status = QuantizationStatus.FROZEN
 

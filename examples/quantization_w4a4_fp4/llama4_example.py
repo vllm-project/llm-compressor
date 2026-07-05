@@ -3,18 +3,14 @@ from datasets import load_dataset
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+with load_context(Llama4ForConditionalGeneration):
+    model = Llama4ForConditionalGeneration.from_pretrained(model_id)
 processor = Llama4Processor.from_pretrained(model_id)
-# We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`.
-# This change allows compatibility with vllm.
-# To apply your own custom module for experimentation, consider updating
-# `SequentialLlama4TextMoe` under llmcompressor/modeling/llama4.py
-model = replace_modules_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 20

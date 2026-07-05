@@ -5,60 +5,27 @@ huggingface/transformers flows
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 import requests
-from huggingface_hub import HUGGINGFACE_CO_URL_HOME, hf_hub_download
+from huggingface_hub import (
+    _CACHED_NO_EXIST,
+    HfApi,
+    hf_hub_download,
+    try_to_load_from_cache,
+)
 from loguru import logger
 from transformers import AutoConfig
-from transformers.trainer_utils import get_last_checkpoint
 
 if TYPE_CHECKING:
-    from llmcompressor.args import ModelArguments, TrainingArguments
+    from llmcompressor.args import ModelArguments
 
 __all__ = [
     "RECIPE_FILE_NAME",
-    "detect_last_checkpoint",
     "is_model_ct_quantized_from_path",
 ]
 
 RECIPE_FILE_NAME = "recipe.yaml"
-
-
-def detect_last_checkpoint(
-    training_args: "TrainingArguments",
-    model_args: Optional["ModelArguments"] = None,
-):
-    last_checkpoint = None
-    if (
-        os.path.isdir(training_args.output_dir)
-        and training_args.do_train
-        and not training_args.overwrite_output_dir
-    ):
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-        if training_args.run_stages and model_args is not None:
-            model = (
-                model_args.model
-                if hasattr(model_args, "model")
-                else model_args.model_name_or_path
-            )
-            if os.path.isdir(model):
-                last_checkpoint = get_last_checkpoint(model_args.model_name_or_path)
-        if last_checkpoint is None and (len(os.listdir(training_args.output_dir)) > 0):
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already "
-                "exists and is not empty. Use --overwrite_output_dir to overcome."
-            )
-        elif (
-            last_checkpoint is not None and training_args.resume_from_checkpoint is None
-        ):
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}. To "
-                "avoid this behavior, change  the `--output_dir` or add "
-                "`--overwrite_output_dir` to train from scratch."
-            )
-
-    return last_checkpoint
 
 
 def is_model_ct_quantized_from_path(path: str) -> bool:
@@ -80,7 +47,7 @@ def is_model_ct_quantized_from_path(path: str) -> bool:
     return False
 
 
-def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
+def infer_recipe_from_model_path(model_path: str | Path) -> str | None:
     """
     Infer the recipe from the model_path.
 
@@ -90,7 +57,12 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         - Hugging face model ID
     :return: The path to the recipe file if found, None otherwise.
     """
-    model_path = model_path.as_posix() if isinstance(model_path, Path) else model_path
+    model_path = (
+        model_path.as_posix() if isinstance(model_path, Path) else model_path.strip()
+    )
+    if model_path == "":
+        logger.debug("got path_or_name=<empty string>unable to find recipe")
+        return None
 
     if os.path.isdir(model_path) or os.path.isfile(model_path):
         # Model path is a local path to the model directory or file
@@ -105,6 +77,18 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         logger.debug(f"No recipe found in the model_path: {model_path}")
         return None
 
+    # Try to resolve HF model ID to cached location first
+    cached_recipe = try_to_load_from_cache(
+        repo_id=model_path,
+        filename=RECIPE_FILE_NAME,
+    )
+
+    if cached_recipe and cached_recipe is not _CACHED_NO_EXIST:
+        # Recipe found in cached model
+        logger.info(f"Found recipe in cached model: {cached_recipe}")
+        return cached_recipe
+    # No recipe in cache - fall through to network check
+
     # If the model path is a Hugging Face model ID
     recipe = recipe_from_huggingface_model_id(hf_stub=model_path)
 
@@ -116,7 +100,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
 
 def recipe_from_huggingface_model_id(
     hf_stub: str, recipe_file_name: str = RECIPE_FILE_NAME
-) -> Optional[str]:
+) -> str | None:
     """
     Attempts to download the recipe from the Hugging Face model ID.
 
@@ -127,7 +111,14 @@ def recipe_from_huggingface_model_id(
         - The path to the recipe file if found, None otherwise.
         - True if hf_stub is a valid Hugging Face model ID, False otherwise.
     """
-    model_id_url = os.path.join(HUGGINGFACE_CO_URL_HOME, hf_stub)
+    # Check if offline mode is enabled
+    if os.getenv("HF_HUB_OFFLINE") == "1":
+        logger.debug("HF_HUB_OFFLINE is set, skipping recipe download from HuggingFace")
+        return None
+
+    # Use custom HF_ENDPOINT
+    hf_api = HfApi()
+    model_id_url = f"{hf_api.endpoint.rstrip('/')}/{hf_stub}"
     request = requests.head(model_id_url)
 
     if request.status_code != 200:

@@ -1,7 +1,6 @@
 import pytest
 
 from llmcompressor.core.state import Data, Hardware, ModifiedState, State
-from llmcompressor.metrics import BaseLogger, LoggerManager
 
 
 @pytest.mark.smoke
@@ -15,9 +14,6 @@ def test_state_initialization():
     assert state.batch_data is None
     assert state.data == Data()
     assert state.hardware == Hardware()
-    assert state.loggers is None
-    assert state.model_log_cadence is None
-    assert state._last_log_step is None
 
 
 @pytest.mark.smoke
@@ -48,7 +44,6 @@ def test_state_update():
         "device": "cpu",
         "start": 1.0,
         "batches_per_step": 10,
-        "model_log_cadence": 2,
     }
     state.update(**updated_data)
 
@@ -60,7 +55,6 @@ def test_state_update():
     assert state.data.test == "new_test_data"
     assert state.data.calib == "new_calib_data"
     assert state.hardware.device == "cpu"
-    assert state.model_log_cadence == 2
 
 
 @pytest.mark.regression
@@ -71,14 +65,3 @@ def test_state_sparsification_ready():
     state.model = "model"
     state.optimizer = "optimizer"
     assert state.compression_ready
-
-
-@pytest.mark.regression
-def test_state_update_loggers():
-    state = State()
-    logger1 = BaseLogger("test1", False)
-    logger2 = BaseLogger("Test2", False)
-    state.update(loggers=[logger1, logger2])
-
-    assert isinstance(state.loggers, LoggerManager)
-    assert state.loggers.loggers == [logger1, logger2]

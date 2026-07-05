@@ -1,6 +1,6 @@
 import ast
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from loguru import logger
 
@@ -21,10 +21,10 @@ class AutoWrapper(ast.NodeTransformer):
     See also: https://github.com/vllm-project/llm-compressor/pull/1411
     """
 
-    def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
+    def __init__(self, namespace: dict[str, Any], ignore: list[str]):
         self.namespace = namespace
         self.ignore = ignore
-        self._wrapper_fn_defs: List[ast.FunctionDef] = list()
+        self._wrapper_fn_defs: list[ast.FunctionDef] = list()
         self._local_names = set()
         self._wrapped_counter = 0
 
@@ -53,7 +53,13 @@ class AutoWrapper(ast.NodeTransformer):
         :param node: function definition whose decorators will be stripped
         :return: function definition without decorators
         """
-        node.decorator_list = []
+        node.decorator_list = [
+            decorator_name
+            for decorator_name in node.decorator_list
+            if isinstance(decorator_name, ast.Name)
+            and decorator_name.id in ("can_return_tuple",)  # modifies func signature
+        ]
+
         if node.name == "forward":
             for arg in node.args.args:
                 self._local_names.add(arg.arg)
@@ -90,16 +96,18 @@ class AutoWrapper(ast.NodeTransformer):
 
         return ret
 
-    def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
+    def visit_If(
+        self, node: ast.If | ast.IfExp
+    ) -> ast.If | ast.IfExp | ast.Assign | ast.Call:
         """
         Attempt to statically evaluate the condition of the `if` statement. If the
         condition can not be statically evaluated (1), then attmept to wrap the `if`
         statement
 
         :param node: `if` statement which may be wrapped
-        :return: if the `if` statement cannot be statically evaluated, return the
+        :return: if the `if` statement can be statically evaluated, return the
             `if` statement with the condition replaced by `True` or `False`.
-            Otherwise, return a wrapper function call
+            Otherwise, return a wrapper function call + assignment
         """
         # HACK: common case where vision models will have code that looks like this:
         # ```
@@ -118,7 +126,11 @@ class AutoWrapper(ast.NodeTransformer):
         try:
             value = bool(self._eval_expr(node.test))
 
-        # wrap if cannot be evaluated statically
+            # force a wrap if any assignments occur within the if statement
+            for expr in ast.walk(node.test):
+                if isinstance(expr, ast.NamedExpr):
+                    raise Exception("If statement contains assignment")
+
         except Exception:
             return self._wrap_if_possible(node)
 
@@ -127,7 +139,18 @@ class AutoWrapper(ast.NodeTransformer):
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
 
-    def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
+    def visit_IfExp(self, node: ast.IfExp) -> ast.IfExp | ast.Call:
+        """
+        `if else` expressions are treated the same as `if` statements. See `visit_If`.
+
+        :param node: `if else` expression which may be wrapped
+        :return: if the `if else` expression can be statically evaluated, return the
+            `if else` expression with the condition replaced by `True` or `False`.
+            Otherwise, return a wrapper function call
+        """
+        return self.visit_If(node)
+
+    def visit_Tuple(self, node: ast.Tuple) -> ast.Tuple | ast.Call:
         """
         (3) Wrap any tuples which use starred unpacking
         """
@@ -171,10 +194,9 @@ class AutoWrapper(ast.NodeTransformer):
         without its original context. In the future, we can add more checks for module
         calls (see `visit_If`)
         """
-        analyzer = ControlFlowAnalyzer()
-        return analyzer.is_valid(node)
+        return ControlFlowAnalyzer().is_valid(node)
 
-    def _wrap_if_possible(self, node: ast.AST) -> Union[ast.AST, ast.Assign, ast.Call]:
+    def _wrap_if_possible(self, node: ast.AST) -> ast.AST | ast.Assign | ast.Call:
         """
         Defines a wrapper function containing the wrapped node.
 
@@ -194,14 +216,13 @@ class AutoWrapper(ast.NodeTransformer):
         if not self._can_wrap(node):
             return node
 
-        if isinstance(node, ast.stmt):
-            return self._wrap_stmt(node)
-
-        elif isinstance(node, ast.expr):
-            return self._wrap_expr(node)
-
-        else:
-            raise TypeError(f"Unknown type {type(node)}")
+        match node:
+            case ast.stmt():
+                return self._wrap_stmt(node)
+            case ast.expr():
+                return self._wrap_expr(node)
+            case _:
+                raise TypeError(f"Unknown type {type(node)}")
 
     def _wrap_stmt(self, node: ast.stmt) -> ast.Assign:
         # unbound := names which are read by node before being assigned
@@ -283,7 +304,7 @@ class AutoWrapper(ast.NodeTransformer):
 
         return fn_call
 
-    def _get_caller_name(self, node: ast.Call) -> Optional[str]:
+    def _get_caller_name(self, node: ast.Call) -> str | None:
         try:
             caller = self._eval_expr(node.func)
 

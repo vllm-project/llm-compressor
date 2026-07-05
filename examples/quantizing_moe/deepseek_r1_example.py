@@ -1,9 +1,9 @@
 from datasets import load_dataset
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 
@@ -14,13 +14,14 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 # `DeepSeek-R1-0528-BF16` is a DeepSeek-V3 FP8 model which has been converted to BF16
 
 model_id = "unsloth/DeepSeek-R1-0528-BF16"
-config = AutoConfig.from_pretrained(model_id)
-del config.quantization_config  # fp8 qconfig no longer appplies to bf16 model
-model = AutoModelForCausalLM.from_pretrained(
-    model_id, torch_dtype="auto", config=config
-)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = replace_modules_for_calibration(model)
+# MoE calibration is now handled automatically by the pipeline.
+# The `CalibrationDeepseekV3MoE` modules (from `llmcompressor.modeling.deepseek_v3`)
+# will be applied during calibration to enable proper expert calibration.
+# These replace the original `DeepseekV3MoE` class from
+# `transformers.models.deepseek_v3.modeling_deepseek_v3`.
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"

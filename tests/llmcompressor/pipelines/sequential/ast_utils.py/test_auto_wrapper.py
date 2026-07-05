@@ -1,3 +1,4 @@
+# flake8: noqa
 import ast
 import textwrap
 from types import SimpleNamespace
@@ -21,13 +22,14 @@ def check_wrapping(
 
     wrapped_lines = ast.unparse(wrapped).splitlines()
     output_lines = textwrap.dedent(output).splitlines()[1:]
+    lines = ("\n".join(wrapped_lines), "\n".join(output_lines))
 
-    assert len(wrapped_lines) == len(output_lines)
+    assert len(wrapped_lines) == len(output_lines), lines
     for wrapped_line, output_line in zip(wrapped_lines, output_lines):
         if "# skip" in output:
             continue
 
-        assert wrapped_line == output_line
+        assert wrapped_line == output_line, lines
 
 
 def test_static_if():
@@ -64,7 +66,7 @@ def test_static_if_global_vars():
 
 
 def test_dynamic_if():
-    """Checks that non-resolvable if statements are ignored"""
+    """Checks that non-resolvable if statements are wrapped"""
 
     source = """
     def forward():
@@ -187,5 +189,47 @@ def test_function_variadic():
 
     def forward(a, *b, c=5, **d):
         () = wrapped_0(a, b, c, d)
+    """
+    check_wrapping(source, output)
+
+
+def test_walrus():
+    """Checks for handling variadic names created via function def"""
+
+    source = """
+    def forward():
+        if (x := (1 + 2)):
+            pass
+    """
+    output = """
+    @torch.fx.wrap
+    def wrapped_0():
+        if (x := (1 + 2)):
+            pass
+        return (x,)
+    
+    def forward():
+        (x,) = wrapped_0()  # skip: some envs use "(x,)" -> "x,"
+    """
+    check_wrapping(source, output)
+
+
+def test_dynamic_ifexp():
+    """Checks that non-resolvable if expressions are wrapped"""
+
+    source = """
+    def forward():
+        test = ...
+        out = 1 if test else 2
+    """
+    output = """
+    @torch.fx.wrap
+    def wrapped_0(test):
+        return 1 if test else 2
+        return ()
+
+    def forward():
+        test = ...
+        out = wrapped_0(test)
     """
     check_wrapping(source, output)

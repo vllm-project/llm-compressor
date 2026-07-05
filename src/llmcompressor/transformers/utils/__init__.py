@@ -1,5 +1,5 @@
 """
-Utilities for applying sparsification algorithms to Hugging Face transformers flows
+Utilities for applying compression algorithms to Hugging Face transformers flows
 """
 
 # ruff: noqa

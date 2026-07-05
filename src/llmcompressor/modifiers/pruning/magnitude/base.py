@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Dict, List, Union
+from typing import Any
 
 from pydantic import field_validator
 
@@ -16,22 +16,22 @@ from llmcompressor.modifiers.pruning.utils.pytorch import (
     PruningMaskCreatorArgs,
     PruningMaskFactory,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
+from llmcompressor.utils.pytorch.module import build_parameterized_layers
 
 __all__ = ["MagnitudePruningModifier"]
 
 
 class MagnitudePruningModifier(Modifier, LayerParamMasking):
-    targets: Union[str, List[str]]
+    targets: str | list[str]
     init_sparsity: float
     final_sparsity: float
     update_scheduler: str = "cubic"
-    scheduler_args: Dict[str, Any] = {}
+    scheduler_args: dict[str, Any] = {}
     mask_structure: str = "unstructured"
     leave_enabled: bool = False
     apply_globally: bool = False
 
-    parameterized_layers_: Dict[str, ModelParameterizedLayer] = None
+    parameterized_layers_: dict[str, ModelParameterizedLayer] = None
     _save_masks: bool = False
     _use_hooks: bool = False
     scheduler_function_: SchedulerCalculationType = None
@@ -75,7 +75,9 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             self.mask_structure
         )
 
-        self.parameterized_layers_ = get_layers_params(state.model)
+        self.parameterized_layers_ = build_parameterized_layers(
+            state.model, self.targets
+        )
 
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
             self.add_mask(

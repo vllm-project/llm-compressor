@@ -1,28 +1,21 @@
 import requests
-import torch
+from compressed_tensors.offload import dispatch_model
 from PIL import Image
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"
-model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+model = LlavaForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
 DATASET_SPLIT = "test"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
-
-
-# Define a oneshot data collator for multimodal inputs.
-def data_collator(batch):
-    assert len(batch) == 1
-    return {key: torch.tensor(value) for key, value in batch[0].items()}
 
 
 # Recipe
@@ -39,18 +32,16 @@ oneshot(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    splits=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
-    data_collator=data_collator,
     sequential_targets=["LlamaDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 messages = [
     {
         "role": "user",

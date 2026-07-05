@@ -4,18 +4,18 @@ import inspect
 import linecache
 import sys
 import textwrap
-from typing import List
+import traceback
 
 import torch
+from compressed_tensors.utils import patch_attr
 
-from llmcompressor.pipelines.sequential.ast_utils.auto_wrapper import AutoWrapper
-from llmcompressor.utils import patch_attr
+from llmcompressor.pipelines.sequential.ast_utils import AutoWrapper
 
-__all__ = ["autowrap_forwards"]
+__all__ = ["autowrap_forwards", "append_autowrap_source_on_fail"]
 
 
 @contextlib.contextmanager
-def autowrap_forwards(modules: List[torch.nn.Module], ignore: List[str]):
+def autowrap_forwards(modules: list[torch.nn.Module], ignore: list[str]):
     """
     Replace the `forward` method of the given modules with a recompiled version where
     all untraceble code patterns are removed and replaced with torch.fx function
@@ -32,7 +32,7 @@ def autowrap_forwards(modules: List[torch.nn.Module], ignore: List[str]):
 
 
 @contextlib.contextmanager
-def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
+def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
     """
     Replace the `forward` method of the given module with a recompiled version where
     all untraceble code patterns are removed and replaced with torch.fx function
@@ -44,6 +44,14 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     :param module: module whose forward method should be replaced
     :param ignore: explicit list of function names to wrap
     """
+    # check forward method is implemented
+    if module.forward.__name__ == "_forward_unimplemented":
+        raise ValueError(
+            "Cannot calibrate model which does not implement `forward` method. Please "
+            "either implement a forward method on the model, or pass a submodule to "
+            "`oneshot`. For example, `oneshot(model.thinker, ...)`"
+        )
+
     # get source code of module forward
     source = inspect.getsource(module.forward)
     source = textwrap.dedent(source)
@@ -58,18 +66,19 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     # autowrap untraceable code
     auto_wrapper = AutoWrapper(namespace, ignore)
     tree = auto_wrapper.auto_wrap(tree)
+    source = ast.unparse(tree)
 
     # compile new forward function from autowrapped code
-    filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
-    code = compile(tree, filename=filename, mode="exec")
-    exec(code, namespace)  # ensure ns of functions is the same ns as torch.fx.wrap
+    filename = f"<Autowrapped {module.__class__.__name__} {id(module)}>"
+    code = compile(source, filename=filename, mode="exec")
+    with append_autowrap_source_on_fail():
+        exec(code, namespace)  # ensure ns of functions is the same ns as torch.fx.wrap
 
     # enable better tracebacks if autowrapped code fails
-    source_str = ast.unparse(tree)
     linecache.cache[filename] = (
-        len(source_str),
+        len(source),
         None,
-        [line + "\n" for line in source_str.splitlines()],
+        [line + "\n" for line in source.splitlines()],
         filename,
     )
 
@@ -77,3 +86,30 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     new_forward = namespace["forward"].__get__(module)
     with patch_attr(module, "forward", new_forward):
         yield
+
+
+@contextlib.contextmanager
+def append_autowrap_source_on_fail():
+    try:
+        yield
+    except Exception as exception:
+        _exc_type, _exc_value, exc_tb = sys.exc_info()
+        tb_list = traceback.extract_tb(exc_tb)
+
+        for frame in reversed(tb_list):
+            if "Autowrapped" in frame.filename:
+                source_lines = linecache.getlines(frame.filename)
+                lineno = frame.lineno
+
+                # annotate failing line
+                source_lines = [
+                    ("> " if i + 1 == lineno else "  ") + line
+                    for i, line in enumerate(source_lines)
+                ]
+
+                message = f"--- {frame.filename}:{lineno} ---\n"
+                message += "".join(source_lines)
+                message += f"\n\n{exception}"
+                raise RuntimeError(message) from exception
+
+        raise exception

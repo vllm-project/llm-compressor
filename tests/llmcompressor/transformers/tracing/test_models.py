@@ -1,8 +1,9 @@
 import pytest
-from compressed_tensors import match_named_modules
+from compressed_tensors.utils.match import match_named_modules
 from transformers import (
     AutoModelForCausalLM,
     Gemma3ForConditionalGeneration,
+    Gemma3nForConditionalGeneration,
     Idefics3ForConditionalGeneration,
     Llama4ForConditionalGeneration,
     LlavaForConditionalGeneration,
@@ -15,12 +16,10 @@ from transformers import (
 
 from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from tests.testing_utils import requires_hf_token
 
 
-# @pytest.mark.skipif(
-#     (not os.getenv("HF_TOKEN")),
-#     reason="Skipping tracing tests requiring gated model access",
-# )
+@requires_hf_token
 @pytest.mark.parametrize(
     "model_id,model_class,targets,modality,backends",
     [
@@ -47,6 +46,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "text",
             [],
         ),
+        ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", ["timm"]),
         ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
         # --- vision ---
         (
@@ -85,6 +85,14 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             ["torchvision"],
         ),
+        # TODO: add gated model command-a to CI runner tokens
+        # (
+        #     "CohereLabs/command-a-vision-07-2025",
+        #     Cohere2VisionForConditionalGeneration,
+        #     ["Cohere2DecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
         (
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
@@ -120,6 +128,13 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             [],
         ),
+        (
+            "google/gemma-3n-E2B-it",
+            Gemma3nForConditionalGeneration,
+            None,
+            "vision",
+            ["timm"],
+        ),
         # --- audio ---
         (
             "openai/whisper-large-v3",
@@ -139,7 +154,8 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         model_class,
         targets,
         modality=modality,
-        trust_remote_code=True,
+        trust_remote_code=False,
+        device_map="meta",
         skip_weights=True,
     )
 

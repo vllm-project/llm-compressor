@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional, Union
+from typing import Literal
 
 import torch
 from compressed_tensors.transform import (
@@ -7,11 +7,17 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from compressed_tensors.utils import TorchDtype
+from compressed_tensors.utils import TorchDtype, match_named_modules
 from pydantic import Field, ValidationInfo, field_validator
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.typing import NamedModules
+from llmcompressor.utils import (
+    get_high_precision,
+    targets_embeddings,
+    untie_word_embeddings,
+)
 
 __all__ = ["QuIPModifier"]
 
@@ -31,19 +37,22 @@ class QuIPModifier(Modifier):
     the model weights and two of which remain as online rotations computed at runtime.
 
     Lifecycle:
-        - on_initialize
-            - as needed, create transform schemes for V (input) and U (output)
-        - on_start
-            - apply TransformConfig
-                - fuse transforms into weights for mergeable transforms
-                - add hooks for online transforms
-        - on sequential epoch end
-        - on_end
-        - on_finalize
+
+    - on_initialize
+        - as needed, create transform schemes for V (input) and U (output)
+    - on_calibration_start
+        - apply TransformConfig
+            - fuse transforms into weights for mergeable transforms
+            - add hooks for online transforms
+    - on_sequential_epoch_end
+        - untie word embeddings
+        - apply transforms to model
 
     :param rotations: which rotation schemes to apply to the model. Including `"v"` will
         rotate the input side of weights, and including `"u"` will rotate the output
-        side of weights (note that v does not require u and vice-versa)
+        side of weights (note that v does not require u and vice-versa).
+        **Note: Output rotations (`"u"`) are not performant and do not increase accuracy
+        in practice. It is recommended to use only input rotations (`["v"]`).**
     :param transform_type: The type of transform to apply to the model.
         `"hadamard"` has the least performance cost but only supports sizes which are
         powers of power of two.
@@ -63,20 +72,20 @@ class QuIPModifier(Modifier):
     :param transform_config: Optional transform config for overriding provided arguments
     """  # noqa: E501
 
-    rotations: List[Literal["v", "u"]] = Field(default_factory=lambda: ["v", "u"])
+    rotations: list[Literal["v", "u"]] = Field(default_factory=lambda: ["v"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
     )
-    targets: Union[List[str], str] = Field(default="Linear")
+    targets: list[str] | str = Field(default="Linear")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
-    precision: TorchDtype = Field(default=torch.float64)
-    transform_block_size: Optional[int] = Field(default=None)
-    ignore: Union[str, List[str]] = Field(default="lm_head")
+    precision: TorchDtype = Field(default=get_high_precision())
+    transform_block_size: int | None = Field(default=None)
+    ignore: str | list[str] = Field(default="lm_head")
 
     # optional override for more fine-grained control
     # also included in recipe serialization
-    transform_config: Optional[TransformConfig] = Field(default=None, repr=False)
+    transform_config: TransformConfig | None = Field(default=None, repr=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -91,37 +100,27 @@ class QuIPModifier(Modifier):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        if self.transform_config is not None:
-            return True
-
-        self.transform_config = self._create_config()
-        return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
-        apply_transform_config(state.model, self.transform_config)
-
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
-
-        elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            pass
-
-        elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        if not self.ended_:
-            self.on_end(state, None)
+        if self.transform_config is None:
+            self.transform_config = self._create_config()
 
         return True
+
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
+        model = state.model
+
+        # Untie embeddings if they will be targeted by transforms
+        if targets_embeddings(model, self._get_targets(model)):
+            untie_word_embeddings(model)
+
+        apply_transform_config(model, self.transform_config)
+
+    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+        return [
+            (name, module)
+            for scheme in self.transform_config.config_groups.values()
+            for arg in scheme.apply
+            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+        ]
 
     def _create_config(self) -> TransformConfig:
         config_groups = dict()
@@ -139,7 +138,7 @@ class QuIPModifier(Modifier):
             apply=[
                 TransformArgs(
                     targets=self.targets,
-                    location="input",  # non-mergable
+                    location="input",  # non-mergeable
                     ignore=self.ignore,
                 ),
                 TransformArgs(
@@ -166,7 +165,7 @@ class QuIPModifier(Modifier):
                 ),
                 TransformArgs(
                     targets=self.targets,
-                    location="output",  # non-mergable
+                    location="output",  # non-mergeable
                     inverse=True,
                     ignore=self.ignore,
                 ),

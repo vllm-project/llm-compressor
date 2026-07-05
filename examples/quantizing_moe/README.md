@@ -1,10 +1,10 @@
-# Quantizing Mixtral-8x7B-Instruct-v0.1 Model with FP8
+# Quantizing Mixture of Experts (MoE) models
 
-This directory contains example scripts for quantizing LLMs using the static per-tensor FP8 quantization scheme.
+These examples demonstrate how to quantize MoE models using `llm-compressor`. We'll walk through the GLM-4.7 example which applies AWQ quantization to create a W4A16 (4-bit weights, 16-bit activations) model.
 
 ## Installation
 
-To get started, install the necessary dependencies by executing the following commands:
+To get started, install:
 
 ```bash
 git clone https://github.com/vllm-project/llm-compressor.git
@@ -12,90 +12,129 @@ cd llm-compressor
 pip install -e .
 ```
 
-## Quickstart
+## End-to-End Example: Quantizing GLM-4.7
 
-The provided example script demonstrates an end-to-end process for applying the quantization algorithm:
-
-```bash
-python3 mixtral_example.py
-```
-
-## Creating a Quantized MoE Model
-
-This example leverages `llm-compressor` and `compressed-tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `ultrachat_200k` dataset.
-
-You can follow the detailed steps below or simply run the example script with:
+You can run the complete example with:
 
 ```bash
-python mixtral_example.py
+python3 glm4_7_example.py
 ```
 
-### Step 1: Select a Model, Dataset, and Recipe
+This example demonstrates quantizing the `zai-org/GLM-4.7` MoE model using AWQ (Activation-aware Weight Quantization) to 4-bit precision. The process automatically handles MoE-specific calibration requirements.
 
-In this step, you'll choose a base model for quantization, a dataset for calibration, and a quantization recipe.
+### Step 1: Load the Model and Tokenizer
 
-- **Models**: Can be referenced from a local directory or retrieved from the Hugging Face Hub.
-- **Datasets**: Can also be from a local directory or the Hugging Face Hub.
-- **Recipes**: These are YAML files or Python modifier objects that describe how a model should be optimized during or after training. In this example, we use a `QuantizationModifier` object with the scheme set to `FP8`.
+First, load the GLM-4.7 model and its tokenizer from the Hugging Face Hub. The `load_context` context is responsible for ensuring that moe modules load in a way such that they can be calibrated properly. For more information on supporting new MoE architectures, see [MoE Support Guide](../../docs/developer-tutorials/add-moe-support.md).
 
 ```python
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from llmcompressor.utils import load_context
 
-recipe = QuantizationModifier(scheme="FP8", targets="Linear", ignore=["lm_head", "re:.*block_sparse_moe.gate"])
+model_id = "zai-org/GLM-4.7"
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 ```
 
-NOTE: `.*block_sparse_moe.gate` layers do not quantize well, hence they are ignored!
+### Step 2: Prepare the Calibration Dataset
 
-### Step 2: Run Quantization Using Oneshot
+Load and preprocess a calibration dataset. In this example, we use `ultrachat_200k`:
 
-The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `Mixtral-8x7B-Instruct-v0.1-FP8`.
+```python
+from datasets import load_dataset
+
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
+DATASET_SPLIT = "train_sft"
+NUM_CALIBRATION_SAMPLES = 512
+MAX_SEQUENCE_LENGTH = 2048
+
+# Load and shuffle the dataset
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = ds.shuffle(seed=42)
+
+# Apply chat template
+def preprocess(example):
+    return {
+        "text": tokenizer.apply_chat_template(
+            example["messages"],
+            tokenize=False,
+        )
+    }
+
+ds = ds.map(preprocess)
+
+# Tokenize
+def tokenize(sample):
+    return tokenizer(
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
+ds = ds.map(tokenize, remove_columns=ds.column_names)
+```
+
+**Note**: 512 calibration samples is a good starting point. Increasing the number of samples can improve quantization accuracy.
+
+### Step 3: Configure the Quantization Recipe
+
+Define which layers to quantize and which to ignore. GLM-4.7 has dense layers at the beginning that should be excluded:
+
+```python
+from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
+moe_ignores = [
+    # Layers 0-2: Dense layers - ignore entire layers
+    "model.layers.0.*",
+    "model.layers.1.*",
+    "model.layers.2.*",
+    # Ignore the output head
+    "lm_head",
+]
+
+# Configure AWQ with W4A16 (4-bit weights, 16-bit activations)
+recipe = [
+    AWQModifier(),
+    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores)
+]
+```
+
+**Why ignore these layers?**
+- Layers 0-2 are dense (non-MoE) layers that may be sensitive to aggressive quantization
+- The `lm_head` (language model head) is typically kept at higher precision for better output quality
+
+### Step 4: Run Quantization with `oneshot`
+
+Apply the quantization recipe using the `oneshot` method:
 
 ```python
 from llmcompressor import oneshot
 
-output_dir = "Mixtral-8x7B-Instruct-v0.1-FP8"
-
 oneshot(
     model=model,
-    dataset=dataset,
+    dataset=ds,
     recipe=recipe,
-    save_compressed=True,
-    output_dir=output_dir,
-    max_seq_length=2048,
-    num_calibration_samples=512,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
-
 ```
 
-### Custom Quantization
+The `oneshot` method:
+- Calibrates the quantization parameters using the provided dataset
+- Applies AWQ to quantize weights to 4-bit precision
+- Automatically uses the calibration-friendly MoE definition to ensure all experts are properly calibrated
 
-NOTE: Only per-tensor quantization is supported in vLLM as of now (`vllm==0.6.1`)
+### Step 5: Save the Quantized Model
 
-The repository supports multiple quantization techniques configured via a recipe. Supported strategies include `tensor`, `group`, and `channel` quantization.
-
-In the above example, quantization is specified by the `FP8` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `compressed-tensors` library.
-
-A custom scheme can also be specified using `config_groups`:
+Save the compressed model to disk:
 
 ```python
-# Example of defining a custom quantization scheme
-
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
-
-config_groups = {
-    "group_0": {
-        "targets": ["Linear"],
-        "input_activations": None,
-        "output_activations": None,
-        "weights": {
-            "num_bits": 8,
-            "type": "int",
-            "symmetric": True,
-            "strategy": "group",
-            "group_size": 128, 
-        }
-    }
-}
-
-recipe = GPTQModifier(config_groups=config_groups)
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
 ```
+
+The model will be saved in a compressed format with 4-bit weights, ready for vLLM inference.

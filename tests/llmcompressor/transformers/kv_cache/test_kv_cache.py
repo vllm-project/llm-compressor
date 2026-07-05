@@ -2,8 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-from accelerate import init_empty_weights
-from compressed_tensors.quantization import KVCacheScaleType, is_attention_module
+from compressed_tensors.quantization import is_attention_module
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -14,15 +13,15 @@ from llmcompressor.core import reset_session
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
+DATASET_SPLIT = f"train_sft[:{NUM_CALIBRATION_SAMPLES}]"
 
 MODEL_IDS = [
-    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    "microsoft/Phi-3-mini-4k-instruct",
+    "nm-testing/tinysmokeqwen3",
+    "nm-testing/tinysmokellama-3.2",
 ]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def oneshot_fixture():
     def _oneshot_fixture(tmp_path: Path):
         num_bits = 8
@@ -49,9 +48,11 @@ def oneshot_fixture():
             symmetric=symmetric,
         )
         oneshot_args = dict(
-            dataset="open_platypus",
             recipe=recipe,
-            num_calibration_samples=16,
+            dataset="open_platypus",
+            splits=f"train[:{NUM_CALIBRATION_SAMPLES}]",
+            num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+            max_seq_length=MAX_SEQUENCE_LENGTH,
         )
         for model_id in MODEL_IDS:
             oneshot_args["output_dir"] = os.path.join(tmp_path, model_id)
@@ -61,7 +62,7 @@ def oneshot_fixture():
     return _oneshot_fixture
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def kv_cache_fixture():
     def _kv_cache_fixture(recipe: str, tmp_path: Path):
         num_bits = 8
@@ -78,7 +79,7 @@ def kv_cache_fixture():
             symmetric=symmetric,
         )
 
-        model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        model_id = "nm-testing/tinysmokeqwen3"
 
         ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
         ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
@@ -153,16 +154,15 @@ def test_kv_cache_config_format(oneshot_fixture, tmp_path):
 
 def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
     model, used_args = next(oneshot_fixture(tmp_path))
-    output_dir = used_args["output_dir"]
-    with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(str(output_dir))
+    output_dir = str(used_args["output_dir"])
+    model = AutoModelForCausalLM.from_pretrained(output_dir, device_map="meta")
 
     counts = 0
     for name, submodule in model.named_modules():
         if is_attention_module(submodule):
             counts += 1
-            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-            assert hasattr(submodule, KVCacheScaleType.KEY.value)
+            assert hasattr(submodule, "v_scale")
+            assert hasattr(submodule, "k_scale")
     assert counts > 0
 
 
@@ -193,15 +193,14 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
     assert kv_cache_scheme["dynamic"] == used_args["dynamic"]
     assert kv_cache_scheme["symmetric"] == used_args["symmetric"]
 
-    with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(output_dir)
+    model = AutoModelForCausalLM.from_pretrained(output_dir, device_map="meta")
 
     counts = 0
     for name, submodule in model.named_modules():
         if is_attention_module(submodule):
             counts += 1
-            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-            assert hasattr(submodule, KVCacheScaleType.KEY.value)
+            assert hasattr(submodule, "v_scale")
+            assert hasattr(submodule, "k_scale")
 
     assert counts > 0
 
@@ -240,7 +239,7 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     for name, submodule in model.named_modules():
         if is_attention_module(submodule):
             counts += 1
-            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-            assert hasattr(submodule, KVCacheScaleType.KEY.value)
+            assert hasattr(submodule, "v_scale")
+            assert hasattr(submodule, "k_scale")
 
     assert counts > 0

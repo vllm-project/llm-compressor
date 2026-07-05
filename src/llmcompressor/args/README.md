@@ -1,4 +1,4 @@
-# Input arguments for `oneshot`, `train`, `eval` entrypoints
+# Input arguments for the `oneshot` entrypoint
 
 Parsers in `llm-compressor` define the input arguments required for various entry points, including `oneshot`, `train`, and `eval`.
 
@@ -24,11 +24,10 @@ oneshot(
 
 These input arguments can be overloaded into the function signature and will be parsed using Hugging Face's [argument parser](https://github.com/huggingface/transformers/blob/main/src/transformers/hf_argparser.py). The parsers define the acceptable inputs; therefore any arguments to be passed in must be defined.
 
-`llm-compressor` uses four parsers, located in `llm_compressor/args`:
+`llm-compressor` uses three parsers, located in `llm_compressor/args`:
 * ModelArguments
 * DatasetArguments
 * RecipeArguments
-* TrainingArguments
 
 
 ## ModelArguments
@@ -39,7 +38,3 @@ Manages data loading and preprocessing. The dataset argument can specify a Huggi
 
 ## RecipeArguments
 Defines the model recipe. A `recipe` consists of user-defined instructions for optimizing the model. Examples of recipes can be found in the `/examples` directory.
-
-## TrainingArguments
-Specifies training parameters based on Hugging Face's [TrainingArguments class](https://github.com/huggingface/transformers/blob/main/src/transformers/training_args.py). These parameters include settings like learning rate (`learning_rate`), and the optimizer to use (`optim`).
-

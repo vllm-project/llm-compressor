@@ -1,0 +1,38 @@
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      ignore: ["lm_head"]
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 8
+            type: float
+            strategy: channel
+            dynamic: false
+            symmetric: true
+          input_activations:
+            num_bits: 8
+            type: float
+            strategy: token
+            dynamic: true
+            symmetric: true
+          targets: ["re:.*\\.down_proj$"]
+        group_1:
+          weights:
+            num_bits: 4
+            type: float
+            strategy: tensor_group
+            dynamic: false
+            symmetric: true
+            group_size: 16
+            scale_dtype: float8_e4m3fn
+          input_activations:
+            num_bits: 4
+            type: float
+            strategy: tensor_group
+            dynamic: local
+            symmetric: true
+            group_size: 16
+          targets:
+            - "re:.*self_attn\\.(k|o|q|v)_proj$"
+            - "re:.*\\.(gate|up)_proj$"

@@ -7,11 +7,10 @@ related to data, hardware, and model compression.
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
+import torch
 from loguru import logger
-
-from llmcompressor.metrics import BaseLogger, LoggerManager
 
 __all__ = ["State", "Data", "Hardware", "ModifiedState"]
 
@@ -32,10 +31,10 @@ class Data:
     :type calib: Optional[Any]
     """
 
-    train: Optional[Any] = None
-    val: Optional[Any] = None
-    test: Optional[Any] = None
-    calib: Optional[Any] = None
+    train: Any | None = None
+    val: Any | None = None
+    test: Any | None = None
+    calib: Any | None = None
 
 
 @dataclass
@@ -61,14 +60,14 @@ class Hardware:
     :type distributed_strategy: Optional[str]
     """
 
-    device: Optional[str] = None
-    devices: Optional[List[str]] = None
-    rank: Optional[int] = None
-    world_size: Optional[int] = None
-    local_rank: Optional[int] = None
-    local_world_size: Optional[int] = None
-    distributed: Optional[bool] = None
-    distributed_strategy: Optional[str] = None
+    device: str | None = None
+    devices: list[str] | None = None
+    rank: int | None = None
+    world_size: int | None = None
+    local_rank: int | None = None
+    local_world_size: int | None = None
+    distributed: bool | None = None
+    distributed_strategy: str | None = None
 
 
 @dataclass
@@ -93,11 +92,6 @@ class State:
     :type data: Data
     :param hardware: Hardware instance holding info about the target hardware being used
     :type hardware: Hardware
-    :param loggers: LoggerManager instance holding all the loggers to log
-    :type loggers: Optional[LoggerManager]
-    :param model_log_cadence: The cadence to log model information w.r.t epochs.
-        If 1, logs every epoch. If 2, logs every other epoch, etc. Default is 1.
-    :type model_log_cadence: Optional[float]
     """
 
     model: Any = None
@@ -108,9 +102,10 @@ class State:
     batch_data: Any = None
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
-    loggers: Optional[LoggerManager] = None
-    model_log_cadence: Optional[float] = None
-    _last_log_step: Union[float, int, None] = None
+    loss_masks: list[torch.Tensor] | None = None
+    current_batch_idx: int = -1
+    sequential_prefetch: bool = False
+    enable_compile: bool = False
 
     @property
     def compression_ready(self) -> bool:
@@ -138,10 +133,8 @@ class State:
         start: float = None,
         steps_per_epoch: int = None,
         batches_per_step: int = None,
-        loggers: Union[None, LoggerManager, List[BaseLogger]] = None,
-        model_log_cadence: Optional[float] = None,
         **kwargs,
-    ) -> Dict:
+    ) -> dict:
         """
         Update the state with the given parameters.
 
@@ -169,12 +162,6 @@ class State:
         :type steps_per_epoch: int
         :param batches_per_step: The batches per step to update the state with
         :type batches_per_step: int
-        :param loggers: The metrics manager to setup logging important info and
-            milestones to, also accepts a list of BaseLogger(s)
-        :type loggers: Union[None, LoggerManager, List[BaseLogger]]
-        :param model_log_cadence: The cadence to log model information w.r.t epochs.
-            If 1, logs every epoch. If 2, logs every other epoch, etc. Default is 1.
-        :type model_log_cadence: Optional[float]
         :param kwargs: Additional keyword arguments to update the state with
         :return: The updated state as a dictionary
         :rtype: Dict
@@ -194,8 +181,6 @@ class State:
                 "start": start,
                 "steps_per_epoch": steps_per_epoch,
                 "batches_per_step": batches_per_step,
-                "loggers": loggers,
-                "model_log_cadence": model_log_cadence,
                 "kwargs": kwargs,
             },
         )
@@ -219,14 +204,6 @@ class State:
         if "device" in kwargs:
             self.hardware.device = kwargs["device"]
 
-        loggers = loggers or []
-        if isinstance(loggers, list):
-            loggers = LoggerManager(loggers)
-        self.loggers = loggers
-
-        if model_log_cadence is not None:
-            self.model_log_cadence = model_log_cadence
-
         return kwargs
 
 
@@ -246,10 +223,10 @@ class ModifiedState:
     :type modifier_data: Optional[List[Dict[str, Any]]]
     """
 
-    model: Optional[Any] = None
-    optimizer: Optional[Any] = None
-    loss: Optional[Any] = None
-    modifier_data: Optional[List[Dict[str, Any]]] = None
+    model: Any | None = None
+    optimizer: Any | None = None
+    loss: Any | None = None
+    modifier_data: list[dict[str, Any]] | None = None
 
     def __init__(self, model, optimizer, loss, modifier_data):
         """

@@ -7,11 +7,17 @@ creation, activation, reset operations, and lifecycle callback management.
 
 import threading
 from contextlib import contextmanager
-from typing import Any, Generator, Optional
+from typing import TYPE_CHECKING, Any, Generator, Optional
+
+from loguru import logger
 
 from llmcompressor.core.events import EventType
 from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.state import ModifiedState
+
+if TYPE_CHECKING:
+    from torch.nn import Module
+
 
 __all__ = [
     "create_session",
@@ -30,7 +36,7 @@ _local_storage.session = _global_session
 @contextmanager
 def create_session() -> Generator[CompressionSession, None, None]:
     """
-    Context manager to create and yield a new session for sparsification.
+    Context manager to create and yield a new session.
     This will set the active session to the new session for the duration
     of the context.
 
@@ -104,8 +110,7 @@ class LifecycleCallbacks:
         :param kwargs: additional kwargs to pass to the current session's event method
         :return: the modified state of the active session after invoking the event
         """
-        # log loss if loss calculated
-        active_session()._log_loss(event_type=EventType.LOSS_CALCULATED, loss=loss)
+        logger.debug(f"Calculated loss: {loss}")
         return cls.event(EventType.LOSS_CALCULATED, loss=loss, **kwargs)
 
     @classmethod
@@ -136,21 +141,20 @@ class LifecycleCallbacks:
         :param kwargs: additional kwargs to pass to the current session's event method
         :return: the modified state of the active session after invoking the event
         """
-        active_session()._log_model_info()
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def calibration_epoch_start(cls, **kwargs) -> ModifiedState:
+    def calibration_start(cls, **kwargs) -> ModifiedState:
         """
-        Invoke a epoch start event for the active session during calibration. This event
+        Invoke a start event for the active session during calibration. This event
         should be called before calibration starts for one epoch
 
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
-        return cls.event(EventType.CALIBRATION_EPOCH_START, **kwargs)
+        return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod
-    def sequential_epoch_end(cls, **kwargs) -> ModifiedState:
+    def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
         """
         Invoke a sequential epoch end event for the active session. This event should be
         called after one sequential layer has been calibrated/trained for one epoch
@@ -158,17 +162,17 @@ class LifecycleCallbacks:
         This is called after a sequential layer has been calibrated with one batch, see
         `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
         """
-        return cls.event(EventType.SEQUENTIAL_EPOCH_END, **kwargs)
+        return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
 
     @classmethod
-    def calibration_epoch_end(cls, **kwargs) -> ModifiedState:
+    def calibration_end(cls, **kwargs) -> ModifiedState:
         """
-        Invoke a epoch end event for the active session during calibration. This event
+        Invoke an end event for the active session during calibration. This event
         should be called after the model has been calibrated for one epoch
 
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
-        return cls.event(EventType.CALIBRATION_EPOCH_END, **kwargs)
+        return cls.event(EventType.CALIBRATION_END, **kwargs)
 
 
 callbacks = LifecycleCallbacks

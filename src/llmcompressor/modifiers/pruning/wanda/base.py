@@ -1,5 +1,3 @@
-from typing import Dict, Tuple
-
 import torch
 from compressed_tensors.utils import (
     align_module_device,
@@ -26,23 +24,27 @@ class WandaPruningModifier(SparsityModifierBase):
     Modifier for applying the one-shot WANDA algorithm to a model
     from the paper: https://arxiv.org/abs/2306.11695
 
-    | Sample yaml:
-    |   test_stage:
-    |       sparsity_modifiers:
-    |           WandaPruningModifier:
-    |               sparsity: 0.5
-    |               mask_structure: "2:4"
+    Sample yaml:
+
+    ```yaml
+    test_stage:
+      sparsity_modifiers:
+        WandaPruningModifier:
+          sparsity: 0.5
+          mask_structure: "2:4"
+    ```
 
     Lifecycle:
-        - on_initialize
-            - register_hook(module, calibrate_module, "forward")
-            - run_sequential / run_layer_sequential / run_basic
-                - make_empty_row_scalars
-                - accumulate_row_scalars
-        - on_sequential_batch_end
-            - sparsify_weight
-        - on_finalize
-            - remove_hooks()
+
+    - on_initialize
+        - register_hook(module, calibrate_module, "forward")
+        - run_sequential / run_basic
+            - make_empty_row_scalars
+            - accumulate_row_scalars
+    - on_sequential_batch_end
+        - sparsify_weight
+    - on_finalize
+        - remove_hooks()
 
     :param sparsity: Sparsity to compress model to
     :param sparsity_profile: Can be set to 'owl' to use Outlier Weighed
@@ -53,24 +55,22 @@ class WandaPruningModifier(SparsityModifierBase):
         shape. Defaults to 0:0 which represents an unstructured mask.
     :param owl_m: Number of outliers to use for OWL
     :param owl_lmbda: Lambda value to use for OWL
-    :param sequential_targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `targets`
     :param targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `sequential_targets`
+        to compress every layer in the model
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target. Defaults to empty list.
     """
 
     # private variables
-    _row_scalars: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+    _row_scalars: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _num_samples: dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
 
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         """
@@ -78,7 +78,7 @@ class WandaPruningModifier(SparsityModifierBase):
 
         :param module: module being calibrated
         :param args: inputs to the module, the first element of which is the
-            cannonical input
+            canonical input
         :param _output: uncompressed module output, unused
         """
         # Assume that the first argument is the input
@@ -108,8 +108,10 @@ class WandaPruningModifier(SparsityModifierBase):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with torch.no_grad(), align_module_device(module), CompressionLogger(
-                module
+            with (
+                torch.no_grad(),
+                align_module_device(module),
+                CompressionLogger(module),
             ):
                 sparsified_weight = sparsify_weight(
                     module=module,

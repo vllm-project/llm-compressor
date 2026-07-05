@@ -21,7 +21,6 @@ SAMPLE_INPUT = [
 
 compressed_model = AutoModelForCausalLM.from_pretrained(
     MODEL_STUB,
-    torch_dtype="auto",
     device_map="auto",
 )
 

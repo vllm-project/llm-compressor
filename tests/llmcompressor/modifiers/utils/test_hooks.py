@@ -139,8 +139,9 @@ def test_disable_hooks_composable():
     handle_b = mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
 
     # composing two keeps
-    with HooksMixin.disable_hooks(keep=set([handle_b])), HooksMixin.disable_hooks(
-        keep=set([handle_a])
+    with (
+        HooksMixin.disable_hooks(keep=set([handle_b])),
+        HooksMixin.disable_hooks(keep=set([handle_a])),
     ):
         model(model.dummy_inputs)
     assert mod_a.hook_called and mod_b.hook_called

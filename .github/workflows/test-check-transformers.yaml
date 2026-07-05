@@ -15,6 +15,8 @@ on:
 env:
   CADENCE: "commit"
   HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
+  UV_SYSTEM_PYTHON: 1
+  UV_TORCH_BACKEND: "auto"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,7 +24,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: gcp-k8s-vllm-util
 
     outputs:
       matched-changes: ${{ steps.changed-files.outputs.all_changed_files }}
@@ -55,64 +57,53 @@ jobs:
 
   transformers-tests:
     needs: [detect-changes]
-    runs-on: gcp-k8s-vllm-l4-solo
+    runs-on: ibm-wdc-k8s-vllm-h100-solo
     if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.matched-changes != ''
     steps:
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
+        run: uv pip install .[dev]
       - uses: actions/checkout@v4
         with:
-          repository: "neuralmagic/compressed-tensors"
+          repository: "vllm-project/compressed-tensors"
           path: "compressed-tensors"
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         id: install
         run: |
-          pip3 uninstall -y compressed-tensors
+          uv pip uninstall compressed-tensors
           export GIT_CEILING_DIRECTORIES="$(pwd)"
           cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
+          BUILD_TYPE=nightly uv pip install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Prepare code coverage"
         if: inputs.code_coverage
         uses: ./.github/actions/prepare-code-coverage
+      - name: List packages
+        run: pip list
       - name: "🔬 Running transformers tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/compression
-      - name: Run Finetune Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/finetune
-      - name: Running GPTQ Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/gptq
-      - name: Running ONESHOT Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/oneshot
-      - name: Running SparseGPT Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/sparsegpt
-      - name: Running Tracing Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/tracing
-      - name: Running KV Cache Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/kv_cache
+          EXIT_CODE=0
+          COV_APPEND=""
+          for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
+            echo "--- Running: $test_file ---"
+            pytest -vra $COV_APPEND "$test_file" || EXIT_CODE=$?
+            if [[ "${{ inputs.code_coverage }}" == "true" ]]; then
+              COV_APPEND="--cov-append"
+            fi
+          done
+          exit $EXIT_CODE
       - name: "Upload coverage report"
         if: (success() || failure()) && inputs.code_coverage
         uses: actions/upload-artifact@v4

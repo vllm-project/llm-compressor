@@ -1,30 +1,25 @@
+import datetime
 import os
 import weakref
+from contextlib import contextmanager
 from functools import wraps
-from typing import Optional
 
 import torch
-from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import (
-    ModelCompressor,
-    SparsityCompressionConfig,
-    delete_offload_parameter,
-    has_offloaded_params,
-    register_offload_parameter,
-)
+import torch.distributed as dist
+from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
+from compressed_tensors.distributed import is_source_process
+from compressed_tensors.offload import from_accelerate, to_accelerate
+from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.transformers.compression.sparsity_metadata_config import (
-    SparsityConfigMetadata,
-)
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
-__all__ = ["modify_save_pretrained", "untie_word_embeddings"]
+__all__ = ["modify_save_pretrained"]
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -46,19 +41,15 @@ def modify_save_pretrained(model: PreTrainedModel):
         # Keep a weak reference to the model class and unbound save_pretrained
         # method so we can call the original
         model_ref = weakref.ref(save_pretrained_method.__self__)
-        original_save_pretrained = save_pretrained_method.__func__
+        original_save_fn = save_pretrained_method.__func__
         model_class = model_ref().__class__
         del save_pretrained_method
 
-        @wraps(original_save_pretrained)
+        @wraps(original_save_fn)
         def save_pretrained_wrapper(
             save_directory: str,
-            sparsity_config: Optional[SparsityCompressionConfig] = None,
-            quantization_format: Optional[str] = None,
+            quantization_format: str | None = None,
             save_compressed: bool = True,
-            safe_serialization: bool = True,
-            skip_sparsity_compression_stats: bool = True,
-            disable_sparse_compression: bool = False,
             **kwargs,
         ):
             """
@@ -67,47 +58,49 @@ def modify_save_pretrained(model: PreTrainedModel):
             saved to the model's config file
 
             :param save_directory: output directory to save model to
-            :param sparsity_config: optional sparsity config to compress model with,
-                if no config is provided it will be inferred from the model
-            :param quantization_format: optional compression format for quantized
-                models. If none is provided it will be inferred from the model
-            :param save_compressed: whether or not to compress the model on disk
-            :param skip_sparsity_compression_stats: whether to skip the calculation of
-                sparsity statistics (such as global sparsity and sparsity structure)
-                when saving a model in dense format
-            :param disable_sparse_compression: whether to skip sparse compression
-                during save, default is False
+            :param quantization_format: optional compression format override. If none
+                is provided, the compression format will be inferred from the model
+            :param save_compressed: whether or not to compress the model. If true,
+                weights will be compressed. Otherwise, weights will remain in full
+                precision in the "FROZEN" state.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
             # compress model using compressor
-            compressor = get_model_compressor(
-                model=model,
-                sparsity_config=sparsity_config,
-                quantization_format=quantization_format,
-                save_compressed=save_compressed,
-                skip_sparsity_compression_stats=skip_sparsity_compression_stats,
-                disable_sparse_compression=disable_sparse_compression,
+            compressor = ModelCompressor.from_pretrained_model(
+                model, quantization_format=quantization_format
             )
-            if compressor is not None:
+            if save_compressed:
                 compressor.compress_model(model)
 
-            # save (compressed) model structure
-            original_save_pretrained.__get__(model, model_class)(
-                save_directory,
-                safe_serialization=safe_serialization,
-                **kwargs,
-            )
+            # Re-tie weights before offload conversion. Offloading splits tied
+            # weights (e.g. lm_head and embed_tokens) into separate parameters,
+            # which defeats transformers' save-time de-duplication and writes a
+            # redundant copy. Doing this before `to_accelerate` keeps accelerate's
+            # tied-parameter bookkeeping consistent.
+            _retie_offloaded_weights(model)
 
-            # update config to reflect compression
-            if compressor is not None:
-                compressor.update_config(save_directory)
+            # convert to accelerate offloaded for optimal saving with transformers
+            to_accelerate(model)
 
-            # update existing recipe
-            update_and_save_recipe(model.name_or_path, save_directory)
+            with suspend_distributed_timeout():
+                if is_source_process():
+                    # save model structure
+                    original_save_fn.__get__(model, model_class)(
+                        save_directory, **kwargs
+                    )
 
-            # copy python files from cache dir to save_path if any
-            copy_python_files_from_model_cache(model, save_directory)
+                    # update config to reflect quantization
+                    compressor.update_config(save_directory)
+
+                    # update existing recipe
+                    update_and_save_recipe(model.name_or_path, save_directory)
+
+                    # copy python files from cache dir to save_path if any
+                    copy_python_files_from_model_cache(model, save_directory)
+
+            # convert back from accelerate to restore model to original form
+            from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
@@ -117,49 +110,49 @@ def modify_save_pretrained(model: PreTrainedModel):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
-def untie_word_embeddings(model: PreTrainedModel):
+def _retie_offloaded_weights(model: PreTrainedModel):
+    """Re-tie weights split by offload conversion so the tied head isn't saved twice.
+
+    Offloading gives the input embeddings and a tied head (e.g. ``lm_head``)
+    separate parameters, defeating transformers' save-time de-duplication and
+    writing a redundant copy. Re-tying restores the shared parameter.
+
+    Only runs when ``config.tie_word_embeddings`` is set, so models that were
+    explicitly untied (e.g. by SpinQuant via ``untie_word_embeddings``) are left
+    untouched. Failures in a model's ``tie_weights`` are logged rather than raised.
     """
-    Patches bug where HF transformers will fail to untie weights under specific
-    circumstances (https://github.com/huggingface/transformers/issues/33689).
+    get_text_config = getattr(model.config, "get_text_config", None)
+    text_config = (
+        get_text_config(decoder=True) if callable(get_text_config) else model.config
+    )
+    if not getattr(text_config, "tie_word_embeddings", False):
+        return
 
-    This function detects those cases and unties the tensors if applicable
+    tie_weights = getattr(model, "tie_weights", None)
+    if not callable(tie_weights):
+        return
 
-    :param model: model to fix
-    """
-    input_embed = model.get_input_embeddings()
-    output_embed = model.get_output_embeddings()
-
-    for module in (input_embed, output_embed):
-        if module is None or not hasattr(module, "weight"):
-            logger.warning(f"Cannot untie {module} which does not have weight param")
-            continue
-
-        # this could be replaced by a `get_offloaded_parameter` util
-        if not has_offloaded_params(module):
-            untied_data = module.weight.data.clone()
-        else:
-            untied_data = module._hf_hook.weights_map["weight"].clone()
-
-        requires_grad = module.weight.requires_grad
-        new_parameter = torch.nn.Parameter(untied_data, requires_grad=requires_grad)
-        delete_offload_parameter(module, "weight")
-        register_offload_parameter(module, "weight", new_parameter)
-
-    if hasattr(model.config, "tie_word_embeddings"):
-        model.config.tie_word_embeddings = False
+    logger.info("Re-tying word embeddings before save to avoid duplicate weights")
+    try:
+        tie_weights()
+    except Exception as e:
+        logger.warning(
+            f"Failed to re-tie word embeddings before save ({e}); a tied head "
+            "such as lm_head may be written as a redundant duplicate."
+        )
 
 
+@deprecated("ModelCompressor.from_pretrained_model")
 def get_model_compressor(
     model: torch.nn.Module,
-    sparsity_config: Optional[SparsityCompressionConfig] = None,
-    quantization_format: Optional[str] = None,
+    sparsity_config: SparsityCompressionConfig | None = None,
+    quantization_format: str | None = None,
     save_compressed: bool = True,
     skip_sparsity_compression_stats: bool = True,
     disable_sparse_compression: bool = False,
 ):
     """
-    Obtain the compressor based on the config and the
-        quantization_format
+    Obtain the compressor based on the config and the quantization_format
 
     :param model: torch model
     :param sparsify_config: Sparsity Compression config
@@ -171,59 +164,14 @@ def get_model_compressor(
     :param disable_sparse_compression: bool to skip sparse compression
     """
 
-    if sparsity_config is None:
-        """
-        Case 1: No sparsity config is provided
-            1. Will either skip sparsity compression
-            2. Or we will infer sparsity from the model directly
-
-        Check recipe for applied sparsity:
-            - Set skip_sparsity_compression_stats to False if don't find a
-                sparsity structure from the recipe
-            - If we identify sparsity based on the recipe or the user
-                set skip_sparsity_compression_stats to False, generate config
-        """
-        sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
-            model, check_only_modifiers=True
+    if (
+        sparsity_config is not None
+        or not skip_sparsity_compression_stats
+        or disable_sparse_compression
+    ):
+        logger.warning(
+            "Sparse compression is no longer supported by compressed-tensors"
         )
-        if sparsity_structure is not None:
-            skip_sparsity_compression_stats = False
-
-        if skip_sparsity_compression_stats:
-            logger.info(
-                "skip_sparsity_compression_stats set to True. Skipping sparsity "
-                "compression statistic calculations. No sparsity compressor will "
-                "be applied."
-            )
-            sparsity_config = None
-        else:
-            state_dict = get_state_dict_offloaded_model(model)
-
-            sparsity_config = SparsityConfigMetadata.from_pretrained(
-                model,
-                state_dict=state_dict,
-                compress=save_compressed,
-                quantization_format=quantization_format,
-                disable_sparse_compression=disable_sparse_compression,
-                sparsity_structure=sparsity_structure,
-            )
-    else:
-        """
-        # Case 2: User provides a Sparsity Config
-            - This is the case when there is existing sparsity in the
-                model that we'd like to account for while compressing
-            - Users should provide a SparsityConfig, conveying the model's
-                sparsity structure when saving the model
-        """
-        if sparsity_config.sparsity_structure is None:
-            logger.info(
-                "SparsityConfigMetadata provided without indicating ",
-                "the sparsity structure. Sparisty will be inferred from the model. "
-                "Consider providing the structure to skip this step ",
-            )
-            sparsity_config.sparsity_structure = (
-                SparsityConfigMetadata.infer_sparsity_structure(model)
-            )
 
     if not save_compressed:
         if quantization_format not in (None, CompressionFormat.dense.value):
@@ -237,7 +185,6 @@ def get_model_compressor(
 
     return ModelCompressor.from_pretrained_model(
         model,
-        sparsity_config_or_format=sparsity_config,
         quantization_format=quantization_format,
     )
 
@@ -257,3 +204,38 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+@contextmanager
+def suspend_distributed_timeout(
+    timeout: datetime.timedelta = datetime.timedelta(hours=3),
+    current_group: dist.ProcessGroup | None = None,
+):
+    """
+    Context manager that extends the timeout for distributed operations.
+
+    Creates a temporary process group with an extended timeout to prevent
+    timeout errors during long-running operations (e.g., model saving) in
+    distributed training environments. The context manager synchronizes all
+    processes before and after the operation using barriers.
+
+    :param timeout: The extended timeout for the temporary process group.
+        Defaults to 3 hours
+    :param current_group: The current process group to synchronize. If None,
+        defaults to dist.group.WORLD
+    """
+    if not dist.is_initialized():
+        yield
+        return
+
+    if current_group is None:
+        current_group = dist.group.WORLD
+    suspend_group = dist.new_group(backend="gloo", timeout=timeout)
+
+    try:
+        dist.barrier(group=current_group)
+        yield
+    finally:
+        dist.barrier(group=suspend_group)
+        dist.barrier(group=current_group)
+        dist.destroy_process_group(group=suspend_group)

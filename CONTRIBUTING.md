@@ -15,6 +15,8 @@ Finally, one of the most impactful ways to support us is by raising awareness ab
 Talk about it in your blog posts, highlighting how it's driving your incredible projects.
 Express your support on Twitter if vLLM aids you, or simply offer your appreciation by starring our repository.
 
+Check out our [Developer Guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/) for contributing a new quantization modifier, observer, and more!
+
 ## Setup for development
 
 ### Install from source
@@ -22,6 +24,14 @@ Express your support on Twitter if vLLM aids you, or simply offer your appreciat
 ```bash
 pip install -e ./[dev]
 ```
+
+!!! tip
+    For development, it is recommended to also install [Compressed Tensors](https://github.com/vllm-project/compressed-tensors) from source:
+
+    ```bash
+    git clone https://github.com/vllm-project/compressed-tensors.git
+    pip install -e ./compressed-tensors
+    ```
 
 ### Code Styling and Formatting checks
 
@@ -36,16 +46,15 @@ make quality
 make test
 ```
 
+!!! warning
+    Running all tests can take a long time and depending on the test might require many GPUs to succeed.
+
 ## Contributing Guidelines
 
 ### Issue Reporting
 
 If you encounter a bug or have a feature request, please check our issues page first to see if someone else has already reported it.
 If not, please file a new issue, providing as much relevant information as possible.
-
-### Pull Requests & Code Reviews
-
-Please check the PR checklist in the [PR template](.github/PULL_REQUEST_TEMPLATE.md) for detailed guide for contribution.
 
 ### Thank You
 

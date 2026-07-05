@@ -1,4 +1,6 @@
-# `fp4` Quantization
+# `fp4` Quantization with NVFP4
+
+For weight-only FP4 quantization (e.g MXFP4A16, NVFP4A16) see examples [here](https://github.com/vllm-project/llm-compressor/tree/main/examples/quantization_w4a16_fp4).
 
 `llm-compressor` supports quantizing weights and activations to `fp4` for memory savings and inference acceleration with `vLLM`. In particular, `nvfp4` is supported - a 4-bit floating point encoding format introduced with the NVIDIA Blackwell GPU architecture.
 
@@ -39,7 +41,7 @@ Load the model using `AutoModelForCausalLM` for handling quantized saving and lo
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -81,14 +83,3 @@ tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 We have successfully created an `nvfp4` model!
-
-# Quantizing MoEs
-
-To quantize MoEs, a few additional steps are required. An example quantizing Llama4 can be found under `llama4_example.py`. Here, we replace all `Llama4TextMoe` modules by calling `replace_modules_for_calibration`. This replacement allows us to:
-
-1. Linearize the model to enable quantization and execution in vLLM. This is required as the native model definition does not include `torch.nn.Linear` layers in its MoE blocks, a requirement for LLM Compressor to run quantization.
-2. Ensure experts are quantized correctly as not all experts are activated during calibration
-
-Similarly, an example quantizing the Qwen3-30B-A3B model can be found under `qwen_30b_a3b.py`. This model does not require additional linearization as required by the Llama4 model. However, similar to Llama4, in order to ensure the experts are quantized correctly, we can pass in `calibrate_moe_context` which temporarily updates the model definition to use `Qwen3MoeSparseMoeBlock` which updates how the forward pass is handled in the MoE block during calibration. Feel free to update the definition under `llm-compressor/src/llmcompressor/modeling/qwen3_moe.py` to play around with this behavior and evaluate its impact on quantization performance.
-
-

@@ -1,8 +1,7 @@
 import ast
 import builtins
-from typing import Set, Tuple
 
-from llmcompressor.utils import patch_attr
+from compressed_tensors.utils import patch_attr
 
 
 class NameAnalyzer(ast.NodeVisitor):
@@ -30,15 +29,15 @@ class NameAnalyzer(ast.NodeVisitor):
     ```
     """
 
-    _unbound: Set[str]
-    _assigned: Set[str]
-    _conditionally_assigned: Set[str]
-    _omit: Set[str]
+    _unbound: set[str]
+    _assigned: set[str]
+    _conditionally_assigned: set[str]
+    _omit: set[str]
 
-    def __init__(self, omit: Set[str]):
+    def __init__(self, omit: set[str]):
         self._omit = builtins.__dict__.keys() | omit
 
-    def analyze(self, node: ast.AST) -> Tuple[Set[str], Set[str], Set[str]]:
+    def analyze(self, node: ast.AST) -> tuple[set[str], set[str], set[str]]:
         """
         Analyzes the use of names in the given piece of code
 
@@ -73,6 +72,13 @@ class NameAnalyzer(ast.NodeVisitor):
         # Now visit the left side of the assignment
         for target in node.targets:
             self.visit(target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr):
+        # Visit the right side of the assignment first
+        self.visit(node.value)
+
+        # Now visit the left side of the assignment
+        self.visit(node.target)
 
     def visit_If(self, node: ast.If):
         self.visit(node.test)

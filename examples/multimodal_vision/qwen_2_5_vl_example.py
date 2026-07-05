@@ -2,18 +2,21 @@ import base64
 from io import BytesIO
 
 import torch
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
+
+# Note: this is an optional utility for processing vision inputs for qwen.
+# This can be installed via the "qwen" extra
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
@@ -85,14 +88,13 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
     data_collator=data_collator,
     sequential_targets=["Qwen2_5_VLDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
+dispatch_model(model)
 messages = [
     {
         "role": "user",
