@@ -318,6 +318,41 @@ def test_sequential_epoch_end_validates_current_linear_chunk():
     assert "0.weight_observer" not in error_message
 
 
+def test_local_dynamic_output_activation_observer_is_not_required():
+    model = nn.Sequential(nn.Linear(16, 16))
+    weight_args = QuantizationArgs(
+        num_bits=8,
+        type="int",
+        symmetric=True,
+        strategy="tensor",
+    )
+    output_args = QuantizationArgs(
+        num_bits=8,
+        type="float",
+        symmetric=True,
+        strategy="tensor_group",
+        group_size=16,
+        dynamic="local",
+    )
+    modifier = QuantizationModifier(
+        config_groups={
+            "group_0": QuantizationScheme(
+                targets=["Linear"],
+                weights=weight_args,
+                output_activations=output_args,
+            )
+        }
+    )
+    state = State(model=model)
+
+    modifier.on_initialize(state)
+    modifier.on_calibration_start(state, None)
+
+    assert not hasattr(model[0], "output_observer")
+    observe(model[0], "weight")
+    update_qparams(model[0], "weight")
+    modifier.validate_module_calibration(model)
+
 def test_embedding_weight_observer_is_validated():
     model = _EmbeddingModel()
     modifier = _embedding_modifier()

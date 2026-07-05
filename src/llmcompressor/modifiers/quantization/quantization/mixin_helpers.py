@@ -151,7 +151,7 @@ def _observer_enabled(args: QuantizationArgs | None, is_input: bool) -> bool:
         return False
 
     dynamic = getattr(args, "dynamic", None)
-    if input:
+    if is_input:
         return dynamic in _OBSERVED_INPUT_DYNAMICS
 
     return dynamic in _STATIC_DYNAMICS
