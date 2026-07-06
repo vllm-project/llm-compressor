@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import torch
@@ -43,7 +43,10 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin_helpers import (
-    validate_static_kv_cache_scales,
+    CALIBRATION_OBSERVER_BASE_NAMES,
+)
+from llmcompressor.modifiers.quantization.quantization.mixin_helpers import (
+    validate_module_calibration as _validate_module_calibration,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -264,21 +267,29 @@ class QuantizationMixin(HooksMixin):
         Remove calibration hooks and observers, and set the model status to frozen.
         Keep quantization enabled for future operations
 
-        :raises ValueError: if static KV cache quantization scales are invalid
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        validate_static_kv_cache_scales(
-            model,
-            self.resolved_targets,
-            self.ignore,
-            self.resolved_config.kv_cache_scheme,
-        )
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
+
+    def validate_module_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: torch.nn.Module | Iterable[torch.nn.Module],
+        base_names: str | Iterable[str] = CALIBRATION_OBSERVER_BASE_NAMES,
+    ):
+        """
+        Validate that calibration observers on a sequential chunk were called.
+
+        :param model: full model, used for module names in error messages
+        :param modules: modules from the current sequential chunk
+        :param base_names: observer base names to validate
+        """
+        _validate_module_calibration(model, modules, base_names)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """

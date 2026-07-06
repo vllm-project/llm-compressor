@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
+import pytest
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
+    QuantizationStatus,
     initialize_module_for_quantization,
 )
 from torch import nn
@@ -21,6 +23,16 @@ class _FakeDecoderLayer(nn.Module):
         self.v_proj = nn.Linear(64, 64)
 
 
+def _observe_activation_observers(module: nn.Linear):
+    input_observer = getattr(module, "input_observer", None)
+    if input_observer is not None:
+        input_observer(torch.randn(2, module.in_features))
+
+    output_observer = getattr(module, "output_observer", None)
+    if output_observer is not None:
+        output_observer(torch.randn(2, module.out_features))
+
+
 def test_sequential_epoch_end_only_observes_passed_modules():
     """Verify only subgraph modules observed, not all model weights."""
     model = nn.Sequential(nn.Linear(10, 10), nn.Linear(10, 10), nn.Linear(10, 10))
@@ -34,6 +46,7 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     state = State(model=model)
     modifier.on_initialize(state)
     modifier.on_calibration_start(state, None)
+    _observe_activation_observers(model[0])
 
     # Wrap update_statistics_from_observed to track which observers are called
     with patch.object(
@@ -64,11 +77,12 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
             layer, QuantizationScheme(targets=[], input_activations=act_args)
         )
         initialize_observer(layer, "input")
-        layer.input_observer(layer.weight)  # Trigger observer to have statistics
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     state = State(model=model)
     modifier.on_initialize(state)
     modifier.on_calibration_start(state, None)
+    for layer in model:
+        _observe_activation_observers(layer)
 
     # Patch get_qparams and sync_activation_stats to track calls
     with patch.object(
@@ -119,9 +133,37 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
         assert sync_mock2.call_count == 1
 
 
+def test_sequential_epoch_end_validates_unobserved_activation_observers():
+    model = nn.Sequential(nn.Linear(4, 4))
+    act_args = QuantizationArgs(
+        num_bits=8, type="int", symmetric=True, strategy="tensor"
+    )
+    modifier = QuantizationModifier(
+        config_groups={
+            "group_0": QuantizationScheme(
+                targets=["Linear"],
+                input_activations=act_args,
+            )
+        }
+    )
+    state = State(model=model)
+    modifier.on_initialize(state)
+    modifier.on_calibration_start(state, None)
+
+    with pytest.raises(ValueError) as exc_info:
+        modifier.on_sequential_epoch_end(
+            state,
+            Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+            modules=list(model[0].modules()),
+        )
+
+    assert "0.input_observer" in str(exc_info.value)
+    assert model[0].quantization_status == QuantizationStatus.CALIBRATION
+
+
 def test_nested_parent_modules_produce_valid_global_scale():
     """When SEQUENTIAL_EPOCH_END receives parent modules (as the pipeline does),
-    child Linear layers must get finite, positive global_scale values —
+    child Linear layers must get finite, positive global_scale values -
     not uninitialized torch.empty garbage."""
     model = nn.Sequential(_FakeDecoderLayer())
     tg = QuantizationArgs(
