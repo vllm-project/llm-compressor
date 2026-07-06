@@ -1,7 +1,13 @@
+from typing import TYPE_CHECKING
+
 import torch
 from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
-from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
+
+if TYPE_CHECKING:
+    from transformers.models.granitemoe.modeling_granitemoe import (
+        GraniteMoeParallelExperts,
+    )
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
@@ -80,5 +86,12 @@ class GraniteMoeLinearExperts(LinearExperts2D):
         return torch.cat(output_list, dim=0)
 
 
-# register in registry
-LinearExperts2D._registry[GraniteMoeParallelExperts] = GraniteMoeLinearExperts
+# register in registry (for earlier transformers versions)
+try:
+    from transformers.models.granitemoe.modeling_granitemoe import (
+        GraniteMoeParallelExperts,
+    )
+
+    LinearExperts2D._registry[GraniteMoeParallelExperts] = GraniteMoeLinearExperts
+except ImportError:
+    pass

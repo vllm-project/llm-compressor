@@ -3,9 +3,7 @@ from typing import Any, Callable, ClassVar
 
 import torch
 from compressed_tensors.offload import get_cache_init_kwargs, offload_module
-from transformers import (
-    PreTrainedConfig,
-)
+from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
 
