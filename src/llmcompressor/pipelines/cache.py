@@ -271,6 +271,10 @@ class IntermediatesCache:
 
         match value:
             case torch.Tensor():
+                # TODO move this to an explicit def pin_memory call
+                # if not value.is_pinned() and value.device.type == "cpu":
+                #     value = value.pin_memory()
+
                 # use non_blocking when source is pinned and target is an accelerator
                 # so the H2D DMA can overlap with compute on a separate stream
                 non_blocking = (
