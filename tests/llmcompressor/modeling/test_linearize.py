@@ -149,8 +149,10 @@ def test_linearize_moe(model_type):
     config_cls = import_or_none(config_path)
     experts_cls = import_or_none(experts_path)
 
-    assert config_cls is not None, f"Could not import config for {model_type}"
-    assert experts_cls is not None, f"Could not import experts for {model_type}"
+    if config_cls is None or experts_cls is None:
+        pytest.skip(
+            f"Could not import {model_type}, please upgrade your transformers version"
+        )
 
     with torch.device("cuda"):
         config = config_cls(**CONFIG_OVERRIDES.get(model_type, {}))
