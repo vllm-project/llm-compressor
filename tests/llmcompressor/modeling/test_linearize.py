@@ -35,6 +35,11 @@ CONFIG_OVERRIDES = {
     "hy_v3": {"hidden_size": 256, "moe_intermediate_size": 256, "num_experts": 16},
     "jamba": {"hidden_size": 256, "intermediate_size": 256, "num_experts": 16},
     "nemotron_h": {"hidden_size": 32, "moe_intermediate_size": 64},
+    "deepseek_v4": {
+        "hidden_size": 512,
+        "moe_intermediate_size": 64,
+        "n_routed_experts": 16,
+    },
 }
 
 
