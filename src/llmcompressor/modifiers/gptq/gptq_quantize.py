@@ -11,9 +11,6 @@ from compressed_tensors.quantization import (
 )
 from loguru import logger
 
-from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
-from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
@@ -139,15 +136,6 @@ def quantize_weight(
         qparams["global_scale"],
     )
 
-    # sparsity mask
-    sparsity = tensor_sparsity(W)
-    preserve_zeros = sparsity >= SPARSITY_THRESHOLD
-    W_nz_mask = (
-        (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
-        if preserve_zeros
-        else None
-    )
-
     losses = torch.zeros(num_rows, device=module.weight.device)
 
     # mask dead hessian values
@@ -183,9 +171,6 @@ def quantize_weight(
         Err1 = torch.zeros_like(W1)
         losses1 = torch.zeros_like(W1)
         Hinv1 = Hinv[i1:i2, i1:i2]
-
-        if preserve_zeros:
-            W1_nz_mask = W_nz_mask[:, i1:i2]
 
         for i in range(count):
             w = W1[:, i]
@@ -247,10 +232,7 @@ def quantize_weight(
 
             err1 = (w - q) / d
             w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
-            if preserve_zeros:
-                W1[:, i:] -= w1_err * W1_nz_mask[:, i:]
-            else:
-                W1[:, i:] -= w1_err
+            W1[:, i:] -= w1_err
             Err1[:, i] = err1
 
         # propagate block error
@@ -258,10 +240,7 @@ def quantize_weight(
         losses += torch.sum(losses1, 1) / 2
 
         w_err = Err1.matmul(Hinv[i1:i2, i2:])
-        if preserve_zeros:
-            W[:, i2:] -= w_err * W_nz_mask[:, i2:]
-        else:
-            W[:, i2:] -= w_err
+        W[:, i2:] -= w_err
 
     if actorder:
         # restore original permutation
