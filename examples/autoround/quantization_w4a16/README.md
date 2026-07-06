@@ -30,15 +30,6 @@ python3 qwen3_example_w2a16.py
 
 The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound` is ready to be loaded into vLLM.
 
-Observed Qwen3 mixed AutoRound result with `/home/yiliu7/workspace/vllm/run_lm_eval.sh` on `cuda:0`:
-
-```bash
-|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
-|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
-|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.688|±  |0.0147|
-|     |       |strict-match    |     5|exact_match|↑  |0.685|±  |0.0147|
-```
-
 ## Code Walkthrough
 
 Now, we will step through the code in the example. There are four steps:

@@ -177,14 +177,3 @@ We can see the resulting scores look good!
 |gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.728|±  |0.0282|
 |     |       |strict-match    |     5|exact_match|↑  |0.720|±  |0.0285|
 ```
-
-Observed Qwen3 mixed GPTQ result with `/home/yiliu7/workspace/vllm/run_lm_eval.sh` on `cuda:0`:
-
-```bash
-|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
-|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
-|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.182|±  |0.0122|
-|     |       |strict-match    |     5|exact_match|↑  |0.206|±  |0.0128|
-```
-
-This mixed GPTQ recipe exports and packs correctly, but the measured Qwen3 accuracy is currently poor. For this specific `int2 attention + int4 MLP` setup, the AutoRound variant is a materially better baseline.
