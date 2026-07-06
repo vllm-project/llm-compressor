@@ -22,7 +22,22 @@ The example includes an end-to-end script for applying the AutoRound quantizatio
 python3 llama3_example.py
 ```
 
+For a `Qwen/Qwen3-8B` mixed-precision weight-only example with attention at int2 and MLP at int4:
+
+```bash
+python3 qwen3_example_w2a16.py
+```
+
 The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound` is ready to be loaded into vLLM.
+
+Observed Qwen3 mixed AutoRound result with `/home/yiliu7/workspace/vllm/run_lm_eval.sh` on `cuda:0`:
+
+```bash
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.688|±  |0.0147|
+|     |       |strict-match    |     5|exact_match|↑  |0.685|±  |0.0147|
+```
 
 ## Code Walkthrough
 
@@ -99,6 +114,25 @@ tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 We have successfully created an `int4` model!
+
+For lower-bit weight-only presets, the same flow applies with either a single preset or per-target config groups. For example:
+
+```python
+recipe = AutoRoundModifier(
+    config_groups={
+        "attention": QuantizationScheme(
+            targets=["re:.*self_attn\\.(q|k|v|o)_proj$"],
+            weights=QuantizationArgs(num_bits=2, strategy="group", group_size=128),
+        ),
+        "mlp": QuantizationScheme(
+            targets=["re:.*mlp\\.(gate|up|down)_proj$"],
+            weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
+        ),
+    },
+    ignore=["lm_head"],
+    iters=200,
+)
+```
 
 ### 4) Evaluate Accuracy
 

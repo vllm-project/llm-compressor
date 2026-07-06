@@ -31,7 +31,7 @@ As the bit-width decreases, AutoRound shows increasing benefits, achieving 10–
 For emerging floating-point formats, AutoRound consistently outperforms RTN in accuracy, demonstrating strong forward compatibility with evolving quantization standards. See SignRound V2 for details.
 
 ### Key Parameters
-- `scheme`: Quantization scheme (e.g., `W4A16`, `W8A16`, more schemes will be supported soon)
+- `scheme`: Quantization scheme (e.g., `W2A16` through `W7A16`, `W8A16`, `MXFP4`, `NVFP4`)
 - `iters`: Number of tuning iterations per block. Default: 200
 - `batch_size`: Batch size for calibration. Default: 8
 - `lr`: Learning rate for tuning. If `None`, auto-set to `1.0/iters`. Default: `None`
@@ -64,6 +64,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | Scheme              | Examples                                                                  | Note                                  |
 | ------------------- | ------------------------------------------------------------------------- | ------------------------------------- |
 | `wNa16`             | [llama3_example](./quantization_w4a16/llama3_example.py)                  |                                       |
+| `W2A16` + `W4A16`   | [qwen3_example_w2a16.py](./quantization_w4a16/qwen3_example_w2a16.py)     | `Qwen/Qwen3-8B` with attention int2 and MLP int4 |
 | `wNa16`             | [qwen3_example](./quantization_w4a16/qwen3_example.py)                    | Multiple cards for `Qwen3-235B-A22B`  |
 | `wNa16`             | [qwen3_example_custom_dataset.py](./quantization_w4a16/qwen3_example_custom_dataset.py)| Using custom calibration datasets |
 | `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/llama3_example.py)               |                                       |
@@ -76,7 +77,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 
 
 ### Known Issues
-Currently, `llm-compressor` supports applying AutoRound on the wNa16, W8A8-FP8, MXFP8, MXFP4, and NVFP4 quantization schemes. Support for additional schemes is planned. You can follow progress in the [RFC](https://github.com/vllm-project/llm-compressor/issues/2706).
+`llm-compressor` supports AutoRound on weight-only integer schemes `W2A16` through `W7A16`, `W8A8`/FP8 variants, `MXFP8`, `MXFP4`, and `NVFP4`. `W7A16` is handled through the `llm-compressor` compatibility mapping because upstream `auto_round` does not currently ship a native `W7A16` preset. You can follow broader scheme work in the [RFC](https://github.com/vllm-project/llm-compressor/issues/2706).
 
 ### Questions or Feature Requests?
 
