@@ -172,9 +172,17 @@ def test_actorder_group_falls_back_to_none(strategy):
         "0": QuantizationScheme(targets=[], weights=_make_weights(strategy)),
     }
     modifier = GPTQModifier(config_groups=config_groups, actorder="group")
-    with patch("llmcompressor.modifiers.gptq.base.logger.warning") as warn:
+
+    # Mock both the bound logger (for deprecation warning) and regular logger
+    with patch("llmcompressor.modifiers.gptq.base.logger.bind") as mock_bind, \
+         patch("llmcompressor.modifiers.gptq.base.logger.warning") as warn:
+        # The bind() method returns self to allow chaining
+        mock_bind.return_value.warning = warn
         resolved = modifier.resolve_quantization_config()
-    warn.assert_called_once()
+
+    # Two warnings: deprecation warning + incompatibility warning
+    assert warn.call_count == 2
+    # The second call is the incompatibility warning that should mention the strategy
     assert strategy in warn.call_args.args[0]
     assert resolved.config_groups["0"].weights.actorder is None
 
