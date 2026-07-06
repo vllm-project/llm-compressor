@@ -4,8 +4,9 @@ from pathlib import Path
 import pytest
 import torch
 from compressed_tensors.utils import patch_attr
+from huggingface_hub.errors import StrictDataclassError
 from safetensors import safe_open
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers import initialization as init
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
@@ -84,6 +85,11 @@ def patch_deepseek_fp32_modules():
 def test_load_quantizable_moe(
     model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
 ):
+    try:
+        AutoConfig.from_pretrained(model_stub)
+    except StrictDataclassError:
+        pytest.skip("Could not import model, please upgrade your transformers version")
+
     input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
     model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
