@@ -504,9 +504,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def _get_default_quant_scheme(self) -> QuantizationScheme:
         resolved_config = self.resolved_config
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
+            if not isinstance(scheme, QuantizationScheme):
+                raise TypeError(f"Expected QuantizationScheme, got {type(scheme)}")
             return scheme
 
         raise ValueError("AutoRoundModifier requires at least one quantization scheme")
