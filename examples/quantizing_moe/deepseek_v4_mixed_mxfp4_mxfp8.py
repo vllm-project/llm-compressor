@@ -1,6 +1,6 @@
 from compressed_tensors.quantization.quant_scheme import (
-    FP8_BLOCK,
-    NVFP4,
+    MXFP4,
+    MXFP8,
     QuantizationScheme,
 )
 from datasets import load_dataset
@@ -30,7 +30,7 @@ with load_context():
 # mds["model.hc_head.fn"] = mds['model.hc_head.hc_fn']
 # mds["model.hc_head.scale"] = mds['model.hc_head.hc_scale']
 
-tokenizer = AutoTokenizer.from_pretrained("RedHatAI/DeepSeek-V4-Flash-BF16")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -101,13 +101,13 @@ recipe = QuantizationModifier(
                 r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
                 r"re:.*attn\.compressor\.indexer\.q_b_proj$",
             ],
-            **FP8_BLOCK,
+            **MXFP8,
         ),
         "experts": QuantizationScheme(
             targets=[
                 r"re:.*mlp\..*(gate|up|down)_proj$",
             ],
-            **NVFP4,
+            **MXFP4,
         ),
     },
     ignore=[],
@@ -130,6 +130,6 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-Mixed-MXFP4-MXFP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
