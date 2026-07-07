@@ -23,6 +23,29 @@ In addition, ask the user (or use defaults) for:
 **Quantization algorithm:**
 1. **Use GPTQ?** — GPTQModifier can provide better accuracy than standard QuantizationModifier at the cost of longer calibration time. Ask the user if they want to use GPTQ (default: No, use QuantizationModifier for faster calibration).
 
+**GPTQ-specific configuration** (only if using GPTQ):
+
+Use smart defaults and inform the user of the configuration. Don't prompt for each parameter unless the user explicitly wants to customize.
+
+1. **Activation ordering (`actorder`)** — Controls the order in which weight columns are quantized
+   - Default: `"static"` (recommended for best accuracy recovery with no runtime cost)
+   - User can optionally set to `None` for no specific ordering
+2. **Offload Hessians (`offload_hessians`)** — Whether to offload Hessian matrices to CPU during quantization
+   - **Checkpoint size estimation:** For fp16 models, approximate checkpoint size = (total parameters × 2 bytes) / 1024^4 TB
+     - Example: 70B params → ~0.13 TB, 405B params → ~0.75 TB, 500B params → ~0.93 TB
+   - Auto-suggest `True` for models with checkpoint size ≥1TB (reduces GPU memory usage at cost of speed)
+     - This typically means models with **500B+ parameters** in fp16
+   - Auto-suggest `False` for models <1TB (faster, requires more GPU memory)
+   - User can override based on their specific memory constraints
+3. **Dampening fraction (`dampening_frac`)** — Hessian dampening for numerical stability
+   - Default: `0.01`
+   - User can adjust if they encounter Hessian inversion issues during quantization
+4. **Block size (`block_size`)** — Number of columns to compress in one pass
+   - Default: `128`
+   - User can adjust if desired
+
+After determining configuration, inform the user: "Using GPTQ with: actorder='static', dampening_frac=0.01, block_size=128, offload_hessians=[True/False based on model size]. These can be adjusted if needed."
+
 **Calibration dataset configuration:**
 1. **Dataset ID** — HuggingFace dataset to use for calibration (default: `HuggingFaceH4/ultrachat_200k`)
 2. **Dataset split** — which split to use (default: `train_sft`)
@@ -63,6 +86,10 @@ recipe = GPTQModifier(
     targets="Linear",
     scheme="NVFP4",
     ignore=["lm_head"],
+    actorder="static",  # or None if user prefers no specific ordering
+    dampening_frac=0.01,  # can be adjusted if Hessian inversion issues occur
+    offload_hessians=False,  # set to True for models ≥1TB
+    block_size=128,  # user can adjust if desired
 )
 ```
 Also update the save directory suffix to `-NVFP4-GPTQ`.
