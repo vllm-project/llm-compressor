@@ -22,7 +22,6 @@ The example includes an end-to-end script for applying the quantization algorith
 python3 llama3_example.py
 ```
 
-
 The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128` is ready to be loaded into vLLM.
 
 ## Code Walkthough
@@ -106,7 +105,6 @@ tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 We have successfully created an `int4` model!
-
 
 ### 4) Evaluate Accuracy
 
