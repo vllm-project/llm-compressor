@@ -38,19 +38,15 @@ def _retie_embeddings(model: PreTrainedModel):
     """Re-tie input and output embeddings before saving so one shared table is
     written instead of a duplicate.
 
-    Two situations leave value-identical but separate embedding tensors that
-    defeat transformers' save-time de-duplication:
-
-    * Offloading splits a tied model's shared weight into per-module parameters.
-    * Embeddings targeted for quantization are untied during calibration (which
-      also sets ``tie_word_embeddings=False``) and quantized independently; if
-      both ended up with identical packed tensors they represent one table.
-
-    In either case the output embedding's tensors are pointed at the input's so a
-    single shared copy survives to the checkpoint and ``tie_word_embeddings`` is
-    restored. A model that was deliberately untied (config flag ``False`` and not
-    quantized) is left alone: untying clones the weight, leaving the two
-    value-identical, so re-tying here would destroy the intended separation.
+    Embeddings can end up as value-identical but separate tensors that defeat
+    transformers' save-time de-duplication: offloading splits a tied weight into
+    per-module parameters, and embeddings targeted for quantization are untied
+    during calibration and compressed independently. Whenever the two embeddings
+    hold exactly the same tensors they represent a single table, so point the
+    output's at the input's and restore ``tie_word_embeddings``. Embeddings that
+    differ -- quantized differently, or an untied model whose head has diverged
+    -- are left untouched. Comparing the tensors themselves keeps this agnostic
+    to the compression format (packed int, fp8, or dense).
 
     Args:
         model: The model about to be saved.
@@ -61,18 +57,6 @@ def _retie_embeddings(model: PreTrainedModel):
 
     input_tensors = _named_tensors(input_embed)
     output_tensors = _named_tensors(output_embed)
-
-    config = getattr(model, "config", None)
-    get_text_config = getattr(config, "get_text_config", None)
-    text_config = get_text_config(decoder=True) if callable(get_text_config) else config
-
-    # Quantized embeddings carry packed weights and are always re-tied when their
-    # values match. A dense model is only re-tied when its config still declares
-    # it tied, so a deliberately-untied model is left untouched.
-    compressed = "weight_packed" in input_tensors
-    if not compressed and not getattr(text_config, "tie_word_embeddings", False):
-        return
-
     if input_tensors.keys() != output_tensors.keys() or not all(
         torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
     ):
@@ -87,6 +71,9 @@ def _retie_embeddings(model: PreTrainedModel):
         for name in input_tensors:
             setattr(output_embed, name, getattr(input_embed, name))
 
+    config = getattr(model, "config", None)
+    get_text_config = getattr(config, "get_text_config", None)
+    text_config = get_text_config(decoder=True) if callable(get_text_config) else config
     if text_config is not None:
         text_config.tie_word_embeddings = True
     logger.info("Re-tied input/output embeddings; saving a single shared table.")

@@ -130,19 +130,24 @@ def test_no_duplicate_tied_lm_head_on_save(offload, tie_word_embeddings, tmp_pat
 
     Offloading splits the tied embedding and lm_head into separate parameters,
     so without re-tying before save a redundant, identical ``lm_head.weight`` is
-    written. Untied models must still keep their separate head.
+    written. A model whose head has genuinely diverged from the embeddings keeps
+    both (embeddings are re-tied only when their tensors are exactly equal).
     """
     model_path = "Qwen/Qwen3-0.6B"
     save_path = tmp_path / "save_path"
 
     model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
-    if offload:
-        model = dispatch_model(model, {"": "cpu"}, force_hooks=True)
-    else:
-        model = model.to("cpu")
+    model = model.to("cpu")
 
     if not tie_word_embeddings:
         untie_word_embeddings(model)
+        # Untying clones the weight, so the two are still identical and would be
+        # re-tied by policy; diverge the head so the untie is meaningful.
+        with torch.no_grad():
+            model.get_output_embeddings().weight[0, 0] += 1.0
+
+    if offload:
+        model = dispatch_model(model, {"": "cpu"}, force_hooks=True)
 
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
