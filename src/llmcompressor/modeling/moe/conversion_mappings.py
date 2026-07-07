@@ -199,35 +199,6 @@ ARCH_TO_2D_MAPPINGS = {
 }
 
 
-def get_experts_cls(model_type: str) -> type[torch.nn.Module]:
-    if model_type == "deepseek_v4":
-        from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
-            DeepseekV4Experts,
-        )
-
-        return DeepseekV4Experts
-
-    elif model_type == "qwen2_moe":
-        from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeExperts
-
-        return Qwen2MoeExperts
-
-    elif model_type == "qwen3_moe":
-        from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
-
-        return Qwen3MoeExperts
-
-    elif model_type == "glm_moe_dsa":
-        from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (
-            GlmMoeDsaExperts,
-        )
-
-        return GlmMoeDsaExperts
-
-    else:
-        raise ValueError()
-
-
 def has_linearize_load_mappings(model_type: str) -> bool:
     remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_2D_MAPPINGS
