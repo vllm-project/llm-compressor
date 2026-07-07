@@ -22,11 +22,6 @@ The example includes an end-to-end script for applying the quantization algorith
 python3 llama3_example.py
 ```
 
-For a `Qwen/Qwen3-8B` mixed-precision example with attention at int2 and MLP at int4:
-
-```bash
-python3 qwen3_example_2bits.py
-```
 
 The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128` is ready to be loaded into vLLM.
 
@@ -112,39 +107,6 @@ tokenizer.save_pretrained(SAVE_DIR)
 
 We have successfully created an `int4` model!
 
-For lower-bit mixed recipes, you can use per-target config groups. For example, the Qwen3 mixed example quantizes attention `q/k/v/o` to 2-bit and MLP `gate/up/down` to 4-bit:
-
-```python
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
-
-recipe = GPTQModifier(
-    config_groups={
-        "attention": QuantizationScheme(
-            targets=["re:.*self_attn\\.(q|k|v|o)_proj$"],
-            weights=QuantizationArgs(
-                num_bits=2,
-                type="int",
-                strategy="group",
-                symmetric=True,
-                dynamic=False,
-                group_size=128,
-            ),
-        ),
-        "mlp": QuantizationScheme(
-            targets=["re:.*mlp\\.(gate|up|down)_proj$"],
-            weights=QuantizationArgs(
-                num_bits=4,
-                type="int",
-                strategy="group",
-                symmetric=True,
-                dynamic=False,
-                group_size=128,
-            ),
-        ),
-    },
-    ignore=["lm_head"],
-)
-```
 
 ### 4) Evaluate Accuracy
 
