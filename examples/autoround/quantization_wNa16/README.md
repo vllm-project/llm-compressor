@@ -100,7 +100,6 @@ tokenizer.save_pretrained(SAVE_DIR)
 
 We have successfully created an `int4` model!
 
-
 ### 4) Evaluate Accuracy
 
 With the model created, we can now load and run in vLLM (after installing).
