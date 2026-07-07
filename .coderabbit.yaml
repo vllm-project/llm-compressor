@@ -75,7 +75,9 @@ reviews:
     - label: "two-reviews"
       instructions: "Apply when the PR makes significant or substantial changes to source code under src/ — such as large refactors, new core functionality, public API changes, or modifications spanning multiple components (more than 3 files changed OR 100+ lines changed in src/). Do NOT apply for small, targeted changes to a single file or a narrow, self-contained fix. Also apply when the PR changes dependency version bounds in pyproject.toml or setup.py."
   auto_review:
-    enabled: false
+    enabled: true
+    labels:
+      - "ready"
     ignore_title_keywords:
       - "WIP"
       - "DO NOT MERGE"
