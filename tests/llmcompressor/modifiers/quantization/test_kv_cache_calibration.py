@@ -202,6 +202,41 @@ def test_static_kv_cache_calibration_uses_observer_counts():
     assert attention.v_observer.num_observations == 1
 
 
+def test_generic_calibration_validator_requires_linear_and_embedding_observation():
+    model = nn.ModuleDict(
+        {
+            "embedding": nn.Embedding(8, 4),
+            "linear": nn.Linear(4, 4),
+        }
+    )
+    weight_args = QuantizationArgs(
+        num_bits=8, type="int", symmetric=True, strategy="tensor"
+    )
+    modifier = QuantizationModifier(
+        config_groups={
+            "group_0": QuantizationScheme(
+                targets=["Linear", "Embedding"],
+                weights=weight_args,
+            )
+        }
+    )
+    state = State(model=model)
+
+    modifier.on_initialize(state)
+    modifier.on_calibration_start(state, None)
+
+    with pytest.raises(ValueError) as exc_info:
+        modifier.validate_module_calibration(
+            state.model,
+            list(model.modules()),
+            "weight",
+        )
+
+    error_message = str(exc_info.value)
+    assert "embedding.weight_observer" in error_message
+    assert "linear.weight_observer" in error_message
+
+
 def test_static_kv_cache_calibration_respects_ignore_list():
     model, modifier, state, attn_modules = _prepare_kv_model(
         dim=16,
