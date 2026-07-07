@@ -1,0 +1,1 @@
+This directory contains tests for files in the `tools` folder. The tests in this folder do not run as part of any CI, are meant only to be used by local developers

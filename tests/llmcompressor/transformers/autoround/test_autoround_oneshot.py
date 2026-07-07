@@ -106,7 +106,7 @@ def test_oneshot_application(recipe, expected_bits, tmp_path):
         nsamples=32,
     )
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     oneshot(
         model=model,
@@ -152,7 +152,7 @@ def test_oneshot_with_device_ids(tmp_path):
         nsamples=4,
     )
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     recipe = AutoRoundModifier(
         ignore=["lm_head"],
@@ -214,7 +214,7 @@ def test_rtn_oneshot(recipe, tmp_path):
         nsamples=32,
     )
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     oneshot(
         model=model,
