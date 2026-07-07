@@ -1,12 +1,75 @@
 # See https://help.github.com/articles/about-codeowners/
 # for more info about CODEOWNERS file
 
-/src/llmcompressor/args/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
-/src/llmcompressor/entrypoints/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
-/src/llmcompressor/datasets/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/args/ @kylesayrs @brian-dellabetta
+/src/llmcompressor/core/ @kylesayrs @dsikka
+/src/llmcompressor/datasets/ @HDCharles @brian-dellabetta
+/src/llmcompressor/entrypoints/ @kylesayrs @brian-dellabetta @dsikka
+/src/llmcompressor/metrics/ @kylesayrs @dsikka
 /src/llmcompressor/modeling/ @dsikka @kylesayrs
-/src/llmcompressor/metrics/ @brian-dellabetta
 /src/llmcompressor/observers/ @dsikka @kylesayrs @HDCharles
-/src/llmcompressor/pytorch/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
-/src/llmcompressor/recipe/ @shanjiaz
-/src/llmcompressor/utils/ @dsikka @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/pytorch/ @kylesayrs @brian-dellabetta
+/src/llmcompressor/recipe/ @kylesayrs @dsikka @brian-dellabetta
+/src/llmcompressor/utils/ @kylesayrs @HDCharles @brian-dellabetta
+
+/src/llmcompressor/modifiers/autoround/ @kylesayrs @HDCharles
+/src/llmcompressor/modifiers/awq/ @brian-dellabetta @HDCharles @kylesayrs
+/src/llmcompressor/modifiers/experimental/ @kylesayrs @HDCharles @dsikka
+/src/llmcompressor/modifiers/logarithmic_equalization/ @kylesayrs @HDCharles
+/src/llmcompressor/modifiers/obcq/ @kylesayrs @HDCharles
+/src/llmcompressor/modifiers/pruning/ @kylesayrs @HDCharles
+/src/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles @brian-dellabetta
+/src/llmcompressor/modifiers/smoothquant/ @kylesayrs @HDCharles
+/src/llmcompressor/modifiers/transform/ @kylesayrs @brian-dellabetta @HDCharles
+/src/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles
+/src/llmcompressor/modifiers/gptq/ @kylesayrs @HDCharles
+
+/src/llmcompressor/transformers/compression/ @kylesayrs @dsikka @HDCharles
+/src/llmcompressor/transformers/data/ @kylesayrs @dsikka
+/src/llmcompressor/transformers/tracing/ @kylesayrs @dsikka
+/src/llmcompressor/transformers/utils/ @kylesayrs @dsikka
+
+/src/llmcompressor/pipelines/basic/ @kylesayrs @dsikka
+/src/llmcompressor/pipelines/data_free/ @kylesayrs @dsikka
+/src/llmcompressor/pipelines/independent/ @kylesayrs @dsikka
+/src/llmcompressor/pipelines/sequential/ @kylesayrs @dsikka
+
+/tests/llmcompressor/core/ @kylesayrs @dsikka
+/tests/llmcompressor/datasets/ @HDCharles @kylesayrs
+/tests/llmcompressor/entrypoints/ @kylesayrs @brian-dellabetta @dsikka
+/tests/llmcompressor/metrics/ @kylesayrs @dsikka @brian-dellabetta
+/tests/llmcompressor/modeling/ @dsikka @kylesayrs
+/tests/llmcompressor/observers/ @kylesayrs @HDCharles
+/tests/llmcompressor/pytorch/ @kylesayrs @brian-dellabetta
+/tests/llmcompressor/recipe/ @kylesayrs @dsikka
+/tests/llmcompressor/utils/ @kylesayrs @brian-dellabetta
+
+/tests/llmcompressor/modifiers/autoround/ @kylesayrs @HDCharles @brian-dellabetta
+/tests/llmcompressor/modifiers/awq/ @brian-dellabetta @HDCharles @kylesayrs
+/tests/llmcompressor/modifiers/calibration/ @kylesayrs @dsikka @brian-dellabetta
+/tests/llmcompressor/modifiers/gptq/ @kylesayrs @HDCharles 
+/tests/llmcompressor/modifiers/logarithmic_equalization/ @kylesayrs @dsikka @brian-dellabetta
+/tests/llmcompressor/modifiers/pruning/ @kylesayrs @dsikka @brian-dellabetta
+/tests/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles @brian-dellabetta
+/tests/llmcompressor/modifiers/smoothquant/ @kylesayrs @HDCharles
+/tests/llmcompressor/modifiers/transform/ @kylesayrs @brian-dellabetta @HDCharles
+/tests/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles @brian-dellabetta
+
+/tests/llmcompressor/transformers/autoround/ @kylesayrs @HDCharles @brian-dellabetta
+/tests/llmcompressor/transformers/compression/ @kylesayrs @dsikka @HDCharles @brian-dellabetta
+/tests/llmcompressor/transformers/data/ @kylesayrs @dsikka @brian-dellabetta @HDCharles
+/tests/llmcompressor/transformers/gptq/ @kylesayrs @HDCharles 
+/tests/llmcompressor/transformers/kv_cache/ @kylesayrs @dsikka @HDCharles
+/tests/llmcompressor/transformers/oneshot/ @kylesayrs @dsikka @brian-dellabetta
+/tests/llmcompressor/transformers/smoothquant/ @HDCharles @kylesayrs @brian-dellabetta
+/tests/llmcompressor/transformers/sparsegpt/ @kylesayrs @dsikka @brian-dellabetta
+/tests/llmcompressor/transformers/tracing/ @kylesayrs @brian-dellabetta
+
+/tests/llmcompressor/pipelines/sequential/ @kylesayrs @dsikka
+
+/tests/e2e/ @dsikka @kylesayrs @brian-dellabetta @HDCharles
+/tests/examples/ @kylesayrs @dsikka
+/tests/lmeval/ @dsikka @brian-dellabetta @kylesayrs
+/tests/sparsity/ @kylesayrs @dsikka
+/tests/test_timer/ @kylesayrs @dsikka
+/tests/unit/ @kylesayrs @dsikka
