@@ -63,10 +63,10 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 ### Support Matrix
 | Scheme              | Examples                                                                  | Note                                  |
 | ------------------- | ------------------------------------------------------------------------- | ------------------------------------- |
-| `wNa16`             | [llama3_example](./quantization_w4a16/llama3_example.py)                  |                                       |
-| `W2A16` + `W4A16`   | [qwen3_example_w2a16.py](./quantization_w4a16/qwen3_example_w2a16.py)     | `Qwen/Qwen3-8B` with attention int2 and MLP int4 |
-| `wNa16`             | [qwen3_example](./quantization_w4a16/qwen3_example.py)                    | Multiple cards for `Qwen3-235B-A22B`  |
-| `wNa16`             | [qwen3_example_custom_dataset.py](./quantization_w4a16/qwen3_example_custom_dataset.py)| Using custom calibration datasets |
+| `wNa16`             | [llama3_example](./quantization_wNa16/llama3_example.py)                  |                                       |
+| `W2A16` + `W4A16`   | [qwen3_example_mixed_w2a16_w4a16.py](./quantization_wNa16/qwen3_example_mixed_w2a16_w4a16.py) | `Qwen/Qwen3-8B` with attention int2 and MLP int4 |
+| `wNa16`             | [qwen3_example](./quantization_wNa16/qwen3_example.py)                    | Multiple cards for `Qwen3-235B-A22B`  |
+| `wNa16`             | [qwen3_example_custom_dataset.py](./quantization_wNa16/qwen3_example_custom_dataset.py) | Using custom calibration datasets |
 | `wNa16` + `FP8KV`   | [llama3_example](./quantization_kv_cache/llama3_example.py)               |                                       |
 | `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
 | `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |

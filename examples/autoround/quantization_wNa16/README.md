@@ -25,7 +25,7 @@ python3 llama3_example.py
 For a `Qwen/Qwen3-8B` mixed-precision weight-only example with attention at int2 and MLP at int4:
 
 ```bash
-python3 qwen3_example_w2a16.py
+python3 qwen3_example_mixed_w2a16_w4a16.py
 ```
 
 The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128-AutoRound` is ready to be loaded into vLLM.
