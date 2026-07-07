@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CODE_COVERAGE=$(buildkite-agent meta-data get "code-coverage" --default "false" 2>/dev/null || echo "false")
-if [ "${CODE_COVERAGE}" != "true" ]; then
-  echo "Code coverage not enabled — skipping combine step"
-  exit 0
-fi
-
 echo "--- Installing system packages"
 git fetch --tags --unshallow 2>/dev/null || git fetch --tags
 apt-get update -qq && apt-get install -y -qq curl python3-dev

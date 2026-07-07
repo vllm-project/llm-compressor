@@ -76,9 +76,14 @@ steps:
     allow_dependency_failure: true
     agents:
       queue: RedHat-ModelOpt-Util
-    command:
-      - chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
-      - .buildkite/gpu-tests/scripts/combine-coverage.sh
+    command: |
+      CODE_COVERAGE=$$(buildkite-agent meta-data get "code-coverage" --default "false" 2>/dev/null || echo "false")
+      if [ "$${CODE_COVERAGE}" != "true" ]; then
+        echo "Code coverage not enabled — skipping combine step"
+        exit 0
+      fi
+      chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
+      .buildkite/gpu-tests/scripts/combine-coverage.sh
 
   - label: ":mag: Detect changes for Transformers Tests"
     agents:
