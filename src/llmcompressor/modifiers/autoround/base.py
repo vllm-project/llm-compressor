@@ -614,9 +614,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if quant_scheme is None:
                 continue
 
-            assert isinstance(
-                quant_scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(quant_scheme)}"
+            if not isinstance(quant_scheme, QuantizationScheme):
+                raise TypeError(f"Expected QuantizationScheme, got {type(quant_scheme)}")
             layer_scheme = self._quant_scheme_to_autoround_config(quant_scheme)
             if layer_scheme != default_config:
                 layer_config[name] = layer_scheme
