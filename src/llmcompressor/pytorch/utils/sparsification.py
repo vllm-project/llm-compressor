@@ -3,7 +3,6 @@ Helper functions for retrieving information related to model sparsification
 """
 
 import json
-from typing import Dict, Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
@@ -29,7 +28,7 @@ class ModuleSparsificationInfo:
     """
 
     def __init__(
-        self, module: Module, state_dict: Optional[Dict[str, torch.Tensor]] = None
+        self, module: Module, state_dict: dict[str, torch.Tensor] | None = None
     ):
         self.module = module
 
