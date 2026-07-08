@@ -8,6 +8,7 @@ reviews:
   poem: false
   review_status: false
   collapse_walkthrough: true
+  auto_title_update: false
   auto_apply_labels: true
   path_filters:
     - "!**/*.pyc"
