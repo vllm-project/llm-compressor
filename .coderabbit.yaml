@@ -6,7 +6,7 @@ reviews:
   high_level_summary: false
   high_level_summary_in_walkthrough: false # Do not show high-level summary in walkthrough
   poem: false
-  review_status: true
+  review_status: false
   collapse_walkthrough: true
   auto_apply_labels: true
   path_filters:
