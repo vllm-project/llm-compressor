@@ -9,7 +9,6 @@ updates based on specified intervals.
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum, unique
-from typing import Optional
 
 from loguru import logger
 
@@ -32,10 +31,10 @@ class EventType(Enum):
     :param BATCH_START: Event type for the start of a batch.
     :param LOSS_CALCULATED: Event type for when loss is calculated.
     :param BATCH_END: Event type for the end of a batch.
-    :param CALIBRATION_EPOCH_START: Event type for the start of a calibration epoch.
+    :param CALIBRATION_START: Event type for the start of a calibration epoch.
     :param SEQUENTIAL_EPOCH_END: Event type for the end of a layer calibration epoch,
         specifically used by `src/llmcompressor/pipelines/sequential/pipeline.py`
-    :param CALIBRATION_EPOCH_END: Event type for the end of a calibration epoch.
+    :param CALIBRATION_END: Event type for the end of a calibration epoch.
     :param OPTIM_PRE_STEP: Event type for pre-optimization step.
     :param OPTIM_POST_STEP: Event type for post-optimization step.
     """
@@ -50,9 +49,9 @@ class EventType(Enum):
     BATCH_END = "batch_end"
 
     # calibration lifecycle
-    CALIBRATION_EPOCH_START = "calibration_epoch_start"
+    CALIBRATION_START = "calibration_start"
     SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
-    CALIBRATION_EPOCH_END = "calibration_epoch_end"
+    CALIBRATION_END = "calibration_end"
 
     # step lifecycle
     OPTIM_PRE_STEP = "optim_pre_step"
@@ -65,28 +64,28 @@ class Event:
     A class for defining an event that can be triggered during sparsification.
 
     :param type_: The type of event.
-    :type type_: Optional[EventType]
+    :type type_: EventType | None
     :param steps_per_epoch: The number of steps per epoch.
-    :type steps_per_epoch: Optional[int]
+    :type steps_per_epoch: int | None
     :param batches_per_step: The number of batches per step where step is an
         optimizer step invocation. For most pathways, these are the same.
         See the invocations_per_step parameter for more details when they are not.
-    :type batches_per_step: Optional[int]
+    :type batches_per_step: int | None
     :param invocations_per_step: The number of invocations of the step wrapper
         before optimizer.step was called. Generally can be left as 1 (default).
         For older amp pathways, this is the number of times the scaler wrapper
         was invoked before the wrapped optimizer step function was called to
         handle accumulation in fp16.
-    :type invocations_per_step: Optional[int]
+    :type invocations_per_step: int
     :param global_step: The current global step.
     :type global_step: int
     :param global_batch: The current global batch.
     :type global_batch: int
     """
 
-    type_: Optional[EventType] = None
-    steps_per_epoch: Optional[int] = None
-    batches_per_step: Optional[int] = None
+    type_: EventType | None = None
+    steps_per_epoch: int | None = None
+    batches_per_step: int | None = None
     invocations_per_step: int = 1
     global_step: int = 0
     global_batch: int = 0
@@ -206,18 +205,18 @@ class Event:
             )
 
     def should_update(
-        self, start: Optional[float], end: Optional[float], update: Optional[float]
+        self, start: float | None, end: float | None, update: float | None
     ) -> bool:
         """
         Determines if the event should trigger an update.
 
         :param start: The start index to check against, set to None to ignore start.
-        :type start: Optional[float]
+        :type start: float | None
         :param end: The end index to check against, set to None to ignore end.
-        :type end: Optional[float]
+        :type end: float | None
         :param update: The update interval, set to None or 0.0 to always update,
             otherwise must be greater than 0.0, defaults to None.
-        :type update: Optional[float]
+        :type update: float | None
         :return: True if the event should trigger an update, False otherwise.
         :rtype: bool
         """

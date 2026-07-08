@@ -124,8 +124,8 @@ class TestLMEval:
         torch.manual_seed(self.config.seed)
         torch.use_deterministic_algorithms(True)
 
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.config.seed)
+        if torch.accelerator.is_available():
+            torch.get_device_module().manual_seed_all(self.config.seed)
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
@@ -159,8 +159,8 @@ class TestLMEval:
         base_results = self._eval_base_model()
 
         gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+        torch.accelerator.empty_cache()
+        torch.accelerator.synchronize()
         # Give GPU time to fully release memory
         time.sleep(2)
 
@@ -180,7 +180,7 @@ class TestLMEval:
                     model_class=self.config.model_class,
                     max_memory=self.config.max_memory,
                     num_calibration_samples=self.config.num_calibration_samples,
-                    max_seq_length=2048,
+                    max_seq_length=self.config.max_seq_length,
                     scheme=self.config.scheme,
                     dataset_id=self.config.dataset_id,
                     dataset_config=self.config.dataset_config,
@@ -195,8 +195,8 @@ class TestLMEval:
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
 
         gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+        torch.accelerator.empty_cache()
+        torch.accelerator.synchronize()
         # Give GPU time to fully release memory
         time.sleep(2)
 

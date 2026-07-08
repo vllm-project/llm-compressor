@@ -17,7 +17,7 @@ import time
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import init_dist, load_offloaded_model
+from compressed_tensors.offload import init_dist
 from datasets import load_dataset
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -25,6 +25,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.utils import load_context
 
 # ---------------------------------------------------------------------------
 # Config
@@ -56,7 +57,7 @@ def main(num_gpus: int):
     # ------------------------------------------------------------------
     if is_distributed:
         init_dist()
-        with load_offloaded_model():
+        with load_context():
             model = AutoModelForCausalLM.from_pretrained(
                 MODEL_ID,
                 device_map="auto_offload",
@@ -113,7 +114,7 @@ def main(num_gpus: int):
     # ------------------------------------------------------------------
     # Benchmark
     # ------------------------------------------------------------------
-    torch.cuda.reset_peak_memory_stats()
+    torch.accelerator.reset_peak_memory_stats()
     start_time = time.time()
 
     oneshot(
@@ -125,7 +126,7 @@ def main(num_gpus: int):
     )
 
     elapsed = time.time() - start_time
-    peak_mem_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    peak_mem_gb = torch.accelerator.max_memory_allocated() / (1024**3)
 
     if rank == 0:
         logger.info("=" * 60)

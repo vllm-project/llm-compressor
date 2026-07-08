@@ -130,7 +130,7 @@ class TestvLLM:
                     model_class=self.config.model_class,
                     max_memory=self.config.max_memory,
                     num_calibration_samples=self.config.num_calibration_samples,
-                    max_seq_length=2048,
+                    max_seq_length=self.config.max_seq_length,
                     scheme=self.config.scheme,
                     dataset_id=self.config.dataset_id,
                     dataset_config=self.config.dataset_config,
@@ -145,8 +145,8 @@ class TestvLLM:
 
     def maybe_upload_to_hub(self):
         gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+        torch.accelerator.empty_cache()
+        torch.accelerator.synchronize()
         # Give GPU time to fully release memory
         time.sleep(2)
 

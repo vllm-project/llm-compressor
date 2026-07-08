@@ -78,6 +78,7 @@ QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
+
 COHERE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=[
@@ -118,11 +119,13 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Cohere2VisionForConditionalGeneration": COHERE_SMOOTHQUANT_MAPPINGS,
     "DeepseekV2ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     "DeepseekV3ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "Ernie4_5_MoeForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
     "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Glm4MoeForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "GlmMoeDsaForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "GraniteForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
@@ -131,9 +134,13 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "Phi3ForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2_5OmniModel": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2_5OmniThinkerForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2_5_VLForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen2MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
     "Qwen3MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
+    "SeedOssForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
     "AfmoeForCausalLM": AFMOE_SMOOTHQUANT_MAPPINGS,
 }

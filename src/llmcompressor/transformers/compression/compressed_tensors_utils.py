@@ -1,5 +1,7 @@
+import datetime
 import os
 import weakref
+from contextlib import contextmanager
 from functools import wraps
 
 import torch
@@ -7,7 +9,7 @@ import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
-from compressed_tensors.offload import from_accelerate, to_accelerate
+from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
@@ -16,8 +18,65 @@ from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
+from llmcompressor.utils.transformers import get_embeddings
 
 __all__ = ["modify_save_pretrained"]
+
+
+def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
+    """Return a module's own (non-None) parameters and buffers keyed by name.
+
+    ``None`` placeholders are skipped so e.g. a biasless ``lm_head`` (which still
+    registers ``bias=None``) compares equal to an ``Embedding`` that has none.
+    """
+    names = list(module._parameters.keys()) + list(module._buffers.keys())
+    tensors = {name: getattr(module, name) for name in names}
+    return {name: tensor for name, tensor in tensors.items() if tensor is not None}
+
+
+def _retie_embeddings(model: PreTrainedModel):
+    """Re-tie input and output embeddings before saving so one shared table is
+    written instead of a duplicate.
+
+    Embeddings can end up as value-identical but separate tensors that defeat
+    transformers' save-time de-duplication: offloading splits a tied weight into
+    per-module parameters, and embeddings targeted for quantization are untied
+    during calibration and compressed independently. Whenever the two embeddings
+    hold exactly the same tensors they represent a single table, so point the
+    output's at the input's and restore ``tie_word_embeddings``. Embeddings that
+    differ -- quantized differently, or an untied model whose head has diverged
+    -- are left untouched. Comparing the tensors themselves keeps this agnostic
+    to the compression format (packed int, fp8, or dense).
+
+    Args:
+        model: The model about to be saved.
+    """
+    input_embed, output_embed = get_embeddings(model)
+    if input_embed is None or output_embed is None or input_embed is output_embed:
+        return
+
+    input_tensors = _named_tensors(input_embed)
+    output_tensors = _named_tensors(output_embed)
+    if input_tensors.keys() != output_tensors.keys() or not all(
+        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
+    ):
+        return
+
+    # Share the input's storage so transformers' save-time de-duplication keeps a
+    # single copy. ``disable_onloading`` makes the read and assignment go by
+    # reference (a plain assignment to an offloaded module copies); it can be
+    # dropped once compressed-tensors makes ``__setitem__`` a non-copying
+    # replacement (vllm-project/compressed-tensors#709).
+    with OffloadCache.disable_onloading():
+        for name in input_tensors:
+            setattr(output_embed, name, getattr(input_embed, name))
+
+    config = getattr(model, "config", None)
+    get_text_config = getattr(config, "get_text_config", None)
+    text_config = get_text_config(decoder=True) if callable(get_text_config) else config
+    if text_config is not None:
+        text_config.tie_word_embeddings = True
+    logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -71,25 +130,33 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed:
                 compressor.compress_model(model)
 
+            # Re-tie input and output embeddings before offload conversion so a
+            # shared table is written once. Offloading splits a tied weight into
+            # separate params, and quantized embeddings are untied during
+            # calibration; either way identical tensors would otherwise be saved
+            # twice. Doing this before `to_accelerate` keeps accelerate's
+            # tied-parameter bookkeeping consistent.
+            _retie_embeddings(model)
+
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
-            if is_source_process():
-                # save model structure
-                original_save_fn.__get__(model, model_class)(save_directory, **kwargs)
+            with suspend_distributed_timeout():
+                if is_source_process():
+                    # save model structure
+                    original_save_fn.__get__(model, model_class)(
+                        save_directory, **kwargs
+                    )
 
-                # update config to reflect quantization
-                compressor.update_config(save_directory)
+                    # update config to reflect quantization
+                    compressor.update_config(save_directory)
 
-                # update existing recipe
-                update_and_save_recipe(model.name_or_path, save_directory)
+                    # update existing recipe
+                    update_and_save_recipe(model.name_or_path, save_directory)
 
-                # copy python files from cache dir to save_path if any
-                copy_python_files_from_model_cache(model, save_directory)
+                    # copy python files from cache dir to save_path if any
+                    copy_python_files_from_model_cache(model, save_directory)
 
-            # synchronize before converting back from accelerate
-            if dist.is_initialized():
-                dist.barrier()
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
 
@@ -163,3 +230,38 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+@contextmanager
+def suspend_distributed_timeout(
+    timeout: datetime.timedelta = datetime.timedelta(hours=3),
+    current_group: dist.ProcessGroup | None = None,
+):
+    """
+    Context manager that extends the timeout for distributed operations.
+
+    Creates a temporary process group with an extended timeout to prevent
+    timeout errors during long-running operations (e.g., model saving) in
+    distributed training environments. The context manager synchronizes all
+    processes before and after the operation using barriers.
+
+    :param timeout: The extended timeout for the temporary process group.
+        Defaults to 3 hours
+    :param current_group: The current process group to synchronize. If None,
+        defaults to dist.group.WORLD
+    """
+    if not dist.is_initialized():
+        yield
+        return
+
+    if current_group is None:
+        current_group = dist.group.WORLD
+    suspend_group = dist.new_group(backend="gloo", timeout=timeout)
+
+    try:
+        dist.barrier(group=current_group)
+        yield
+    finally:
+        dist.barrier(group=suspend_group)
+        dist.barrier(group=current_group)
+        dist.destroy_process_group(group=suspend_group)
