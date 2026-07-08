@@ -1,5 +1,6 @@
 from auto_round.calib_dataset import get_dataset
 from compressed_tensors.offload import dispatch_model
+from compressed_tensors.quantization.quant_scheme import W2A16, W4A16
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -32,27 +33,13 @@ recipe = AutoRoundModifier(
             targets=[
                 "re:.*self_attn\\.(q|k|v|o)_proj$",
             ],
-            weights=QuantizationArgs(
-                num_bits=2,
-                type="int",
-                strategy="group",
-                symmetric=True,
-                dynamic=False,
-                group_size=128,
-            ),
+            **W2A16,
         ),
         "mlp": QuantizationScheme(
             targets=[
                 "re:.*mlp\\.(gate|up|down)_proj$",
             ],
-            weights=QuantizationArgs(
-                num_bits=4,
-                type="int",
-                strategy="group",
-                symmetric=True,
-                dynamic=False,
-                group_size=128,
-            ),
+            **W4A16,
         ),
     },
     ignore=["lm_head"],
