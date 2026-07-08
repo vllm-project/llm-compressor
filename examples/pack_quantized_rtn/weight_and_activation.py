@@ -9,6 +9,7 @@ Suggested pairs:
 Usage:
     python weight_and_activation.py --weight_bits 7 --act_bits 8
     python weight_and_activation.py --weight_bits 3 --act_bits 4 --model_id meta-llama/Meta-Llama-3-8B-Instruct
+    python weight_and_activation.py --weight_bits 5 --act_bits 8 --asymmetric
 """
 
 import argparse
@@ -29,10 +30,12 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 parser = argparse.ArgumentParser()
 parser.add_argument("--weight_bits", type=int, required=True, choices=[2, 3, 5, 6, 7])
 parser.add_argument("--act_bits", type=int, required=True, choices=[4, 8])
+parser.add_argument("--asymmetric", action="store_true")
 parser.add_argument("--model_id", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct")
 args = parser.parse_args()
 
-SAVE_DIR = args.model_id.rstrip("/").split("/")[-1] + f"-W{args.weight_bits}A{args.act_bits}-RTN"
+suffix = "asym" if args.asymmetric else ""
+SAVE_DIR = args.model_id.rstrip("/").split("/")[-1] + f"-W{args.weight_bits}A{args.act_bits}{suffix}-RTN"
 
 if os.path.exists(SAVE_DIR):
     print(f"Output already exists at {SAVE_DIR!r}, skipping quantization.")
@@ -49,7 +52,7 @@ recipe = QuantizationModifier(
                 num_bits=args.weight_bits,
                 type=QuantizationType.INT,
                 strategy=QuantizationStrategy.CHANNEL,
-                symmetric=True,
+                symmetric=not args.asymmetric,
             ),
             input_activations=QuantizationArgs(
                 num_bits=args.act_bits,
