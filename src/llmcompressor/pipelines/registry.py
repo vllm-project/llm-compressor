@@ -55,6 +55,12 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _infer_pipeline(modifiers: list[Modifier]) -> str:
+        modifier_names = {modifier.__class__.__name__ for modifier in modifiers}
+        if modifier_names == {"MoNEPruningModifier"}:
+            # MoNE's reference flow collects expert stats during full-model
+            # forwards, not layerwise sequential subgraphs.
+            return "basic"
+
         def _modifier_requires_calibration(modifier: Modifier):
             if modifier.__class__.__name__ in (
                 "SmoothQuantModifier",
@@ -64,6 +70,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
                 "AWQModifier",
                 "AutoRoundModifier",
                 "IMatrixGatherer",
+                "MoNEPruningModifier",
                 "REAPPruningModifier",
             ):
                 return True

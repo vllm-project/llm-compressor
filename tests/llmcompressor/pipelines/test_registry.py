@@ -1,7 +1,11 @@
 import pytest
 
 from llmcompressor.modifiers.autoround import AutoRoundModifier
-from llmcompressor.modifiers.pruning import SparseGPTModifier, WandaPruningModifier
+from llmcompressor.modifiers.pruning import (
+    MoNEPruningModifier,
+    SparseGPTModifier,
+    WandaPruningModifier,
+)
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.modifiers.transform import (
     AWQModifier,
@@ -11,6 +15,7 @@ from llmcompressor.modifiers.transform import (
 )
 from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.pipelines import (
+    BasicPipeline,
     CalibrationPipeline,
     DataFreePipeline,
     SequentialPipeline,
@@ -30,6 +35,7 @@ from llmcompressor.pipelines import (
         ([SparseGPTModifier(sparsity=1.0)], SequentialPipeline),
         ([IMatrixGatherer()], SequentialPipeline),
         ([WandaPruningModifier(sparsity=1.0)], SequentialPipeline),
+        ([MoNEPruningModifier(preserve_n_experts=1)], BasicPipeline),
         ([QuIPModifier()], DataFreePipeline),
         ([SpinQuantModifier()], DataFreePipeline),
         ([QuIPModifier(), QuantizationModifier(scheme="FP8")], SequentialPipeline),

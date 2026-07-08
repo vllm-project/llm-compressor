@@ -90,7 +90,13 @@ def pre_process(
 
     # if the model was loaded with accelerate offloading, convert to CT offloading
     if hasattr(model_args.model, "hf_device_map"):
-        from_accelerate(model_args.model)
+        if getattr(model_args.model, "_llmcompressor_keep_accelerate_hooks", False):
+            logger.info(
+                "Keeping Accelerate device hooks for model calibration; skipping "
+                "compressed-tensors offload conversion"
+            )
+        else:
+            from_accelerate(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
@@ -138,6 +144,13 @@ def initialize_model_from_path(
     # The .from_pretrained methods guarantee that only one local process can
     # concurrently download model & vocab.
     model_path = model_args.model
+    model_path = (
+        model_path.as_posix() if isinstance(model_path, PosixPath) else model_path
+    )
+
+    if _is_local_minimax_mone_checkpoint(model_path):
+        return _initialize_minimax_mone_model_from_path(model_args, model_path)
+
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
         cache_dir=None,
@@ -177,7 +190,11 @@ def initialize_model_from_path(
 def initialize_processor_from_path(
     model_args: ModelArguments, model: PreTrainedModel
 ) -> Processor:
-    processor_src = model_args.processor or model.config._name_or_path
+    processor_src = (
+        model_args.processor
+        or getattr(model, "_llmcompressor_minimax_mone_view_dir", None)
+        or model.config._name_or_path
+    )
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
     try:
@@ -206,3 +223,29 @@ def initialize_processor_from_path(
         )
 
     return processor
+
+
+def _is_local_minimax_mone_checkpoint(model_path: str) -> bool:
+    from llmcompressor.modeling.moe.minimax_mone import is_minimax_mone_checkpoint
+
+    return os.path.isdir(model_path) and is_minimax_mone_checkpoint(model_path)
+
+
+def _initialize_minimax_mone_model_from_path(
+    model_args: ModelArguments,
+    model_path: str,
+) -> PreTrainedModel:
+    from llmcompressor.modeling.moe.minimax_mone import load_minimax_mone_model
+
+    model_kwargs = {
+        "revision": model_args.model_revision,
+        "dtype": parse_dtype(model_args.precision),
+        "trust_remote_code": model_args.trust_remote_code_model,
+    }
+
+    return load_minimax_mone_model(
+        model_path,
+        linearize=True,
+        keep_checkpoint_view=True,
+        **model_kwargs,
+    )
