@@ -67,31 +67,50 @@ echo "Found build #$BUILD_NUMBER: $BUILD_URL"
 # Get build details with jobs using bk CLI
 BUILD_DETAILS=$(bk build view "$BUILD_NUMBER" --format json)
 
-# Extract failed job IDs
-FAILED_JOBS=$(echo "$BUILD_DETAILS" | jq -r '.jobs[] | select(.state == "failed") | "\(.id)|\(.name // "unknown")"')
+# Extract failed, timed_out, and other non-passing job IDs
+FAILED_JOBS=$(echo "$BUILD_DETAILS" | jq -r '.jobs[] | select(.state == "failed" or .state == "timed_out" or .state == "canceled" or .state == "canceling") | "\(.id)|\(.name // "unknown")|\(.state)"')
 
 if [ -z "$FAILED_JOBS" ]; then
-    echo "No failed jobs found in build #$BUILD_NUMBER"
+    echo "No failed or problematic jobs found in build #$BUILD_NUMBER"
     exit 0
 fi
 
 echo "Downloading logs for failed jobs..."
 
 LOG_COUNT=0
-while IFS='|' read -r JOB_ID JOB_NAME; do
+while IFS='|' read -r JOB_ID JOB_NAME JOB_STATE; do
     # Sanitize job name for filename
     SAFE_JOB_NAME=$(echo "$JOB_NAME" | tr '/' '_' | tr ' ' '_' | tr ':' '_')
     LOG_FILE="${OUTPUT_DIR}/${BUILD_NUMBER}_${JOB_ID}_${SAFE_JOB_NAME}.log"
 
-    echo "  - Downloading: $JOB_NAME (Job ID: $JOB_ID)"
+    echo "  - Downloading: $JOB_NAME (Job ID: $JOB_ID, State: $JOB_STATE)"
 
-    # Get job log using bk CLI
-    bk job log "$JOB_ID" > "$LOG_FILE" 2>/dev/null || {
-        echo "    Warning: Could not download log for job $JOB_ID"
-        continue
-    }
+    # Get job log using bk CLI (if available)
+    if bk job log "$JOB_ID" > "$LOG_FILE" 2>/dev/null; then
+        LOG_COUNT=$((LOG_COUNT + 1))
+    else
+        # If log unavailable (e.g., job never started), create a placeholder file
+        # Include "FAILED" keyword to ensure sanitizer includes this file
+        echo "FAILED - Job State: $JOB_STATE" > "$LOG_FILE"
+        echo "Job Name: $JOB_NAME" >> "$LOG_FILE"
+        echo "Job ID: $JOB_ID" >> "$LOG_FILE"
+        echo "" >> "$LOG_FILE"
+        echo "ERROR: No log output available. Job state indicates: $JOB_STATE" >> "$LOG_FILE"
 
-    LOG_COUNT=$((LOG_COUNT + 1))
+        case "$JOB_STATE" in
+            "timed_out")
+                echo "" >> "$LOG_FILE"
+                echo "FAILURE: This job exceeded its maximum execution time and was terminated." >> "$LOG_FILE"
+                ;;
+            "canceled"|"canceling")
+                echo "" >> "$LOG_FILE"
+                echo "FAILURE: This job was canceled before completion." >> "$LOG_FILE"
+                ;;
+        esac
+
+        echo "    Created placeholder file for $JOB_STATE job"
+        LOG_COUNT=$((LOG_COUNT + 1))
+    fi
 done <<< "$FAILED_JOBS"
 
 echo ""
