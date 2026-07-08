@@ -1,6 +1,6 @@
 # Summarize Log Failures Skill
 
-Analyzes Buildkite log files and generates structured summaries of test failures.
+Analyzes test log files and generates structured summaries of test failures.
 
 ## Quick Start
 
@@ -21,25 +21,23 @@ This skill is primarily used as a component of the `summarize-pr-failures` skill
 
 ```bash
 # Analyze logs in a directory
-/summarize-log-failures /tmp/buildkite-logs
-
-# Or with sanitized logs
-/summarize-log-failures /tmp/buildkite-logs/sanitized
+/summarize-log-failures /tmp/test-logs
 ```
 
 ## What It Does
 
-1. **Reads all `.log` files** in the specified directory
-2. **Extracts test failures** including:
+1. **Sanitizes logs** using the `sanitize_logs.py` script to remove noise (ANSI codes, timestamps, progress indicators, CI metadata)
+2. **Reads all `.log` files** in the specified directory
+3. **Extracts test failures** including:
    - Test names and paths
    - Error messages
    - Tracebacks
    - Assertion failures
-3. **Categorizes failures** by:
+4. **Categorizes failures** by:
    - Error type
    - Affected modules
    - Common patterns
-4. **Generates summary** using the template at `templates/failure_summary.md`
+5. **Generates summary** using the template at `templates/failure_summary.md`
 
 ## Output Format
 
@@ -54,7 +52,7 @@ The skill outputs a markdown-formatted summary with:
 
 The summary uses `templates/failure_summary.md` with these placeholders:
 
-- `{build_url}` - Link to CI build
+- `{build_url}` - Link to CI job (buildkite job or github job)
 - `{commit_sha}` - Git commit SHA
 - `{failed_job_count}` - Number of failed jobs
 - `{failed_tests_section}` - Formatted list of failures
@@ -62,40 +60,12 @@ The summary uses `templates/failure_summary.md` with these placeholders:
 - `{next_steps_section}` - Remediation suggestions
 - `{full_details_section}` - Complete details
 
-## Sanitizing Logs
-
-For best results, sanitize logs first using the script from `summarize-pr-failures`:
-
-```bash
-python .claude/skills/summarize-pr-failures/scripts/sanitize_buildkite_logs.py \
-  /tmp/logs \
-  /tmp/logs/sanitized \
-  --aggressive
-```
-
-This removes:
-- ANSI escape codes
-- Timestamps
-- Progress indicators
-- Decorative elements
-- Non-error content (with `--aggressive`)
-
 ## Example Workflow
 
 ```bash
-# 1. Download logs (using summarize-pr-failures script)
-.claude/skills/summarize-pr-failures/scripts/download_buildkite_logs.sh \
-  https://github.com/org/repo/pull/123 \
-  /tmp/logs
-
-# 2. Sanitize
-python .claude/skills/summarize-pr-failures/scripts/sanitize_buildkite_logs.py \
-  /tmp/logs \
-  /tmp/logs/sanitized \
-  --aggressive
-
-# 3. Summarize
-/summarize-log-failures /tmp/logs/sanitized
+# Analyze test logs from any source
+# Logs are automatically sanitized before analysis
+/summarize-log-failures /tmp/test-logs
 ```
 
 ## Common Test Failure Patterns

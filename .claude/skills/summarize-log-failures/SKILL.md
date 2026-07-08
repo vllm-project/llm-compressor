@@ -1,6 +1,6 @@
 ---
 name: summarize-log-failures
-description: Summarize test failures from Buildkite log files
+description: Summarize test failures from log files
 args:
   log_dir:
     type: string
@@ -10,24 +10,24 @@ args:
 
 # Summarize Log Failures Skill
 
-This skill analyzes Buildkite log files and generates a structured summary of test failures.
+This skill analyzes test log files and generates a structured summary of test failures.
 
 ## Arguments
 
-- `log_dir` (required): Path to directory containing `.log` files from failed Buildkite jobs
+- `log_dir` (required): Path to directory containing `.log` files from failed test jobs
 
 ## Available Scripts
 
 Scripts are located in `.claude/skills/summarize-log-failures/scripts/`:
 
-(Scripts will be added as needed for specific log parsing)
+- `sanitize_logs.py` - Sanitizes log files by removing ANSI codes, timestamps, progress indicators, and CI metadata. Use `--aggressive` flag to extract only error-related content.
 
 ## Templates
 
 Templates are located in `.claude/skills/summarize-log-failures/templates/`:
 
 - `failure_summary.md` - Template for formatting failure summaries with placeholders:
-  - `{build_url}` - URL to the Buildkite build
+  - `{build_url}` - URL to the CI job (buildkite job or github job)
   - `{commit_sha}` - Git commit SHA
   - `{failed_job_count}` - Number of failed jobs
   - `{failed_tests_section}` - List of failed tests with details
@@ -39,9 +39,11 @@ Templates are located in `.claude/skills/summarize-log-failures/templates/`:
 
 When this skill is invoked, the following steps will be completed:
 
-1. **Read log files**: Read all `.log` files in the specified directory
+1. **Sanitize log files**: Use the `sanitize_logs.py` script to clean all `.log` files in the specified directory, removing ANSI codes, timestamps, progress indicators, and CI metadata
 
-2. **Parse test failures**: Extract failed test names, error messages, and tracebacks from each log file. Look for:
+2. **Read log files**: Read all sanitized `.log` files
+
+3. **Parse test failures**: Extract failed test names, error messages, and tracebacks from each log file. Look for:
    - pytest failure patterns: `FAILED tests/...::test_name`
    - Error messages and assertions
    - Tracebacks with file/line information
@@ -63,11 +65,9 @@ When this skill is invoked, the following steps will be completed:
 ## Usage Example
 
 ```bash
-# First, sanitize the logs (optional but recommended)
-python .claude/skills/summarize-pr-failures/scripts/sanitize_buildkite_logs.py buildkite-logs buildkite-logs/sanitized --aggressive
-
-# Then invoke the skill
-/summarize-log-failures buildkite-logs/sanitized
+# Invoke the skill with a directory of log files
+# Logs will be automatically sanitized before analysis
+/summarize-log-failures /path/to/log-files
 ```
 
 ## Output Format

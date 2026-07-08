@@ -1,6 +1,6 @@
 # Test Failure Summary
 
-**Build:** {build_url}
+**Job:** {build_url}
 **Commit:** {commit_sha}
 **Failed Jobs:** {failed_job_count}
 
