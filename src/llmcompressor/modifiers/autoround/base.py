@@ -510,7 +510,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         raise ValueError("AutoRoundModifier requires at least one quantization scheme")
 
-    def _quant_scheme_to_autoround_config(self, quant_scheme: QuantizationScheme) -> dict:
+    def _quant_scheme_to_autoround_config(
+        self, quant_scheme: QuantizationScheme
+    ) -> dict:
         weight_args = quant_scheme.weights
         activation_args = quant_scheme.input_activations
         assert quant_scheme.output_activations is None, (
@@ -614,7 +616,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 continue
 
             if not isinstance(quant_scheme, QuantizationScheme):
-                raise TypeError(f"Expected QuantizationScheme, got {type(quant_scheme)}")
+                raise TypeError(
+                    f"Expected QuantizationScheme, got {type(quant_scheme)}"
+                )
             layer_scheme = self._quant_scheme_to_autoround_config(quant_scheme)
             if layer_scheme != default_config:
                 layer_config[name] = layer_scheme

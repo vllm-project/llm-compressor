@@ -1,7 +1,7 @@
 from auto_round.calib_dataset import get_dataset
 from compressed_tensors.offload import dispatch_model
+from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.quantization.quant_scheme import W2A16, W4A16
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
