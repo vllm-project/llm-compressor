@@ -419,6 +419,15 @@ def oneshot(
 
     :return: The calibrated PreTrainedModel
     """
+    import torch.nn as nn
+
+    if not isinstance(model, (str, nn.Module)):
+        raise TypeError(
+            "The `model` argument must be a string representing a model path/hub ID "
+            f"or a PyTorch `nn.Module`. Got: {type(model).__name__}. "
+            "If you are passing a `vllm.LLM` object, please provide a model path or "
+            "a standard PyTorch model (like `AutoModelForCausalLM`) instead."
+        )
 
     # pass all args directly into Oneshot
     local_args = {
