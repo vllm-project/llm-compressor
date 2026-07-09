@@ -29,6 +29,12 @@ def untie_word_embeddings(model: PreTrainedModel):
     for module in (input_embed, output_embed):
         weight = module.weight
         param = Parameter(weight.data.clone(), requires_grad=weight.requires_grad)
+
+        # Delete before re-registering: when offloaded, the OffloadCache updates the
+        # existing (tied, shared) storage in place instead of allocating new storage,
+        # so the embeddings would stay tied and save_pretrained would drop one of them.
+        # In the non-offloaded case this is a harmless no-op.
+        delattr(module, "weight")
         module.register_parameter("weight", param)
 
     # modify model config

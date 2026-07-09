@@ -9,7 +9,7 @@ import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
-from compressed_tensors.offload import from_accelerate, to_accelerate
+from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
@@ -18,8 +18,65 @@ from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
+from llmcompressor.utils.transformers import get_embeddings
 
 __all__ = ["modify_save_pretrained"]
+
+
+def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
+    """Return a module's own (non-None) parameters and buffers keyed by name.
+
+    ``None`` placeholders are skipped so e.g. a biasless ``lm_head`` (which still
+    registers ``bias=None``) compares equal to an ``Embedding`` that has none.
+    """
+    names = list(module._parameters.keys()) + list(module._buffers.keys())
+    tensors = {name: getattr(module, name) for name in names}
+    return {name: tensor for name, tensor in tensors.items() if tensor is not None}
+
+
+def _retie_embeddings(model: PreTrainedModel):
+    """Re-tie input and output embeddings before saving so one shared table is
+    written instead of a duplicate.
+
+    Embeddings can end up as value-identical but separate tensors that defeat
+    transformers' save-time de-duplication: offloading splits a tied weight into
+    per-module parameters, and embeddings targeted for quantization are untied
+    during calibration and compressed independently. Whenever the two embeddings
+    hold exactly the same tensors they represent a single table, so point the
+    output's at the input's and restore ``tie_word_embeddings``. Embeddings that
+    differ -- quantized differently, or an untied model whose head has diverged
+    -- are left untouched. Comparing the tensors themselves keeps this agnostic
+    to the compression format (packed int, fp8, or dense).
+
+    Args:
+        model: The model about to be saved.
+    """
+    input_embed, output_embed = get_embeddings(model)
+    if input_embed is None or output_embed is None or input_embed is output_embed:
+        return
+
+    input_tensors = _named_tensors(input_embed)
+    output_tensors = _named_tensors(output_embed)
+    if input_tensors.keys() != output_tensors.keys() or not all(
+        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
+    ):
+        return
+
+    # Share the input's storage so transformers' save-time de-duplication keeps a
+    # single copy. ``disable_onloading`` makes the read and assignment go by
+    # reference (a plain assignment to an offloaded module copies); it can be
+    # dropped once compressed-tensors makes ``__setitem__`` a non-copying
+    # replacement (vllm-project/compressed-tensors#709).
+    with OffloadCache.disable_onloading():
+        for name in input_tensors:
+            setattr(output_embed, name, getattr(input_embed, name))
+
+    config = getattr(model, "config", None)
+    get_text_config = getattr(config, "get_text_config", None)
+    text_config = get_text_config(decoder=True) if callable(get_text_config) else config
+    if text_config is not None:
+        text_config.tie_word_embeddings = True
+    logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -73,12 +130,13 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed:
                 compressor.compress_model(model)
 
-            # Re-tie weights before offload conversion. Offloading splits tied
-            # weights (e.g. lm_head and embed_tokens) into separate parameters,
-            # which defeats transformers' save-time de-duplication and writes a
-            # redundant copy. Doing this before `to_accelerate` keeps accelerate's
+            # Re-tie input and output embeddings before offload conversion so a
+            # shared table is written once. Offloading splits a tied weight into
+            # separate params, and quantized embeddings are untied during
+            # calibration; either way identical tensors would otherwise be saved
+            # twice. Doing this before `to_accelerate` keeps accelerate's
             # tied-parameter bookkeeping consistent.
-            _retie_offloaded_weights(model)
+            _retie_embeddings(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
@@ -108,38 +166,6 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
-
-
-def _retie_offloaded_weights(model: PreTrainedModel):
-    """Re-tie weights split by offload conversion so the tied head isn't saved twice.
-
-    Offloading gives the input embeddings and a tied head (e.g. ``lm_head``)
-    separate parameters, defeating transformers' save-time de-duplication and
-    writing a redundant copy. Re-tying restores the shared parameter.
-
-    Only runs when ``config.tie_word_embeddings`` is set, so models that were
-    explicitly untied (e.g. by SpinQuant via ``untie_word_embeddings``) are left
-    untouched. Failures in a model's ``tie_weights`` are logged rather than raised.
-    """
-    get_text_config = getattr(model.config, "get_text_config", None)
-    text_config = (
-        get_text_config(decoder=True) if callable(get_text_config) else model.config
-    )
-    if not getattr(text_config, "tie_word_embeddings", False):
-        return
-
-    tie_weights = getattr(model, "tie_weights", None)
-    if not callable(tie_weights):
-        return
-
-    logger.info("Re-tying word embeddings before save to avoid duplicate weights")
-    try:
-        tie_weights()
-    except Exception as e:
-        logger.warning(
-            f"Failed to re-tie word embeddings before save ({e}); a tied head "
-            "such as lm_head may be written as a redundant duplicate."
-        )
 
 
 @deprecated("ModelCompressor.from_pretrained_model")
