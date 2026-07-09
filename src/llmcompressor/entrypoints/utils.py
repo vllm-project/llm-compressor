@@ -27,6 +27,11 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
+from llmcompressor.modeling.moe.mone import (
+    get_mone_model_processor_source,
+    is_mone_checkpoint,
+    load_mone_checkpoint,
+)
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -148,8 +153,8 @@ def initialize_model_from_path(
         model_path.as_posix() if isinstance(model_path, PosixPath) else model_path
     )
 
-    if _is_local_minimax_mone_checkpoint(model_path):
-        return _initialize_minimax_mone_model_from_path(model_args, model_path)
+    if _is_local_mone_checkpoint(model_path):
+        return _initialize_mone_model_from_path(model_args, model_path)
 
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
@@ -192,7 +197,7 @@ def initialize_processor_from_path(
 ) -> Processor:
     processor_src = (
         model_args.processor
-        or getattr(model, "_llmcompressor_minimax_mone_view_dir", None)
+        or get_mone_model_processor_source(model)
         or model.config._name_or_path
     )
     # The use_fast=True option is not currently supported safely in Transformers
@@ -225,26 +230,23 @@ def initialize_processor_from_path(
     return processor
 
 
-def _is_local_minimax_mone_checkpoint(model_path: str) -> bool:
-    from llmcompressor.modeling.moe.minimax_mone import is_minimax_mone_checkpoint
-
-    return os.path.isdir(model_path) and is_minimax_mone_checkpoint(model_path)
+def _is_local_mone_checkpoint(model_path: str) -> bool:
+    return os.path.isdir(model_path) and is_mone_checkpoint(model_path)
 
 
-def _initialize_minimax_mone_model_from_path(
+def _initialize_mone_model_from_path(
     model_args: ModelArguments,
     model_path: str,
 ) -> PreTrainedModel:
-    from llmcompressor.modeling.moe.minimax_mone import load_minimax_mone_model
-
     model_kwargs = {
         "revision": model_args.model_revision,
         "dtype": parse_dtype(model_args.precision),
         "trust_remote_code": model_args.trust_remote_code_model,
     }
 
-    return load_minimax_mone_model(
+    return load_mone_checkpoint(
         model_path,
+        model_cls=AutoModelForCausalLM,
         linearize=True,
         keep_checkpoint_view=True,
         **model_kwargs,

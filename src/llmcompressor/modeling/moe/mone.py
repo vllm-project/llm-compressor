@@ -17,6 +17,9 @@ from llmcompressor.modeling.moe.linear_experts import LinearExperts2D, NoviceExp
 __all__ = [
     "MoNEModelSupport",
     "apply_mone_structure",
+    "get_mone_model_processor_source",
+    "is_mone_checkpoint",
+    "load_mone_checkpoint",
     "postprocess_mone_export",
     "prepare_model_for_mone",
     "prepare_mone_model_for_save",
@@ -36,6 +39,9 @@ class MoNEModelSupport:
     prepare_model: Callable[[nn.Module], list[str] | None] | None = None
     prepare_for_save: Callable[[nn.Module], None] | None = None
     postprocess_export: Callable[[nn.Module, str | Path], None] | None = None
+    is_checkpoint: Callable[[str | Path], bool] | None = None
+    load_checkpoint: Callable[..., nn.Module] | None = None
+    processor_source: Callable[[nn.Module], str | Path | None] | None = None
 
 
 def register_mone_model_support(support: MoNEModelSupport) -> None:
@@ -60,6 +66,49 @@ def prepare_model_for_mone(model: nn.Module) -> list[str]:
             continue
         patches.extend(support.prepare_model(model) or [])
     return patches
+
+
+def is_mone_checkpoint(model_path: str | Path) -> bool:
+    """
+    Return True when ``model_path`` is a MoNE checkpoint with custom load support.
+    """
+
+    return any(
+        support.is_checkpoint is not None and support.is_checkpoint(model_path)
+        for support in _iter_mone_model_supports()
+    )
+
+
+def load_mone_checkpoint(model_path: str | Path, **load_kwargs) -> nn.Module:
+    """
+    Load a MoNE checkpoint using the first registered matching checkpoint loader.
+    """
+
+    for support in _iter_mone_model_supports():
+        if support.is_checkpoint is None or not support.is_checkpoint(model_path):
+            continue
+        if support.load_checkpoint is None:
+            raise ValueError(
+                f"MoNE support '{support.name}' recognized {model_path} but does "
+                "not provide a checkpoint loader."
+            )
+        return support.load_checkpoint(model_path, **load_kwargs)
+
+    raise ValueError(f"No registered MoNE checkpoint loader recognized {model_path}")
+
+
+def get_mone_model_processor_source(model: nn.Module) -> str | Path | None:
+    """
+    Return a tokenizer/processor source associated with a loaded MoNE model.
+    """
+
+    for support in _iter_mone_model_supports():
+        if support.processor_source is None:
+            continue
+        source = support.processor_source(model)
+        if source is not None:
+            return source
+    return None
 
 
 def prepare_mone_model_for_save(model: nn.Module) -> None:

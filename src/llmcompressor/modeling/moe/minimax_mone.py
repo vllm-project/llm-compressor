@@ -2048,6 +2048,10 @@ def _prepare_minimax_model_for_save(model: nn.Module) -> None:
     prepare_minimax_mone_for_save(model, linearize=False)
 
 
+def _get_minimax_mone_processor_source(model: nn.Module) -> str | None:
+    return getattr(model, MINIMAX_MONE_VIEW_ATTR, None)
+
+
 def _register_minimax_mone_support() -> None:
     register_mone_model_support(
         MoNEModelSupport(
@@ -2055,6 +2059,9 @@ def _register_minimax_mone_support() -> None:
             prepare_model=prepare_minimax_m2_for_mone,
             prepare_for_save=_prepare_minimax_model_for_save,
             postprocess_export=postprocess_minimax_mone_export,
+            is_checkpoint=is_minimax_mone_checkpoint,
+            load_checkpoint=load_minimax_mone_model,
+            processor_source=_get_minimax_mone_processor_source,
         )
     )
 
