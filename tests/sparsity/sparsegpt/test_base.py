@@ -1,9 +1,9 @@
 import pytest
-from tests.llmcompressor.pytorch.helpers import LinearNet
 
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from tests.llmcompressor.modifiers.conf import LifecyleTestingHarness
+from tests.llmcompressor.pytorch.helpers import LinearNet
 
 
 @pytest.mark.unit

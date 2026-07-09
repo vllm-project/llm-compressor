@@ -2,13 +2,13 @@ import os
 
 import pytest
 import torch
-from tests.llmcompressor.pytorch.helpers import ConvNet, LinearNet
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
 from llmcompressor.modifiers.pruning.utils.pytorch.layer_mask import param_mask_name
 from llmcompressor.pytorch.utils import tensor_sparsity
+from tests.llmcompressor.pytorch.helpers import ConvNet, LinearNet
 
 
 def _induce_sparsity(model, sparsity=0.5):
