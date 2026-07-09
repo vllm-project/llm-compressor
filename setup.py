@@ -128,11 +128,7 @@ setup(
             else "transformers>=5.9.0"
         ),
         ("datasets>=4.8.4,<=5.0.0" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
-        (
-            "auto-round==0.14.1"
-            if BUILD_TYPE == "release"
-            else "auto-round>=0.14.1"
-        ),
+        ("auto-round==0.14.1" if BUILD_TYPE == "release" else "auto-round>=0.14.1"),
         (
             "accelerate>=1.6.0,<=1.13.0"
             if BUILD_TYPE == "release"
