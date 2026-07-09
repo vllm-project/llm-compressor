@@ -8,14 +8,14 @@ pipeline can't prepare, so we call `prepare_cohere2_moe_for_spinquant` first.
 NVFP4 normally calibrates a static per-tensor `input_global_scale`. For
 simplicity this example uses `pipeline="datafree"` and skips that calibration,
 setting the scale to 1.0 and relying on the runtime per-group fp8 scales. We
-found this gives reasonable output -- this script is just a showcase, 
+found this gives reasonable output -- this script is just a showcase,
 not a recipe for best accuracy.
 """
 
 import torch
+from compressed_tensors.offload import update_offload_parameter
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from compressed_tensors.offload import update_offload_parameter
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.cohere2_moe import prepare_cohere2_moe_for_spinquant
 from llmcompressor.modifiers.quantization import QuantizationModifier

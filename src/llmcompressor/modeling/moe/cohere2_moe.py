@@ -11,7 +11,7 @@ from llmcompressor.modeling.moe.linearize import linearize_moe
 class LinearRouter(torch.nn.Module):
     """
     Drop-in replacement for ``Cohere2MoeTopKRouter`` that wraps the router weight in an
-    ``nn.Linear``. SpinQuant can only fuse rotations into ``nn.Linear``/``nn.Embedding``,
+    ``nn.Linear``. SpinQuant can only fuse rotations into `nn.Linear`/ `nn.Embedding`,
     so this exposes the router projection to R1 (keeping routing invariant). Output is
     numerically identical to the original router.
 
