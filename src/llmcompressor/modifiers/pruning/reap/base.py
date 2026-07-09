@@ -236,9 +236,9 @@ class REAPPruningModifier(Modifier):
                 self._moe_attrs,
             )
             expected = self._moe_attrs.num_experts - self._n_experts_to_drop
-            assert (
-                len(retained) == expected
-            ), f"Expected {expected} retained experts, got {len(retained)}"
+            assert len(retained) == expected, (
+                f"Expected {expected} retained experts, got {len(retained)}"
+            )
 
             prune_moe_layer(model, layer_name, retained, self._moe_attrs)
 

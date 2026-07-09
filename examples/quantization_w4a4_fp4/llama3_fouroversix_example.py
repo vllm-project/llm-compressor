@@ -5,7 +5,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     QuantizationType,
 )
-from compressed_tensors.quantization.quant_args import DynamicType, FP8_E4M3_DATA
+from compressed_tensors.quantization.quant_args import FP8_E4M3_DATA, DynamicType
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 

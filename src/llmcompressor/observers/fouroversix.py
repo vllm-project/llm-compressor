@@ -82,9 +82,9 @@ class FourOverSixObserver(Observer):
 
     @torch.no_grad
     def get_qparams(self) -> QParamsDict:
-        assert (
-            self.has_statistics
-        ), "No statistics available. Call observer(value) first."
+        assert self.has_statistics, (
+            "No statistics available. Call observer(value) first."
+        )
 
         global_scale = None
 
@@ -95,12 +95,8 @@ class FourOverSixObserver(Observer):
                     fused_mod = self._fusions[fused_obs]()
                     assert fused_mod is not None, _msg
                     fused_obs(fused_mod.weight)
-                global_absmax = torch.max(
-                    global_absmax, -fused_obs.min_vals.min()
-                )
-                global_absmax = torch.max(
-                    global_absmax, fused_obs.max_vals.max()
-                )
+                global_absmax = torch.max(global_absmax, -fused_obs.min_vals.min())
+                global_absmax = torch.max(global_absmax, fused_obs.max_vals.max())
 
             global_scale = generate_gparam(
                 -global_absmax.reshape(1),

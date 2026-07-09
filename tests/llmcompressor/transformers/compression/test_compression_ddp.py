@@ -287,7 +287,7 @@ def _test_ddp_modifier(
         )
 
         print(
-            f"[Rank {rank}] Results: top1_match={100*top1_match_rate:.1f}%, "
+            f"[Rank {rank}] Results: top1_match={100 * top1_match_rate:.1f}%, "
             f"kl_div={kl_div:.6f}",
             flush=True,
         )
@@ -296,8 +296,8 @@ def _test_ddp_modifier(
         errors = []
         if top1_match_rate < min_top1_match:
             errors.append(
-                f"  Top-1 match rate: {100*top1_match_rate:.1f}% "
-                f"(expected >= {100*min_top1_match:.0f}%)"
+                f"  Top-1 match rate: {100 * top1_match_rate:.1f}% "
+                f"(expected >= {100 * min_top1_match:.0f}%)"
             )
         if kl_div > max_kl_div:
             errors.append(

@@ -82,9 +82,9 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        assert (
-            self.has_statistics
-        ), "No statistics available. Call observer(value) first."
+        assert self.has_statistics, (
+            "No statistics available. Call observer(value) first."
+        )
 
         global_scale = None
 

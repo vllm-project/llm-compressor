@@ -78,15 +78,15 @@ class TestGathererObserverIntegration:
         targeted_names = _get_linear_layer_names(model, ignore=["lm_head"])
         for name in targeted_names:
             mod = _get_module_by_name(model, name)
-            assert not hasattr(
-                mod, "_imatrix_importance"
-            ), f"{name} should not have _imatrix_importance after finalization"
+            assert not hasattr(mod, "_imatrix_importance"), (
+                f"{name} should not have _imatrix_importance after finalization"
+            )
 
         # Hooks should be cleaned up
         total_hooks = sum(len(m._forward_pre_hooks) for m in model.modules())
-        assert (
-            total_hooks == 0
-        ), f"Expected 0 forward pre-hooks after completion, found {total_hooks}"
+        assert total_hooks == 0, (
+            f"Expected 0 forward pre-hooks after completion, found {total_hooks}"
+        )
 
         # Verify imatrix actually affected quantization by comparing scales
         # with a run using imatrix_mse but WITHOUT the gatherer. Without
@@ -166,9 +166,9 @@ class TestGathererObserverIntegration:
 
         for name in targeted_names:
             mod = _get_module_by_name(model, name)
-            assert not hasattr(
-                mod, "_imatrix_importance"
-            ), f"{name} should not have _imatrix_importance after finalization"
+            assert not hasattr(mod, "_imatrix_importance"), (
+                f"{name} should not have _imatrix_importance after finalization"
+            )
 
     @pytest.mark.smoke
     @pytest.mark.integration
@@ -210,9 +210,9 @@ class TestGathererObserverIntegration:
 
         # Verify importance was cleaned up after finalization
         for name, module in model.named_modules():
-            assert not hasattr(
-                module, "_imatrix_importance"
-            ), f"{name} should not have _imatrix_importance after finalization"
+            assert not hasattr(module, "_imatrix_importance"), (
+                f"{name} should not have _imatrix_importance after finalization"
+            )
 
     @pytest.mark.smoke
     @pytest.mark.integration

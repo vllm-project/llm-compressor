@@ -104,9 +104,9 @@ def test_convert_nvfp4_checkpoint(tmp_path):
         data = json.load(f)
         keys = data["weight_map"].keys()
         for key in keys:
-            assert any(
-                key.endswith(suffix) for suffix in allowed_suffixes
-            ), f"Unexpected key found: {key}"
+            assert any(key.endswith(suffix) for suffix in allowed_suffixes), (
+                f"Unexpected key found: {key}"
+            )
 
 
 @requires_cadence("nightly")
@@ -167,12 +167,12 @@ def test_dequantize_fp8block_checkpoint(tmp_path):
         data = json.load(f)
         keys = data["weight_map"].keys()
         for key in keys:
-            assert any(
-                key.endswith(suffix) for suffix in allowed_suffixes
-            ), f"Unexpected key found: {key}"
-            assert not any(
-                key.endswith(suffix) for suffix in disallowed_suffixes
-            ), f"Found disallowed key (should have been removed): {key}"
+            assert any(key.endswith(suffix) for suffix in allowed_suffixes), (
+                f"Unexpected key found: {key}"
+            )
+            assert not any(key.endswith(suffix) for suffix in disallowed_suffixes), (
+                f"Found disallowed key (should have been removed): {key}"
+            )
 
 
 @requires_cadence("nightly")
@@ -216,9 +216,9 @@ def test_dequantize_ct_checkpoint(model_id, tmp_path):
         data = json.load(f)
         keys = data["weight_map"].keys()
         for key in keys:
-            assert any(
-                key.endswith(suffix) for suffix in allowed_suffixes
-            ), f"Unexpected key found: {key}"
-            assert not any(
-                key.endswith(suffix) for suffix in disallowed_suffixes
-            ), f"Found disallowed key (should have been removed): {key}"
+            assert any(key.endswith(suffix) for suffix in allowed_suffixes), (
+                f"Unexpected key found: {key}"
+            )
+            assert not any(key.endswith(suffix) for suffix in disallowed_suffixes), (
+                f"Found disallowed key (should have been removed): {key}"
+            )

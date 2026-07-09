@@ -26,8 +26,9 @@ def test_on_sequential_epoch_end_passes_all_modules():
     event = Event(type_=EventType.SEQUENTIAL_EPOCH_END)
     modules = [_FakeDecoderLayer(), nn.Linear(64, 64)]
 
-    with patch.object(AutoRoundModifier, "apply_autoround") as mock_apply, patch.object(
-        AutoRoundModifier, "post_autoround_cleanup"
+    with (
+        patch.object(AutoRoundModifier, "apply_autoround") as mock_apply,
+        patch.object(AutoRoundModifier, "post_autoround_cleanup"),
     ):
         modifier.on_sequential_epoch_end(state, event, modules=modules)
         mock_apply.assert_called_once_with(state, modules)

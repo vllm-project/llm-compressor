@@ -157,9 +157,9 @@ class TestBasicFunctionality:
         scale_w = obs_w(module_weighted.weight).get_qparams()["scale"]
         scale_u = obs_u(module_uniform.weight).get_qparams()["scale"]
 
-        assert not torch.allclose(
-            scale_w, scale_u
-        ), "Extreme importance weighting should produce different scales"
+        assert not torch.allclose(scale_w, scale_u), (
+            "Extreme importance weighting should produce different scales"
+        )
 
     def test_uniform_importance_matches_memoryless_mse(self):
         """All-ones importance must match the uniform MSE observer."""

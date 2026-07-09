@@ -743,9 +743,9 @@ class AWQModifier(Modifier):
             }
         )
 
-        assert (
-            torch.isnan(best_scales).sum() == 0
-        ), f"Nan found in scales: {best_scales}"
+        assert torch.isnan(best_scales).sum() == 0, (
+            f"Nan found in scales: {best_scales}"
+        )
 
         return best_scales.detach().cpu()
 

@@ -136,7 +136,7 @@ def main(num_gpus: int):
         logger.info(f"Calibration:     {NUM_CALIBRATION_SAMPLES} samples total")
         logger.info(f"Samples/rank:    {samples_per_rank}")
         logger.info(f"World size:      {world_size}")
-        logger.info(f"Total time:      {elapsed:.1f}s ({elapsed/60:.2f} min)")
+        logger.info(f"Total time:      {elapsed:.1f}s ({elapsed / 60:.2f} min)")
         logger.info(f"Peak GPU mem:    {peak_mem_gb:.2f} GB (rank 0)")
         logger.info("=" * 60)
 

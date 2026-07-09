@@ -44,9 +44,9 @@ class ParallelEmbedding(nn.Module):
         super().__init__()
         self.vocab_size = vocab_size
         self.dim = dim
-        assert (
-            vocab_size % world_size == 0
-        ), f"Vocabulary size must be divisible by world size (world_size={world_size})"
+        assert vocab_size % world_size == 0, (
+            f"Vocabulary size must be divisible by world size (world_size={world_size})"
+        )
         self.part_vocab_size = vocab_size // world_size
         self.vocab_start_idx = rank * self.part_vocab_size
         self.vocab_end_idx = self.vocab_start_idx + self.part_vocab_size
@@ -343,9 +343,9 @@ class Indexer(torch.nn.Module):
         if world_size > 1:
             topk_indices_ = topk_indices.clone()
             dist.broadcast(topk_indices_, src=0)
-            assert torch.all(
-                topk_indices == topk_indices_
-            ), f"{topk_indices=} {topk_indices_=}"
+            assert torch.all(topk_indices == topk_indices_), (
+                f"{topk_indices=} {topk_indices_=}"
+            )
 
         return topk_indices
 
@@ -701,9 +701,9 @@ class MoE(nn.Module):
         """
         super().__init__()
         self.dim = args.dim
-        assert (
-            args.n_routed_experts % world_size == 0
-        ), f"Number of experts must be divisible by world size (world_size={world_size})"
+        assert args.n_routed_experts % world_size == 0, (
+            f"Number of experts must be divisible by world size (world_size={world_size})"
+        )
         self.n_routed_experts = args.n_routed_experts
         self.n_local_experts = args.n_routed_experts // world_size
         self.n_activated_experts = args.n_activated_experts

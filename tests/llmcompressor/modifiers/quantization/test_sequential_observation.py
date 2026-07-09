@@ -36,13 +36,17 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     modifier.on_calibration_start(state, None)
 
     # Patch update_statistics_from_observed to track which observers are called
-    with patch.object(
-        model[0].weight_observer, "update_statistics_from_observed"
-    ) as mock0, patch.object(
-        model[1].weight_observer, "update_statistics_from_observed"
-    ) as mock1, patch.object(
-        model[2].weight_observer, "update_statistics_from_observed"
-    ) as mock2:
+    with (
+        patch.object(
+            model[0].weight_observer, "update_statistics_from_observed"
+        ) as mock0,
+        patch.object(
+            model[1].weight_observer, "update_statistics_from_observed"
+        ) as mock1,
+        patch.object(
+            model[2].weight_observer, "update_statistics_from_observed"
+        ) as mock2,
+    ):
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
@@ -71,27 +75,35 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
     modifier.on_calibration_start(state, None)
 
     # Patch get_qparams and sync_activation_stats to track calls
-    with patch.object(
-        model[0].input_observer,
-        "get_qparams",
-        wraps=model[0].input_observer.get_qparams,
-    ) as qp_mock0, patch.object(
-        model[1].input_observer,
-        "get_qparams",
-        wraps=model[1].input_observer.get_qparams,
-    ) as qp_mock1, patch.object(
-        model[2].input_observer,
-        "get_qparams",
-        wraps=model[2].input_observer.get_qparams,
-    ) as qp_mock2, patch.object(
-        model[0].input_observer, "sync_activation_stats", return_value=[]
-    ) as sync_mock0, patch.object(
-        model[1].input_observer, "sync_activation_stats", return_value=[]
-    ) as sync_mock1, patch.object(
-        model[2].input_observer, "sync_activation_stats", return_value=[]
-    ) as sync_mock2, patch(
-        "llmcompressor.modifiers.quantization.quantization.mixin.is_distributed",
-        return_value=True,
+    with (
+        patch.object(
+            model[0].input_observer,
+            "get_qparams",
+            wraps=model[0].input_observer.get_qparams,
+        ) as qp_mock0,
+        patch.object(
+            model[1].input_observer,
+            "get_qparams",
+            wraps=model[1].input_observer.get_qparams,
+        ) as qp_mock1,
+        patch.object(
+            model[2].input_observer,
+            "get_qparams",
+            wraps=model[2].input_observer.get_qparams,
+        ) as qp_mock2,
+        patch.object(
+            model[0].input_observer, "sync_activation_stats", return_value=[]
+        ) as sync_mock0,
+        patch.object(
+            model[1].input_observer, "sync_activation_stats", return_value=[]
+        ) as sync_mock1,
+        patch.object(
+            model[2].input_observer, "sync_activation_stats", return_value=[]
+        ) as sync_mock2,
+        patch(
+            "llmcompressor.modifiers.quantization.quantization.mixin.is_distributed",
+            return_value=True,
+        ),
     ):
         # Process chunks sequentially
         modifier.on_sequential_epoch_end(
@@ -152,6 +164,6 @@ def test_nested_parent_modules_produce_valid_global_scale():
 
     for name, param in model.named_parameters():
         if "global_scale" in name:
-            assert (
-                torch.isfinite(param).all() and param.item() > 0
-            ), f"{name} not valid: {param.item()}"
+            assert torch.isfinite(param).all() and param.item() > 0, (
+                f"{name} not valid: {param.item()}"
+            )

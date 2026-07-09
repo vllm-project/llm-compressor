@@ -207,9 +207,9 @@ def test_fused_recompute_after_weight_change():
 
     # global_scale should have changed (larger weight = smaller global_scale)
     new_gs = module.q_proj.weight_global_scale.data
-    assert not torch.allclose(
-        initial_gs, new_gs
-    ), "global_scale should change after weight magnitude change"
+    assert not torch.allclose(initial_gs, new_gs), (
+        "global_scale should change after weight magnitude change"
+    )
 
     # Recompute k_proj — should see q_proj's new statistics via fusion
     module.k_proj.weight_observer(module.k_proj.weight)
