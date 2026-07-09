@@ -4,8 +4,9 @@ from pathlib import Path
 import pytest
 import torch
 from compressed_tensors.utils import patch_attr
+from huggingface_hub.errors import StrictDataclassError
 from safetensors import safe_open
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers import initialization as init
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
@@ -34,6 +35,11 @@ CONFIG_OVERRIDES = {
     "hy_v3": {"hidden_size": 256, "moe_intermediate_size": 256, "num_experts": 16},
     "jamba": {"hidden_size": 256, "intermediate_size": 256, "num_experts": 16},
     "nemotron_h": {"hidden_size": 32, "moe_intermediate_size": 64},
+    "deepseek_v4": {
+        "hidden_size": 512,
+        "moe_intermediate_size": 64,
+        "n_routed_experts": 16,
+    },
 }
 
 
@@ -84,6 +90,11 @@ def patch_deepseek_fp32_modules():
 def test_load_quantizable_moe(
     model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
 ):
+    try:
+        AutoConfig.from_pretrained(model_stub)
+    except StrictDataclassError:
+        pytest.skip("Could not import model, please upgrade your transformers version")
+
     input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
     model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
@@ -149,8 +160,10 @@ def test_linearize_moe(model_type):
     config_cls = import_or_none(config_path)
     experts_cls = import_or_none(experts_path)
 
-    assert config_cls is not None, f"Could not import config for {model_type}"
-    assert experts_cls is not None, f"Could not import experts for {model_type}"
+    if config_cls is None or experts_cls is None:
+        pytest.skip(
+            f"Could not import {model_type}, please upgrade your transformers version"
+        )
 
     with torch.device("cuda"):
         config = config_cls(**CONFIG_OVERRIDES.get(model_type, {}))
