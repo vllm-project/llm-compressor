@@ -29,6 +29,10 @@ from transformers import AutoModelForCausalLM
 from transformers.activations import ACT2FN
 
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D, NoviceExpertMLP
+from llmcompressor.modeling.moe.mone import (
+    MoNEModelSupport,
+    register_mone_model_support,
+)
 
 __all__ = [
     "MiniMaxMoNELayout",
@@ -2032,3 +2036,27 @@ def _parse_approx_key(key: str) -> tuple[int, int]:
     if match is None:
         raise ValueError(f"Unexpected MiniMax MoNE approx_value key: {key}")
     return int(match.group(1)), int(match.group(2))
+
+
+def _prepare_minimax_model_for_save(model: nn.Module) -> None:
+    config = getattr(model, "config", None)
+    if config is None or not _is_minimax_m2_model(model):
+        return
+    if not getattr(config, "approximate_experts", None):
+        return
+
+    prepare_minimax_mone_for_save(model, linearize=False)
+
+
+def _register_minimax_mone_support() -> None:
+    register_mone_model_support(
+        MoNEModelSupport(
+            name="minimax_m2",
+            prepare_model=prepare_minimax_m2_for_mone,
+            prepare_for_save=_prepare_minimax_model_for_save,
+            postprocess_export=postprocess_minimax_mone_export,
+        )
+    )
+
+
+_register_minimax_mone_support()

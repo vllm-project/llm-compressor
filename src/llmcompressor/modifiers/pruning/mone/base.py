@@ -15,15 +15,15 @@ from llmcompressor.core import Event, State
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
-from llmcompressor.modeling.moe.minimax_mone import (
-    prepare_minimax_m2_for_mone,
+from llmcompressor.modeling.moe.mone import (
+    prepare_model_for_mone,
+    prepare_mone_model_for_save,
 )
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.mone.adapters import (
     NativeFP8ExpertsMoNEAdapter,
     get_mone_moe_attrs,
     is_native_fp8_experts,
-    prepare_native_fp8_mone_for_save,
 )
 from llmcompressor.modifiers.pruning.mone.utils import (
     MoNEStatsTracker,
@@ -80,7 +80,7 @@ class MoNEPruningModifier(Modifier):
     _fp8_adapters: dict[str, NativeFP8ExpertsMoNEAdapter] = PrivateAttr(
         default_factory=dict
     )
-    _minimax_patches: list[str] = PrivateAttr(default_factory=list)
+    _mone_patches: list[str] = PrivateAttr(default_factory=list)
     _applied: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
@@ -108,7 +108,7 @@ class MoNEPruningModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
-        self._minimax_patches = prepare_minimax_m2_for_mone(model)
+        self._mone_patches = prepare_model_for_mone(model)
         self._moe_attrs = get_mone_moe_attrs(model, self.ignore)
 
         if self.sparsity is not None:
@@ -284,10 +284,10 @@ class MoNEPruningModifier(Modifier):
             approximate_expert_init_tokens=_config_keyed(approximate_tokens),
             implementation_metadata={
                 "algorithm": "mone",
-                "patches_enabled": self._minimax_patches,
+                "patches_enabled": self._mone_patches,
             },
         )
-        prepare_native_fp8_mone_for_save(model)
+        prepare_mone_model_for_save(model)
 
         self._applied = True
 
@@ -310,7 +310,7 @@ class MoNEPruningModifier(Modifier):
                 "ranking_scope": self.ranking_scope,
                 "fusion_io_weight": self.fusion_io_weight,
                 "stats_device": self.stats_device,
-                "patches_enabled": self._minimax_patches,
+                "patches_enabled": self._mone_patches,
                 "approximate_experts": _config_keyed(approximate_experts),
                 "approximate_expert_init_tokens": _config_keyed(approximate_tokens),
                 "layers": {

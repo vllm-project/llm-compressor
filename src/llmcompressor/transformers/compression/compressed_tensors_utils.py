@@ -151,7 +151,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # update config to reflect quantization
                     compressor.update_config(save_directory)
 
-                    _postprocess_minimax_mone_export_if_needed(
+                    _postprocess_mone_export_if_needed(
                         model,
                         save_directory,
                     )
@@ -182,13 +182,13 @@ def modify_save_pretrained(model: PreTrainedModel):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
-def _postprocess_minimax_mone_export_if_needed(
+def _postprocess_mone_export_if_needed(
     model: PreTrainedModel,
     save_directory: str,
 ):
-    from llmcompressor.modeling.moe.minimax_mone import postprocess_minimax_mone_export
+    from llmcompressor.modeling.moe.mone import postprocess_mone_export
 
-    postprocess_minimax_mone_export(model, save_directory)
+    postprocess_mone_export(model, save_directory)
 
 
 @deprecated("ModelCompressor.from_pretrained_model")

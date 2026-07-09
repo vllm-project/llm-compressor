@@ -13,7 +13,6 @@ import torch.nn.functional as F
 from loguru import logger
 from torch import nn
 
-from llmcompressor.modeling.moe.minimax_mone import prepare_minimax_mone_for_save
 from llmcompressor.modifiers.pruning.mone.utils import MoNEStatsTracker
 from llmcompressor.modifiers.pruning.reap import utils as reap_utils
 from llmcompressor.modifiers.pruning.reap.utils import MoeModelAttrs, get_moe_attrs
@@ -22,7 +21,6 @@ __all__ = [
     "NativeFP8ExpertsMoNEAdapter",
     "get_mone_moe_attrs",
     "is_native_fp8_experts",
-    "prepare_native_fp8_mone_for_save",
 ]
 
 
@@ -35,8 +33,8 @@ def get_mone_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs:
     Find MoE layers supported by MoNE.
 
     The ordinary REAP/MoNE path handles linearized ``LinearExperts2D`` modules.
-    Native MiniMax FP8 checkpoints keep experts as Transformers ``FP8Experts``;
-    for those, MoNE collects stats by temporarily wrapping the native forward.
+    Some native-FP8 checkpoints keep experts as Transformers ``FP8Experts``; for
+    those, MoNE collects stats by temporarily wrapping the native forward.
     """
 
     fp8_attrs = _get_native_fp8_moe_attrs(model, ignore)
@@ -161,20 +159,6 @@ class NativeFP8ExpertsMoNEAdapter:
 
         experts.forward = mone_forward
         return novice_indices
-
-
-def prepare_native_fp8_mone_for_save(model: nn.Module) -> None:
-    """
-    Attach MiniMax MoNE export metadata for native-FP8 pruned MiniMax models.
-    """
-
-    config = getattr(model, "config", None)
-    if config is None or getattr(config, "model_type", None) != "minimax_m2":
-        return
-    if not getattr(config, "approximate_experts", None):
-        return
-
-    prepare_minimax_mone_for_save(model, linearize=False)
 
 
 def _native_fp8_forward(

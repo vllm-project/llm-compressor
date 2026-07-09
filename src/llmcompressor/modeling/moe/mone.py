@@ -3,6 +3,9 @@ Helpers for loading and running MoNE-pruned MoE models.
 """
 
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -11,11 +14,98 @@ from loguru import logger
 
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D, NoviceExpertMLP
 
-__all__ = ["apply_mone_structure"]
+__all__ = [
+    "MoNEModelSupport",
+    "apply_mone_structure",
+    "postprocess_mone_export",
+    "prepare_model_for_mone",
+    "prepare_mone_model_for_save",
+    "register_mone_model_support",
+]
 
 
 ROUTER_ATTRS = ("router", "gate")
 EXPERTS_ATTRS = ("experts",)
+_MONE_MODEL_SUPPORTS: dict[str, "MoNEModelSupport"] = {}
+_BUILTIN_SUPPORT_LOADED = False
+
+
+@dataclass(frozen=True)
+class MoNEModelSupport:
+    name: str
+    prepare_model: Callable[[nn.Module], list[str] | None] | None = None
+    prepare_for_save: Callable[[nn.Module], None] | None = None
+    postprocess_export: Callable[[nn.Module, str | Path], None] | None = None
+
+
+def register_mone_model_support(support: MoNEModelSupport) -> None:
+    """
+    Register architecture-specific MoNE hooks.
+    """
+
+    _MONE_MODEL_SUPPORTS[support.name] = support
+
+
+def prepare_model_for_mone(model: nn.Module) -> list[str]:
+    """
+    Apply architecture-specific runtime preparation needed before MoNE calibration.
+
+    The generic MoNE modifier should not need to know which model family needs
+    which patch. Family-specific support is dispatched from here.
+    """
+
+    patches = []
+    for support in _iter_mone_model_supports():
+        if support.prepare_model is None:
+            continue
+        patches.extend(support.prepare_model(model) or [])
+    return patches
+
+
+def prepare_mone_model_for_save(model: nn.Module) -> None:
+    """
+    Attach architecture-specific export metadata after MoNE has modified a model.
+
+    Generic linearized MoE models can be saved as-is. Architectures with custom
+    checkpoint layouts can register their export preparation here.
+    """
+
+    for support in _iter_mone_model_supports():
+        if support.prepare_for_save is not None:
+            support.prepare_for_save(model)
+
+
+def postprocess_mone_export(model: nn.Module, output_dir: str | Path) -> None:
+    """
+    Post-process a saved MoNE checkpoint for architecture-specific layouts.
+    """
+
+    for support in _iter_mone_model_supports():
+        if support.postprocess_export is not None:
+            support.postprocess_export(model, output_dir)
+
+
+def _iter_mone_model_supports() -> tuple[MoNEModelSupport, ...]:
+    _load_builtin_mone_support()
+    return tuple(_MONE_MODEL_SUPPORTS.values())
+
+
+def _load_builtin_mone_support() -> None:
+    global _BUILTIN_SUPPORT_LOADED
+
+    if _BUILTIN_SUPPORT_LOADED:
+        return
+
+    _BUILTIN_SUPPORT_LOADED = True
+    try:
+        from llmcompressor.modeling.moe.mone_builtins import (
+            load_builtin_mone_support,
+        )
+
+        load_builtin_mone_support()
+    except Exception:
+        _BUILTIN_SUPPORT_LOADED = False
+        raise
 
 
 def apply_mone_structure(
