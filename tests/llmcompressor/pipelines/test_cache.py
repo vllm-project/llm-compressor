@@ -140,7 +140,7 @@ def test_offload_and_onload(value):
 
 @pytest.mark.unit
 def test_device_handling(sample_dataloader):
-    if not torch.cuda.is_available():
+    if not torch.accelerator.is_available():
         pytest.skip("CUDA not available")
 
     cuda_device = torch.device("cuda")
