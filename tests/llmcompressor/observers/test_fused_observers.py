@@ -54,15 +54,15 @@ def test_fused_observers_with_linear_sequential_targets(tmp_path):
     first_attn = model.model.layers[0].self_attn
 
     # All should have global_scale (TENSOR_GROUP qparam)
-    assert hasattr(first_attn.q_proj, "weight_global_scale"), (
-        "q_proj should have weight_global_scale"
-    )
-    assert hasattr(first_attn.k_proj, "weight_global_scale"), (
-        "k_proj should have weight_global_scale (FAILS on main)"
-    )
-    assert hasattr(first_attn.v_proj, "weight_global_scale"), (
-        "v_proj should have weight_global_scale (FAILS on main)"
-    )
+    assert hasattr(
+        first_attn.q_proj, "weight_global_scale"
+    ), "q_proj should have weight_global_scale"
+    assert hasattr(
+        first_attn.k_proj, "weight_global_scale"
+    ), "k_proj should have weight_global_scale (FAILS on main)"
+    assert hasattr(
+        first_attn.v_proj, "weight_global_scale"
+    ), "v_proj should have weight_global_scale (FAILS on main)"
 
     # Global scales should be equal (fused)
     q_scale = first_attn.q_proj.weight_global_scale

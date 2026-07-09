@@ -164,6 +164,6 @@ def test_nested_parent_modules_produce_valid_global_scale():
 
     for name, param in model.named_parameters():
         if "global_scale" in name:
-            assert torch.isfinite(param).all() and param.item() > 0, (
-                f"{name} not valid: {param.item()}"
-            )
+            assert (
+                torch.isfinite(param).all() and param.item() > 0
+            ), f"{name} not valid: {param.item()}"

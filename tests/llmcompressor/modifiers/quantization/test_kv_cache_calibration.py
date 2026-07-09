@@ -113,14 +113,14 @@ def test_attention_module_not_named_self_attn_gets_calibrated():
         )
 
     # Verify hooks were registered for KV cache calibration
-    assert len(modifier._calibration_hooks) > 0, (
-        "Expected calibration hooks to be registered"
-    )
+    assert (
+        len(modifier._calibration_hooks) > 0
+    ), "Expected calibration hooks to be registered"
 
     # Clean up
     modifier.end_calibration(model)
 
     for name, m in attn_modules:
-        assert m.quantization_status == QuantizationStatus.FROZEN, (
-            f"Attention module '{name}' was not frozen after end_calibration"
-        )
+        assert (
+            m.quantization_status == QuantizationStatus.FROZEN
+        ), f"Attention module '{name}' was not frozen after end_calibration"

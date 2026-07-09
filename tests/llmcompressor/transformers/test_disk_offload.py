@@ -108,9 +108,9 @@ class TestDiskOffloadQuantization:
 
         # Verify a disk-offloaded layer also got quantized
         q_proj_3 = offloaded_model.model.layers[3].self_attn.q_proj
-        assert hasattr(q_proj_3, "weight_scale"), (
-            "weight_scale not found on disk-offloaded layer"
-        )
+        assert hasattr(
+            q_proj_3, "weight_scale"
+        ), "weight_scale not found on disk-offloaded layer"
 
     def test_gptq_modifier(self, offloaded_model, dataset):
         """GPTQModifier updates weight, weight_scale, weight_zero_point
@@ -236,9 +236,9 @@ class TestDiskOffloadTransforms:
         _assert_weights_changed(before, after, ["input_layernorm", "q_proj"])
 
         q_proj = offloaded_model.model.layers[0].self_attn.q_proj
-        assert hasattr(q_proj, "weight_scale"), (
-            "weight_scale not found after SmoothQuant + Quantization"
-        )
+        assert hasattr(
+            q_proj, "weight_scale"
+        ), "weight_scale not found after SmoothQuant + Quantization"
 
 
 @pytest.mark.smoke

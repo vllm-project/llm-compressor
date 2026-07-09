@@ -243,9 +243,9 @@ def test_split_dict_emits_deprecation_warning(split_def, tiny_llama_tokenizer):
     try:
         get_processed_dataset(dataset_args=dataset_args, processor=tiny_llama_tokenizer)
         log_text = log_output.getvalue()
-        assert "deprecated" in log_text.lower(), (
-            f"Expected deprecation warning for dict splits, got: {log_text!r}"
-        )
+        assert (
+            "deprecated" in log_text.lower()
+        ), f"Expected deprecation warning for dict splits, got: {log_text!r}"
     finally:
         logger.remove(handler_id)
 

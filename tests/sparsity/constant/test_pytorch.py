@@ -154,6 +154,6 @@ def test_constant_pruning_pytorch_is_registered():
         **kwargs,
     )
 
-    assert isinstance(type_, ConstantPruningModifier), (
-        "PyTorch ConstantPruningModifier not registered"
-    )
+    assert isinstance(
+        type_, ConstantPruningModifier
+    ), "PyTorch ConstantPruningModifier not registered"

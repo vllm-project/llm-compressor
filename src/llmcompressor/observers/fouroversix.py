@@ -82,9 +82,9 @@ class FourOverSixObserver(Observer):
 
     @torch.no_grad
     def get_qparams(self) -> QParamsDict:
-        assert self.has_statistics, (
-            "No statistics available. Call observer(value) first."
-        )
+        assert (
+            self.has_statistics
+        ), "No statistics available. Call observer(value) first."
 
         global_scale = None
 

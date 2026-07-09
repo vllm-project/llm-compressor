@@ -764,9 +764,9 @@ def test_get_grid_search_params(n_grid, duo_scaling):
     assert all(ratio >= 0.0 for ratio, _ in grid_search_params), "ratio<0 found"
     assert all(ratio <= 1.0 for ratio, _ in grid_search_params), "ratio>1 found"
 
-    assert len(grid_search_params) == n_grid, (
-        f"Expected {n_grid} grid points, found {len(grid_search_params)}"
-    )
+    assert (
+        len(grid_search_params) == n_grid
+    ), f"Expected {n_grid} grid points, found {len(grid_search_params)}"
 
     n_false = len(
         [ratio for (ratio, duo_scaling) in grid_search_params if duo_scaling is False]
@@ -834,9 +834,9 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check QKV
     for proj_name in ["q_proj", "k_proj", "v_proj"]:
         proj = getattr(layer_0.self_attn, proj_name)
-        assert hasattr(proj, "weight_global_scale"), (
-            f"{proj_name} missing weight_global_scale"
-        )
+        assert hasattr(
+            proj, "weight_global_scale"
+        ), f"{proj_name} missing weight_global_scale"
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
@@ -854,9 +854,9 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check gate/up
     for proj_name in ["gate_proj", "up_proj"]:
         proj = getattr(layer_0.mlp, proj_name)
-        assert hasattr(proj, "weight_global_scale"), (
-            f"{proj_name} missing weight_global_scale"
-        )
+        assert hasattr(
+            proj, "weight_global_scale"
+        ), f"{proj_name} missing weight_global_scale"
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"

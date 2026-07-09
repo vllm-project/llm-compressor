@@ -19,9 +19,9 @@ def test_sparse_gpt_is_registered():
         targets=targets,
     )
 
-    assert isinstance(type_, SparseGPTModifier), (
-        "PyTorch SparseGPTModifier not registered"
-    )
+    assert isinstance(
+        type_, SparseGPTModifier
+    ), "PyTorch SparseGPTModifier not registered"
 
 
 @pytest.mark.unit

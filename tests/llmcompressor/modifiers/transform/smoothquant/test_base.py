@@ -23,9 +23,9 @@ def test_smooth_quant_is_registered():
         mappings=mappings,
     )
 
-    assert isinstance(modifier, SmoothQuantModifier), (
-        "PyTorch SmoothQuant not registered"
-    )
+    assert isinstance(
+        modifier, SmoothQuantModifier
+    ), "PyTorch SmoothQuant not registered"
     assert modifier.smoothing_strength == smoothing_strength
     assert modifier.mappings == mappings
 
@@ -104,9 +104,9 @@ def test_moe_all_experts_smoothed():
     mapping = resolved_mappings[0]
 
     assert "input_layernorm" in mapping.smooth_name
-    assert len(mapping.balance_layers) == num_experts, (
-        f"Expected {num_experts} balance layers, got {len(mapping.balance_layers)}"
-    )
+    assert (
+        len(mapping.balance_layers) == num_experts
+    ), f"Expected {num_experts} balance layers, got {len(mapping.balance_layers)}"
 
     # Verify no duplicates
     balance_layer_ids = [id(layer) for layer in mapping.balance_layers]
@@ -269,9 +269,9 @@ def test_smoothquant_e2e():
     # 1. Verify weights actually changed
     for name, orig_param in orig_weights.items():
         current_param = getattr_chain(model, name)
-        assert not torch.equal(orig_param, current_param.to(orig_param.device)), (
-            f"Weight {name} was not modified by SmoothQuant"
-        )
+        assert not torch.equal(
+            orig_param, current_param.to(orig_param.device)
+        ), f"Weight {name} was not modified by SmoothQuant"
 
     # 2. Verify model output is approximately preserved (SmoothQuant invariant)
     with torch.no_grad():
