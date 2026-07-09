@@ -34,6 +34,14 @@ def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
     return {name: tensor for name, tensor in tensors.items() if tensor is not None}
 
 
+def _tensors_equal(lhs: torch.Tensor, rhs: torch.Tensor) -> bool:
+    if lhs.shape != rhs.shape or lhs.dtype != rhs.dtype:
+        return False
+    if lhs.device == rhs.device:
+        return torch.equal(lhs, rhs)
+    return torch.equal(lhs.detach().cpu(), rhs.detach().cpu())
+
+
 def _retie_embeddings(model: PreTrainedModel):
     """Re-tie input and output embeddings before saving so one shared table is
     written instead of a duplicate.
@@ -58,7 +66,8 @@ def _retie_embeddings(model: PreTrainedModel):
     input_tensors = _named_tensors(input_embed)
     output_tensors = _named_tensors(output_embed)
     if input_tensors.keys() != output_tensors.keys() or not all(
-        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
+        _tensors_equal(input_tensors[name], output_tensors[name])
+        for name in input_tensors
     ):
         return
 
