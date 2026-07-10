@@ -126,3 +126,18 @@ def test_build_layer_config_for_autoround_supports_mixed_weight_only_schemes():
     assert layer_config["model.layers.0.up_proj"]["group_size"] == 128
     assert "model.layers.0.q_proj" not in layer_config
     assert "model.layers.0.o_proj" not in layer_config
+
+
+def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
+    modifier = AutoRoundModifier(
+        ignore=["lm_head"],
+        iters=0,
+        scheme="MXFP4",
+    )
+    layer = _FakeDecoderLayer()
+    modifier.initialize_quantization(layer)
+
+    wrapped = _wrap_decoding_layer(layer)
+    layer_config = modifier._build_layer_config_for_autoround(wrapped)
+
+    assert layer_config == {}

@@ -556,14 +556,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             act_data_type = activation_args.type
             if hasattr(act_data_type, "value"):
                 act_data_type = act_data_type.value
-            assert activation_args.strategy != QuantizationStrategy.GROUP, (
-                "Input activation group-wise quantization is not supported "
-                "in AutoRoundModifier"
-            )
             if act_group_size is None:
                 if activation_args.strategy in [
+                    QuantizationStrategy.GROUP,
                     QuantizationStrategy.CHANNEL,
                     QuantizationStrategy.TOKEN,
+                    QuantizationStrategy.TENSOR_GROUP,
                 ]:
                     act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:
