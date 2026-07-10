@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
@@ -175,6 +176,18 @@ class Oneshot:
         self.model = self.model_args.model
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
+
+        quantization_config = getattr(
+            self.model, "quantization_config", None
+        ) or getattr_chain(self.model, "config.quantization_config", None)
+        if quantization_config is not None:
+            raise ValueError(
+                "oneshot does not currently support models that are already quantized. "
+                "Load a full-precision checkpoint instead, or dequantize the "
+                "checkpoint first with the compressed-tensors convert_checkpoint "
+                "entrypoint -- https://github.com/vllm-project/compressed-tensors/blob/"
+                "main/examples/convert_checkpoint/kimi_k26_example.py"
+            )
 
     def __call__(self):
         """
