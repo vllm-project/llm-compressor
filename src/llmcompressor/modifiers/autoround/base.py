@@ -266,10 +266,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         # Build kwargs for AutoRound initialization
         ar_quant_scheme = self._mapping_config_to_autoround()
+        layer_config = self._build_layer_config_for_autoround(wrapped_model)
         ignore_layers = self.get_unquantized_layer_names(decoding_layer)
         kwargs = {
             "tokenizer": "",  # A placeholder
             "scheme": ar_quant_scheme,
+            "layer_config": layer_config or None,
             "iters": self.iters,
             "lr": self.lr,
             "enable_torch_compile": self.enable_torch_compile,
@@ -290,7 +292,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 model=wrapped_model,
                 **kwargs,
             )
-            # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
             ar.batch_dim = 0
             first_param = next(decoding_layer.parameters())
@@ -500,24 +501,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                         )
                         module.register_parameter(qparam_name, param_value)
 
-    def _mapping_config_to_autoround(self):
-        if isinstance(self.scheme, str):
-            if self.scheme in AR_PRESET_SCHEMES:
-                return self.scheme
-
+    def _get_default_quant_scheme(self) -> QuantizationScheme:
         resolved_config = self.resolved_config
-        quant_scheme = None
-        # TODO: release below constraint in later PRs
-        assert len(resolved_config.config_groups) == 1, (
-            "AutoRoundModifier only supports one quantization scheme for now, "
-            f"got {len(resolved_config.config_groups)}"
-        )
-
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
-            quant_scheme = scheme
+            if not isinstance(scheme, QuantizationScheme):
+                raise TypeError(f"Expected QuantizationScheme, got {type(scheme)}")
+            return scheme
+
+        raise ValueError("AutoRoundModifier requires at least one quantization scheme")
+
+    def _quant_scheme_to_autoround_config(
+        self, quant_scheme: QuantizationScheme
+    ) -> dict:
         weight_args = quant_scheme.weights
         activation_args = quant_scheme.input_activations
         assert quant_scheme.output_activations is None, (
@@ -526,6 +521,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
         group_size = weight_args.group_size
         data_type = weight_args.type
+        if hasattr(data_type, "value"):
+            data_type = data_type.value
         if group_size is None:
             if weight_args.strategy == QuantizationStrategy.CHANNEL:
                 group_size = -1
@@ -557,14 +554,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 act_bits = 16
 
             act_data_type = activation_args.type
-            assert activation_args.strategy != QuantizationStrategy.GROUP, (
-                "Input activation group-wise quantization is not supported "
-                "in AutoRoundModifier"
-            )
+            if hasattr(act_data_type, "value"):
+                act_data_type = act_data_type.value
             if act_group_size is None:
                 if activation_args.strategy in [
+                    QuantizationStrategy.GROUP,
                     QuantizationStrategy.CHANNEL,
                     QuantizationStrategy.TOKEN,
+                    QuantizationStrategy.TENSOR_GROUP,
                 ]:
                     act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:
@@ -578,18 +575,53 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if act_data_type == "float":
                 act_data_type = "fp"
 
-        ar_quant_scheme = ARQuantizationScheme(
-            bits=weight_args.num_bits,
-            sym=weight_args.symmetric,
-            group_size=group_size,
-            data_type=data_type,
-            act_bits=act_bits,
-            act_group_size=act_group_size,
-            act_sym=act_symmetric,
-            act_dynamic=act_dynamic,
-            act_data_type=act_data_type,
+        return {
+            "bits": weight_args.num_bits,
+            "sym": weight_args.symmetric,
+            "group_size": group_size,
+            "data_type": data_type,
+            "act_bits": act_bits,
+            "act_group_size": act_group_size,
+            "act_sym": act_symmetric,
+            "act_dynamic": act_dynamic,
+            "act_data_type": act_data_type,
+        }
+
+    def _mapping_config_to_autoround(self):
+        if isinstance(self.scheme, str):
+            scheme_name = self.scheme.upper()
+            if scheme_name in AR_PRESET_SCHEMES:
+                return scheme_name
+
+        quant_scheme = self._get_default_quant_scheme()
+
+        # Fall back to an explicit scheme conversion for compressed-tensors presets
+        # that AutoRound does not expose directly, such as W7A16.
+        return ARQuantizationScheme(
+            **self._quant_scheme_to_autoround_config(quant_scheme)
         )
-        return ar_quant_scheme
+
+    def _build_layer_config_for_autoround(
+        self, wrapped_model: torch.nn.Module
+    ) -> dict[str, dict]:
+        default_quant_scheme = self._get_default_quant_scheme()
+        default_config = self._quant_scheme_to_autoround_config(default_quant_scheme)
+        layer_config: dict[str, dict] = {}
+
+        for name, module in wrapped_model.named_modules():
+            quant_scheme = getattr(module, "quantization_scheme", None)
+            if quant_scheme is None:
+                continue
+
+            if not isinstance(quant_scheme, QuantizationScheme):
+                raise TypeError(
+                    f"Expected QuantizationScheme, got {type(quant_scheme)}"
+                )
+            layer_scheme = self._quant_scheme_to_autoround_config(quant_scheme)
+            if layer_scheme != default_config:
+                layer_config[name] = layer_scheme
+
+        return layer_config
 
     def _set_attention_masks(
         self,

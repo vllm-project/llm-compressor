@@ -50,6 +50,12 @@ recipe_modifier_mxfp4 = AutoRoundModifier(
     scheme="MXFP4",
 )
 
+recipe_modifier_w2a16 = AutoRoundModifier(
+    ignore=["lm_head"],
+    iters=0,
+    scheme="W2A16",
+)
+
 w8a8_dynamic_recipe_modifier = AutoRoundModifier(
     ignore=["lm_head"],
     iters=0,
@@ -81,15 +87,16 @@ w8a8_static_recipe_modifier = AutoRoundModifier(
 
 @requires_gpu(1)
 @pytest.mark.parametrize(
-    "recipe",
+    ("recipe", "expected_bits"),
     [
-        recipe_str,
-        recipe_modifier_full,
-        recipe_modifier_nvfp4,
-        recipe_modifier_mxfp4,
+        (recipe_str, 4),
+        (recipe_modifier_full, 4),
+        (recipe_modifier_nvfp4, 4),
+        (recipe_modifier_mxfp4, 4),
+        (recipe_modifier_w2a16, 2),
     ],
 )
-def test_oneshot_application(recipe, tmp_path):
+def test_oneshot_application(recipe, expected_bits, tmp_path):
     output = tmp_path / "oneshot_output"
     model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     tokenizer = AutoTokenizer.from_pretrained(model)
@@ -123,7 +130,7 @@ def test_oneshot_application(recipe, tmp_path):
 
     weight_args = quantization_config.config_groups["group_0"].weights
     assert isinstance(weight_args, QuantizationArgs)
-    assert weight_args.num_bits == 4
+    assert weight_args.num_bits == expected_bits
 
     # Check a specific layer is quantized
     targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj

@@ -106,7 +106,7 @@ Applying quantization with `llmcompressor`:
 * [Weight only quantization to `fp4` (MXFP4 format)](examples/quantization_w4a16_fp4/mxfp4)
 * [Weight only quantization to `int4` using GPTQ](examples/quantization_w4a16/README.md)
 * [Weight only quantization to `int4` using AWQ](examples/awq/README.md)
-* [Weight only quantization to `int4` using AutoRound](examples/autoround/quantization_w4a16/README.md)
+* [Weight only quantization with AutoRound (`wNa16`)](examples/autoround/quantization_wNa16/README.md)
 
 ### Attention and KV Cache Quantization
 * [KV Cache quantization to `fp8`](examples/quantization_kv_cache/README.md)
