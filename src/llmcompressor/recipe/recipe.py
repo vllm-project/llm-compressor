@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import json
 import os
-from typing import Any, Union
+from typing import Any
 
 import yaml
 from loguru import logger
@@ -87,9 +89,7 @@ class Recipe(BaseModel):
     @classmethod
     def create_instance(
         cls,
-        path_or_modifiers: Union[
-            str, Modifier, list[Modifier | list[Modifier]], "Recipe"
-        ],
+        path_or_modifiers: str | Modifier | list[Modifier | list[Modifier]] | "Recipe",
         modifier_group_name: str | None = None,
         target_stage: str | None = None,
     ) -> "Recipe":
