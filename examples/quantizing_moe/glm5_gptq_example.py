@@ -8,8 +8,10 @@ from llmcompressor.utils import load_context
 # Select model and load it.
 model_id = "zai-org/GLM-5.2-9B-Chat"
 with load_context():
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -17,8 +19,8 @@ DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
+ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 
 def preprocess(example):
