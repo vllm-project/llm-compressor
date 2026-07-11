@@ -47,13 +47,12 @@ def test_min_max_observer_symmetric_scale_range():
 
 
 def test_min_max_observer_value_update():
-    inp = torch.tensor([1, 1, 1, 1, 1])
-    inp_update_max = torch.tensor([127, 1, 1, 1, 1])
-    inp_update_min = torch.tensor([-128, 1, 1, 1, 1])
+    inp = torch.tensor([[1, 1, 1, 1, 1]])
+    inp_update_max = torch.tensor([[127, 1, 1, 1, 1]])
+    inp_update_min = torch.tensor([[-128, 1, 1, 1, 1]])
 
     delta = 1e-6
 
-    # update the min, max twice total
     tensors = [
         inp,
         inp,
@@ -62,13 +61,11 @@ def test_min_max_observer_value_update():
         inp_update_min,  # update min
     ]
 
-    tensor = inp
     num_bits = 8
-    weights = QuantizationArgs(
+    args = QuantizationArgs(
         num_bits=num_bits, strategy="tensor", symmetric=True, observer="minmax"
     )
-    observer = weights.observer
-    observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
+    observer = Observer.load_from_registry("minmax", base_name="input", args=args)
     curr_max = 1
     curr_min = 1
     for i, tensor in enumerate(tensors):
