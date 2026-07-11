@@ -38,6 +38,20 @@ from llmcompressor.typing import Processor
 from llmcompressor.utils import untie_word_embeddings
 
 
+def raise_if_model_is_quantized(model: PreTrainedModel):
+    quantization_config = getattr(
+        getattr(model, "config", None), "quantization_config", None
+    )
+
+    if quantization_config is not None:
+        raise ValueError(
+            "Attempting to quantize a model that already has a "
+            "`quantization_config` is not supported. Please use a "
+            "full-precision checkpoint, or first dequantize the checkpoint "
+            "using the compressed-tensors `convert_checkpoint` entrypoint."
+        )
+
+
 def pre_process(
     model_args: ModelArguments,
     dataset_args: DatasetArguments,
@@ -61,6 +75,8 @@ def pre_process(
     if isinstance(model_args.model, (str, PosixPath)):
         model = initialize_model_from_path(model_args)
         model_args.model = model
+
+    raise_if_model_is_quantized(model_args.model)
 
     # Initialize processor if dataset provided
     if isinstance(model_args.processor, (str, type(None))):
