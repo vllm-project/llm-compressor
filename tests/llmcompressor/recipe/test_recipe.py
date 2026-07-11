@@ -1,9 +1,15 @@
 import tempfile
+import warnings
 
 import pytest
 import yaml
 
-from llmcompressor.modifiers.awq import AWQModifier
+# Suppress deprecation warning for AWQModifier import as this test
+# explicitly tests backward compatibility of the deprecated API
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    from llmcompressor.modifiers.awq import AWQModifier
+
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier

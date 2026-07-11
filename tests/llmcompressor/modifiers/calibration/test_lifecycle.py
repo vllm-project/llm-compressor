@@ -143,7 +143,10 @@ def test_static_weight_quantization(
     initialize_observer(linear, "weight")
 
     # Get qparams
-    qparams = linear.weight_observer(linear.weight).get_qparams()
+    linear.weight_observer(linear.weight)
+    min_vals = linear.weight_observer.min_vals.clone()
+    max_vals = linear.weight_observer.max_vals.clone()
+    qparams = linear.weight_observer.get_qparams()
 
     linear.weight_scale.data = qparams["scale"]
     linear.weight_zero_point.data = qparams["zero_point"]
@@ -151,8 +154,6 @@ def test_static_weight_quantization(
         linear, "weight_global_scale"
     ):
         linear.weight_global_scale.data = qparams["global_scale"]
-    min_vals = linear.weight_observer.min_vals
-    max_vals = linear.weight_observer.max_vals
     assert torch.equal(min_vals, exp_min_val)
     assert torch.equal(max_vals, exp_max_val)
 
@@ -243,7 +244,10 @@ def test_static_activation_quantization(
         nonlocal min_vals
         nonlocal max_vals
 
-        qparams = linear.input_observer(args[0]).get_qparams()
+        linear.input_observer(args[0])
+        min_vals = linear.input_observer.min_vals.clone()
+        max_vals = linear.input_observer.max_vals.clone()
+        qparams = linear.input_observer.get_qparams()
 
         if linear.quantization_scheme.input_activations.dynamic is False:
             linear.input_scale.data = qparams["scale"]
@@ -252,9 +256,6 @@ def test_static_activation_quantization(
             linear, "input_global_scale"
         ):
             linear.input_global_scale.data = qparams["global_scale"]
-
-        min_vals = linear.input_observer.min_vals
-        max_vals = linear.input_observer.max_vals
 
     linear.register_forward_pre_hook(calibrate_input_hook)
 
@@ -333,12 +334,12 @@ def test_static_attention_quantization(
 
     # calibrate quantization parameters
     if scheme.input_activations.dynamic is False:
-        qparams = attention.k_observer(input).get_qparams()
+        attention.k_observer(input)
+        min_vals = attention.k_observer.min_vals.clone()
+        max_vals = attention.k_observer.max_vals.clone()
+        qparams = attention.k_observer.get_qparams()
         attention.k_scale.data = qparams["scale"]
         attention.k_zero_point.data = qparams["zero_point"]
-
-        min_vals = attention.k_observer.min_vals
-        max_vals = attention.k_observer.max_vals
 
     # calibration forward pass
     output = forward_quantize(attention, input, "k", scheme.input_activations)
