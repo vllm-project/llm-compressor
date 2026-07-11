@@ -38,7 +38,7 @@ ds = ds.map(preprocess)
 def tokenize(sample):
     return tokenizer(
         sample["text"],
-        padding=False,
+        padding="max_length",
         max_length=MAX_SEQUENCE_LENGTH,
         truncation=True,
         add_special_tokens=False,
