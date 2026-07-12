@@ -67,6 +67,7 @@ recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=ignore)
 # sequential_targets_per_subgraph batches multiple ExpertMLP modules per subgraph,
 # balancing memory usage against calibration runtime.
 # Value = num_experts_per_group // batch_size + buffer  (384 // 4 + 10 = 106).
+num_experts = getattr(model.config, "n_routed_experts", 384)
 oneshot(
     model=model,
     dataset=ds,
@@ -75,7 +76,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     sequential_targets=["GlmMoeDsaAttention", "ExpertMLP"],
-    sequential_targets_per_subgraph=(384 // 4 + 10),
+    sequential_targets_per_subgraph=(num_experts // 4 + 10),
 )
 
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"

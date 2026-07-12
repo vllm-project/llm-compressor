@@ -1,4 +1,7 @@
 import pytest
+
+pytest.importorskip("transformers.models.glm_moe_dsa")
+
 import torch
 from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import GlmMoeDsaConfig
 from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (
