@@ -78,6 +78,16 @@ class IMatrixMSEObserver(Observer):
             self._imatrix_count = module._imatrix_count
             del module._imatrix_sum
             del module._imatrix_count
+            # A gatherer's accumulation hook may still be registered on this
+            # module: its ``detach()`` runs at ``on_calibration_end``, which can
+            # be *after* this second-pass ``attach()`` when the gatherer and the
+            # quantization modifier share a single calibration run (e.g.
+            # ``IMatrixGatherer`` composed with ``GPTQModifier``). Remove it so
+            # it cannot fire against the accumulators we just deleted, otherwise
+            # the next forward raises ``AttributeError`` on ``_imatrix_sum``.
+            if hasattr(module, "_imatrix_hook"):
+                module._imatrix_hook.remove()
+                del module._imatrix_hook
             return
 
         if not hasattr(module, "in_features"):

@@ -362,3 +362,46 @@ class TestHookDisabling:
 
         module(torch.randn(2, 8))
         assert module._imatrix_count.item() > 0
+
+
+# ---------------------------------------------------------------------------
+# Second-pass attach must not leave a stale gatherer hook behind
+# ---------------------------------------------------------------------------
+
+
+class TestSecondPassHookRemoval:
+    """
+    Regression test for the ``IMatrixGatherer`` + ``GPTQModifier`` composition.
+
+    When a second observer's ``attach()`` picks up the raw accumulators left by
+    a gatherer pass, it deletes ``_imatrix_sum`` / ``_imatrix_count`` from the
+    module. If the gatherer's forward-pre hook is still registered at that point
+    (its ``detach()`` only runs at ``on_calibration_end``), the next forward
+    fires the hook against the now-deleted accumulators and raises
+    ``AttributeError: 'Linear' object has no attribute '_imatrix_sum'``.
+    """
+
+    def test_second_pass_attach_removes_stale_hook(self):
+        module = torch.nn.Linear(8, 4)
+
+        # First pass (gatherer): registers the accumulation hook + accumulators.
+        _make_observer(module, strategy="channel")
+        assert hasattr(module, "_imatrix_hook")
+        module(torch.randn(2, 8))
+        assert module._imatrix_count.item() > 0
+
+        # Second pass (quantization observer) picks up the accumulators while
+        # the gatherer hook is still live; attach() must remove the hook.
+        _make_observer(module, strategy="channel")
+        assert not hasattr(module, "_imatrix_sum")
+        assert not hasattr(module, "_imatrix_hook")
+
+    def test_forward_after_second_pass_does_not_raise(self):
+        module = torch.nn.Linear(8, 4)
+
+        _make_observer(module, strategy="channel")
+        module(torch.randn(2, 8))
+        _make_observer(module, strategy="channel")
+
+        # Must not raise AttributeError on the deleted ``_imatrix_sum``.
+        module(torch.randn(2, 8))
