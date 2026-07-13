@@ -21,8 +21,6 @@ def test_oneshot_allows_unquantized_smoke_model(tmp_path):
     model = oneshot(
         model=SMOKE_MODEL,
         recipe=_recipe(),
-        num_calibration_samples=1,
-        max_seq_length=128,
         output_dir=str(tmp_path),
     )
 
@@ -36,8 +34,6 @@ def test_oneshot_rejects_pre_quantized_smoke_model():
         oneshot(
             model=QUANTIZED_MODEL,
             recipe=_recipe(),
-            num_calibration_samples=1,
-            max_seq_length=128,
         )
 
     assert "full-precision checkpoint" in str(exc_info.value)
