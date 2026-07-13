@@ -177,16 +177,41 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        quantization_config = getattr(
-            self.model, "quantization_config", None
-        ) or getattr_chain(self.model, "config.quantization_config", None)
-        if quantization_config is not None:
+        self.validate_model(self.model)
+
+    @staticmethod
+    def validate_model(model):
+        """
+        Validate that oneshot can be applied to model.
+        Raise warning if model is quantized with compressed-tensors quant method.
+        Raise error if model is quantized with any other quant method
+        """
+        quant_method_key = "quantization_config.quant_method"
+        quant_method = (
+            getattr_chain(model, quant_method_key, None)
+            or getattr_chain(model, f"config.{quant_method_key}", None)
+            or getattr_chain(model, f"text_config.{quant_method_key}", None)
+        )
+
+        if quant_method is None:
+            return
+
+        resolution = (
+            "To resolve, load a full-precision checkpoint instead, or dequantize the "
+            "checkpoint first with the compressed-tensors convert_checkpoint entrypoint"
+            " -- https://github.com/vllm-project/compressed-tensors/blob/"
+            "main/examples/convert_checkpoint/kimi_k26_example.py"
+        )
+        if quant_method == "compressed-tensors":
+            logger.warning(
+                "oneshot has limited support for models already quantized in the "
+                "`compressed-tensors` format. If the recipe targets layers that have "
+                "already been quantized, oneshot will likely fail. " + resolution
+            )
+        else:
             raise ValueError(
-                "oneshot does not currently support models that are already quantized. "
-                "Load a full-precision checkpoint instead, or dequantize the "
-                "checkpoint first with the compressed-tensors convert_checkpoint "
-                "entrypoint -- https://github.com/vllm-project/compressed-tensors/blob/"
-                "main/examples/convert_checkpoint/kimi_k26_example.py"
+                "oneshot does not currently support models that are already quantized "
+                f"in a different format ({quant_method}). " + resolution
             )
 
     def __call__(self):
