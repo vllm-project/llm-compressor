@@ -52,8 +52,14 @@ def _preserve_tokenizer_state(tokenizer):
     try:
         yield
     finally:
-        backend.no_truncation() if truncation is None else backend.enable_truncation(**truncation)
-        backend.no_padding() if padding is None else backend.enable_padding(**padding)
+        if truncation is None:
+            backend.no_truncation()
+        else:
+            backend.enable_truncation(**truncation)
+        if padding is None:
+            backend.no_padding()
+        else:
+            backend.enable_padding(**padding)
 
 
 class TextGenerationDataset(RegistryMixin):
