@@ -7,6 +7,29 @@ from llmcompressor.transformers import TextGenerationDataset
 
 
 @pytest.mark.unit
+def test_tokenizer_truncation_not_leaked(tiny_llama_tokenizer):
+    # Regression test for #1418. Calibration tokenization passes truncation=True/max_length,
+    # which transformers>=4.51 persists onto the fast tokenizer's backend. That state would then
+    # be serialized into tokenizer.json on save and silently break downstream inference (for VLMs,
+    # a large image expands past max_length -> "Mismatch in image token count"). The saved
+    # tokenizer must match the base model, so calibration must not leave truncation/padding behind.
+    backend = tiny_llama_tokenizer.backend_tokenizer
+    truncation_before = backend.truncation
+    padding_before = backend.padding
+
+    manager = TextGenerationDataset.load_from_registry(
+        "open_platypus",
+        dataset_args=DatasetArguments(dataset="open_platypus", max_seq_length=64),
+        split="train[:5%]",
+        processor=tiny_llama_tokenizer,
+    )
+    manager()  # tokenizes calibration data; without the fix this leaks truncation state
+
+    assert backend.truncation == truncation_before
+    assert backend.padding == padding_before
+
+
+@pytest.mark.unit
 def test_concatenation_tokenization(tiny_llama_tokenizer):
     dataset_args = DatasetArguments(
         dataset="wikitext",
