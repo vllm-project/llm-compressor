@@ -89,7 +89,7 @@ class IMatrixMSEObserver(Observer):
         def _hook(mod, args):
             if (
                 HooksMixin._HOOKS_DISABLED
-                and getattr(mod, "_imatrix_hook", None)
+                and getattr(self, "_imatrix_hook", None)
                 not in HooksMixin._HOOKS_KEEP_ENABLED
             ):
                 return
