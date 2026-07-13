@@ -8,7 +8,6 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
     TRANSFORM_CONFIG_NAME,
 )
-from compressed_tensors.config import CompressionFormat
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
@@ -123,16 +122,7 @@ def create_or_update_quant_config(
             }
         )
     else:
-        # update pre-existing quantization config
-        scheme_name = f"config_group_{len(qconfig.config_groups)}"
-
-        qconfig.config_groups[scheme_name] = scheme
-        unique_formats = set(scheme.format for scheme in qconfig.config_groups.values())
-        qconfig.format = (
-            next(iter(unique_formats))
-            if len(unique_formats) == 1
-            else CompressionFormat.mixed_precision.value
-        )
+        qconfig.add_scheme(scheme)
         qconfig.quantization_status = QuantizationStatus.COMPRESSED
 
     return qconfig

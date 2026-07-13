@@ -15,6 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from compressed_tensors.base import (
+    QUANTIZATION_CONFIG_NAME,
+    QUANTIZATION_METHOD,
+    QUANTIZATION_METHOD_NAME,
+)
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -271,7 +276,7 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        quant_method_key = "quantization_config.quant_method"
+        quant_method_key = f"{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
         quant_method = (
             getattr_chain(model, quant_method_key, None)
             or getattr_chain(model, f"config.{quant_method_key}", None)
@@ -287,7 +292,7 @@ class Oneshot:
             " -- https://github.com/vllm-project/compressed-tensors/blob/"
             "main/examples/convert_checkpoint/kimi_k26_example.py"
         )
-        if quant_method == "compressed-tensors":
+        if quant_method == QUANTIZATION_METHOD:
             logger.warning(
                 "oneshot has limited support for models already quantized in the "
                 "`compressed-tensors` format. If the recipe targets layers that have "
