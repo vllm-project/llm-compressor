@@ -1,11 +1,12 @@
 import torch
-from compressed_tensors.offload import dispatch_model, load_offloaded_model
+from compressed_tensors.offload import dispatch_model
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.utils import load_context
 
 # NOTE: Use this example when deploying Qwen3-Next in thinking mode.
 # For non-thinking deployment, use qwen3_next_example.py instead.
@@ -91,7 +92,7 @@ def data_collator(batch):
 
 
 if __name__ == "__main__":
-    with load_offloaded_model():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID, torch_dtype="auto", device_map="auto_offload"
         )
