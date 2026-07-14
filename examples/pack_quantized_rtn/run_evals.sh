@@ -30,6 +30,7 @@ if [ $# -eq 0 ]; then
         "${MODEL_BASE}-W2A16asym-RTN" \
         "${MODEL_BASE}-W3A16asym-RTN" \
         "${MODEL_BASE}-W5A16asym-RTN" \
+        "${MODEL_BASE}-W6A16asym-RTN" \
         "${MODEL_BASE}-W7A16asym-RTN" \
         "${MODEL_BASE}-W2A4-RTN"  \
         "${MODEL_BASE}-W3A4-RTN"  \
@@ -38,7 +39,10 @@ if [ $# -eq 0 ]; then
         "${MODEL_BASE}-W7A8-RTN"  \
         "${MODEL_BASE}-W3A4asym-RTN"  \
         "${MODEL_BASE}-W5A8asym-RTN"  \
-        "${MODEL_BASE}-W7A8asym-RTN"
+        "${MODEL_BASE}-W6A8asym-RTN"  \
+        "${MODEL_BASE}-W7A8asym-RTN" \
+        # "Qwen3-4B-mixed-quant-RTN" \
+        # "Qwen3-4B-mixed-quant-RTN-5plus"
 fi
 
 mkdir -p "$OUTPUT_DIR"
@@ -49,6 +53,21 @@ for model_path in "$@"; do
 
     if [ ! -d "$model_path" ]; then
         echo "=== Skipping $model_name (not found) ==="
+        continue
+    fi
+
+    existing=( "$OUTPUT_DIR"/${model_name}*.json )
+    if [ -e "${existing[0]}" ]; then
+        echo "=== Evaluating: $model_name (cached) ==="
+        python3 -c "
+import json
+d = json.load(open('${existing[0]}'))
+for task, metrics in d.get('results', {}).items():
+    for k, v in metrics.items():
+        if isinstance(v, (int, float)) and 'stderr' not in k:
+            metric = k.rsplit(',', 1)[0]
+            print(f'| {task} |  |none|0| {metric} |↓| {v:.4f} |±| N/A |')
+"
         continue
     fi
 

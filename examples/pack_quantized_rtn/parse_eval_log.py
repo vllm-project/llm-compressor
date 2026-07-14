@@ -15,7 +15,7 @@ def parse_log(path):
     for line in lines:
         m = re.match(r"=== Evaluating: (.+) ===", line)
         if m:
-            current_model = m.group(1)
+            current_model = m.group(1).replace(" (cached)", "")
             results[current_model] = {}
             continue
 
