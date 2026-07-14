@@ -19,8 +19,11 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
+    get_3d_packed_backwards_mappings,
     get_linearize_load_mappings,
+    has_3d_packed_save_mappings,
     has_linearize_load_mappings,
+    maybe_set_3d_packed_save_mappings,
     set_save_conversion_mapping,
 )
 from .linear_experts import LinearExperts2D
@@ -76,6 +79,9 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         # prepare for saving to be called later
         clear_patch_mapping()
+        if has_3d_packed_save_mappings(model_type):
+            # Repack linearized experts (+ qparams) into native 3D on save
+            save_map = get_3d_packed_backwards_mappings(model_type)
         set_save_conversion_mapping(model, save_map)
         register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
 
@@ -123,6 +129,11 @@ def linearize_moe(model: PreTrainedModel):
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
+
+    # Architectures with native 3D packed checkpoints need save-time repacking
+    maybe_set_3d_packed_save_mappings(model)
+
+    return model
 
 
 def get_non_linearized_moes(
