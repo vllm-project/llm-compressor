@@ -7,7 +7,7 @@ from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.utils import load_context
 
 # Load the model
-model_id = "zai-org/GLM-5.1"
+model_id = "zai-org/GLM-5.2"
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -56,6 +56,9 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
+# GlmMoeDsa is a mixed dense/MoE architecture: the first
+# `config.first_k_dense_replace` layers are dense (no MoE router). Keep those
+# dense layers and the output head at full precision.
 moe_ignores = [
     # Layers 0-2: Dense layers - ignore entire layers
     "re:model.layers.0.*",
@@ -67,6 +70,9 @@ moe_ignores = [
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with AWQ with a group size 128
+# The GlmMoeDsa AWQ mapping is selected automatically from the model
+# architecture (it omits mlp.gate from the MLP balance layers so the leading
+# dense layers do not collapse per-layer smoothing grouping).
 recipe = [
     AWQModifier(),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores),
