@@ -108,7 +108,8 @@ def quantize_weight(
 
     # handle g_idx and activation ordering
     if actorder == ActivationOrdering.GROUP:
-        # actually need scale/zp for permuted weight for this format
+        # re-observe with permuted weight for correct per-group scales
+        observer.delete_statistics(check_fused=False)
         observer(W)
         # use identity g_idx (invert permutation later)
 
