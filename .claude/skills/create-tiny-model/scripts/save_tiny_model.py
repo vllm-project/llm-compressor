@@ -1,3 +1,6 @@
+import math
+
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.utils.dev import skip_weights_download
 
@@ -7,6 +10,16 @@ with skip_weights_download(AutoModelForCausalLM):
     model = AutoModelForCausalLM.from_pretrained(model_id, num_hidden_layers=1)
     model.init_weights()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Fix initialization of weights which were not properly implemented by `init_weights`
+for name, param in model.named_parameters():
+    if param.isnan().any() or param.isinf().any() or param.abs().max() > 1e6:
+        if "norm" in name.lower() and "weight" in name:
+            param.data.fill_(1.0)
+        elif "bias" in name:
+            param.data.zero_()
+        else:
+            torch.nn.init.kaiming_uniform_(param, a=math.sqrt(5))
 
 num_parameters = model.num_parameters()
 num_parameters_b = num_parameters / 1e9

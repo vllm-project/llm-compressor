@@ -119,6 +119,22 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForCausalLM.from_pretrained(args.model, device_map="auto")
 
+    # Pre-flight NaN check: catch bad weight initialization before training silently fails.
+    # A NaN loss on the first step almost always means weights have NaN/Inf/extreme values
+    # (common with bfloat16 allocation of custom norm layers). Diagnose early.
+    test_ids = tokenizer("hello world", return_tensors="pt").input_ids.to(model.device)
+    with torch.no_grad():
+        test_out = model(input_ids=test_ids, labels=test_ids)
+    if test_out.loss is None or test_out.loss.isnan() or test_out.loss.isinf():
+        raise RuntimeError(
+            f"Pre-flight check failed: loss={test_out.loss}. "
+            "The model likely has uninitialized/extreme weights. "
+            "Re-run save_tiny_model.py (it now includes a weight fixup step) "
+            "or manually reset bad params: norm weights → 1.0, biases → 0.0, "
+            "other params → kaiming_uniform."
+        )
+    print(f"Pre-flight check passed: initial loss={test_out.loss.item():.3f}")
+
     # Set pad token if not set
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
