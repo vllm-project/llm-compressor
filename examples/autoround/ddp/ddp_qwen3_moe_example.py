@@ -1,0 +1,123 @@
+"""
+DDP AutoRound quantization example for large MoE models.
+
+`LLMCOMPRESSOR_GPUS_PER_GROUP` is optional and controls how many local GPUs each
+DDP rank can use for AutoRound's internal layer dispatch. This is different from
+`--nproc_per_node`, which only controls how many ranks `torchrun` launches.
+For example, on an 8-GPU node:
+  - `torchrun --nproc_per_node=8 ...` gives 8 ranks, each owning 1 GPU
+  - `LLMCOMPRESSOR_GPUS_PER_GROUP=2 torchrun --nproc_per_node=4 ...` gives
+    4 ranks, where rank 0 uses GPUs 0-1, rank 1 uses 2-3, and so on
+Use this when you want each AutoRound worker to spread a single layer's tuning
+work across multiple GPUs instead of running one worker per GPU.
+
+Run with:
+  CUDA_VISIBLE_DEVICES=0,1,2,3 LLMCOMPRESSOR_GPUS_PER_GROUP=2 torchrun \
+    --nproc_per_node=2 ddp_qwen3_moe_example.py
+"""
+
+import os
+import time
+
+import torch
+import torch.distributed as dist
+from compressed_tensors.offload import load_offloaded_model
+from loguru import logger
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from llmcompressor import oneshot
+from llmcompressor.modifiers.autoround.utils import (
+    get_local_gpu_group_size,
+    init_gpu_group_dist,
+)
+
+MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+SCHEME = "W4A16"
+ITERS = 100
+NSAMPLES = 256
+
+###### DDP INIT #####
+gpus_per_group = get_local_gpu_group_size()
+rank, world_size, main_gpu = init_gpu_group_dist(gpus_per_group)
+logger.info(
+    f"[Rank {rank}/{world_size}] GPUs: {torch.accelerator.device_count()}, "
+    f"main_gpu: {main_gpu}, group: [{main_gpu}-{main_gpu + gpus_per_group - 1}]"
+)
+
+###### MODEL LOAD #####
+load_start = time.perf_counter()
+with load_offloaded_model():
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL,
+        dtype="auto",
+        device_map="auto_offload",
+    )
+logger.info(f"[Rank {rank}] Loaded in {time.perf_counter() - load_start:.1f}s")
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL)
+
+###### DATASET #####
+os.environ["AR_DISABLE_DATASET_SUBPROCESS"] = "1"
+from auto_round.calib_dataset import get_dataset
+
+from llmcompressor.modifiers.autoround import AutoRoundModifier
+
+ds = get_dataset(tokenizer=tokenizer, seqlen=2048, nsamples=NSAMPLES)
+
+###### RECIPE #####
+
+recipe = AutoRoundModifier(
+    targets="Linear",
+    scheme=SCHEME,
+    ignore=["lm_head", "re:.*mlp.gate$"],
+    iters=ITERS,
+    enable_torch_compile=False,
+)
+
+###### QUANTIZE #####
+logger.info(f"[Rank {rank}] Starting oneshot...")
+quant_start = time.perf_counter()
+oneshot(
+    model=model,
+    dataset=ds,
+    recipe=recipe,
+    max_seq_length=2048,
+    num_calibration_samples=NSAMPLES,
+    shuffle_calibration_samples=False,
+)
+logger.info(
+    f"[Rank {rank}] Quantization done in {time.perf_counter() - quant_start:.1f}s"
+)
+
+###### SAVE #####
+# Both ranks must participate — save_pretrained internally calls
+# collectives (broadcast_object_list). Only rank 0 writes to disk.
+save_dir = (
+    MODEL.rstrip("/").split("/")[-1]
+    + f"-{SCHEME}-AutoRound"
+    + f"-iters{ITERS}-nsamples{NSAMPLES}"
+    + f"-DDP{world_size}"
+)
+logger.info(f"[Rank {rank}] Saving to {save_dir}...")
+model.save_pretrained(save_dir, save_compressed=True)
+if rank == 0:
+    tokenizer.save_pretrained(save_dir)
+logger.info(f"[Rank {rank}] Saved to {save_dir}")
+
+if dist.is_initialized():
+    dist.barrier()
+    dist.destroy_process_group()
+
+###### SAMPLE GENERATION (rank 0 only) #####
+if rank == 0:
+    from compressed_tensors.offload import dispatch_model
+
+    logger.info("========== SAMPLE GENERATION ==============")
+    dispatch_model(model)
+    sample = tokenizer("Hello my name is", return_tensors="pt")
+    sample = {key: value.to(model.device) for key, value in sample.items()}
+    output = model.generate(**sample, max_new_tokens=100)
+    logger.info(tokenizer.decode(output[0]))
+    logger.info("==========================================")
+
+logger.info(f"[Rank {rank}] SUCCESS")
