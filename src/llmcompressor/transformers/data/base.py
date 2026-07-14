@@ -34,13 +34,14 @@ def _preserve_tokenizer_state(tokenizer):
     """
     Snapshot and restore a fast tokenizer's truncation/padding across tokenization.
 
-    ``transformers>=4.51`` persists the per-call ``truncation``/``max_length`` and ``padding``
-    arguments onto the fast tokenizer's backend. Calibration tokenization therefore leaks these
-    settings into the tokenizer, which is then serialized into ``tokenizer.json`` on save --
-    silently breaking downstream inference. For VLMs this is especially harmful: a large image
-    expands to more placeholder tokens than the leaked ``max_length`` and the request fails with
-    "Mismatch in image token count between text and input_ids". Snapshotting and restoring keeps
-    the saved tokenizer identical to the base model's.
+    ``transformers>=4.51`` persists the per-call ``truncation``/``max_length`` and
+    ``padding`` arguments onto the fast tokenizer's backend. Calibration tokenization
+    therefore leaks these settings into the tokenizer, which is then serialized into
+    ``tokenizer.json`` on save -- silently breaking downstream inference. For VLMs this
+    is especially harmful: a large image expands to more placeholder tokens than the
+    leaked ``max_length`` and the request fails with "Mismatch in image token count
+    between text and input_ids". Snapshotting and restoring keeps the saved tokenizer
+    identical to the base model's.
 
     See https://github.com/vllm-project/llm-compressor/issues/1418
     """
@@ -157,16 +158,19 @@ class TextGenerationDataset(RegistryMixin):
             # tokenize/ process
             dataset = self.filter_tokenizer_args(dataset)
             logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
-            # `self.tokenize` calls the processor with truncation=True; preserve the tokenizer's
-            # truncation/padding state so it is not leaked into the saved tokenizer (#1418).
+            # `self.tokenize` calls the processor with truncation=True; preserve the
+            # tokenizer's truncation/padding state so it is not leaked into the saved
+            # tokenizer (#1418).
             with _preserve_tokenizer_state(self.tokenizer):
                 dataset = self.map(
                     dataset,
                     self.tokenize,
-                    batched=False,  # batching is not well supported for vision processors
-                    keep_in_memory=True,  # bug occurs when not batched and not in memory,
+                    # batching is not well supported for vision processors
+                    batched=False,
+                    # bug occurs when not batched and not in memory;
                     # subsequent ds.map calls are always batched,
                     # regardless of `batched` argument
+                    keep_in_memory=True,
                     remove_columns=get_columns(dataset),  # assumes that input names
                     # and output names are disjoint
                     num_proc=self.dataset_args.preprocessing_num_workers,
