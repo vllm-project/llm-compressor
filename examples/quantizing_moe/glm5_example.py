@@ -7,7 +7,7 @@ from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.utils import load_context
 
 # Load the model
-model_id = "zai-org/GLM-5.1"
+model_id = "zai-org/GLM-5.2"
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
