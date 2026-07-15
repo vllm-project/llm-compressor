@@ -17,12 +17,12 @@ from transformers.core_model_loading import (
 from .helpers import import_or_none
 
 __all__ = [
-    "has_linearize_load_mappings",
+    "get_3d_packed_backwards_mappings",
     "get_linearize_load_mappings",
     "has_3d_packed_save_mappings",
-    "get_3d_packed_backwards_mappings",
-    "set_save_conversion_mapping",
+    "has_linearize_load_mappings",
     "maybe_set_3d_packed_save_mappings",
+    "set_save_conversion_mapping",
 ]
 
 ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
@@ -206,18 +206,18 @@ ARCH_TO_2D_MAPPINGS = {
 
 
 # Architectures whose native checkpoint stores experts as fused 3D tensors.
-# After linearization, save-time backwards mappings must repack 2D experts
-# (and matching qparams) into that packed layout so Transformers / vLLM can
-# reload the checkpoint. See https://github.com/vllm-project/llm-compressor/issues/2699
+# After linearization, save-time backwards mappings repack 2D experts (and
+# qparams) into that packed layout so Transformers / vLLM can reload the
+# checkpoint. See https://github.com/vllm-project/llm-compressor/issues/2699
 #
-# Pack converters below are defined in the SAVE direction (2D model -> 3D disk).
-# `get_3d_packed_backwards_mappings` stores their reverse as `_weight_conversions`
-# so `revert_weight_conversion` packs on save.
+# Pack converters are defined in the SAVE direction (2D model -> 3D disk).
+# `get_3d_packed_backwards_mappings` stores their reverse as
+# `_weight_conversions` so `revert_weight_conversion` packs on save.
 #
-# Use `$` anchors on `weight` / qparam suffixes so `weight_scale` does not match
-# the `weight` pattern.
+# Use `$` anchors on weight / qparam suffixes so `weight_scale` does not
+# match the `weight` pattern.
 def _qwen3_vl_moe_pack_converters() -> list[WeightConverter]:
-    """2D linearized experts -> native qwen3_vl_moe 3D packed checkpoint tensors."""
+    """2D linearized experts -> native qwen3_vl_moe 3D packed checkpoint."""
     # HF fused layout is [E, 2I, H] / [E, H, I]; disk stores the transpose of dims 1/2.
     return [
         WeightConverter(

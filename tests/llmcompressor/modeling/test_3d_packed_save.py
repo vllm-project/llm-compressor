@@ -51,29 +51,29 @@ def test_has_3d_packed_save_mappings():
 
 
 def test_revert_packs_linearized_weights_and_scales():
-    E, I, H = 4, 8, 16
+    num_experts, moe_intermediate, hidden = 4, 8, 16
     backwards = get_3d_packed_backwards_mappings("qwen3_vl_moe")
 
     state_dict = {}
-    for e in range(E):
-        state_dict[f"model.language_model.layers.0.mlp.experts.{e}.gate_proj.weight"] = (
-            torch.randn(I, H)
-        )
-        state_dict[f"model.language_model.layers.0.mlp.experts.{e}.up_proj.weight"] = (
-            torch.randn(I, H)
-        )
-        state_dict[f"model.language_model.layers.0.mlp.experts.{e}.down_proj.weight"] = (
-            torch.randn(H, I)
-        )
+    for expert_idx in range(num_experts):
         state_dict[
-            f"model.language_model.layers.0.mlp.experts.{e}.gate_proj.weight_scale"
-        ] = torch.randn(I)
+            f"model.language_model.layers.0.mlp.experts.{expert_idx}.gate_proj.weight"
+        ] = torch.randn(moe_intermediate, hidden)
         state_dict[
-            f"model.language_model.layers.0.mlp.experts.{e}.up_proj.weight_scale"
-        ] = torch.randn(I)
+            f"model.language_model.layers.0.mlp.experts.{expert_idx}.up_proj.weight"
+        ] = torch.randn(moe_intermediate, hidden)
         state_dict[
-            f"model.language_model.layers.0.mlp.experts.{e}.down_proj.weight_scale"
-        ] = torch.randn(H)
+            f"model.language_model.layers.0.mlp.experts.{expert_idx}.down_proj.weight"
+        ] = torch.randn(hidden, moe_intermediate)
+        state_dict[
+            f"model.language_model.layers.0.mlp.experts.{expert_idx}.gate_proj.weight_scale"
+        ] = torch.randn(moe_intermediate)
+        state_dict[
+            f"model.language_model.layers.0.mlp.experts.{expert_idx}.up_proj.weight_scale"
+        ] = torch.randn(moe_intermediate)
+        state_dict[
+            f"model.language_model.layers.0.mlp.experts.{expert_idx}.down_proj.weight_scale"
+        ] = torch.randn(hidden)
 
     class _Model:
         config = None
@@ -93,21 +93,23 @@ def test_revert_packs_linearized_weights_and_scales():
     ]
     # Disk layout after Transpose(1, 2): gate_up [E, H, 2I], down [E, I, H]
     assert packed["model.language_model.layers.0.mlp.experts.gate_up_proj"].shape == (
-        E,
-        H,
-        2 * I,
+        num_experts,
+        hidden,
+        2 * moe_intermediate,
     )
     assert packed["model.language_model.layers.0.mlp.experts.down_proj"].shape == (
-        E,
-        I,
-        H,
+        num_experts,
+        moe_intermediate,
+        hidden,
     )
     assert packed[
         "model.language_model.layers.0.mlp.experts.gate_up_proj_scale"
-    ].shape == (E, 2 * I)
-    assert packed["model.language_model.layers.0.mlp.experts.down_proj_scale"].shape == (
-        E,
-        H,
+    ].shape == (num_experts, 2 * moe_intermediate)
+    assert packed[
+        "model.language_model.layers.0.mlp.experts.down_proj_scale"
+    ].shape == (
+        num_experts,
+        hidden,
     )
 
 

@@ -1,14 +1,3 @@
-"""
-Smoke test for issue #2699: save linearized Qwen3-VL-MoE as native 3D packed experts.
-
-Usage:
-    python examples/quantizing_moe/qwen3_vl_moe_3d_save.py
-
-Optional HF stub (when available):
-    MODEL_ID=inference-optimization/Qwen3-VL-1.0B-A0.4B-Instruct \\
-        python examples/quantizing_moe/qwen3_vl_moe_3d_save.py
-"""
-
 import os
 from pathlib import Path
 
@@ -60,7 +49,7 @@ def _build_tiny_model():
 def _load_hf_model(model_id: str):
     with load_context(Qwen3VLMoeForConditionalGeneration):
         return Qwen3VLMoeForConditionalGeneration.from_pretrained(
-            model_id, torch_dtype=torch.bfloat16
+            model_id, dtype=torch.bfloat16
         )
 
 
