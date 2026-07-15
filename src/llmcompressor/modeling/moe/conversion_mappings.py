@@ -20,9 +20,10 @@ from .helpers import import_or_none
 __all__ = [
     "get_3d_packed_backwards_mappings",
     "get_linearize_load_mappings",
+    "get_moe_save_conversion_mappings",
     "has_3d_packed_save_mappings",
     "has_linearize_load_mappings",
-    "maybe_set_3d_packed_save_mappings",
+    "set_moe_save_conversion_mappings",
     "set_save_conversion_mapping",
 ]
 
@@ -168,55 +169,11 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
     ),
 }
 
-ARCH_TO_2D_MAPPINGS = {
-    "deepseek_v4": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
-        [
-            WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
-            ),
-            WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w2\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
-            ),
-            WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
-            ),
-        ],
-    ),
-    "qwen2_moe": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
-        [
-            WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.gate_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
-            ),
-            WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
-            ),
-            WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
-            ),
-        ],
-    ),
-}
+# MoE conversion tuples: (remove_targets, load_mappings, save_pack_converters).
+# - remove_targets / load_mappings: 2D linearized load path (optional).
+# - save_pack_converters: SAVE-direction pack ops; reversed for backwards save.
 
 
-# Architectures whose native checkpoint stores experts as fused 3D tensors.
-# After linearization, save-time backwards mappings repack 2D experts (and
-# qparams) into that packed layout so Transformers / vLLM can reload the
-# checkpoint. See https://github.com/vllm-project/llm-compressor/issues/2699
-#
-# Pack converters are defined in the SAVE direction (2D model -> 3D disk).
-# `get_3d_packed_backwards_mappings` stores their reverse as
-# `_weight_conversions` so `revert_weight_conversion` packs on save.
-#
-# Use `$` anchors on weight / qparam suffixes so `weight_scale` does not
-# match the `weight` pattern.
 def _qwen3_vl_moe_pack_converters() -> list[WeightConverter]:
     """2D linearized experts -> native qwen3_vl_moe 3D packed checkpoint."""
     # HF fused layout is [E, 2I, H] / [E, H, I]; disk stores the transpose of dims 1/2.
@@ -240,8 +197,6 @@ def _qwen3_vl_moe_pack_converters() -> list[WeightConverter]:
         ),
     ]
 
-    # Pack weight_* qparams the same way as weights (no transpose). Derived from
-    # QuantizationMetadata so new qparam suffixes stay covered automatically.
     weight_qparams = [
         name
         for name in QuantizationMetadata.all_qparam_names()
@@ -270,19 +225,123 @@ def _qwen3_vl_moe_pack_converters() -> list[WeightConverter]:
     return converters
 
 
-# model_type -> pack converters (SAVE direction). Remapped types resolve via
-# `_MODEL_TO_CONVERSION_PATTERN` in the helpers below.
 _QWEN3_VL_MOE_PACK = _qwen3_vl_moe_pack_converters()
-ARCH_TO_3D_PACK_CONVERTERS: dict[str, list[WeightConverter]] = {
-    "qwen3_vl_moe": _QWEN3_VL_MOE_PACK,
-    # text_config.model_type for Qwen3-VL-MoE multimodal wrappers
-    "qwen3_vl_moe_text": _QWEN3_VL_MOE_PACK,
+
+ARCH_TO_MOE_MAPPINGS: dict[
+    str,
+    tuple[
+        list[str],
+        list[WeightTransform],
+        list[WeightConverter] | None,
+    ],
+] = {
+    "deepseek_v4": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w2\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+            ),
+        ],
+        None,
+    ),
+    "qwen2_moe": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.gate_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+            ),
+        ],
+        None,
+    ),
+    # Post-load linearize only; backwards pack converters repack to 3D on save.
+    "qwen3_vl_moe": ([], [], _QWEN3_VL_MOE_PACK),
+    "qwen3_vl_moe_text": ([], [], _QWEN3_VL_MOE_PACK),
 }
 
 
+def _resolve_moe_mapping_key(model_type: str) -> str | None:
+    if model_type in ARCH_TO_MOE_MAPPINGS:
+        return model_type
+    remapped = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
+    if remapped in ARCH_TO_MOE_MAPPINGS:
+        return remapped
+    return None
+
+
+def _get_moe_mapping_entry(
+    model_type: str,
+) -> tuple[list[str], list[WeightTransform], list[WeightConverter] | None] | None:
+    key = _resolve_moe_mapping_key(model_type)
+    if key is None:
+        return None
+    return ARCH_TO_MOE_MAPPINGS[key]
+
+
+def _backwards_from_pack_converters(
+    pack_converters: list[WeightConverter],
+    model_type: str,
+) -> list[WeightTransform]:
+    backwards = [converter.reverse_transform() for converter in pack_converters]
+    logger.info(
+        f"Using 3D packed backwards mappings for '{model_type}' "
+        f"({len(backwards)} converters); save will repack linearized experts"
+    )
+    return backwards
+
+
 def has_linearize_load_mappings(model_type: str) -> bool:
-    remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_2D_MAPPINGS
+    entry = _get_moe_mapping_entry(model_type)
+    return (
+        model_type in ARCH_TO_IMPORT_PATHS
+        and entry is not None
+        and len(entry[1]) > 0
+    )
+
+
+def has_3d_packed_save_mappings(model_type: str) -> bool:
+    entry = _get_moe_mapping_entry(model_type)
+    return entry is not None and entry[2] is not None
+
+
+def get_moe_save_conversion_mappings(model_type: str) -> list[WeightTransform] | None:
+    """
+    Return backwards save mappings for ``model_type``, if registered.
+
+    When a tuple's third entry (save_pack_converters) is set, its reverse is used
+    on save so linearized 2D experts are repacked into native 3D layout.
+    """
+    entry = _get_moe_mapping_entry(model_type)
+    if entry is None:
+        return None
+
+    remove_targets, _load_mappings, pack_converters = entry
+    if pack_converters is not None:
+        return _backwards_from_pack_converters(pack_converters, model_type)
+
+    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
+    return [
+        converter
+        for converter in mapping
+        if not any(target in remove_targets for target in converter.target_patterns)
+    ]
 
 
 def get_linearize_load_mappings(
@@ -292,20 +351,24 @@ def get_linearize_load_mappings(
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
-    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
-    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
+    entry = _get_moe_mapping_entry(model_type)
+    if entry is None:
+        raise KeyError(f"No MoE conversion mappings registered for {model_type}")
 
-    # forwards has conversion mappings
-    # backwards has no mappings (stay 2d)
-    save_mappings = [
+    remove_targets, new_mappings, pack_converters = entry
+    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
+    hf_save_mappings = [
         converter
         for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    load_mappings = save_mappings + new_mappings
+    load_mappings = hf_save_mappings + new_mappings
 
-    # validate that no transforms occur during loading/saving
+    if pack_converters is not None:
+        save_mappings = _backwards_from_pack_converters(pack_converters, model_type)
+    else:
+        save_mappings = hf_save_mappings
+
     for converter in load_mappings:
         if isinstance(converter, WeightConverter):
             logger.warning(
@@ -322,41 +385,12 @@ def get_linearize_load_mappings(
     return experts_cls, load_mappings, save_mappings
 
 
-def _resolve_3d_pack_key(model_type: str) -> str | None:
-    """Return the ARCH_TO_3D_PACK_CONVERTERS key for a model_type, if any."""
-    if model_type in ARCH_TO_3D_PACK_CONVERTERS:
-        return model_type
-    remapped = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    if remapped in ARCH_TO_3D_PACK_CONVERTERS:
-        return remapped
-    return None
-
-
-def has_3d_packed_save_mappings(model_type: str) -> bool:
-    """Whether this architecture should repack linearized experts to 3D on save."""
-    return _resolve_3d_pack_key(model_type) is not None
-
-
 def get_3d_packed_backwards_mappings(model_type: str) -> list[WeightTransform]:
-    """
-    Return load-direction mappings whose reverse packs 2D linearized experts
-    into the architecture's native 3D checkpoint layout on save.
-
-    These should be assigned to ``model._weight_conversions`` (see
-    :func:`set_save_conversion_mapping`).
-    """
-    key = _resolve_3d_pack_key(model_type)
-    if key is None:
+    """Return backwards mappings that repack linearized experts to 3D on save."""
+    mappings = get_moe_save_conversion_mappings(model_type)
+    if mappings is None or not has_3d_packed_save_mappings(model_type):
         raise KeyError(f"No 3D packed save mappings registered for {model_type}")
-
-    pack_converters = ARCH_TO_3D_PACK_CONVERTERS[key]
-    # reverse_transform so revert_weight_conversion applies the pack on save
-    backwards = [converter.reverse_transform() for converter in pack_converters]
-    logger.info(
-        f"Using 3D packed backwards mappings for '{model_type}' "
-        f"({len(backwards)} converters); save will repack linearized experts"
-    )
-    return backwards
+    return mappings
 
 
 def set_save_conversion_mapping(
@@ -373,20 +407,8 @@ def set_save_conversion_mapping(
     model._weight_conversions = save_mappings
 
 
-def maybe_set_3d_packed_save_mappings(model: PreTrainedModel) -> bool:
-    """
-    If ``model.config.model_type`` (or its text config) needs 3D packed saves,
-    set ``_weight_conversions`` accordingly.
-
-    :return: True if mappings were installed
-    """
-    config = getattr(model, "config", None)
-    if config is None:
-        return False
-
+def _get_config_model_types(config) -> list[str]:
     def _get_model_type(cfg) -> str | None:
-        # HF configs (or nested text_config) can be dict-like during some
-        # load/save paths; getattr on a dict would silently miss model_type.
         if isinstance(cfg, dict):
             return cfg.get("model_type")
         return getattr(cfg, "model_type", None)
@@ -404,10 +426,22 @@ def maybe_set_3d_packed_save_mappings(model: PreTrainedModel) -> bool:
     if text_config is not None:
         candidates.append(_get_model_type(text_config))
 
-    for model_type in candidates:
-        if model_type and has_3d_packed_save_mappings(model_type):
-            set_save_conversion_mapping(
-                model, get_3d_packed_backwards_mappings(model_type)
-            )
+    return [model_type for model_type in candidates if model_type]
+
+
+def set_moe_save_conversion_mappings(model: PreTrainedModel) -> bool:
+    """
+    Install backwards save mappings from ``ARCH_TO_MOE_MAPPINGS`` on ``model``.
+
+    :return: True if mappings were installed
+    """
+    config = getattr(model, "config", None)
+    if config is None:
+        return False
+
+    for model_type in _get_config_model_types(config):
+        save_mappings = get_moe_save_conversion_mappings(model_type)
+        if save_mappings is not None and has_3d_packed_save_mappings(model_type):
+            set_save_conversion_mapping(model, save_mappings)
             return True
     return False

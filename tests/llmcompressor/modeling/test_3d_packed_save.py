@@ -10,7 +10,7 @@ from transformers.core_model_loading import revert_weight_conversion
 from llmcompressor.modeling.moe.conversion_mappings import (
     get_3d_packed_backwards_mappings,
     has_3d_packed_save_mappings,
-    maybe_set_3d_packed_save_mappings,
+    set_moe_save_conversion_mappings,
 )
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modeling.moe.linearize import linearize_moe
@@ -50,7 +50,7 @@ def test_has_3d_packed_save_mappings():
     assert not has_3d_packed_save_mappings("qwen2_moe")
 
 
-def test_maybe_set_3d_packed_save_mappings_dict_config():
+def test_set_moe_save_conversion_mappings_dict_config():
     class _Model:
         config = {
             "model_type": "qwen3_vl_moe",
@@ -58,7 +58,7 @@ def test_maybe_set_3d_packed_save_mappings_dict_config():
         }
 
     model = _Model()
-    assert maybe_set_3d_packed_save_mappings(model)
+    assert set_moe_save_conversion_mappings(model)
     assert getattr(model, "_weight_conversions", None)
     assert len(model._weight_conversions) > 0
 
@@ -141,7 +141,6 @@ def test_linearize_installs_3d_save_mappings():
 def test_save_pretrained_writes_3d_packed_experts(tmp_path: Path):
     model = _tiny_qwen3_vl_moe()
     linearize_moe(model)
-    assert maybe_set_3d_packed_save_mappings(model)
 
     out_dir = tmp_path / "qwen3_vl_moe_packed"
     model.save_pretrained(out_dir, safe_serialization=True)
