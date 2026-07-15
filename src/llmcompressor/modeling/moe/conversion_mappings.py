@@ -99,6 +99,10 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.laguna.configuration_laguna.LagunaConfig",
         "transformers.models.laguna.modeling_laguna.LagunaExperts",
     ),
+    "longcat_flash": (
+        "transformers.models.longcat_flash.configuration_longcat_flash.LongcatFlashConfig",
+        "transformers.models.longcat_flash.modeling_longcat_flash.LongcatFlashExperts",
+    ),
     "lfm2_moe": (
         "transformers.models.lfm2_moe.configuration_lfm2_moe.Lfm2MoeConfig",
         "transformers.models.lfm2_moe.modeling_lfm2_moe.Lfm2MoeExperts",

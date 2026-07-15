@@ -57,9 +57,14 @@ def _retie_embeddings(model: PreTrainedModel):
 
     input_tensors = _named_tensors(input_embed)
     output_tensors = _named_tensors(output_embed)
-    if input_tensors.keys() != output_tensors.keys() or not all(
-        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
-    ):
+    if input_tensors.keys() != output_tensors.keys():
+        return
+    try:
+        if not all(
+            torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
+        ):
+            return
+    except (NotImplementedError, RuntimeError):
         return
 
     # Share the input's storage so transformers' save-time de-duplication keeps a

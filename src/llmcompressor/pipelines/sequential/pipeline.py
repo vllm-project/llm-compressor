@@ -138,6 +138,14 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
+                if torch.cuda.is_available():
+                    alloc = torch.cuda.memory_allocated() / 1e9
+                    res = torch.cuda.memory_reserved() / 1e9
+                    total = torch.cuda.get_device_properties(0).total_memory / 1e9
+                    print(f"[GPU] subgraph {subgraph_index+1}/{num_subgraphs} START: "
+                          f"alloc={alloc:.1f}GB reserved={res:.1f}GB total={total:.1f}GB "
+                          f"free={total-alloc:.1f}GB")
+
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
@@ -156,6 +164,11 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+
+                    if torch.cuda.is_available():
+                        alloc = torch.cuda.memory_allocated() / 1e9
+                        print(f"[GPU] subgraph {subgraph_index+1}/{num_subgraphs} "
+                              f"post-calib: alloc={alloc:.1f}GB free={total-alloc:.1f}GB")
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 

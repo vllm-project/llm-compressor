@@ -169,6 +169,22 @@ def _build_jobs(
     )
 
     shard_names = [name for name in model_files if name.endswith("safetensors")]
+
+    # Reorder: process large single-tensor shards first (162+ for LongCat)
+    # to avoid OOM when GPU memory is already allocated
+    import re
+    def get_shard_num(name):
+        match = re.search(r'model-(\d+)-of-', name)
+        return int(match.group(1)) if match else 0
+
+    large_threshold = 162
+    large_shards = [s for s in shard_names if get_shard_num(s) >= large_threshold]
+    small_shards = [s for s in shard_names if get_shard_num(s) < large_threshold]
+    shard_names = large_shards + small_shards
+
+    if large_shards:
+        logger.info(f"Reordered: processing {len(large_shards)} large shards first")
+
     logger.info(
         f"Distributing {len(shard_names)} shard(s) across {len(devices)} "
         f"device(s): {', '.join(str(d) for d in devices)}"
