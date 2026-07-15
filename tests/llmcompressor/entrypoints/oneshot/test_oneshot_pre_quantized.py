@@ -1,9 +1,11 @@
 import pytest
 from loguru import logger
 
+from compressed_tensors.quantization import QuantizationConfig
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils.dev import skip_weights_initialize
+from transformers import AutoConfig
 
 SMOKE_MODEL = "nm-testing/tinysmokellama-3.2"
 CT_MODEL = "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16"
@@ -58,3 +60,43 @@ def test_oneshot_rejects_pre_quantized_smoke_model():
             model=QUANTIZED_MODEL,
             recipe=_recipe(),
         )
+
+
+@pytest.mark.smoke
+@pytest.mark.integration
+def test_oneshot_stacks(tmp_path):
+    model_id = "nm-testing/tinysmokellama-3.2"
+
+    outdir1 = tmp_path / "out1"
+    outdir2 = tmp_path / "out2"
+
+    oneshot(
+        model=model_id,
+        recipe=QuantizationModifier(
+            targets=["re:.*self_attn.(q|k|v|o)_proj*"],
+            ignore=["lm_head", "model.layers.1.mlp.down_proj"],
+            scheme="FP8_DYNAMIC",
+        ),
+        output_dir=outdir1,
+    )
+
+    oneshot(
+        model=outdir1,
+        recipe=QuantizationModifier(
+            targets=["re:.*mlp.(gate|up|down)_proj*"],
+            ignore=["lm_head"],
+            scheme="W8A8",
+        ),
+        output_dir=outdir2,
+    )
+
+    config = AutoConfig.from_pretrained(outdir2)
+    quant_config = QuantizationConfig.model_validate(config.quantization_config)
+
+    ordered_names = list(quant_config.config_groups.keys())
+    ordered_schemes = list(quant_config.config_groups.values())
+
+    assert ordered_names == ["group_0", "group_1"]
+    assert set(quant_config.ignore) == set(["lm_head"])
+    assert ordered_schemes[0].targets[0] == "re:.*self_attn.(q|k|v|o)_proj*"
+    assert ordered_schemes[1].targets[0] == "re:.*mlp.(gate|up|down)_proj*"

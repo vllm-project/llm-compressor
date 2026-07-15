@@ -141,6 +141,14 @@ def modify_save_pretrained(model: PreTrainedModel):
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
+            # Clear transformers' _weight_conversions to prevent
+            # revert_weight_conversion from running during save. The
+            # DecompressExperts op registered by the compressed-tensors HF
+            # quantizer has no reverse_op, and compressed-tensors already
+            # handles compression/decompression itself.
+            saved_conversions = getattr(model, "_weight_conversions", None)
+            model._weight_conversions = []
+
             with suspend_distributed_timeout():
                 if is_source_process():
                     # save model structure
@@ -156,6 +164,10 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_directory)
+
+            # Restore _weight_conversions so the model object remains usable
+            if saved_conversions is not None:
+                model._weight_conversions = saved_conversions
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
