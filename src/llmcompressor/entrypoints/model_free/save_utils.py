@@ -111,18 +111,19 @@ def create_or_update_quant_config(
                 "The quantization_config will be created from scratch"
             )
 
+    new_config = QuantizationConfig.model_validate(
+        {
+            "config_groups": {scheme_name: scheme},
+            "ignore": ignore,
+            "quantization_status": QuantizationStatus.COMPRESSED,
+            "format": scheme.format,
+        }
+    )
     if qconfig is None:
         # construct quantization config from scratch
-        qconfig = QuantizationConfig.model_validate(
-            {
-                "config_groups": {"config_group_0": scheme},
-                "ignore": ignore,
-                "quantization_status": QuantizationStatus.COMPRESSED,
-                "format": scheme.format,
-            }
-        )
+        qconfig = new_config
     else:
-        qconfig.add_scheme(scheme)
-        qconfig.quantization_status = QuantizationStatus.COMPRESSED
+        # merge into pre-exisintg quant config
+        qconfig.merge(new_config)
 
     return qconfig
