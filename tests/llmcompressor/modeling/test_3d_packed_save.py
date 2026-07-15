@@ -50,6 +50,19 @@ def test_has_3d_packed_save_mappings():
     assert not has_3d_packed_save_mappings("qwen2_moe")
 
 
+def test_maybe_set_3d_packed_save_mappings_dict_config():
+    class _Model:
+        config = {
+            "model_type": "qwen3_vl_moe",
+            "text_config": {"model_type": "qwen3_vl_moe_text"},
+        }
+
+    model = _Model()
+    assert maybe_set_3d_packed_save_mappings(model)
+    assert getattr(model, "_weight_conversions", None)
+    assert len(model._weight_conversions) > 0
+
+
 def test_revert_packs_linearized_weights_and_scales():
     num_experts, moe_intermediate, hidden = 4, 8, 16
     backwards = get_3d_packed_backwards_mappings("qwen3_vl_moe")

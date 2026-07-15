@@ -381,14 +381,25 @@ def maybe_set_3d_packed_save_mappings(model: PreTrainedModel) -> bool:
     if config is None:
         return False
 
-    candidates = [getattr(config, "model_type", None)]
+    def _get_model_type(cfg) -> str | None:
+        # HF configs (or nested text_config) can be dict-like during some
+        # load/save paths; getattr on a dict would silently miss model_type.
+        if isinstance(cfg, dict):
+            return cfg.get("model_type")
+        return getattr(cfg, "model_type", None)
+
+    candidates = [_get_model_type(config)]
     text_config = getattr(config, "text_config", None)
+    if text_config is None and isinstance(config, dict):
+        text_config = config.get("text_config")
+
     if text_config is None:
         get_text_config = getattr(config, "get_text_config", None)
         if callable(get_text_config):
             text_config = get_text_config()
+
     if text_config is not None:
-        candidates.append(getattr(text_config, "model_type", None))
+        candidates.append(_get_model_type(text_config))
 
     for model_type in candidates:
         if model_type and has_3d_packed_save_mappings(model_type):
