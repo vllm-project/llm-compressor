@@ -58,9 +58,9 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
 ###### DATASET #####
 os.environ["AR_DISABLE_DATASET_SUBPROCESS"] = "1"
-from auto_round.calib_dataset import get_dataset
+from auto_round.calib_dataset import get_dataset  # noqa: E402
 
-from llmcompressor.modifiers.autoround import AutoRoundModifier
+from llmcompressor.modifiers.autoround import AutoRoundModifier  # noqa: E402
 
 ds = get_dataset(tokenizer=tokenizer, seqlen=2048, nsamples=NSAMPLES)
 

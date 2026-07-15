@@ -323,7 +323,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             needs_multi_gpu = (
                 self.device_ids is not None
                 or get_local_gpu_group_size() > 1
-                or torch.cuda.device_count() > 1
+                or torch.accelerator.device_count() > 1
             )
             if needs_multi_gpu:
                 # Let AutoRound own placement within the rank-local GPU group.
