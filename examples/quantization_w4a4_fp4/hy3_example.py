@@ -22,7 +22,7 @@ with load_context():
         MODEL_ID,
         device_map="auto_offload",
         max_memory={},
-        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder",
+        offload_folder="offload_folder",
     )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -92,8 +92,7 @@ oneshot(
 )
 
 # Save to disk compressed.
-# SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
-SAVE_DIR = "/mnt/nvme-data/engine/kylesayrs/Hy3-NVFP4-FP8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 
