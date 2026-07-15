@@ -38,28 +38,22 @@ if os.path.exists(SAVE_DIR):
 model = AutoModelForCausalLM.from_pretrained(args.model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(args.model_id)
 
-if args.asymmetric:
-    num_bits = int(args.scheme.split("A")[0].replace("W", ""))
-    recipe = QuantizationModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(
-                    num_bits=num_bits,
-                    type=QuantizationType.INT,
-                    strategy=QuantizationStrategy.CHANNEL,
-                    symmetric=False,
-                ),
-            )
-        },
-        ignore=["lm_head"],
-    )
-else:
-    recipe = QuantizationModifier(
-        targets=["Linear"],
-        scheme=args.scheme,
-        ignore=["lm_head"],
-    )
+num_bits = int(args.scheme.split("A")[0].replace("W", ""))
+recipe = QuantizationModifier(
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(
+                num_bits=num_bits,
+                type=QuantizationType.INT,
+                strategy=QuantizationStrategy.GROUP,
+                group_size=128,
+                symmetric=not args.asymmetric,
+            ),
+        )
+    },
+    ignore=["lm_head"],
+)
 
 oneshot(model=model, recipe=recipe)
 

@@ -51,7 +51,8 @@ recipe = QuantizationModifier(
             weights=QuantizationArgs(
                 num_bits=args.weight_bits,
                 type=QuantizationType.INT,
-                strategy=QuantizationStrategy.CHANNEL,
+                strategy=QuantizationStrategy.GROUP,
+                group_size=128,
                 symmetric=not args.asymmetric,
             ),
             input_activations=QuantizationArgs(

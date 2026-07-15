@@ -34,10 +34,15 @@ if [ $# -eq 0 ]; then
         "${MODEL_BASE}-W7A16asym-RTN" \
         "${MODEL_BASE}-W2A4-RTN"  \
         "${MODEL_BASE}-W3A4-RTN"  \
+        "${MODEL_BASE}-W2A8-RTN"  \
+        "${MODEL_BASE}-W3A8-RTN"  \
         "${MODEL_BASE}-W5A8-RTN"  \
         "${MODEL_BASE}-W6A8-RTN"  \
         "${MODEL_BASE}-W7A8-RTN"  \
+        "${MODEL_BASE}-W2A4asym-RTN"  \
         "${MODEL_BASE}-W3A4asym-RTN"  \
+        "${MODEL_BASE}-W2A8asym-RTN"  \
+        "${MODEL_BASE}-W3A8asym-RTN"  \
         "${MODEL_BASE}-W5A8asym-RTN"  \
         "${MODEL_BASE}-W6A8asym-RTN"  \
         "${MODEL_BASE}-W7A8asym-RTN" \
