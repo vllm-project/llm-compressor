@@ -1,4 +1,5 @@
 import torch
+from compressed_tensors.quantization import QuantizationMetadata
 from loguru import logger
 from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
@@ -219,7 +220,7 @@ ARCH_TO_2D_MAPPINGS = {
 def _qwen3_vl_moe_pack_converters() -> list[WeightConverter]:
     """2D linearized experts -> native qwen3_vl_moe 3D packed checkpoint."""
     # HF fused layout is [E, 2I, H] / [E, H, I]; disk stores the transpose of dims 1/2.
-    return [
+    converters = [
         WeightConverter(
             source_patterns=[
                 "mlp.experts.*.gate_proj.weight$",
@@ -237,34 +238,36 @@ def _qwen3_vl_moe_pack_converters() -> list[WeightConverter]:
             target_patterns="mlp.experts.down_proj",
             operations=[MergeModulelist(dim=0), Transpose(1, 2, check_dims=False)],
         ),
-        # Channel / group scales: stack experts then concat gate+up along last dim.
-        WeightConverter(
-            source_patterns=[
-                "mlp.experts.*.gate_proj.weight_scale$",
-                "mlp.experts.*.up_proj.weight_scale$",
-            ],
-            target_patterns="mlp.experts.gate_up_proj_scale",
-            operations=[MergeModulelist(dim=0), Concatenate(dim=-1)],
-        ),
-        WeightConverter(
-            source_patterns="mlp.experts.*.down_proj.weight_scale$",
-            target_patterns="mlp.experts.down_proj_scale",
-            operations=[MergeModulelist(dim=0)],
-        ),
-        WeightConverter(
-            source_patterns=[
-                "mlp.experts.*.gate_proj.weight_zero_point$",
-                "mlp.experts.*.up_proj.weight_zero_point$",
-            ],
-            target_patterns="mlp.experts.gate_up_proj_zero_point",
-            operations=[MergeModulelist(dim=0), Concatenate(dim=-1)],
-        ),
-        WeightConverter(
-            source_patterns="mlp.experts.*.down_proj.weight_zero_point$",
-            target_patterns="mlp.experts.down_proj_zero_point",
-            operations=[MergeModulelist(dim=0)],
-        ),
     ]
+
+    # Pack weight_* qparams the same way as weights (no transpose). Derived from
+    # QuantizationMetadata so new qparam suffixes stay covered automatically.
+    weight_qparams = [
+        name
+        for name in QuantizationMetadata.all_qparam_names()
+        if name.startswith("weight_")
+    ]
+    for qparam in weight_qparams:
+        suffix = qparam.removeprefix("weight_")
+        converters.append(
+            WeightConverter(
+                source_patterns=[
+                    f"mlp.experts.*.gate_proj.{qparam}$",
+                    f"mlp.experts.*.up_proj.{qparam}$",
+                ],
+                target_patterns=f"mlp.experts.gate_up_proj_{suffix}",
+                operations=[MergeModulelist(dim=0), Concatenate(dim=-1)],
+            )
+        )
+        converters.append(
+            WeightConverter(
+                source_patterns=f"mlp.experts.*.down_proj.{qparam}$",
+                target_patterns=f"mlp.experts.down_proj_{suffix}",
+                operations=[MergeModulelist(dim=0)],
+            )
+        )
+
+    return converters
 
 
 # model_type -> pack converters (SAVE direction). Remapped types resolve via
