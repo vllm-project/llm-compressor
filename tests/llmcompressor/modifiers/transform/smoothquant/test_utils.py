@@ -221,3 +221,56 @@ def test_get_layer_mappings_from_model_falls_back_to_static_and_default():
 
     assert get_layer_mappings_from_model(arch1) == "mapping1"
     assert get_layer_mappings_from_model(arch3) == "default_mapping"
+
+
+@pytest.mark.unit
+def test_granite_for_causal_lm_in_registry():
+    """Sanity: GraniteForCausalLM is wired to the standard default mapping."""
+    assert "GraniteForCausalLM" in MAPPINGS_REGISTRY
+    assert (
+        get_layer_mappings_from_architecture("GraniteForCausalLM")
+        is DEFAULT_SMOOTHQUANT_MAPPINGS
+    )
+
+
+@pytest.mark.unit
+def test_granite_default_mapping_regex_matches_real_module_tree():
+    """Construct GraniteForCausalLM on the meta device with a tiny config
+    and assert DEFAULT_SMOOTHQUANT_MAPPINGS' regex matches expected
+    attention + MLP modules per layer. No HF Hub downloads, no weight
+    allocation. Validates the registry entry added in this PR.
+    """
+    import re
+
+    import torch
+    from transformers import GraniteConfig, GraniteForCausalLM
+
+    config = GraniteConfig(
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        vocab_size=100,
+    )
+    with torch.device("meta"):
+        model = GraniteForCausalLM(config)
+
+    module_names = [name for name, _ in model.named_modules()]
+
+    for layer_map in DEFAULT_SMOOTHQUANT_MAPPINGS:
+        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
+        smooth_re = re.compile(smooth_pat)
+        smooth_hits = [n for n in module_names if smooth_re.search(n)]
+        assert smooth_hits, (
+            f"GraniteForCausalLM: smooth pattern {smooth_pat!r} matched no "
+            f"modules; sample names: {module_names[:20]}"
+        )
+        for balance_pat_raw in layer_map.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_re = re.compile(balance_pat)
+            balance_hits = [n for n in module_names if balance_re.search(n)]
+            assert balance_hits, (
+                f"GraniteForCausalLM: balance pattern {balance_pat!r} matched "
+                f"no modules; sample names: {module_names[:20]}"
+            )
