@@ -1,8 +1,6 @@
 import re
 
-from compressed_tensors.entrypoints.convert import Converter, build_inverse_weight_maps
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
-from compressed_tensors.utils.safetensors_load import InverseWeightMap
 
 from llmcompressor.entrypoints.model_free.helpers import (
     MatchedNamesSet,
@@ -10,7 +8,6 @@ from llmcompressor.entrypoints.model_free.helpers import (
 )
 
 __all__ = [
-    "build_microscale_inverse_weight_maps",
     "is_microscale_scheme",
     "get_fused_names",
     "DEFAULT_FUSED_MAPPINGS",
@@ -77,49 +74,3 @@ def get_fused_names(
         if _unmatched is not None:
             unmatched.append(_unmatched)
     return matched, unmatched
-
-
-def build_microscale_inverse_weight_maps(
-    weight_map: dict[str, str],
-    model_files: dict[str, str],
-    converters: list[Converter],
-) -> dict[str, InverseWeightMap]:
-    """
-    This function replicates the logic of
-    `compressed_tensors.entrypoints.convert.build_inverse_weight_maps` including the
-    case of microscale partner shards, as defined in DEFAULT_FUSED_MAPPINGS
-
-    For a given output shard, precompute exactly which tensors to load from
-    which source files — including required partner tensors from other shards.
-
-    This is necessary because some converters require that a set of tensors are
-    accessible in order for them to be processed correctly.
-
-    :param shard_name: the shard filename this job will process and save
-    :param weight_map: tensor name -> shard filename (from safetensors.index.json)
-    :param model_files: shard filename -> resolved absolute path
-    :return: {resolved_file_path: [tensor_names_to_load]}
-    """
-
-    # TODO move to top level, fulfill rest of Protocol contract
-    #  - ideally remove the need for separate process_file and process_microscale_file
-    #    functions
-    #  - remove build_microscale_inverse_weight_maps entirely, replace with
-    #    `compressed_tensors.entrypoints.convert.build_inverse_weight_maps`
-    class MicroscaleConverter:
-        def get_dependencies(self, weight_name: str) -> set[str]:
-            deps = set()
-            for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
-                match = re.match(primary_pattern, weight_name)
-                if match is None:
-                    continue
-
-                # Build partner names using named groups from the match
-                for partner_template in partner_templates:
-                    partner_name = partner_template.format(**match.groupdict())
-
-                    deps.add(partner_name)
-            return deps
-
-    converters.append(MicroscaleConverter())
-    return build_inverse_weight_maps(weight_map, model_files, converters)
