@@ -383,7 +383,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             else:
                 if torch.accelerator.is_available():
                     device_index = torch.accelerator.current_device_index()
-                    ar_kwargs["device_map"] = f"{torch.accelerator.current_accelerator().type}:{device_index}"
+                    ar_kwargs["device_map"] = (
+                        f"{torch.accelerator.current_accelerator().type}:{device_index}"
+                    )
                 else:
                     ar_kwargs["device_map"] = "cpu"
 
