@@ -381,12 +381,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     str(start_gpu + i) for i in range(gpus_per_group)
                 )
             else:
-                device_index = torch.accelerator.current_device_index()
-                ar_kwargs["device_map"] = (
-                    f"{torch.accelerator.current_accelerator().type}:{device_index}"
-                    if torch.accelerator.is_available()
-                    else "cpu"
-                )
+                if torch.accelerator.is_available():
+                    device_index = torch.accelerator.current_device_index()
+                    ar_kwargs["device_map"] = f"{torch.accelerator.current_accelerator().type}:{device_index}"
+                else:
+                    ar_kwargs["device_map"] = "cpu"
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
