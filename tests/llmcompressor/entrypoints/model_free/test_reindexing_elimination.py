@@ -40,7 +40,7 @@ def _rand_weight(*shape):
 
 
 class TestBuildInverseWeightMaps:
-    def test_single_file(self, tmp_path):
+    def test_single_file(self, tmp_path, mfptq):
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
             "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
@@ -53,7 +53,7 @@ class TestBuildInverseWeightMaps:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [ModelFreePtqConverter(scheme=_make_nvfp4_scheme(), ignore=[])]
+            weight_map, model_files, [mfptq]
         )
         # result is {shard_name: {file_path: [tensor_names]}}, check tensor exists
         inverse_weight_maps["shard-00001.safetensors"][
@@ -72,7 +72,7 @@ class TestBuildInverseWeightMaps:
             }
         }
 
-    def test_missing_dependency(self, tmp_path):
+    def test_missing_dependency(self, tmp_path, mfptq):
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
             "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
@@ -82,9 +82,9 @@ class TestBuildInverseWeightMaps:
         }
         with pytest.raises(ValueError):
             _ = build_inverse_weight_maps(weight_map, model_files,
-                [ModelFreePtqConverter(scheme=_make_nvfp4_scheme(), ignore=[])])
+                [mfptq])
 
-    def test_invalid_weight_map(self, tmp_path):
+    def test_invalid_weight_map(self, tmp_path, mfptq):
         weight_map = {
             "tensor.a": "shard-00001.safetensors",
             "tensor.b": "shard-00002.safetensors",
@@ -94,9 +94,9 @@ class TestBuildInverseWeightMaps:
         }
         with pytest.raises(KeyError):
             _ = build_inverse_weight_maps(weight_map, model_files,
-                [ModelFreePtqConverter(scheme=_make_nvfp4_scheme(), ignore=[])])
+                [mfptq])
 
-    def test_all_colocated(self, tmp_path):
+    def test_all_colocated(self, tmp_path, mfptq):
         """All fused weights in same shard — no cross-shard fetching needed."""
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
@@ -111,7 +111,7 @@ class TestBuildInverseWeightMaps:
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [ModelFreePtqConverter(scheme=_make_nvfp4_scheme(), ignore=[])]
+            weight_map, model_files, [mfptq]
         )
         assert set(
             inverse_weight_maps["shard-00001.safetensors"][
@@ -132,7 +132,7 @@ class TestBuildInverseWeightMaps:
             "model.layers.1.self_attn.v_proj.weight",
         }
 
-    def test_cross_shard_partners_found(self, tmp_path):
+    def test_cross_shard_partners_found(self, tmp_path, mfptq):
         """q_proj on shard1, k/v on shard2 — shard1 should fetch from shard2."""
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
@@ -147,7 +147,7 @@ class TestBuildInverseWeightMaps:
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [ModelFreePtqConverter(scheme=_make_nvfp4_scheme(), ignore=[])]
+            weight_map, model_files, [mfptq]
         )
         assert set(
             inverse_weight_maps["shard-00001.safetensors"][
@@ -217,7 +217,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
     """Tests for cross-shard fused weights using precomputed inverse_weight_map."""
 
     @pytest.fixture
-    def split_shards(self, tmp_path):
+    def split_shards(self, tmp_path, mfptq):
         """q_proj on shard-1, k_proj + v_proj + down_proj on shard-2."""
         shard1_tensors = {
             "model.layers.0.self_attn.q_proj.weight": _rand_weight(32, 32),
@@ -244,7 +244,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         }
         # Precompute inverse_weight_map for each shard
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [ModelFreePtqConverter(scheme=_make_nvfp4_scheme(), ignore=[])]
+            weight_map, model_files, [mfptq]
         )
         return (
             shard1_path,
