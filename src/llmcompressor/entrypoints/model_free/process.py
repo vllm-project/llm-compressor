@@ -22,9 +22,9 @@ from llmcompressor.entrypoints.model_free.lifecycle import (
     validate_weight_for_quantization,
 )
 from llmcompressor.entrypoints.model_free.microscale import (
+    DEFAULT_FUSED_MAPPINGS,
     get_fused_names,
     is_microscale_scheme,
-    DEFAULT_FUSED_MAPPINGS,
 )
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
@@ -40,8 +40,14 @@ __all__ = [
     "split_fused_moe_experts",
 ]
 
-class ModelFreePtqConverter():
-    def __init__(self, scheme, ignore, converter=None):
+
+class ModelFreePtqConverter:
+    def __init__(
+        self,
+        scheme: QuantizationScheme,
+        ignore: Iterable[str],
+        converter: Converter | None = None,
+    ):
         self.scheme = scheme
         self.ignore = ignore
         self.converter = converter
@@ -55,18 +61,30 @@ class ModelFreePtqConverter():
 
     def create_config(self):
         return None
-    
-    def validate_file(self, inverse_weight_map, save_path, device):
+
+    def validate_file(
+        self,
+        inverse_weight_map: InverseWeightMap,
+        save_path: str | os.PathLike,
+        device: str | torch.device,
+    ):
         device = torch.device("meta")
         tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
         if self.converter is not None:
             self.converter.validate(tensors)
 
-        for _, name in match_quantizable_tensors(tensors, self.ignore, self.scheme.targets):
+        for _, name in match_quantizable_tensors(
+            tensors, self.ignore, self.scheme.targets
+        ):
             validate_weight_for_quantization(tensors[name], self.scheme, name)
 
-    def process_file(self, inverse_weight_map, save_path, device) -> tuple[int, dict[str, str]]:
+    def process_file(
+        self,
+        inverse_weight_map: InverseWeightMap,
+        save_path: str | os.PathLike,
+        device: str | torch.device,
+    ) -> tuple[int, dict[str, str]]:
         tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
         tensors = split_fused_moe_experts(tensors)
 
@@ -84,18 +102,20 @@ class ModelFreePtqConverter():
             }
             fused_modules: dict[int, dict[str, Module]] = defaultdict(dict)
 
-        # Per-tensor loop                
-        for module_name, name in match_quantizable_tensors(tensors, self.ignore, self.scheme.targets):
+        # Per-tensor loop
+        for module_name, name in match_quantizable_tensors(
+            tensors, self.ignore, self.scheme.targets
+        ):
             validate_weight_for_quantization(tensors[name], self.scheme, name)
             module = initialize_quantized_linear(tensors[name], self.scheme, device)
-    
+
             # Defer fused tensors for processing down the line
             if self.is_microscale and name in fused_name_to_fused_index:
                 fused_index = fused_name_to_fused_index[name]
                 fused_modules[fused_index][name] = module
                 initialize_observer(module, "weight")
                 apply_calibration_status(module)
-                
+
                 continue
 
             # Standard path
@@ -103,10 +123,10 @@ class ModelFreePtqConverter():
             compress_module(module)
 
             del tensors[name]
-            prefix = module_name + '.'
+            prefix = module_name + "."
             for key, value in module.state_dict(prefix=prefix).items():
                 tensors[key] = value.to("cpu")
-        
+
         # Only for microscale compressed fused models with a shared global state
         if self.is_microscale:
             for named_modules in fused_modules.values():
@@ -126,15 +146,14 @@ class ModelFreePtqConverter():
                     for key, value in module.state_dict(prefix=prefix).items():
                         tensors[key] = value.to("cpu")
 
-        # Save ALL tensors to this shard's output — including partner tensors fetched
+        # Save ALL tensors to this shard's output including partner tensors fetched
         # from other shards. Partners are re-saved here so future runs don't need to
-        # re-fetch them. The caller updates the safetensors index to reflect new locations.
+        # re-fetch them. The caller updates the safetensors index accordingly.
         os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
         save_file(tensors, save_path)
         total_size = sum(t.nbytes for t in tensors.values())
         weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
         return total_size, weight_map
-        
 
     def get_dependencies(self, weight_name: str) -> set[str]:
         deps = set()
