@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from typing import Iterable
 
@@ -23,6 +24,7 @@ from llmcompressor.entrypoints.model_free.lifecycle import (
 from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     is_microscale_scheme,
+    DEFAULT_FUSED_MAPPINGS,
 )
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
@@ -34,206 +36,120 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.observers import FusionHandler
 
 __all__ = [
-    "validate_file",
-    "process_file",
-    "process_file_microscale_scheme",
+    "ModelFreePtqConverter",
+    "split_fused_moe_experts",
 ]
 
+class ModelFreePtqConverter():
+    def __init__(self, scheme, ignore, converter=None):
+        self.scheme = scheme
+        self.ignore = ignore
+        self.converter = converter
+        self.is_microscale = is_microscale_scheme(scheme)
 
-def validate_file(
-    inverse_weight_map: InverseWeightMap,
-    save_path: str | os.PathLike,
-    scheme: QuantizationScheme,
-    ignore: Iterable[str],
-    device: str | torch.device,
-    converter: Converter | None = None,
-):
-    """
-    Validate that each quantizable tensor in a safetensors file can be quantized.
+    def process(self, tensors):
+        return tensors
 
-    :param inverse_weight_map: mapping of source file path -> tensor names to validate
-    :param save_path: save path of file with quantized weights
-    :param scheme: quantization scheme to apply to tensors
-    :param ignore: modules to ignore. Modules ending with "norm" are automatically
-        ignored
-    :param device: device used to quantize and compress weights
-    :param converter: optional converter to apply to the checkpoint,
-        e.g. conversion of some layers from some format to compressed-tensors
-    """
-    # device is ignored: all validation is done on meta device
-    device = torch.device("meta")
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+    def validate(self, tensors):
+        pass
 
-    if converter is not None:
-        converter.validate(tensors)
+    def create_config(self):
+        return None
+    
+    def validate_file(self, inverse_weight_map, save_path, device):
+        device = torch.device("meta")
+        tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
-    for _, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
-        validate_weight_for_quantization(tensors[name], scheme, name)
+        if self.converter is not None:
+            self.converter.validate(tensors)
 
+        for _, name in match_quantizable_tensors(tensors, self.ignore, self.scheme.targets):
+            validate_weight_for_quantization(tensors[name], self.scheme, name)
 
-def process_file(
-    inverse_weight_map: InverseWeightMap,
-    save_path: str | os.PathLike,
-    scheme: QuantizationScheme,
-    ignore: Iterable[str],
-    device: str | torch.device,
-    converter: Converter | None = None,
-) -> tuple[int, dict[str, str]]:
-    """
-    Quantize and compress tensors in a given safetensors file.
+    def process_file(self, inverse_weight_map, save_path, device) -> tuple[int, dict[str, str]]:
+        tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+        tensors = split_fused_moe_experts(tensors)
 
-    :param inverse_weight_map: mapping of source file path -> tensor names.
-        For standard mode: {{resolved_path: None}} means load all tensors to process
-    :param save_path: save path of file with quantized weights
-    :param scheme: quantization scheme to apply to tensors
-    :param ignore: modules to ignore. Modules ending with "norm" are automatically
-        ignored
-    :param device: device used to quantize and compress weights
-    :param converter: optional converter to apply to the checkpoint,
-        e.g. conversion of some layers from some format to compressed-tensors
-    """
-    assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
+        if self.converter is not None:
+            tensors = self.converter.process(tensors)
 
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+        # Microscale only... fused lookup
+        if self.is_microscale:
+            fused_sets, _ = get_fused_names(list(tensors.keys()))
+            fused_name_to_fused_index: dict[str, int] = {
+                name: index
+                for index, matched_set in enumerate(fused_sets)
+                for name in matched_set.values()
+                if name is not None
+            }
+            fused_modules: dict[int, dict[str, Module]] = defaultdict(dict)
 
-    tensors = split_fused_moe_experts(tensors)
+        # Per-tensor loop                
+        for module_name, name in match_quantizable_tensors(tensors, self.ignore, self.scheme.targets):
+            validate_weight_for_quantization(tensors[name], self.scheme, name)
+            module = initialize_quantized_linear(tensors[name], self.scheme, device)
+    
+            # Defer fused tensors for processing down the line
+            if self.is_microscale and name in fused_name_to_fused_index:
+                fused_index = fused_name_to_fused_index[name]
+                fused_modules[fused_index][name] = module
+                initialize_observer(module, "weight")
+                apply_calibration_status(module)
+                
+                continue
 
-    if converter is not None:
-        tensors = converter.process(tensors)
-
-    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
-        validate_weight_for_quantization(tensors[name], scheme, name)
-
-        # 1. initialize module with qparams (on device)
-        module = initialize_quantized_linear(tensors[name], scheme, device)
-
-        # 2. calibrate weight qparams
-        calibrate_weight(module)
-
-        # 3. compress module using qparams
-        compress_module(module)
-
-        # 4. save compressed data (on cpu)
-        del tensors[name]
-        prefix = module_name + "."
-        for key, value in module.state_dict(prefix=prefix).items():
-            tensors[key] = value.to("cpu")
-
-    save_file(tensors, save_path)
-    total_size = sum(tensor.nbytes for tensor in tensors.values())
-    weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
-    return total_size, weight_map
-
-
-def process_file_microscale_scheme(
-    inverse_weight_map: InverseWeightMap,
-    save_path: str | os.PathLike,
-    scheme: QuantizationScheme,
-    ignore: Iterable[str],
-    device: str | torch.device,
-    converter: Converter | None = None,
-) -> tuple[int, dict[str, str]]:
-    """
-    Quantize and compress tensors for a single output shard using a microscale
-    scheme (NVFP4, MXFP4).
-
-    Accepts a precomputed inverse_weight_map that specifies exactly which tensors
-    to load from which source files — including any fused partner tensors from
-    other shards needed for global scale computation. This avoids runtime
-    discovery of fused partners and redundant tensor reads.
-
-    Partner tensors fetched from other shards are re-saved into this shard's
-    output. The caller updates the safetensors index to reflect new locations.
-
-    :param inverse_weight_map: mapping of resolved source file path ->
-        list of tensor names to load from that file.
-        Example: {"/path/shard0.safetensors": ["q_proj.weight"],
-                  "/path/shard1.safetensors": ["k_proj.weight", "v_proj.weight"]}
-    :param save_path: output path for this shard's compressed weights
-    :param scheme: microscale quantization scheme (NVFP4, MXFP4)
-    :param ignore: modules to ignore. Modules ending with "norm" are automatically
-        ignored
-    :param device: device used to quantize and compress weights
-    :param converter: optional converter to apply to the checkpoint,
-        e.g. conversion of some layers from some format to compressed-tensors
-    """
-    assert is_microscale_scheme(scheme), "Use `process_file` for non-microscale scheme"
-
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
-
-    tensors = split_fused_moe_experts(tensors)
-
-    if converter is not None:
-        tensors = converter.process(tensors)
-
-    # Get fused sets. Non-primary shards may have incomplete sets (k/v without q)
-    # since only the primary-owning shard fetches partners — this is correct.
-    fused_sets, _ = get_fused_names(list(tensors.keys()))
-
-    fused_name_to_fused_index: dict[str, int] = {
-        name: index
-        for index, matched_set in enumerate(fused_sets)
-        for name in matched_set.values()
-        if name is not None
-    }
-    fused_modules: dict[int, dict[str, Module]] = defaultdict(dict)
-
-    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
-        validate_weight_for_quantization(tensors[name], scheme, name)
-
-        # 1. initialize module with qparams (on device)
-        module = initialize_quantized_linear(tensors[name], scheme, device)
-
-        # gather fused modules for later processing
-        if name in fused_name_to_fused_index:
-            fused_index = fused_name_to_fused_index[name]
-            fused_modules[fused_index][name] = module
-            initialize_observer(module, "weight")
-            apply_calibration_status(module)
-            continue
-
-        # 2. get module qparams
-        calibrate_weight(module)
-
-        # 3. compress module using qparams
-        compress_module(module)
-
-        # 4. save compressed data (on cpu)
-        del tensors[name]
-        prefix = module_name + "."
-        for key, value in module.state_dict(prefix=prefix).items():
-            tensors[key] = value.to("cpu")
-
-    # Compress fused modules with shared global scale
-    for named_modules in fused_modules.values():
-        # 2. fuse observers, observe weights, and get qparams
-        FusionHandler.fuse(
-            [(mod.weight_observer, mod) for mod in named_modules.values()]
-        )
-        observe(named_modules.values(), base_name="weight")
-        update_qparams(named_modules.values(), base_name="weight")
-
-        for name, module in named_modules.items():
-            freeze_module_quantization(module)
-
-            # 3. compress module using microscale qparams
+            # Standard path
+            calibrate_weight(module)
             compress_module(module)
 
-            # 4. save compressed data (on cpu)
             del tensors[name]
-            module_name, _ = name.rsplit(".", 1)
-            prefix = module_name + "."
+            prefix = module_name + '.'
             for key, value in module.state_dict(prefix=prefix).items():
                 tensors[key] = value.to("cpu")
+        
+        # Only for microscale compressed fused models with a shared global state
+        if self.is_microscale:
+            for named_modules in fused_modules.values():
+                FusionHandler.fuse(
+                    [(mod.weight_observer, mod) for mod in named_modules.values()]
+                )
+                observe(named_modules.values(), base_name="weight")
+                update_qparams(named_modules.values(), base_name="weight")
 
-    # Save ALL tensors to this shard's output — including partner tensors fetched
-    # from other shards. Partners are re-saved here so future runs don't need to
-    # re-fetch them. The caller updates the safetensors index to reflect new locations.
-    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-    save_file(tensors, save_path)
-    total_size = sum(t.nbytes for t in tensors.values())
-    weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
-    return total_size, weight_map
+                for name, module in named_modules.items():
+                    freeze_module_quantization(module)
+                    compress_module(module)
+
+                    del tensors[name]
+                    module_name, _ = name.rsplit(".", 1)
+                    prefix = module_name + "."
+                    for key, value in module.state_dict(prefix=prefix).items():
+                        tensors[key] = value.to("cpu")
+
+        # Save ALL tensors to this shard's output — including partner tensors fetched
+        # from other shards. Partners are re-saved here so future runs don't need to
+        # re-fetch them. The caller updates the safetensors index to reflect new locations.
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        save_file(tensors, save_path)
+        total_size = sum(t.nbytes for t in tensors.values())
+        weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
+        return total_size, weight_map
+        
+
+    def get_dependencies(self, weight_name: str) -> set[str]:
+        deps = set()
+        if self.is_microscale:
+            for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
+                match = re.match(primary_pattern, weight_name)
+                if match is None:
+                    continue
+
+                # Build partner names using named groups from the match
+                for partner_template in partner_templates:
+                    partner_name = partner_template.format(**match.groupdict())
+
+                    deps.add(partner_name)
+        return deps
 
 
 def split_fused_moe_experts(
