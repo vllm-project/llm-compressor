@@ -312,18 +312,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             first_param = next(decoding_layer.parameters())
             device = first_param.device
             cur_inputs = self._all_module_input[decoding_layer._tmp_name]
-            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
             self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
-            # Enable auto_offload when device_ids is explicitly set OR when
-            # LLMCOMPRESSOR_GPUS_PER_GROUP > 1 (set by launch_multi_gpu.sh).
-            # This lets AutoRound load-balance the block's submodules
-            # across multiple GPUs within the rank.
+            # Only hand device placement to AutoRound when the caller explicitly
+            # requested it or when a rank is configured to use a local GPU group.
             auto_offload = False
             needs_multi_gpu = (
-                self.device_ids is not None
-                or get_local_gpu_group_size() > 1
-                or torch.accelerator.device_count() > 1
+                self.device_ids is not None or get_local_gpu_group_size() > 1
             )
             if needs_multi_gpu:
                 # Let AutoRound own placement within the rank-local GPU group.
@@ -334,6 +329,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # Ensure cached inputs are on the same device as the block.
             # Calibration forward may have run on a different GPU.
             cur_inputs = self._move_inputs_to(cur_inputs, device)
+            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
@@ -385,11 +381,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     str(start_gpu + i) for i in range(gpus_per_group)
                 )
             else:
-                ar_kwargs["device_map"] = (
-                    f"{torch.accelerator.current_accelerator().type}:0"
-                    if torch.accelerator.is_available()
-                    else "cpu"
-                )
+                if torch.accelerator.is_available():
+                    device_index = torch.accelerator.current_device_index()
+                    ar_kwargs["device_map"] = (
+                        f"{torch.accelerator.current_accelerator().type}:{device_index}"
+                    )
+                else:
+                    ar_kwargs["device_map"] = "cpu"
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
