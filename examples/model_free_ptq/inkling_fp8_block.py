@@ -29,7 +29,7 @@
 # )
 
 
-from transformers import InklingForConditionalGeneration, AutoProcessor
+from transformers import AutoProcessor, InklingForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -63,8 +63,6 @@ recipe = QuantizationModifier(
         "re:.*gate.*",
         "re:.*global_scale$",
         "re:.*shared_experts.*",
-        # "re:model\\.llm\\.layers\\.[01]\\.mlp\\..*",
-        # "re:model\\.llm\\.layers\\.2\\.mlp\\.experts\\..*",
         "re:.*visual.*",
         "re:.*audio.*",
     ],
