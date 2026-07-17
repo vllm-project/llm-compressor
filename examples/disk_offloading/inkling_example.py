@@ -1,36 +1,9 @@
-# from compressed_tensors.entrypoints.convert import (
-#     ModelOptNvfp4Converter,
-# )
-# from compressed_tensors.quantization import (
-#     QuantizationScheme,
-# )
-# from compressed_tensors.quantization.quant_scheme import FP8_BLOCK
-
-# from llmcompressor import model_free_ptq
-
-# MODEL_ID = "thinkingmachines/Inkling"
-# SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
-
-# # Convert modelopt NVFP4 format to compressed-tensors format and
-# # apply FP8-Block to the model's compatible self_attn Linear layers
-# # Once quantized, the model is saved to SAVE_DIR.
-# model_free_ptq(
-#     model_stub=MODEL_ID,
-#     save_directory=SAVE_DIR,
-#     scheme=QuantizationScheme(
-#         **FP8_BLOCK,
-#         targets=[
-#             "Linear",
-#         ],
-#     ),
-#     ignore=["re:.*sconv$"],
-#     max_workers=8,
-#     device=["cuda:0", "cuda:1", "cuda:2", "cuda:3"],
-# )
-
-
 from transformers import AutoProcessor, InklingForConditionalGeneration
-
+from compressed_tensors.quantization.quant_scheme import (
+    FP8_BLOCK,
+    NVFP4,
+    QuantizationScheme,
+)
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
@@ -51,6 +24,23 @@ with load_context(InklingForConditionalGeneration):
 # Configure the quantization algorithm to run.
 #   * quantize the weights to NVFP4
 recipe = QuantizationModifier(
+    config_groups={
+        "config_group_0": QuantizationScheme(
+            targets=[
+                r"re:model.*mlp.*(gate|up|down|gate_up)_proj$",
+            ],
+            **NVFP4,
+        ),
+        "config_group_1": QuantizationScheme(
+            targets=[
+                # NOTE: leaving weights_proj in bf16
+                r"re:model.*self_attn.indexer.(wk|wq_b)$",
+                r"re:model.*self_attn.kv_a_proj_with_mqa$",
+                r"re:model.*self_attn.(kv_b|o|q_a|q_b)_proj$",
+            ],
+            **FP8_BLOCK,
+        ),
+    },
     targets="Linear",
     scheme="FP8_BLOCK",
     ignore=[
@@ -60,10 +50,11 @@ recipe = QuantizationModifier(
         "re:.*sconv$",
         "re:.*norm.*",
         "re:.*bias$",
-        "re:.*gate.*",
+        "re:.*gate$",
         "re:.*global_scale$",
         "re:.*shared_experts.*",
         "re:.*visual.*",
+        "re:.*vision.*",
         "re:.*audio.*",
     ],
 )
@@ -76,5 +67,5 @@ oneshot(
 )
 
 # Save to disk compressed.
-model.save_pretrained(SAVE_DIR, save_compressed=True)
+model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
 processor.save_pretrained(SAVE_DIR)
