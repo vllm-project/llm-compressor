@@ -171,8 +171,9 @@ def _qwen3_vl_moe_unpack_converters() -> list[WeightConverter]:
     """
     Forward (load) converters: native 3D packed checkpoint -> 2D linearized experts.
 
-    Stored as ``_weight_conversions`` so ``revert_weight_conversion`` fuses back
-    to 3D on save. See https://github.com/vllm-project/llm-compressor/issues/2699
+    These are also the backwards mapping for ``_weight_conversions`` (no manual
+    reverse). HF's ``revert_weight_conversion`` fuses back to 3D on save.
+    See https://github.com/vllm-project/llm-compressor/issues/2699
     """
     # Disk stores gate_up / down with dims 1/2 transposed relative to fused HF layout.
     converters = [
@@ -224,10 +225,13 @@ def _qwen3_vl_moe_unpack_converters() -> list[WeightConverter]:
     return converters
 
 
-# (remove_targets, forward_mappings)
-# forward_mappings load checkpoint keys into linearized 2D experts. They are also
-# used as the backwards mapping on ``_weight_conversions``; HF reverses them on
-# save (no manual reverse_transform).
+_QWEN3_VL_MOE_UNPACK = _qwen3_vl_moe_unpack_converters()
+
+# (remove_targets, load_mappings, backwards_mappings)
+# - remove_targets: drop conflicting HF fuse/transpose converters
+# - load_mappings: extra transforms applied on load into linearized experts
+# - backwards_mappings: assigned to ``_weight_conversions`` as-is (HF inverts on
+#   save). None => stay 2d by using the filtered HF mapping only.
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -245,6 +249,7 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
         ],
+        None,
     ),
     "qwen2_moe": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -262,14 +267,17 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
             ),
         ],
+        None,
     ),
     "qwen3_vl_moe": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
-        _qwen3_vl_moe_unpack_converters(),
+        _QWEN3_VL_MOE_UNPACK,
+        _QWEN3_VL_MOE_UNPACK,
     ),
     "qwen3_vl_moe_text": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
-        _qwen3_vl_moe_unpack_converters(),
+        _QWEN3_VL_MOE_UNPACK,
+        _QWEN3_VL_MOE_UNPACK,
     ),
 }
 
@@ -290,11 +298,6 @@ def has_linearize_load_mappings(model_type: str) -> bool:
     )
 
 
-def _repack_on_save(forward_mappings: list[WeightTransform]) -> bool:
-    """WeightConverters in forward mappings are inverted by HF on save."""
-    return any(isinstance(mapping, WeightConverter) for mapping in forward_mappings)
-
-
 def get_linearize_load_mappings(
     model_type: str,
 ) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
@@ -307,7 +310,7 @@ def get_linearize_load_mappings(
         raise KeyError(f"No 2D MoE mappings registered for {model_type}")
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
-    remove_targets, forward_mappings = ARCH_TO_2D_MAPPINGS[mapping_key]
+    remove_targets, load_extra, backwards = ARCH_TO_2D_MAPPINGS[mapping_key]
 
     # Strip HF fuse/transpose converters that conflict with linearized experts.
     filtered_hf = [
@@ -315,15 +318,11 @@ def get_linearize_load_mappings(
         for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    load_mappings = filtered_hf + forward_mappings
+    load_mappings = filtered_hf + load_extra
 
-    # Backwards mapping for save: keep forward converters as-is. HF's
-    # revert_weight_conversion inverts them (fuse/repack). Renames-only
-    # architectures stay 2d by dropping the HF fuse converters.
-    if _repack_on_save(forward_mappings):
-        save_mappings = forward_mappings
-    else:
-        save_mappings = filtered_hf
+    # Backwards mapping is used as-is (no reverse_transform). HF inverts on save.
+    # None => stay 2d (filtered HF mapping only).
+    save_mappings = backwards if backwards is not None else filtered_hf
 
     for converter in load_mappings:
         if isinstance(converter, WeightConverter):
@@ -358,7 +357,7 @@ def set_save_conversion_mapping(
 def set_linearize_save_mappings(model: PreTrainedModel) -> bool:
     """
     After post-load linearization, install the architecture's backwards mapping
-    (forward unpack converters) so save fuses back to the native 3D layout.
+    so save fuses back to the native 3D layout.
 
     :return: True if mappings were installed
     """
@@ -388,8 +387,8 @@ def set_linearize_save_mappings(model: PreTrainedModel) -> bool:
         mapping_key = _resolve_2d_mapping_key(model_type)
         if mapping_key is None:
             continue
-        _remove_targets, forward_mappings = ARCH_TO_2D_MAPPINGS[mapping_key]
-        if _repack_on_save(forward_mappings):
-            set_save_conversion_mapping(model, forward_mappings)
+        _remove_targets, _load_extra, backwards = ARCH_TO_2D_MAPPINGS[mapping_key]
+        if backwards is not None:
+            set_save_conversion_mapping(model, backwards)
             return True
     return False

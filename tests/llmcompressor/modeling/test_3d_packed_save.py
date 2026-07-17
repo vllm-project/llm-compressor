@@ -65,18 +65,25 @@ def test_set_linearize_save_mappings_dict_config():
     assert len(model._weight_conversions) > 0
 
 
-def test_save_mappings_are_forward_unpack_not_manually_reversed():
-    """Backwards mapping is the forward unpack converters; HF reverses on save."""
-    _experts_cls, load_map, save_map = get_linearize_load_mappings("qwen3_vl_moe")
-    assert save_map is not None
-    assert len(save_map) > 0
-    # save_map should be the unpack converters (subset of load_map), not a
-    # separately reversed pack list
-    assert all(converter in load_map for converter in save_map)
+def test_explicit_backwards_mapping_is_unpack_not_reversed():
+    """Tuple 3rd entry is the unpack converters used as-is (HF reverses on save)."""
+    remove_targets, load_extra, backwards = ARCH_TO_2D_MAPPINGS["qwen3_vl_moe"]
+    assert remove_targets == ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"]
+    assert backwards is not None
+    assert backwards is load_extra
     assert any(
         "gate_up_proj" in getattr(converter, "source_patterns", [""])[0]
-        for converter in save_map
+        for converter in backwards
     )
+
+    _experts_cls, load_map, save_map = get_linearize_load_mappings("qwen3_vl_moe")
+    assert save_map is backwards
+    assert all(converter in load_map for converter in save_map)
+
+
+def test_qwen2_moe_stays_2d_on_save():
+    _remove_targets, _load_extra, backwards = ARCH_TO_2D_MAPPINGS["qwen2_moe"]
+    assert backwards is None
 
 
 def test_revert_packs_linearized_weights_and_scales():
