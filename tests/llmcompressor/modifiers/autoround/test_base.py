@@ -1,6 +1,8 @@
+from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 from auto_round.schemes import PRESET_SCHEMES as AR_PRESET_SCHEMES
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
@@ -141,3 +143,77 @@ def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
     layer_config = modifier._build_layer_config_for_autoround(wrapped)
 
     assert layer_config == {}
+
+
+def test_update_device_map_for_dp_uses_current_rank_device():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    ar_kwargs = {}
+
+    with (
+        patch("torch.distributed.is_initialized", return_value=True),
+        patch(
+            "llmcompressor.modifiers.autoround.base.get_local_gpu_group_size",
+            return_value=1,
+        ),
+        patch("torch.accelerator.is_available", return_value=True),
+        patch("torch.accelerator.current_device_index", return_value=1),
+        patch("torch.accelerator.current_accelerator") as mock_accelerator,
+    ):
+        mock_accelerator.return_value.type = "cuda"
+        modifier._update_device_map_for_dp(ar_kwargs)
+
+    assert ar_kwargs["device_map"] == "cuda:1"
+
+
+def test_apply_autoround_passes_moved_inputs_to_quantize_block():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    layer = _FakeDecoderLayer()
+    layer._tmp_name = "decoder"
+    modifier._sequential_targets = [layer.__class__.__name__]
+    modifier._all_module_input[layer._tmp_name] = [((torch.ones(1),), {})]
+
+    state = MagicMock(spec=State)
+    state.model.name_or_path = "stub-model"
+    state.model.config = MagicMock()
+
+    autoround = MagicMock()
+    autoround.quantize_block.return_value = (None, None)
+
+    with (
+        patch.object(
+            AutoRoundModifier, "_mapping_config_to_autoround", return_value="W4A16"
+        ),
+        patch.object(
+            AutoRoundModifier, "_build_layer_config_for_autoround", return_value={}
+        ),
+        patch.object(AutoRoundModifier, "get_unquantized_layer_names", return_value=[]),
+        patch.object(AutoRoundModifier, "_preprocess_qparams", return_value={}),
+        patch.object(AutoRoundModifier, "_postprocess_qparams"),
+        patch.object(
+            AutoRoundModifier, "_unwrapper_quantized_layer", side_effect=lambda m: m
+        ),
+        patch.object(AutoRoundModifier, "_update_device_map_for_dp"),
+        patch(
+            "llmcompressor.modifiers.autoround.base.align_module_device",
+            return_value=nullcontext(),
+        ),
+        patch(
+            "llmcompressor.modifiers.autoround.base.suspend_offloading",
+            return_value=nullcontext(),
+        ),
+        patch(
+            "llmcompressor.modifiers.autoround.base.get_local_gpu_group_size",
+            return_value=2,
+        ),
+        patch(
+            "llmcompressor.modifiers.autoround.base.get_main_device",
+            return_value=torch.device("meta"),
+        ),
+        patch(
+            "llmcompressor.modifiers.autoround.base.AutoRound", return_value=autoround
+        ),
+    ):
+        modifier.apply_autoround(state, [layer])
+
+    quantize_inputs = autoround.quantize_block.call_args.kwargs["inputs"]
+    assert quantize_inputs[0][0][0][0].device.type == "meta"
