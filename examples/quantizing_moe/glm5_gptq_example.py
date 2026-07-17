@@ -2,13 +2,16 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import load_context
 
 # Select model and load it.
+# load_context() fast-path fails for glm_moe_dsa (inherits glm4_moe checkpoint
+# conversion mappings, which try to set gate_up_proj on LinearExperts2D during
+# weight loading). Load normally then linearize explicitly.
 model_id = "zai-org/GLM-5.2"
-with load_context():
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+linearize_moe(model)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
