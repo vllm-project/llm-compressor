@@ -8,9 +8,10 @@ from transformers import Qwen3VLMoeConfig, Qwen3VLMoeForConditionalGeneration
 from transformers.core_model_loading import revert_weight_conversion
 
 from llmcompressor.modeling.moe.conversion_mappings import (
-    get_3d_packed_backwards_mappings,
-    has_3d_packed_save_mappings,
-    set_moe_save_conversion_mappings,
+    ARCH_TO_2D_MAPPINGS,
+    get_linearize_load_mappings,
+    has_linearize_load_mappings,
+    set_linearize_save_mappings,
 )
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modeling.moe.linearize import linearize_moe
@@ -44,13 +45,14 @@ def _tiny_qwen3_vl_moe():
     return model
 
 
-def test_has_3d_packed_save_mappings():
-    assert has_3d_packed_save_mappings("qwen3_vl_moe")
-    assert has_3d_packed_save_mappings("qwen3_vl_moe_text")
-    assert not has_3d_packed_save_mappings("qwen2_moe")
+def test_has_linearize_load_mappings_for_qwen3_vl_moe():
+    assert has_linearize_load_mappings("qwen3_vl_moe")
+    assert "qwen3_vl_moe" in ARCH_TO_2D_MAPPINGS
+    assert "qwen3_vl_moe_text" in ARCH_TO_2D_MAPPINGS
+    assert not has_linearize_load_mappings("mixtral")
 
 
-def test_set_moe_save_conversion_mappings_dict_config():
+def test_set_linearize_save_mappings_dict_config():
     class _Model:
         config = {
             "model_type": "qwen3_vl_moe",
@@ -58,14 +60,28 @@ def test_set_moe_save_conversion_mappings_dict_config():
         }
 
     model = _Model()
-    assert set_moe_save_conversion_mappings(model)
+    assert set_linearize_save_mappings(model)
     assert getattr(model, "_weight_conversions", None)
     assert len(model._weight_conversions) > 0
 
 
+def test_save_mappings_are_forward_unpack_not_manually_reversed():
+    """Backwards mapping is the forward unpack converters; HF reverses on save."""
+    _experts_cls, load_map, save_map = get_linearize_load_mappings("qwen3_vl_moe")
+    assert save_map is not None
+    assert len(save_map) > 0
+    # save_map should be the unpack converters (subset of load_map), not a
+    # separately reversed pack list
+    assert all(converter in load_map for converter in save_map)
+    assert any(
+        "gate_up_proj" in getattr(converter, "source_patterns", [""])[0]
+        for converter in save_map
+    )
+
+
 def test_revert_packs_linearized_weights_and_scales():
     num_experts, moe_intermediate, hidden = 4, 8, 16
-    backwards = get_3d_packed_backwards_mappings("qwen3_vl_moe")
+    _experts_cls, _load_map, save_map = get_linearize_load_mappings("qwen3_vl_moe")
 
     state_dict = {}
     for expert_idx in range(num_experts):
@@ -90,7 +106,7 @@ def test_revert_packs_linearized_weights_and_scales():
 
     class _Model:
         config = None
-        _weight_conversions = backwards
+        _weight_conversions = save_map
 
         def get_parameter(self, name):
             raise RuntimeError(name)
@@ -104,7 +120,7 @@ def test_revert_packs_linearized_weights_and_scales():
         "model.language_model.layers.0.mlp.experts.gate_up_proj",
         "model.language_model.layers.0.mlp.experts.gate_up_proj_scale",
     ]
-    # Disk layout after Transpose(1, 2): gate_up [E, H, 2I], down [E, I, H]
+    # Disk layout after inverse of unpack: gate_up [E, H, 2I], down [E, I, H]
     assert packed["model.language_model.layers.0.mlp.experts.gate_up_proj"].shape == (
         num_experts,
         hidden,
