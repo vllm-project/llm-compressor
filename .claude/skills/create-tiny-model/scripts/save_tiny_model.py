@@ -12,14 +12,18 @@ with skip_weights_download(AutoModelForCausalLM):
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Fix initialization of weights which were not properly implemented by `init_weights`
-for name, param in model.named_parameters():
-    if param.isnan().any() or param.isinf().any() or param.abs().max() > 1e6:
-        if "norm" in name.lower() and "weight" in name:
-            param.data.fill_(1.0)
-        elif "bias" in name:
-            param.data.zero_()
-        else:
-            torch.nn.init.kaiming_uniform_(param, a=math.sqrt(5))
+with torch.no_grad():
+    for name, param in model.named_parameters():
+        if not torch.isfinite(param).all() or param.abs().max() > 1e6:
+            if "norm" in name.lower() and "weight" in name:
+                param.fill_(1.0)
+            elif "bias" in name:
+                param.zero_()
+            else:
+                if param.ndim >= 2:
+                    torch.nn.init.kaiming_uniform_(param, a=math.sqrt(5))
+                else:
+                    torch.nn.init.normal_(param, std=0.02)
 
 num_parameters = model.num_parameters()
 num_parameters_b = num_parameters / 1e9
