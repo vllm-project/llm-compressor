@@ -125,7 +125,7 @@ def main():
     test_ids = tokenizer("hello world", return_tensors="pt").input_ids.to(model.device)
     with torch.no_grad():
         test_out = model(input_ids=test_ids, labels=test_ids)
-    if test_out.loss is None or test_out.loss.isnan() or test_out.loss.isinf():
+    if test_out.loss is None or not torch.isfinite(test_out.loss).item():
         raise RuntimeError(
             f"Pre-flight check failed: loss={test_out.loss}. "
             "The model likely has uninitialized/extreme weights. "
