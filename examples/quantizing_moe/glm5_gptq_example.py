@@ -6,7 +6,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import load_context
 
 # Select model and load it.
-model_id = "zai-org/GLM-5.2-9B-Chat"
+model_id = "zai-org/GLM-5.2"
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
