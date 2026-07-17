@@ -90,6 +90,12 @@ def quantize_weight(
 
     observer = module.weight_observer
 
+    # Ensure weight observer has statistics; it may have been missed if this module
+    # accumulated hessian samples but was not included in subgraph.submodules() during
+    # on_sequential_epoch_end (e.g. experts reached via dynamic MoE routing).
+    if not observer.has_statistics:
+        observer(module.weight)
+
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
