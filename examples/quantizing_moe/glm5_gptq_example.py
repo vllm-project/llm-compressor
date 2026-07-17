@@ -10,8 +10,9 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 # conversion mappings, which try to set gate_up_proj on LinearExperts2D during
 # weight loading). Load normally then linearize explicitly.
 model_id = "zai-org/GLM-5.2"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 linearize_moe(model)
+model = model.to("cuda")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
