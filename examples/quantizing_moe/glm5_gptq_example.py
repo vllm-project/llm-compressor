@@ -2,17 +2,19 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
-# load_context() fast-path fails for glm_moe_dsa (inherits glm4_moe checkpoint
-# conversion mappings, which try to set gate_up_proj on LinearExperts2D during
-# weight loading). Load normally then linearize explicitly.
+# load_context() handles MoE linearization (converts fused 3D expert weights to
+# per-expert 2D format) and CT offloading (converts accelerate hooks to
+# compressed-tensors offload, compatible with calibration hooks).
+# device_map="auto" places weights across available GPUs/CPU automatically.
 model_id = "zai-org/GLM-5.2"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
-linearize_moe(model)
-model = model.to("cuda")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, torch_dtype="auto", device_map="auto"
+    )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
@@ -70,7 +72,7 @@ recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=ignore)
 #
 # sequential_targets_per_subgraph batches multiple ExpertMLP modules per subgraph,
 # balancing memory usage against calibration runtime.
-# Value = num_experts_per_group // batch_size + buffer  (384 // 4 + 10 = 106).
+# Value = num_experts // 4 + buffer  (384 // 4 + 10 = 106 for GLM-5.2).
 num_experts = getattr(model.config, "n_routed_experts", 384)
 oneshot(
     model=model,
