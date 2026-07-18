@@ -4,7 +4,7 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.utils import patch_attr
+from compressed_tensors.utils import patch_attr, getattr_chain
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -55,8 +55,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         nonlocal patched_fn_called
         patched_fn_called = True
 
-        config = AutoConfig.from_pretrained(*args, **kwargs)
-        model_type = config.model_type
+        model_type = getattr_chain(model_cls, "config_class.model_type")
 
         # model is 3d (or otherwise doesn't have mappings)
         # fall back to post-load conversion
@@ -118,11 +117,20 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
+    # convert each expert module into an instance of linear experts
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
+
+    # assign a save mapping (used by packed 3d models like `qwen3_vl_moe`)
+    model_type = model.config.model_type
+    if has_linearize_load_mappings(model_type):
+        _, __, save_map = get_linearize_load_mappings(model_type)
+        set_save_conversion_mapping(model, save_map)
+
+    return model
 
 
 def get_non_linearized_moes(

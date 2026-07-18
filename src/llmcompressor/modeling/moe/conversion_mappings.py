@@ -1,4 +1,5 @@
 import torch
+from compressed_tensors.quantization import QuantizationMetadata
 from loguru import logger
 from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
@@ -6,6 +7,10 @@ from transformers.conversion_mapping import (
     get_checkpoint_conversion_mapping,
 )
 from transformers.core_model_loading import (
+    Chunk,
+    SplitModulelist,
+    Transpose,
+    Interleave,
     WeightConverter,
     WeightRenaming,
     WeightTransform,
@@ -16,6 +21,7 @@ from .helpers import import_or_none
 __all__ = [
     "has_linearize_load_mappings",
     "get_linearize_load_mappings",
+    "set_linearize_save_mappings",
     "set_save_conversion_mapping",
 ]
 
@@ -155,12 +161,87 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.qwen3_next.configuration_qwen3_next.Qwen3NextConfig",
         "transformers.models.qwen3_next.modeling_qwen3_next.Qwen3NextExperts",
     ),
+    "inkling_mm_model": (
+        "transformers.models.inkling.configuration_inkling.InklingTextConfig",
+        "transformers.models.inkling.modeling_inkling.InklingExperts",
+    ),
     "qwen3_vl_moe": (
         "transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe.Qwen3VLMoeTextConfig",
         "transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe.Qwen3VLMoeTextExperts",
     ),
 }
 
+
+def _build_qwen3_vl_split_converters() -> list[WeightConverter]:
+    """
+    Forward (load) converters: native 3D packed checkpoint -> 2D linearized experts.
+
+    These are also the backwards mapping for ``_weight_conversions`` (no manual
+    reverse). HF's ``revert_weight_conversion`` fuses back to 3D on save.
+    See https://github.com/vllm-project/llm-compressor/issues/2699
+    """
+    converters = [
+        WeightConverter(
+            source_patterns="mlp.experts.gate_up_proj",
+            target_patterns=[
+                "mlp.experts.*.gate_proj.weight",
+                "mlp.experts.*.up_proj.weight",
+            ],
+            operations=[
+                Chunk(dim=1),
+                SplitModulelist(dim=0),
+            ],
+        ),
+        WeightConverter(
+            source_patterns="mlp.experts.down_proj",
+            target_patterns="mlp.experts.*.down_proj.weight",
+            operations=[SplitModulelist(dim=0)],
+        ),
+    ]
+
+    return converters
+
+
+def _build_inkling_split_converters():
+    converters = [
+        WeightConverter(
+            source_patterns="mlp.experts.w13_weight",
+            target_patterns=[
+                "mlp.experts.*.gate_proj.weight",
+                "mlp.experts.*.up_proj.weight",
+            ],
+            operations=[Interleave(dim=1), Chunk(dim=1), SplitModulelist(dim=0)],
+        ),
+        # WeightConverter(
+        #     source_patterns="mlp.experts.w13_weight",
+        #     target_patterns=["mlp.experts.*.w13_weight"],
+        #     operations=[SplitModulelist(dim=0)],
+        # ),
+        # WeightConverter(
+        #     source_patterns=r"^model\.language_model\.layers\.(\d+)\.mlp\.experts\.(\d+)\.w13_weight",#"mlp.experts.*.w13_weight",
+        #     target_patterns=[
+        #         #"mlp.experts.*.gate_proj.weight",
+        #         r"^model\.language_model\.layers\.\1\.mlp\.experts\.\2\.gate_proj",
+        #         #"mlp.experts.*.up_proj.weight",
+        #         r"^model\.language_model\.layers\.\1\.mlp\.experts\.\2\.up_proj",
+        #     ],
+        #     operations=[Interleave(dim=1), Chunk(dim=1)],
+        # ),
+        WeightConverter(
+            source_patterns="mlp.experts.w2_weight",
+            target_patterns="mlp.experts.*.down_proj.weight",
+            operations=[SplitModulelist(dim=0)],
+        ),
+    ]
+
+    return converters
+
+
+# (remove_targets, load_mappings, backwards_mappings)
+# - remove_targets: drop conflicting HF fuse/transpose converters
+# - load_mappings: extra transforms applied on load into linearized experts
+# - backwards_mappings: assigned to ``_weight_conversions`` as-is (HF inverts on
+#   save). None => stay 2d by using the filtered HF mapping only.
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -178,6 +259,7 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
         ],
+        []
     ),
     "qwen2_moe": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -195,7 +277,18 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
             ),
         ],
+        []
     ),
+    "qwen3_vl_moe": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        _build_qwen3_vl_split_converters(),
+        _build_qwen3_vl_split_converters(),
+    ),
+    "inkling_mm_model": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        _build_inkling_split_converters(),
+        _build_inkling_split_converters(),
+    )
 }
 
 
@@ -213,30 +306,15 @@ def get_linearize_load_mappings(
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
+    remove_targets, new_load_mappings, new_save_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
-    # forwards has conversion mappings
-    # backwards has no mappings (stay 2d)
-    save_mappings = [
+    filtered_mappings = [
         converter
         for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    load_mappings = save_mappings + new_mappings
-
-    # validate that no transforms occur during loading/saving
-    for converter in load_mappings:
-        if isinstance(converter, WeightConverter):
-            logger.warning(
-                "Linearized model performs a weight conversion during loading. This "
-                f"may lead to longer load times\n{converter}"
-            )
-    for converter in save_mappings:
-        if isinstance(converter, WeightConverter):
-            logger.warning(
-                "Linearized model performs a weight conversion during saving. This "
-                f"may lead to longer save times\n{converter}"
-            )
+    load_mappings = filtered_mappings + new_load_mappings
+    save_mappings = filtered_mappings + new_save_mappings
 
     return experts_cls, load_mappings, save_mappings
 

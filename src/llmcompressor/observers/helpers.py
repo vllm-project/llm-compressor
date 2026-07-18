@@ -184,7 +184,7 @@ def fuse_weight_observers(model: Module):
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    for submodule in model.modules():
+    for submodule_name, submodule in model.named_modules():
         for fusion_name_group in FUSED_LAYER_NAMES:
             if not all(hasattr(submodule, name) for name in fusion_name_group):
                 continue
@@ -207,10 +207,12 @@ def fuse_weight_observers(model: Module):
             if len(observers_and_modules) == 0:
                 continue
 
-            start = f"Some layers in fused group: {fusion_name_group} have"
+            start = f"Some layers in fused group: {submodule_name} {fusion_name_group} "
             end = ", need all fused layers to have same quantization"
-            assert only_obs, f"{start} no weight observer{end}"
-            assert only_tensor_group, f"{start} non-TENSOR_GROUP quantization{end}"
+            if not only_obs:
+                raise ValueError(f"{start} have no weight observer{end}")
+            if not only_tensor_group:
+                raise ValueError(f"{start} have non-TENSOR_GROUP quantization{end}")
 
             FusionHandler.fuse(observers_and_modules)
 
