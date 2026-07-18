@@ -98,9 +98,7 @@ class Observer(InternalModule, RegistryMixin):
                 global_absmax = torch.max(global_absmax, -fused_obs.min_vals.min())
                 global_absmax = torch.max(global_absmax, fused_obs.max_vals.max())
             global_scale = generate_gparam(
-                -global_absmax.reshape(1),
-                global_absmax.reshape(1),
-                four_over_six=getattr(self.args, "four_over_six", False),
+                -global_absmax.reshape(1), global_absmax.reshape(1)
             )
 
         scale, zero_point = calculate_qparams(
