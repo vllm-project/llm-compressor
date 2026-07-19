@@ -6,7 +6,10 @@ import torch
 from compressed_tensors.utils import patch_attr
 from huggingface_hub.errors import StrictDataclassError
 from safetensors import safe_open
-from transformers import AutoConfig, AutoModelForCausalLM, InklingForConditionalGeneration
+from transformers import (
+    AutoConfig,
+    InklingForConditionalGeneration,
+)
 from transformers import initialization as init
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
@@ -20,7 +23,7 @@ from llmcompressor.modeling.moe.helpers import (
     _getattr_fallbacks,
     import_or_none,
 )
-from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
+from llmcompressor.modeling.moe.linearize import linearize_moe
 from tests.testing_utils import requires_gpu
 
 NUM_TEST_TOKENS = 64
@@ -112,15 +115,21 @@ def test_load_quantizable_moe(
     true_outputs = model(input_ids=input_ids).logits
     del model
 
-    #with load_quantizable_moe(model_cls):
-    from llmcompressor.utils import load_context
+    # with load_quantizable_moe(model_cls):
     from compressed_tensors.offload import set_onload_device
-    from compressed_tensors.quantization import apply_quantization_config, QuantizationConfig, preset_name_to_scheme
-    # with load_context(model_cls):
-    #     model2 = model_cls.from_pretrained(model_stub, device_map="auto_offload", max_memory={}, offload_folder="offload_folder")
-    #     set_onload_device(model2, "cuda")
-    with load_quantizable_moe(model_cls):
-        model2 = model_cls.from_pretrained(model_stub, device_map="cuda")
+
+    from llmcompressor.utils import load_context
+
+    with load_context(model_cls):
+        model2 = model_cls.from_pretrained(
+            model_stub,
+            device_map="auto_offload",
+            max_memory={},
+            offload_folder="offload_folder",
+        )
+        set_onload_device(model2, "cuda")
+    # with load_quantizable_moe(model_cls):
+    #     model2 = model_cls.from_pretrained(model_stub, device_map="cuda")
 
     select_exp_outputs = model2(input_ids=input_ids).logits
 
@@ -131,15 +140,12 @@ def test_load_quantizable_moe(
     assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < MODEL_MSE
     assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < MODEL_MSE
 
-    breakpoint()
+    # apply_quantization_config(model2, QuantizationConfig(config_groups={"": preset_name_to_scheme("W4A16_ASYM", ["re:.*mlp.*"])}))  # noqa: E501
 
-    # apply_quantization_config(model2, QuantizationConfig(config_groups={"": preset_name_to_scheme("W4A16_ASYM", ["re:.*mlp.*"])}))
-
-    # save_dir = tmp_path / "save_path"
-    # os.mkdir(save_dir)
-    # model2.save_pretrained(save_dir)
-    # assert_keys_exist(save_dir, exp_keys)
-
+    save_dir = tmp_path / "save_path"
+    os.mkdir(save_dir)
+    model2.save_pretrained(save_dir)
+    assert_keys_exist(save_dir, exp_keys)
 
 
 def assert_keys_exist(model_path: Path, keys: list[str]):

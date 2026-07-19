@@ -160,8 +160,8 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls, key: type[torch.nn.Module], default: Any = None
     ) -> type["LinearExperts2D"]:
         from .granitemoe import GraniteMoeLinearExperts  # noqa: F401
-        from .llama4 import Llama4LinearExperts  # noqa: F401
         from .inkling import InklingLinearExperts  # noqa: F401
+        from .llama4 import Llama4LinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
 
