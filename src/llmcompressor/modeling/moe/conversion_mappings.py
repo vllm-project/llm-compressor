@@ -159,6 +159,10 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe.Qwen3VLMoeTextConfig",
         "transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe.Qwen3VLMoeTextExperts",
     ),
+    "inkling_mm_model": (
+        "transformers.models.inkling.configuration_inkling.InklingTextConfig",
+        "transformers.models.inkling.modeling_inkling.InklingExperts",
+    ),
 }
 
 ARCH_TO_2D_MAPPINGS = {
