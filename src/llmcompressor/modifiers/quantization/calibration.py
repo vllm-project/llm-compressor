@@ -144,7 +144,6 @@ def update_qparams(
     is_dynamic = getattr(args, "dynamic", False) in (True, DynamicType.LOCAL)
 
     qparams = observer.get_qparams()
-    #import pdb; pdb.set_trace()
     for param_name, param_val in qparams.items():
         if param_val is None:
             continue
