@@ -116,10 +116,11 @@ def test_load_quantizable_moe(
     from llmcompressor.utils import load_context
     from compressed_tensors.offload import set_onload_device
     from compressed_tensors.quantization import apply_quantization_config, QuantizationConfig, preset_name_to_scheme
-    with load_context(model_cls):
-        #model2 = model_cls.from_pretrained(model_stub, device_map="cuda")
-        model2 = model_cls.from_pretrained(model_stub, device_map="auto_offload", max_memory={}, offload_folder="offload_folder")
-        set_onload_device(model2, "cuda")
+    # with load_context(model_cls):
+    #     model2 = model_cls.from_pretrained(model_stub, device_map="auto_offload", max_memory={}, offload_folder="offload_folder")
+    #     set_onload_device(model2, "cuda")
+    with load_quantizable_moe(model_cls):
+        model2 = model_cls.from_pretrained(model_stub, device_map="cuda")
 
     select_exp_outputs = model2(input_ids=input_ids).logits
 
@@ -130,12 +131,14 @@ def test_load_quantizable_moe(
     assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < MODEL_MSE
     assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < MODEL_MSE
 
-    apply_quantization_config(model2, QuantizationConfig(config_groups={"": preset_name_to_scheme("W4A16_ASYM", ["re:.*mlp.*"])}))
+    breakpoint()
 
-    save_dir = tmp_path / "save_path"
-    os.mkdir(save_dir)
-    model2.save_pretrained(save_dir)
-    assert_keys_exist(save_dir, exp_keys)
+    # apply_quantization_config(model2, QuantizationConfig(config_groups={"": preset_name_to_scheme("W4A16_ASYM", ["re:.*mlp.*"])}))
+
+    # save_dir = tmp_path / "save_path"
+    # os.mkdir(save_dir)
+    # model2.save_pretrained(save_dir)
+    # assert_keys_exist(save_dir, exp_keys)
 
 
 

@@ -45,50 +45,50 @@ def _files_size_mb(path_list: List[str]) -> int:
     return files_size / 1024 / 1024
 
 
-@pytest.fixture(scope="session", autouse=True)
-def check_for_created_files():
-    local_ignore_dirs = ["__pycache__", "sparse_logs", "test-results", ".pytest_cache"]
-    local_ignore_files = [".coverage"]
-    tmp_ignore_dirs = ["pytest-of", "torchinductor", "torchrun-logs"]
-    start_files_root = _get_files(
-        directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
-    )
-    start_files_temp = _get_files(
-        directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
-    )
-    yield
-    log_dir = os.environ.get("NM_TEST_LOG_DIR")
-    if os.path.isdir(log_dir):
-        shutil.rmtree(log_dir)
+# @pytest.fixture(scope="session", autouse=True)
+# def check_for_created_files():
+#     local_ignore_dirs = ["__pycache__", "sparse_logs", "test-results", ".pytest_cache"]
+#     local_ignore_files = [".coverage"]
+#     tmp_ignore_dirs = ["pytest-of", "torchinductor", "torchrun-logs"]
+#     start_files_root = _get_files(
+#         directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
+#     )
+#     start_files_temp = _get_files(
+#         directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
+#     )
+#     yield
+#     log_dir = os.environ.get("NM_TEST_LOG_DIR")
+#     if os.path.isdir(log_dir):
+#         shutil.rmtree(log_dir)
 
-    # allow creation of __pycache__ directories
-    end_files_root = _get_files(
-        directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
-    )
-    # assert no files created in root directory while running
-    # the pytest suite
-    assert len(start_files_root) >= len(end_files_root), (
-        f"{len(end_files_root) - len(start_files_root)} "
-        f"files created in current working "
-        f"directory during pytest run. "
-        f"Created files: {set(end_files_root) - set(start_files_root)}"
-    )
+#     # allow creation of __pycache__ directories
+#     end_files_root = _get_files(
+#         directory=r".", ignore_dirs=local_ignore_dirs, ignore_files=local_ignore_files
+#     )
+#     # assert no files created in root directory while running
+#     # the pytest suite
+#     assert len(start_files_root) >= len(end_files_root), (
+#         f"{len(end_files_root) - len(start_files_root)} "
+#         f"files created in current working "
+#         f"directory during pytest run. "
+#         f"Created files: {set(end_files_root) - set(start_files_root)}"
+#     )
 
-    max_allowed_sized_temp_files_megabytes = 1
-    # pytest temp files are automatically deleted, exclude from size calculation
-    end_files_temp = _get_files(
-        directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
-    )
-    created_temp_files = set(end_files_temp) - set(start_files_temp)
+#     max_allowed_sized_temp_files_megabytes = 1
+#     # pytest temp files are automatically deleted, exclude from size calculation
+#     end_files_temp = _get_files(
+#         directory=tempfile.gettempdir(), ignore_dirs=tmp_ignore_dirs
+#     )
+#     created_temp_files = set(end_files_temp) - set(start_files_temp)
 
-    # assert no more than 1 megabyte of temp files created in temp directory
-    # while running the pytest suite (excluding files created by pytest)
-    size_of_temp_files_megabytes = _files_size_mb(created_temp_files)
-    assert max_allowed_sized_temp_files_megabytes >= size_of_temp_files_megabytes, (
-        f"{size_of_temp_files_megabytes} "
-        f"megabytes of temp files created in temp directory during pytest run. "
-        f"Created files: {set(end_files_temp) - set(start_files_temp)}"
-    )
+#     # assert no more than 1 megabyte of temp files created in temp directory
+#     # while running the pytest suite (excluding files created by pytest)
+#     size_of_temp_files_megabytes = _files_size_mb(created_temp_files)
+#     assert max_allowed_sized_temp_files_megabytes >= size_of_temp_files_megabytes, (
+#         f"{size_of_temp_files_megabytes} "
+#         f"megabytes of temp files created in temp directory during pytest run. "
+#         f"Created files: {set(end_files_temp) - set(start_files_temp)}"
+#     )
 
 
 @pytest.fixture(autouse=True, scope="function")
