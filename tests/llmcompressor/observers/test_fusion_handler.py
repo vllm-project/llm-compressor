@@ -281,8 +281,9 @@ _WEIGHT_Q_PARAMS = ["weight_scale", "weight_zero_point", "weight_global_scale"]
 _GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
 
 
-def _simulate_ddp_broadcast(modules, rank_to_modules, module_to_rank, qparam_names,
-                            skip_cpu=False):
+def _simulate_ddp_broadcast(
+    modules, rank_to_modules, module_to_rank, qparam_names, skip_cpu=False
+):
     """Simulate the DDP broadcast+cleanup path.
 
     1. observe + update_qparams on rank 0's subset
@@ -321,37 +322,42 @@ class TestDDPObserverCleanup:
     the DDP flow without requiring multiple processes.
     """
 
-    @pytest.mark.parametrize("qparam_names", [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
-                             ids=["QuantizationModifier", "GPTQ"])
+    @pytest.mark.parametrize(
+        "qparam_names",
+        [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
+        ids=["QuantizationModifier", "GPTQ"],
+    )
     def test_broadcast_cleans_up_unprocessed_modules(self, qparam_names):
         modules = [_make_module_with_observer() for _ in range(4)]
         observe(modules, "weight")
 
         rank_to_modules, module_to_rank = _make_rank_assignment(modules, split=2)
-        _simulate_ddp_broadcast(
-            modules, rank_to_modules, module_to_rank, qparam_names
-        )
+        _simulate_ddp_broadcast(modules, rank_to_modules, module_to_rank, qparam_names)
 
         for mod in modules:
             assert not mod.weight_observer.has_statistics
 
-    @pytest.mark.parametrize("qparam_names", [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
-                             ids=["QuantizationModifier", "GPTQ"])
+    @pytest.mark.parametrize(
+        "qparam_names",
+        [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
+        ids=["QuantizationModifier", "GPTQ"],
+    )
     def test_fused_cleanup_with_split_ranks(self, qparam_names):
         """Fused observers (NVFP4 Q/K/V) split across ranks."""
         modules = _make_fused_module_group(n=3)
         observe(modules, "weight")
 
         rank_to_modules, module_to_rank = _make_rank_assignment(modules, split=1)
-        _simulate_ddp_broadcast(
-            modules, rank_to_modules, module_to_rank, qparam_names
-        )
+        _simulate_ddp_broadcast(modules, rank_to_modules, module_to_rank, qparam_names)
 
         for mod in modules:
             assert not mod.weight_observer.has_statistics
 
-    @pytest.mark.parametrize("qparam_names", [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
-                             ids=["QuantizationModifier", "GPTQ"])
+    @pytest.mark.parametrize(
+        "qparam_names",
+        [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
+        ids=["QuantizationModifier", "GPTQ"],
+    )
     def test_repeated_layers_no_accumulation(self, qparam_names):
         """Stats from previous layers never pile up across sequential layers."""
         all_layer_modules = []
@@ -367,11 +373,11 @@ class TestDDPObserverCleanup:
             )
 
             for mod in modules:
-                assert not mod.weight_observer.has_statistics, (
-                    f"Layer {layer_idx}: observer stats not cleaned up"
-                )
+                assert (
+                    not mod.weight_observer.has_statistics
+                ), f"Layer {layer_idx}: observer stats not cleaned up"
             for prev_idx in range(layer_idx):
                 for mod in all_layer_modules[prev_idx]:
-                    assert not mod.weight_observer.has_statistics, (
-                        f"Layer {prev_idx} stats leaked into layer {layer_idx}"
-                    )
+                    assert (
+                        not mod.weight_observer.has_statistics
+                    ), f"Layer {prev_idx} stats leaked into layer {layer_idx}"

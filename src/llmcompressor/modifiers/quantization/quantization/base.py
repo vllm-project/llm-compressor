@@ -13,6 +13,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
+from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 __all__ = ["QuantizationModifier"]
@@ -104,9 +105,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         observe(rank_to_modules[rank], "weight")
         update_qparams(rank_to_modules[rank], "weight")
-        broadcast_qparams_and_cleanup(
-            module_list, module_to_rank, _WEIGHT_Q_PARAMS
-        )
+        broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
