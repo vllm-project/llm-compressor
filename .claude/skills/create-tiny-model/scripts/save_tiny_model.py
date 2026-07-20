@@ -6,6 +6,7 @@ from llmcompressor.utils.dev import skip_weights_download
 
 model_id = "Qwen/Qwen3-30B-A3B"
 
+# Check if the model is multimodal. If so, change `AutoModelForCausalLM` to `...ForConditionalGeneration`
 with skip_weights_download(AutoModelForCausalLM):
     model = AutoModelForCausalLM.from_pretrained(model_id, num_hidden_layers=1)
     model.init_weights()
@@ -14,7 +15,7 @@ with skip_weights_download(AutoModelForCausalLM):
 # Fix initialization of weights which were not properly implemented by `init_weights`
 with torch.no_grad():
     for name, param in model.named_parameters():
-        if not torch.isfinite(param).all() or param.abs().max() > 1e6:
+        if not torch.isfinite(param).all() or param.abs().max() > 1e6 or param.abs().max() == 0:
             if "norm" in name.lower() and "weight" in name:
                 param.fill_(1.0)
             elif "bias" in name:

@@ -37,7 +37,7 @@ Templates are located in `.claude/skills/create-tiny-model/templates/`:
 
 When this skill is invoked, the following steps will be completed:
 
-1. **Inspect config**: Use `inspect_config.py` to understand the model configuration fields. Specifically find which fields control the number of layers, layer types, and the number of parameters.
+1. **Inspect config**: Use `inspect_config.py` to understand the model configuration fields. Specifically find which fields control the number of layers, layer types, and the number of parameters. Check if the model is multimodal. If the model is multimodal, remember to always load with `...ForConditionalGeneration` rather than `AutoModelForCausalLM`
 
 2. **Create tiny model**: Make a copy of `save_tiny_model.py`. Modify the copy to create a tiny version of the given model which maintains the same architecture as the original model (at least one of each attention type in the original model, etc.) but with ~1B parameters. It's okay to create a slightly bigger model so long as the architecture is still represented.
 
@@ -45,9 +45,9 @@ IMPORTANT: Start by only modifying the number of layers in the model. If the mod
 
 3. **Fine-tune**: Fine tune the model on a toy dataset using `finetune.py`. This validates that the model can actually learn. Note: vision-language models may require script modifications to load correctly. Make sure the target perplexity is ~3.0, a model with a high perplexity with respect to the toy dataset is not considered valid.
 
-IMPORTANT: If the model is a vision-language model, do not worry about trying to fine tune on a vision dataset, only fine tune on the provided text dataset.
+If the model is a vision-language model, do not try to fine tune on a vision dataset, only fine tune on the provided text dataset. Continue to load with ``...ForConditionalGeneration`.
 
-4. **Validate checkpoint structure**: Make sure that the saved model checkpoint structure is analogous to the checkpoint structure of the original large model checkpoint. The `transformers` library can sometimes contain bugs where models are saved in invalid checkpoint structures. First, inspect the original checkpoint structure using the HuggingFace Hub API or by checking `https://huggingface.co/{model_id}/resolve/main/model.safetensors.index.json`. If this file does not exist, download the original checkpoint directly. Use `inspect_tensors.py` to inspect the checkpoint format of the saved model and/or the downloaded model. If the two structures do not match, create a converter script to convert our tiny saved checkpoint structure into a checkpoint structure which matches the original.
+4. **Validate checkpoint structure**: Make sure that the saved model checkpoint structure is analogous to the checkpoint structure of the original large model checkpoint. The `transformers` library can sometimes contain bugs where models are saved in invalid checkpoint structures. First, inspect the original checkpoint structure using the HuggingFace Hub API or by checking `https://huggingface.co/{model_id}/resolve/main/model.safetensors.index.json`. If this file does not exist, download the original checkpoint directly. Use `inspect_tensors.py` to inspect the checkpoint format of the saved model and/or the downloaded model. If the two structures do not match, create a converter script to convert our tiny saved checkpoint structure into a checkpoint structure which matches the original. Do not try to match mtp layers.
 
 5. **Validate model**: Confirm that the model loads and inferences correctly using `validate_tiny_model.py`.
 
@@ -65,7 +65,10 @@ IMPORTANT: If the model is a vision-language model, do not worry about trying to
 7. **Upload** Upload the model to HuggingFace Hub using:
    ```bash
    hf upload inference-optimization/{tiny-model-id} {path-to-model} --repo-type=model
+   hf collections add-item inference-optimization/tiny-models {tiny-model-id} model
    ```
+
+   If you do not have permissions within the `inference-optimization` org, skip this step.
 
    IMPORTANT: Make sure the tiny model id reflects the number of parameters in the tiny model, not the base model. For example, if the base model is `Qwen/Qwen3-30B-A3B`, then the tiny model should be something like `Qwen3-1B-A0.6B`
 
