@@ -272,10 +272,9 @@ def set_linearize_load_mappings(model_type: str):
     # validate that no transforms occur during loading/saving
     for converter in mappings:
         if isinstance(converter, WeightConverter):
-            logger.warning(
+            logger.bind(log_once=True).warning(
                 "Linearized model performs a weight conversion during loading. This "
-                "may lead to longer load times",
-                log_once=True,
+                "may lead to longer load times"
             )
 
     linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
@@ -297,10 +296,9 @@ def set_linearize_save_mappings(model: PreTrainedModel, model_type: str):
 
     for converter in mappings:
         if isinstance(converter, WeightConverter):
-            logger.warning(
+            logger.bind(log_once=True).warning(
                 "Linearized model performs a weight conversion during saving. This "
-                "may lead to longer save times",
-                log_once=True,
+                "may lead to longer save times"
             )
 
     model._weight_conversions = save_mappings
