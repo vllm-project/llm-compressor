@@ -1,4 +1,9 @@
-from transformers import AutoProcessor, InklingForConditionalGeneration
+from transformers import (
+    AutoProcessor,
+    InklingForConditionalGeneration,
+    InklingForCausalLM,
+    AutoModelForCausalLM,
+)
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
@@ -9,7 +14,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 MODEL_ID = "thinkingmachines/Inkling"
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-BLOCK"
+# MODEL_ID = "inference-optimization/Inkling-0.6B"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
 
 # Select model and load it in the `load_context` context
 with load_context(InklingForConditionalGeneration):
@@ -20,6 +26,8 @@ with load_context(InklingForConditionalGeneration):
         offload_folder="./offload_folder",
     )
     processor = AutoProcessor.from_pretrained(MODEL_ID)
+    processor.tokenizer.eos_token = "<|endoftext|>"
+    processor.tokenizer.pad_token = "<|endoftext|>"
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to NVFP4
@@ -27,27 +35,24 @@ recipe = QuantizationModifier(
     config_groups={
         "config_group_0": QuantizationScheme(
             targets=[
-                r"re:model.*mlp.*(gate|up|down|gate_up)_proj$",
-            ],
-            **NVFP4,
-        ),
-        "config_group_1": QuantizationScheme(
-            targets=[
-                # NOTE: leaving weights_proj in bf16
-                r"re:model.*self_attn.indexer.(wk|wq_b)$",
-                r"re:model.*self_attn.kv_a_proj_with_mqa$",
-                r"re:model.*self_attn.(kv_b|o|q_a|q_b)_proj$",
+                # r"re:.*layers.\d+.*attn.\w+",
+                r"re:.*self_attn\.(q|k|v|o|r)_proj$",
             ],
             **FP8_BLOCK,
         ),
+        "config_group_1": QuantizationScheme(
+            targets=[
+                # r"re:.*layers.\d+.*mlp\.\w+",
+                r"re:.*mlp.*(gate|up|down)_proj$",
+            ],
+            **NVFP4,
+        ),
     },
-    targets="Linear",
-    scheme="FP8_BLOCK",
     ignore=[
         "lm_head",
         "model.llm.unembed",
         "model.llm.embed",
-        "re:.*sconv$",
+        "re:.*sconv.*",
         "re:.*norm.*",
         "re:.*bias$",
         "re:.*gate$",
@@ -56,14 +61,26 @@ recipe = QuantizationModifier(
         "re:.*visual.*",
         "re:.*vision.*",
         "re:.*audio.*",
+        "re:model.mtp.*",
     ],
 )
+
+# Select calibration dataset.
+DATASET_ID = "ultrachat-200k"
+DATASET_SPLIT = "train_sft"
+
+NUM_CALIBRATION_SAMPLES = 20
+MAX_SEQUENCE_LENGTH = 2048
 
 # Apply algorithms.
 oneshot(
     model=model,
     processor=processor,
     recipe=recipe,
+    dataset=DATASET_ID,
+    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
 # Save to disk compressed.
