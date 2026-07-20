@@ -13,8 +13,8 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
-MODEL_ID = "thinkingmachines/Inkling"
-# MODEL_ID = "inference-optimization/Inkling-0.6B"
+# MODEL_ID = "thinkingmachines/Inkling"
+MODEL_ID = "inference-optimization/Inkling-0.6B-A0.6B"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
 
 # Select model and load it in the `load_context` context
@@ -35,15 +35,15 @@ recipe = QuantizationModifier(
     config_groups={
         "config_group_0": QuantizationScheme(
             targets=[
-                # r"re:.*layers.\d+.*attn.\w+",
-                r"re:.*self_attn\.(q|k|v|o|r)_proj$",
+                r"re:.*attn\..*",
+                # r"re:.*self_attn\.(q|k|v|o|r)_proj$",
             ],
             **FP8_BLOCK,
         ),
         "config_group_1": QuantizationScheme(
             targets=[
-                # r"re:.*layers.\d+.*mlp\.\w+",
-                r"re:.*mlp.*(gate|up|down)_proj$",
+                r"re:.*mlp\..*",
+                # r"re:.*mlp.*(gate|up|down)_proj$",
             ],
             **NVFP4,
         ),
@@ -52,7 +52,7 @@ recipe = QuantizationModifier(
         "lm_head",
         "model.llm.unembed",
         "model.llm.embed",
-        "re:.*sconv.*",
+        "re:.*sconv$",
         "re:.*norm.*",
         "re:.*bias$",
         "re:.*gate$",
