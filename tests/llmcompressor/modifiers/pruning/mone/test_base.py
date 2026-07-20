@@ -5,17 +5,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers.configuration_utils import PretrainedConfig
-from transformers.integrations.finegrained_fp8 import FP8Experts
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling.moe.linear_experts import (
     LinearExperts2D,
     NoviceExpertMLP,
 )
-from llmcompressor.modeling.moe.minimax_mone import MINIMAX_M2_STOCK_FP8_TRITON_PATCH
 from llmcompressor.modeling.moe.mone import apply_mone_structure
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.mone import MoNEPruningModifier
+from llmcompressor.modifiers.pruning.mone.utils import MoNEStatsTracker
 
 
 class FakeMoEConfig(PretrainedConfig):
@@ -39,15 +38,6 @@ class FakeMoEConfig(PretrainedConfig):
         self.dtype = torch.float32
         self.num_hidden_layers = num_hidden_layers
         self.norm_topk_prob = True
-
-
-class FakeNativeFP8MoEConfig(FakeMoEConfig):
-    model_type = "minimax_m2"
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.num_local_experts = self.num_experts
-        self.torch_dtype = torch.float32
 
 
 class FakeLinearExperts2D(LinearExperts2D):
@@ -108,70 +98,12 @@ class FakeMoEBlock(nn.Module):
         return output.view(batch_size, seq_len, hidden_dim)
 
 
-class FakeNativeFP8MoEBlock(nn.Module):
-    def __init__(self, config: FakeNativeFP8MoEConfig):
-        super().__init__()
-        self.gate = FakeRouter(config)
-        self.experts = FP8Experts(config, block_size=(128, 128), has_gate=True)
-        self._replace_fp8_test_weights(config)
-
-    @torch.no_grad()
-    def _replace_fp8_test_weights(self, config: FakeNativeFP8MoEConfig):
-        self.experts.gate_up_proj = nn.Parameter(
-            torch.randn(
-                config.num_experts,
-                2 * config.intermediate_size,
-                config.hidden_size,
-            )
-        )
-        self.experts.down_proj = nn.Parameter(
-            torch.randn(
-                config.num_experts,
-                config.hidden_size,
-                config.intermediate_size,
-            )
-        )
-        self.experts.gate_up_proj_scale_inv = nn.Parameter(
-            torch.ones(config.num_experts, 1, 1),
-            requires_grad=False,
-        )
-        self.experts.down_proj_scale_inv = nn.Parameter(
-            torch.ones(config.num_experts, 1, 1),
-            requires_grad=False,
-        )
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        batch_size, seq_len, hidden_dim = hidden_states.shape
-        hidden_states_flat = hidden_states.view(-1, hidden_dim)
-        _, router_weights, selected_experts = self.gate(hidden_states_flat)
-        output = self.experts(
-            hidden_states_flat,
-            selected_experts,
-            router_weights,
-        )
-        return output.view(batch_size, seq_len, hidden_dim)
-
-
 class FakeMoEModel(nn.Module):
     def __init__(self, config: FakeMoEConfig):
         super().__init__()
         self.config = config
         self.layers = nn.ModuleList(
             [FakeMoEBlock(config) for _ in range(config.num_hidden_layers)]
-        )
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
-            hidden_states = layer(hidden_states)
-        return hidden_states
-
-
-class FakeNativeFP8MoEModel(nn.Module):
-    def __init__(self, config: FakeNativeFP8MoEConfig):
-        super().__init__()
-        self.config = config
-        self.layers = nn.ModuleList(
-            [FakeNativeFP8MoEBlock(config) for _ in range(config.num_hidden_layers)]
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -216,6 +148,37 @@ def test_mone_validation():
 
 
 @pytest.mark.unit
+def test_mone_output_stats_match_batched_population_variance():
+    tracker = MoNEStatsTracker(
+        num_experts=1,
+        hidden_size=2,
+        ranking_metric="output_fluctuation",
+        fusion_io_weight=0.5,
+        stats_device="cpu",
+    )
+
+    first = torch.tensor([[1.0, 2.0], [3.0, 6.0]])
+    second = torch.tensor([[5.0, 4.0], [7.0, 8.0], [9.0, 10.0]])
+
+    tracker.update_expert(0, first)
+
+    torch.testing.assert_close(tracker.mean_outputs[0], first.mean(dim=0))
+    torch.testing.assert_close(
+        tracker.fluc_out[0].detach().cpu(),
+        first.var(dim=0, unbiased=False),
+    )
+
+    tracker.update_expert(0, second)
+    combined = torch.cat([first, second], dim=0)
+
+    torch.testing.assert_close(tracker.mean_outputs[0], combined.mean(dim=0))
+    torch.testing.assert_close(
+        tracker.fluc_out[0].detach().cpu(),
+        combined.var(dim=0, unbiased=False),
+    )
+
+
+@pytest.mark.unit
 def test_mone_full_lifecycle_replaces_novices():
     torch.manual_seed(7)
     config = FakeMoEConfig(num_experts=4, num_hidden_layers=2)
@@ -254,44 +217,6 @@ def test_mone_full_lifecycle_replaces_novices():
     assert out.shape == (2, 3, config.hidden_size)
     assert not torch.isnan(out).any()
 
-
-@pytest.mark.unit
-def test_mone_native_fp8_lifecycle_attaches_constants():
-    torch.manual_seed(17)
-    config = FakeNativeFP8MoEConfig(num_experts=4, num_hidden_layers=1)
-    model = FakeNativeFP8MoEModel(config).eval()
-    modifier = MoNEPruningModifier(preserve_n_experts=2)
-    state = _make_state(model)
-
-    modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
-    with torch.no_grad():
-        for _ in range(4):
-            model(torch.randn(2, 5, config.hidden_size))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
-    modifier.finalize(state)
-
-    assert set(model.config.approximate_experts) == {"0"}
-    novice_indices = model.config.approximate_experts["0"]
-    assert len(novice_indices) == 2
-
-    experts = model.layers[0].experts
-    assert experts.constant_expert_ids == tuple(novice_indices)
-    assert experts.constant_expert_values.shape == (
-        len(novice_indices),
-        config.hidden_size,
-    )
-    assert experts.layer_idx == 0
-    assert getattr(model, "_llmcompressor_minimax_mone_layout")
-    assert model.config.llmcompressor_mone_implementation == {
-        "algorithm": "mone",
-        "patches_enabled": [MINIMAX_M2_STOCK_FP8_TRITON_PATCH],
-    }
-
-    with torch.no_grad():
-        out = model(torch.randn(2, 3, config.hidden_size))
-    assert out.shape == (2, 3, config.hidden_size)
-    assert not torch.isnan(out).any()
 
 @pytest.mark.unit
 def test_mone_zero_out_novices():

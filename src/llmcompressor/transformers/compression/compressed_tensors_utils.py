@@ -160,11 +160,6 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # update config to reflect quantization
                     compressor.update_config(save_directory)
 
-                    _postprocess_mone_export_if_needed(
-                        model,
-                        save_directory,
-                    )
-
                     # update existing recipe
                     update_and_save_recipe(model.name_or_path, save_directory)
 
@@ -189,17 +184,6 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
-
-
-def _postprocess_mone_export_if_needed(
-    model: PreTrainedModel,
-    save_directory: str,
-):
-    from llmcompressor.modeling.moe.mone import postprocess_mone_export
-
-    postprocess_mone_export(model, save_directory)
-
-
 @deprecated("ModelCompressor.from_pretrained_model")
 def get_model_compressor(
     model: torch.nn.Module,

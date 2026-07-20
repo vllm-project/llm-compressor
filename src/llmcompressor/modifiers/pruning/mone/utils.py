@@ -59,7 +59,9 @@ class MoNEStatsTracker:
 
     @property
     def needs_output_stats(self) -> bool:
-        return self.ranking_metric in ("output_fluctuation", "fusion")
+        # Novice experts are initialized from expert output means regardless of
+        # which statistic is used to rank experts.
+        return True
 
     @property
     def needs_routing_stats(self) -> bool:
@@ -116,17 +118,26 @@ class MoNEStatsTracker:
         out_float = output.float()
 
         baseline = self.baseline_out[expert_idx]
-        baseline.mul_(old_tokens / new_tokens)
-        baseline.add_(out_float.sum(dim=0).to(baseline.device) / new_tokens)
+        fluc = self.fluc_out[expert_idx]
+        batch_mean = out_float.mean(dim=0).to(baseline.device)
+        batch_m2 = torch.sum(
+            (out_float - batch_mean.to(out_float.device).unsqueeze(0)).pow(2),
+            dim=0,
+        ).to(fluc.device)
 
-        if old_tokens > 0:
-            fluc = self.fluc_out[expert_idx]
-            fluc.mul_((old_tokens - 1) / (new_tokens - 1))
-            out_baseline = baseline.to(out_float.device).unsqueeze(0)
-            fluc.add_(
-                torch.sum((out_float - out_baseline).pow(2), dim=0).to(fluc.device)
-                / new_tokens
+        if old_tokens == 0:
+            baseline.copy_(batch_mean)
+            fluc.copy_(batch_m2 / token_size)
+        else:
+            old_mean = baseline.clone()
+            delta = batch_mean - old_mean
+            baseline.copy_(old_mean + delta * (token_size / new_tokens))
+
+            old_m2 = fluc * old_tokens
+            mean_shift_m2 = delta.to(fluc.device).pow(2) * (
+                old_tokens * token_size / new_tokens
             )
+            fluc.copy_((old_m2 + batch_m2 + mean_shift_m2) / new_tokens)
 
         self.num_tokens[expert_idx] = new_tokens
 
@@ -158,6 +169,9 @@ class MoNEStatsTracker:
             src=topk_weights,
         )
 
+        # Average over all routed tokens, with zero contribution when an expert is
+        # not selected. This keeps the routing score frequency-weighted:
+        # E[gate_weight * 1(expert in top-k)].
         batch_size = routing_weights.shape[0]
         count = torch.full_like(self.routing_sum, float(self.routing_count))
         new_count = count + batch_size
@@ -235,10 +249,8 @@ def replace_experts_with_novices(
     layer_name: str,
     novice_indices: list[int],
     mean_outputs: torch.Tensor,
-    token_counts: torch.Tensor,
     moe_attrs: MoeModelAttrs,
     zero_out_novice: bool,
-    enable_novice_evolving: bool,
 ) -> list[int]:
     moe_block = model.get_submodule(layer_name)
     experts = getattr(moe_block, moe_attrs.experts_attr)
@@ -246,9 +258,6 @@ def replace_experts_with_novices(
     for expert_idx in novice_indices:
         old_expert = experts[expert_idx]
         hidden_size = mean_outputs.shape[-1]
-        init_tokens = (
-            int(token_counts[expert_idx].item()) if enable_novice_evolving else 0
-        )
 
         with align_module_device(old_expert):
             dtype = _first_floating_dtype(old_expert, mean_outputs.dtype)
@@ -262,7 +271,6 @@ def replace_experts_with_novices(
         novice = NoviceExpertMLP(
             hidden_dim=hidden_size,
             dtype=dtype,
-            acc_tokens=init_tokens,
         ).to(device)
         with torch.no_grad():
             novice.approx_value.copy_(
@@ -278,12 +286,10 @@ def update_mone_model_config(
     model: nn.Module,
     moe_attrs: MoeModelAttrs,
     approximate_experts: dict[str, list[int]],
-    approximate_expert_init_tokens: dict[str, list[int]],
     implementation_metadata: dict | None = None,
 ):
     config = model.config.text_config if moe_attrs.has_text_config else model.config
     config.approximate_experts = approximate_experts
-    config.approximate_expert_init_tokens = approximate_expert_init_tokens
     if implementation_metadata is not None:
         config.llmcompressor_mone_implementation = implementation_metadata
     logger.info(

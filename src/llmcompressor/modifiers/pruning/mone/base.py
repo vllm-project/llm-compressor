@@ -15,22 +15,13 @@ from llmcompressor.core import Event, State
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
-from llmcompressor.modeling.moe.mone import (
-    prepare_model_for_mone,
-    prepare_mone_model_for_save,
-)
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.pruning.mone.adapters import (
-    NativeFP8ExpertsMoNEAdapter,
-    get_mone_moe_attrs,
-    is_native_fp8_experts,
-)
 from llmcompressor.modifiers.pruning.mone.utils import (
     MoNEStatsTracker,
     replace_experts_with_novices,
     update_mone_model_config,
 )
-from llmcompressor.modifiers.pruning.reap.utils import MoeModelAttrs
+from llmcompressor.modifiers.pruning.reap.utils import MoeModelAttrs, get_moe_attrs
 
 __all__ = ["MoNEPruningModifier"]
 
@@ -54,8 +45,6 @@ class MoNEPruningModifier(Modifier):
     :param fusion_io_weight: scalar used by the reference fusion score.
     :param zero_out_novice: replace pruned experts with zero-output novices
         instead of mean-output novices.
-    :param enable_novice_evolving: initialize novice token counters so novice
-        constants continue updating during subsequent forward passes.
     :param stats_device: device for calibration statistics. Defaults to CPU to
         avoid holding all expert means/fluctuations on GPU.
     :param debug_path: optional path to a ``torch.save`` dump of MoNE scores and
@@ -69,7 +58,6 @@ class MoNEPruningModifier(Modifier):
     ranking_scope: Literal["layer", "model"] = "layer"
     fusion_io_weight: float = 0.5
     zero_out_novice: bool = False
-    enable_novice_evolving: bool = False
     stats_device: str | None = "cpu"
     debug_path: str | None = None
     ignore: list[str] = Field(default_factory=list)
@@ -77,10 +65,6 @@ class MoNEPruningModifier(Modifier):
     _moe_attrs: MoeModelAttrs | None = PrivateAttr(default=None)
     _preserve_n_experts: int = PrivateAttr(default=0)
     _stats_trackers: dict[str, MoNEStatsTracker] = PrivateAttr(default_factory=dict)
-    _fp8_adapters: dict[str, NativeFP8ExpertsMoNEAdapter] = PrivateAttr(
-        default_factory=dict
-    )
-    _mone_patches: list[str] = PrivateAttr(default_factory=list)
     _applied: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
@@ -108,8 +92,7 @@ class MoNEPruningModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
-        self._mone_patches = prepare_model_for_mone(model)
-        self._moe_attrs = get_mone_moe_attrs(model, self.ignore)
+        self._moe_attrs = get_moe_attrs(model, self.ignore)
 
         if self.sparsity is not None:
             n_experts_to_replace = int(self._moe_attrs.num_experts * self.sparsity)
@@ -173,16 +156,6 @@ class MoNEPruningModifier(Modifier):
             )
             self._stats_trackers[layer_name] = tracker
 
-            if is_native_fp8_experts(experts):
-                adapter = NativeFP8ExpertsMoNEAdapter(
-                    model=model,
-                    layer_name=layer_name,
-                    experts_attr=self._moe_attrs.experts_attr,
-                )
-                adapter.install_calibration(tracker)
-                self._fp8_adapters[layer_name] = adapter
-                continue
-
             if tracker.needs_output_stats:
                 expert_list = [
                     expert
@@ -204,16 +177,11 @@ class MoNEPruningModifier(Modifier):
                 )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        for adapter in self._fp8_adapters.values():
-            adapter.remove_calibration()
         self.remove_hooks()
         self._apply_mone(state.model)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        for adapter in self._fp8_adapters.values():
-            adapter.remove_calibration()
         self._stats_trackers.clear()
-        self._fp8_adapters.clear()
         return True
 
     def _expert_hook(
@@ -251,50 +219,34 @@ class MoNEPruningModifier(Modifier):
         if self._applied:
             return
 
-        approximate_experts, approximate_tokens = self._select_novices()
-        self._dump_debug_stats(approximate_experts, approximate_tokens)
+        approximate_experts = self._select_novices()
+        self._dump_debug_stats(approximate_experts)
 
         for layer_name, novice_indices in approximate_experts.items():
             tracker = self._stats_trackers[layer_name]
-            fp8_adapter = self._fp8_adapters.get(layer_name)
-            if fp8_adapter is not None:
-                fp8_adapter.apply_novices(
-                    novice_indices=novice_indices,
-                    mean_outputs=tracker.mean_outputs,
-                    token_counts=tracker.num_tokens,
-                    zero_out_novice=self.zero_out_novice,
-                    enable_novice_evolving=self.enable_novice_evolving,
-                )
-            else:
-                replace_experts_with_novices(
-                    model=model,
-                    layer_name=layer_name,
-                    novice_indices=novice_indices,
-                    mean_outputs=tracker.mean_outputs,
-                    token_counts=tracker.num_tokens,
-                    moe_attrs=self._moe_attrs,
-                    zero_out_novice=self.zero_out_novice,
-                    enable_novice_evolving=self.enable_novice_evolving,
-                )
+            replace_experts_with_novices(
+                model=model,
+                layer_name=layer_name,
+                novice_indices=novice_indices,
+                mean_outputs=tracker.mean_outputs,
+                moe_attrs=self._moe_attrs,
+                zero_out_novice=self.zero_out_novice,
+            )
 
         update_mone_model_config(
             model=model,
             moe_attrs=self._moe_attrs,
             approximate_experts=_config_keyed(approximate_experts),
-            approximate_expert_init_tokens=_config_keyed(approximate_tokens),
             implementation_metadata={
                 "algorithm": "mone",
-                "patches_enabled": self._mone_patches,
             },
         )
-        prepare_mone_model_for_save(model)
 
         self._applied = True
 
     def _dump_debug_stats(
         self,
         approximate_experts: dict[str, list[int]],
-        approximate_tokens: dict[str, list[int]],
     ):
         if self.debug_path is None:
             return
@@ -310,9 +262,7 @@ class MoNEPruningModifier(Modifier):
                 "ranking_scope": self.ranking_scope,
                 "fusion_io_weight": self.fusion_io_weight,
                 "stats_device": self.stats_device,
-                "patches_enabled": self._mone_patches,
                 "approximate_experts": _config_keyed(approximate_experts),
-                "approximate_expert_init_tokens": _config_keyed(approximate_tokens),
                 "layers": {
                     _config_layer_key(layer_name): {
                         "importance": tracker.importance.detach().cpu(),
@@ -330,7 +280,7 @@ class MoNEPruningModifier(Modifier):
         )
         logger.info(f"Wrote MoNE debug stats to {debug_path}")
 
-    def _select_novices(self) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+    def _select_novices(self) -> dict[str, list[int]]:
         for layer_name, tracker in self._stats_trackers.items():
             if not tracker.has_stats:
                 raise ValueError(
@@ -339,21 +289,16 @@ class MoNEPruningModifier(Modifier):
 
         if self.ranking_scope == "layer":
             approximate_experts = {}
-            approximate_tokens = {}
             for layer_name, tracker in self._stats_trackers.items():
                 selection = tracker.select_layerwise(self._preserve_n_experts)
                 approximate_experts[layer_name] = selection.novices
-                approximate_tokens[layer_name] = self._novice_init_tokens(
-                    tracker,
-                    selection.novices,
-                )
-            return approximate_experts, approximate_tokens
+            return approximate_experts
 
         return self._select_novices_globally()
 
     def _select_novices_globally(
         self,
-    ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+    ) -> dict[str, list[int]]:
         layer_names = list(self._stats_trackers.keys())
         scores = torch.cat(
             [
@@ -380,7 +325,6 @@ class MoNEPruningModifier(Modifier):
             )
 
         approximate_experts = {}
-        approximate_tokens = {}
         offset = 0
         for layer_name in layer_names:
             tracker = self._stats_trackers[layer_name]
@@ -389,22 +333,9 @@ class MoNEPruningModifier(Modifier):
                 if offset + expert_idx not in preserved_flat:
                     novices.append(expert_idx)
             approximate_experts[layer_name] = novices
-            approximate_tokens[layer_name] = self._novice_init_tokens(
-                tracker,
-                novices,
-            )
             offset += tracker.num_experts
 
-        return approximate_experts, approximate_tokens
-
-    def _novice_init_tokens(
-        self,
-        tracker: MoNEStatsTracker,
-        novices: list[int],
-    ) -> list[int]:
-        if not self.enable_novice_evolving:
-            return [0 for _ in novices]
-        return [int(tracker.num_tokens[idx].item()) for idx in novices]
+        return approximate_experts
 
 
 def _hidden_size(model: torch.nn.Module, moe_attrs: MoeModelAttrs) -> int:

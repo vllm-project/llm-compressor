@@ -3,9 +3,6 @@ Helpers for loading and running MoNE-pruned MoE models.
 """
 
 import re
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -15,146 +12,12 @@ from loguru import logger
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D, NoviceExpertMLP
 
 __all__ = [
-    "MoNEModelSupport",
     "apply_mone_structure",
-    "get_mone_model_processor_source",
-    "is_mone_checkpoint",
-    "load_mone_checkpoint",
-    "postprocess_mone_export",
-    "prepare_model_for_mone",
-    "prepare_mone_model_for_save",
-    "register_mone_model_support",
 ]
 
 
 ROUTER_ATTRS = ("router", "gate")
 EXPERTS_ATTRS = ("experts",)
-_MONE_MODEL_SUPPORTS: dict[str, "MoNEModelSupport"] = {}
-_BUILTIN_SUPPORT_LOADED = False
-
-
-@dataclass(frozen=True)
-class MoNEModelSupport:
-    name: str
-    prepare_model: Callable[[nn.Module], list[str] | None] | None = None
-    prepare_for_save: Callable[[nn.Module], None] | None = None
-    postprocess_export: Callable[[nn.Module, str | Path], None] | None = None
-    is_checkpoint: Callable[[str | Path], bool] | None = None
-    load_checkpoint: Callable[..., nn.Module] | None = None
-    processor_source: Callable[[nn.Module], str | Path | None] | None = None
-
-
-def register_mone_model_support(support: MoNEModelSupport) -> None:
-    """
-    Register architecture-specific MoNE hooks.
-    """
-
-    _MONE_MODEL_SUPPORTS[support.name] = support
-
-
-def prepare_model_for_mone(model: nn.Module) -> list[str]:
-    """
-    Apply architecture-specific runtime preparation needed before MoNE calibration.
-
-    The generic MoNE modifier should not need to know which model family needs
-    which patch. Family-specific support is dispatched from here.
-    """
-
-    patches = []
-    for support in _iter_mone_model_supports():
-        if support.prepare_model is None:
-            continue
-        patches.extend(support.prepare_model(model) or [])
-    return patches
-
-
-def is_mone_checkpoint(model_path: str | Path) -> bool:
-    """
-    Return True when ``model_path`` is a MoNE checkpoint with custom load support.
-    """
-
-    return any(
-        support.is_checkpoint is not None and support.is_checkpoint(model_path)
-        for support in _iter_mone_model_supports()
-    )
-
-
-def load_mone_checkpoint(model_path: str | Path, **load_kwargs) -> nn.Module:
-    """
-    Load a MoNE checkpoint using the first registered matching checkpoint loader.
-    """
-
-    for support in _iter_mone_model_supports():
-        if support.is_checkpoint is None or not support.is_checkpoint(model_path):
-            continue
-        if support.load_checkpoint is None:
-            raise ValueError(
-                f"MoNE support '{support.name}' recognized {model_path} but does "
-                "not provide a checkpoint loader."
-            )
-        return support.load_checkpoint(model_path, **load_kwargs)
-
-    raise ValueError(f"No registered MoNE checkpoint loader recognized {model_path}")
-
-
-def get_mone_model_processor_source(model: nn.Module) -> str | Path | None:
-    """
-    Return a tokenizer/processor source associated with a loaded MoNE model.
-    """
-
-    for support in _iter_mone_model_supports():
-        if support.processor_source is None:
-            continue
-        source = support.processor_source(model)
-        if source is not None:
-            return source
-    return None
-
-
-def prepare_mone_model_for_save(model: nn.Module) -> None:
-    """
-    Attach architecture-specific export metadata after MoNE has modified a model.
-
-    Generic linearized MoE models can be saved as-is. Architectures with custom
-    checkpoint layouts can register their export preparation here.
-    """
-
-    for support in _iter_mone_model_supports():
-        if support.prepare_for_save is not None:
-            support.prepare_for_save(model)
-
-
-def postprocess_mone_export(model: nn.Module, output_dir: str | Path) -> None:
-    """
-    Post-process a saved MoNE checkpoint for architecture-specific layouts.
-    """
-
-    for support in _iter_mone_model_supports():
-        if support.postprocess_export is not None:
-            support.postprocess_export(model, output_dir)
-
-
-def _iter_mone_model_supports() -> tuple[MoNEModelSupport, ...]:
-    _load_builtin_mone_support()
-    return tuple(_MONE_MODEL_SUPPORTS.values())
-
-
-def _load_builtin_mone_support() -> None:
-    global _BUILTIN_SUPPORT_LOADED
-
-    if _BUILTIN_SUPPORT_LOADED:
-        return
-
-    _BUILTIN_SUPPORT_LOADED = True
-    try:
-        from llmcompressor.modeling.moe.mone_builtins import (
-            load_builtin_mone_support,
-        )
-
-        load_builtin_mone_support()
-    except Exception:
-        _BUILTIN_SUPPORT_LOADED = False
-        raise
 
 
 def apply_mone_structure(
@@ -176,7 +39,7 @@ def apply_mone_structure(
     :return: mapping from matched MoE layer names to novice expert indices.
     """
 
-    approximate_experts, approximate_tokens = _mone_config_maps(model)
+    approximate_experts = _mone_config_maps(model)
     if not approximate_experts:
         return {}
 
@@ -193,18 +56,10 @@ def apply_mone_structure(
         matched_config_keys.add(config_key)
         matched_config_keys.add(layer_name)
 
-        token_values = _lookup_layer_values(approximate_tokens, layer_name) or []
-        token_by_expert = {
-            expert_idx: int(token_values[pos])
-            for pos, expert_idx in enumerate(novice_indices)
-            if pos < len(token_values)
-        }
-
         for expert_idx in novice_indices:
             _replace_expert_with_novice(
                 experts=experts,
                 expert_idx=expert_idx,
-                acc_tokens=token_by_expert.get(expert_idx, 0),
             )
 
         replaced[layer_name] = novice_indices
@@ -246,7 +101,6 @@ def _iter_linear_moe_experts(
 def _replace_expert_with_novice(
     experts: LinearExperts2D,
     expert_idx: int,
-    acc_tokens: int,
 ):
     if expert_idx < 0 or expert_idx >= experts.num_experts:
         raise ValueError(
@@ -256,7 +110,6 @@ def _replace_expert_with_novice(
 
     old_expert = experts[expert_idx]
     if isinstance(old_expert, NoviceExpertMLP):
-        old_expert.acc_tokens = acc_tokens
         return
 
     hidden_size = _expert_hidden_size(old_expert)
@@ -267,24 +120,20 @@ def _replace_expert_with_novice(
     experts[expert_idx] = NoviceExpertMLP(
         hidden_dim=hidden_size,
         dtype=dtype,
-        acc_tokens=acc_tokens,
     ).to(device)
 
 
 def _mone_config_maps(
     model: nn.Module,
-) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+) -> dict[str, list[int]]:
     for config in _candidate_configs(model):
         approximate_experts = getattr(config, "approximate_experts", None)
         if not approximate_experts:
             continue
 
-        approximate_tokens = getattr(config, "approximate_expert_init_tokens", None)
-        return _normalize_layer_map(approximate_experts), _normalize_layer_map(
-            approximate_tokens or {}
-        )
+        return _normalize_layer_map(approximate_experts)
 
-    return {}, {}
+    return {}
 
 
 def _candidate_configs(model: nn.Module) -> list[object]:
