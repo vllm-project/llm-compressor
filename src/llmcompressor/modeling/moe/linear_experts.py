@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Callable, ClassVar
 
 import torch
@@ -20,9 +20,8 @@ from .helpers import (
 
 
 class ExpertMLP(torch.nn.Module, ABC):
-    @abstractmethod
-    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        raise NotImplementedError()
+    up_proj: torch.nn.Linear
+    down_proj: torch.nn.Linear
 
 
 class ExpertMLPWithGate(ExpertMLP):
@@ -51,32 +50,6 @@ class ExpertMLPWithGate(ExpertMLP):
             intermediate_size, hidden_dim, bias=mlp_bias, dtype=dtype
         )
         self._apply_gate = _apply_gate
-
-    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        # load weights
-        if not experts.is_transposed:
-            gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
-            up_weight = experts.gate_up_proj[index, self.intermediate_size :]
-            down_weight = experts.down_proj[index]
-
-        else:
-            gate_weight = experts.gate_up_proj[index, :, : self.intermediate_size].T
-            up_weight = experts.gate_up_proj[index, :, self.intermediate_size :].T
-            down_weight = experts.down_proj[index].T
-
-        self.gate_proj.weight.copy_(gate_weight)
-        self.up_proj.weight.copy_(up_weight)
-        self.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
-            up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
-            down_bias = experts.down_proj_bias[index]
-
-            self.gate_proj.bias.copy_(gate_bias)
-            self.up_proj.bias.copy_(up_bias)
-            self.down_proj.bias.copy_(down_bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
@@ -110,27 +83,6 @@ class ExpertMLPWithoutGate(ExpertMLP):
             intermediate_size, hidden_dim, bias=mlp_bias, dtype=dtype
         )
         self.act_fn = act_fn
-
-    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        # load weights
-        if not experts.is_transposed:
-            up_weight = experts.up_proj[index]
-            down_weight = experts.down_proj[index]
-
-        else:
-            up_weight = experts.up_proj[index].T
-            down_weight = experts.down_proj[index].T
-
-        self.up_proj.weight.copy_(up_weight)
-        self.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            up_bias = experts.up_proj_bias[index]
-            down_bias = experts.down_proj_bias[index]
-
-            self.up_proj.bias.copy_(up_bias)
-            self.down_proj.bias.copy_(down_bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
