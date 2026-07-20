@@ -11,17 +11,15 @@ from transformers import (
     AutoModelForCausalLM,
     PreTrainedModel,
 )
-from transformers.conversion_mapping import (
-    register_checkpoint_conversion_mapping,
-)
-from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
+from transformers.monkey_patching import clear_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
-    get_linearize_load_mappings,
     has_linearize_load_mappings,
-    set_save_conversion_mapping,
+    has_linearize_save_mappings,
+    set_linearize_load_mappings,
+    set_linearize_save_mappings,
 )
 from .linear_experts import LinearExperts2D
 
@@ -58,26 +56,21 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         config = AutoConfig.from_pretrained(*args, **kwargs)
         model_type = config.model_type
 
-        # model is 3d (or otherwise doesn't have mappings)
-        # fall back to post-load conversion
-        if not has_linearize_load_mappings(model_type):
-            model = original_from_pretrained(*args, **kwargs)
-            linearize_moe(model)
-            return model
-
         # prepare to load linearized weights
-        experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
-        linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
-        register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-        register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
+        if has_linearize_load_mappings(model_type):
+            set_linearize_load_mappings(model_type)
 
         # load model
-        model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
+        model = original_from_pretrained(*args, **kwargs)
+
+        # model is 3d (or doesn't have mappings yet): fall back to post-load conversion
+        if not has_linearize_load_mappings(model_type):
+            linearize_moe(model)
 
         # prepare for saving to be called later
         clear_patch_mapping()
-        set_save_conversion_mapping(model, save_map)
-        register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
+        if has_linearize_save_mappings(model_type):
+            set_linearize_save_mappings(model, model_type)
 
         return model
 
@@ -123,6 +116,10 @@ def linearize_moe(model: PreTrainedModel):
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
+
+    model_type = model.config.model_type
+    if has_linearize_save_mappings(model_type):
+        set_linearize_save_mappings(model, model_type)
 
 
 def get_non_linearized_moes(

@@ -2,12 +2,14 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    disable_onloading,
+    get_cache_init_kwargs,
+    offload_module,
+)
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
-
-from llmcompressor.utils.dev import skip_weights_initialize
 
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
@@ -160,7 +162,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls, key: type[torch.nn.Module], default: Any = None
     ) -> type["LinearExperts2D"]:
         from .granitemoe import GraniteMoeLinearExperts  # noqa: F401
-        from .inkling import InklingLinearExperts  # noqa: F401
         from .llama4 import Llama4LinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
@@ -193,17 +194,34 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
-        with skip_weights_initialize():
+        with torch.device("meta"):
             self = cls(config)
 
+        # zero copy: remove weight to avoid offloading
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
-            expert.copy_from_experts_module(experts, index)
+            if hasattr(expert, "gate_proj"):
+                del expert.gate_proj.weight
+            del expert.up_proj.weight
+            del expert.down_proj.weight
 
         # copy offloading from original
         offload_kwargs = get_cache_init_kwargs(experts)
         for module in self.modules():
             offload_module(module, **offload_kwargs)
+
+        # zero copy: assign linear weights as a view
+        with disable_onloading():
+            for index in range(self.num_experts):
+                expert: ExpertMLP = self[index]
+                if hasattr(expert, "gate_proj"):
+                    expert.gate_proj._parameters["weight"] = experts.gate_up_proj[
+                        index, : self.intermediate_size
+                    ]
+                expert.up_proj._parameters["weight"] = experts.gate_up_proj[
+                    index, self.intermediate_size :
+                ]
+                expert.down_proj._parameters["weight"] = experts.down_proj[index]
 
         return self
 
