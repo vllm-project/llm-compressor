@@ -42,13 +42,11 @@ class MoNEStatsTracker:
         num_experts: int,
         hidden_size: int,
         ranking_metric: str,
-        fusion_io_weight: float,
         stats_device: str | None,
     ):
         self.num_experts = num_experts
         self.hidden_size = hidden_size
         self.ranking_metric = ranking_metric
-        self.fusion_io_weight = fusion_io_weight
         self.stats_device = torch.device(stats_device) if stats_device else None
 
         self.num_tokens = torch.zeros(num_experts, dtype=torch.long)
@@ -222,12 +220,7 @@ class MoNEStatsTracker:
             return self.output_fluctuation
 
         if self.ranking_metric == "fusion":
-            return (
-                self.fusion_io_weight
-                * self.output_fluctuation
-                * (1.0 - self.fusion_io_weight)
-                * self.routing_score
-            )
+            return self.output_fluctuation * self.routing_score
 
         raise ValueError(f"Unknown MoNE ranking metric: {self.ranking_metric}")
 

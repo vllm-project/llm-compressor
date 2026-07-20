@@ -153,7 +153,6 @@ def test_mone_output_stats_match_batched_population_variance():
         num_experts=1,
         hidden_size=2,
         ranking_metric="output_fluctuation",
-        fusion_io_weight=0.5,
         stats_device="cpu",
     )
 

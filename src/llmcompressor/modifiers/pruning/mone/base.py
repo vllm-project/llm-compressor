@@ -42,7 +42,6 @@ class MoNEPruningModifier(Modifier):
         MoNE recipe: output fluctuation multiplied by router access score.
     :param ranking_scope: ``layer`` preserves the same number of experts in each
         MoE layer; ``model`` applies a global budget across all tracked layers.
-    :param fusion_io_weight: scalar used by the reference fusion score.
     :param zero_out_novice: replace pruned experts with zero-output novices
         instead of mean-output novices.
     :param stats_device: device for calibration statistics. Defaults to CPU to
@@ -56,7 +55,6 @@ class MoNEPruningModifier(Modifier):
     sparsity: float | None = None
     ranking_metric: Literal["fusion", "routing_score", "output_fluctuation"] = "fusion"
     ranking_scope: Literal["layer", "model"] = "layer"
-    fusion_io_weight: float = 0.5
     zero_out_novice: bool = False
     stats_device: str | None = "cpu"
     debug_path: str | None = None
@@ -82,11 +80,6 @@ class MoNEPruningModifier(Modifier):
 
         if self.sparsity is not None and not 0.0 < self.sparsity < 1.0:
             raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
-
-        if not 0.0 <= self.fusion_io_weight <= 1.0:
-            raise ValueError(
-                f"fusion_io_weight must be in [0, 1], got {self.fusion_io_weight}"
-            )
 
         return self
 
@@ -151,7 +144,6 @@ class MoNEPruningModifier(Modifier):
                 num_experts=self._moe_attrs.num_experts,
                 hidden_size=hidden_size,
                 ranking_metric=self.ranking_metric,
-                fusion_io_weight=self.fusion_io_weight,
                 stats_device=self.stats_device,
             )
             self._stats_trackers[layer_name] = tracker
@@ -260,7 +252,6 @@ class MoNEPruningModifier(Modifier):
                 "preserve_n_experts": self._preserve_n_experts,
                 "ranking_metric": self.ranking_metric,
                 "ranking_scope": self.ranking_scope,
-                "fusion_io_weight": self.fusion_io_weight,
                 "stats_device": self.stats_device,
                 "approximate_experts": _config_keyed(approximate_experts),
                 "layers": {
