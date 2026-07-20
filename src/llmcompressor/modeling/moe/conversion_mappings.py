@@ -1,4 +1,3 @@
-import torch
 from loguru import logger
 from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
@@ -21,8 +20,9 @@ from .linear_experts import LinearExperts2D
 
 __all__ = [
     "has_linearize_load_mappings",
-    "get_linearize_load_mappings",
-    "set_save_conversion_mapping",
+    "set_linearize_load_mappings",
+    "has_linearize_save_mappings",
+    "set_linearize_save_mappings",
 ]
 
 ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
@@ -254,10 +254,7 @@ def has_linearize_save_mappings(model_type: str) -> bool:
     return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_SAVE_MAPPINGS
 
 
-def get_linearize_load_mappings(
-    model_type: str,
-) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
-    """ """
+def set_linearize_load_mappings(model_type: str):
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
@@ -281,14 +278,9 @@ def get_linearize_load_mappings(
                 log_once=True,
             )
 
-    return experts_cls, load_mappings
-
-
-def set_linearize_load_mappings(model_type: str):
-    experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
     linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
     register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-    register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
+    register_checkpoint_conversion_mapping(model_type, mappings, overwrite=True)
 
 
 def set_linearize_save_mappings(model: PreTrainedModel, model_type: str):
@@ -313,17 +305,3 @@ def set_linearize_save_mappings(model: PreTrainedModel, model_type: str):
 
     model._weight_conversions = save_mappings
     register_checkpoint_conversion_mapping(model_type, save_mappings, overwrite=True)
-
-
-def set_save_conversion_mapping(
-    model: PreTrainedModel, save_mappings: list[WeightTransform]
-):
-    """
-    Set the conversion mappings used when saving the model. The inverse of these
-    mappings will be applied to the model during saving via
-    `transformers.core_model_loading.py::revert_weight_conversion`.
-
-    :param model: model to override conversion mapping of
-    :param save_mappings: mappings to override with
-    """
-    model._weight_conversions = save_mappings
