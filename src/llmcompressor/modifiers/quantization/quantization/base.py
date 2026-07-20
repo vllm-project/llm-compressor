@@ -121,6 +121,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         module_list: list[torch.nn.Module],
         module_to_rank: dict[torch.nn.Module, int],
     ):
+        # broadcast calculate qparams from assigned rank to other ranks
         pending_comms = []
         for module in module_list:
             if get_execution_device(module) != torch.device("cpu"):
@@ -133,5 +134,12 @@ class QuantizationModifier(Modifier, QuantizationMixin):
                                 async_op=True,
                             )
                         )
+            # delete any observer stats for ranks which didn't run get_qparams
+            obs_names = ACTIVATION_OBS + ("weight",)
+            for base_name in obs_names:
+                obs = getattr(module, f"{base_name}_observer", None)
+                if obs is not None and obs.has_statistics:
+                    obs.delete_statistics(check_fused=True)
+
 
         wait_for_comms(pending_comms)

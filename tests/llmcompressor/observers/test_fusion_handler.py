@@ -1,8 +1,12 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from torch import nn
 
+from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
+from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
 from llmcompressor.observers import Observer
 from llmcompressor.observers.fusion import FusionHandler
 
@@ -28,6 +32,34 @@ def _make_fused_group(n=3):
     pairs = list(zip(observers, modules))
     FusionHandler.fuse(pairs)
     return observers, modules
+
+
+def _make_module_with_observer(strategy=QuantizationStrategy.TENSOR, group_size=None):
+    """Create a Linear module with a weight observer registered as a submodule."""
+    mod = _make_linear()
+    kwargs = {"num_bits": 8, "strategy": strategy}
+    if group_size is not None:
+        kwargs["group_size"] = group_size
+    args = QuantizationArgs(**kwargs)
+    obs = Observer.load_from_registry(
+        "memoryless_minmax", base_name="weight", args=args
+    )
+    mod.register_module("weight_observer", obs)
+    return mod
+
+
+def _make_fused_module_group(n=3):
+    """Create n Linear modules with fused TENSOR_GROUP weight observers."""
+    modules = []
+    observers = []
+    for _ in range(n):
+        mod = _make_linear()
+        obs = _make_observer()
+        mod.register_module("weight_observer", obs)
+        modules.append(mod)
+        observers.append(obs)
+    FusionHandler.fuse(zip(observers, modules))
+    return modules
 
 
 @pytest.mark.unit
@@ -242,3 +274,103 @@ class TestNVFP4FusedLifecycle:
         qparams = [obs.get_qparams() for obs in observers]
         for qp in qparams:
             assert qp["global_scale"] is not None
+
+
+def _mock_broadcast(*args, **kwargs):
+    """Stand-in for dist.broadcast that returns a mock async work handle."""
+    return MagicMock()
+
+
+def _simulate_ddp_epoch(modifier, modules, rank_to_modules, module_to_rank):
+    """Simulate the distributed branch of on_sequential_epoch_end.
+
+    1. observe + update_qparams on this rank's subset (rank 0)
+    2. call _broadcast_qparam_onloads on the full module list
+    """
+    observe(rank_to_modules[0], "weight")
+    update_qparams(rank_to_modules[0], "weight")
+
+    with (
+        patch("llmcompressor.modifiers.quantization.quantization.base.dist.broadcast",
+              side_effect=_mock_broadcast),
+        patch("llmcompressor.modifiers.quantization.quantization.base.wait_for_comms"),
+    ):
+        modifier._broadcast_qparam_onloads(modules, module_to_rank)
+
+
+@pytest.mark.unit
+class TestDDPObserverCleanup:
+    """Regression tests for DDP observer stats leak.
+
+    In DDP, greedy_bin_packing assigns modules to ranks and only the owning
+    rank calls update_qparams (which triggers get_qparams -> delete_statistics).
+    Modules assigned to other ranks kept stats forever, leaking memory per layer.
+    The fix adds a cleanup loop inside _broadcast_qparam_onloads that calls
+    delete_statistics(check_fused=True) on all modules.
+
+    These tests patch dist.broadcast and call _broadcast_qparam_onloads directly
+    to simulate the DDP flow without requiring multiple processes.
+    """
+
+    def test_broadcast_cleans_up_unprocessed_modules(self):
+        """_broadcast_qparam_onloads deletes stats on modules not owned by this rank."""
+        modules = [_make_module_with_observer() for _ in range(4)]
+        observe(modules, "weight")
+
+        # simulate rank assignment: rank 0 owns first 2, rank 1 owns last 2
+        rank_to_modules = {0: modules[:2], 1: modules[2:]}
+        module_to_rank = {m: 0 for m in modules[:2]}
+        module_to_rank.update({m: 1 for m in modules[2:]})
+
+        modifier = QuantizationModifier(targets=[])
+        _simulate_ddp_epoch(modifier, modules, rank_to_modules, module_to_rank)
+
+        for mod in modules:
+            assert not mod.weight_observer.has_statistics
+
+    def test_fused_cleanup_with_split_ranks(self):
+        """Fused observers (NVFP4 Q/K/V) split across ranks.
+
+        rank 0 gets q_proj, rank 1 gets k_proj and v_proj.
+        _broadcast_qparam_onloads cooperative deletion cleans up everything.
+        """
+        modules = _make_fused_module_group(n=3)
+        observe(modules, "weight")
+
+        # q on rank 0, k/v on rank 1
+        rank_to_modules = {0: modules[:1], 1: modules[1:]}
+        module_to_rank = {modules[0]: 0, modules[1]: 1, modules[2]: 1}
+
+        modifier = QuantizationModifier(targets=[])
+        _simulate_ddp_epoch(modifier, modules, rank_to_modules, module_to_rank)
+
+        for mod in modules:
+            assert not mod.weight_observer.has_statistics
+
+    def test_repeated_layers_no_accumulation(self):
+        """Stats from previous layers never pile up across sequential layers."""
+        modifier = QuantizationModifier(targets=[])
+
+        all_layer_modules = []
+        for _ in range(5):
+            layer = [_make_module_with_observer() for _ in range(4)]
+            all_layer_modules.append(layer)
+
+        for layer_idx, modules in enumerate(all_layer_modules):
+            observe(modules, "weight")
+
+            rank_to_modules = {0: modules[:2], 1: modules[2:]}
+            module_to_rank = {m: 0 for m in modules[:2]}
+            module_to_rank.update({m: 1 for m in modules[2:]})
+
+            _simulate_ddp_epoch(modifier, modules, rank_to_modules, module_to_rank)
+
+            for mod in modules:
+                assert not mod.weight_observer.has_statistics, (
+                    f"Layer {layer_idx}: observer stats not cleaned up"
+                )
+            for prev_idx in range(layer_idx):
+                for mod in all_layer_modules[prev_idx]:
+                    assert not mod.weight_observer.has_statistics, (
+                        f"Layer {prev_idx} stats leaked into layer {layer_idx}"
+                    )
