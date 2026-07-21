@@ -118,18 +118,6 @@ Best used when:
 | RTN `imatrix_mse` | 6.85 |
 | GPTQ + `imatrix_mse` | 6.83 |
 
-### IMatrixGatherer
-
-[`IMatrixGatherer`](../../src/llmcompressor/modifiers/transform/imatrix/base.py) is a modifier (not an observer) that must precede `QuantizationModifier` or `GPTQModifier` in your recipe when using `imatrix_mse`. It orchestrates a dedicated calibration pass during which the observer collects E[x²] per input channel via forward pre-hooks. It does **not** quantize weights.
-
-At the end of the calibration epoch, it calls `observer.detach()` on each instrumented module, which leaves raw `_imatrix_sum` and `_imatrix_count` accumulators on the module for the subsequent quantization pass to pick up.
-
-| Parameter | Default | Description |
-|---|---|---|
-| `targets` | `["Linear"]` | Module types to instrument for importance collection. |
-| `ignore` | `["lm_head"]` | Layer name patterns to skip. |
-| `weight_observer` | `"imatrix_mse"` | Observer to attach during the calibration pass. |
-
 ## Observer Fusion (global_scale)
 
 For TENSOR_GROUP quantization schemes (e.g., NVFP4), layers that are fused at inference time (Q/K/V projections, gate/up MLP projections) must share the same `global_scale`. This is handled automatically by observer fusion:
