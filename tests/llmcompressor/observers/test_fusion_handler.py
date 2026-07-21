@@ -293,8 +293,8 @@ def _simulate_ddp_broadcast(
     update_qparams(rank_to_modules[0], "weight")
 
     with (
-        patch(f"{_DIST_MODULE}.dist.broadcast", return_value=MagicMock()),
-        patch(f"{_DIST_MODULE}._wait_for_comms"),
+        patch("torch.distributed.broadcast", return_value=MagicMock()),
+        patch("compressed_tensors.distributed.utils.wait_for_comms"),
     ):
         broadcast_qparams_and_cleanup(
             modules, module_to_rank, qparam_names, skip_cpu=skip_cpu
