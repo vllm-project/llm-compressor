@@ -1,28 +1,22 @@
+import torch
 from loguru import logger
 from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
     _MODEL_TO_CONVERSION_PATTERN,
     get_checkpoint_conversion_mapping,
-    register_checkpoint_conversion_mapping,
 )
 from transformers.core_model_loading import (
-    Chunk,
-    Interleave,
-    SplitModulelist,
     WeightConverter,
     WeightRenaming,
     WeightTransform,
 )
-from transformers.monkey_patching import register_patch_mapping
 
 from .helpers import import_or_none
-from .linear_experts import LinearExperts2D
 
 __all__ = [
     "has_linearize_load_mappings",
-    "set_linearize_load_mappings",
-    "has_linearize_save_mappings",
-    "set_linearize_save_mappings",
+    "get_linearize_load_mappings",
+    "set_save_conversion_mapping",
 ]
 
 ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
@@ -97,6 +91,10 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.hy_v3.configuration_hy_v3.HYV3Config",
         "transformers.models.hy_v3.modeling_hy_v3.HYV3Experts",
     ),
+    "inkling_mm_model": (
+        "transformers.models.inkling.configuration_inkling.InklingTextConfig",
+        "transformers.models.inkling.modeling_inkling.InklingExperts",
+    ),
     "jamba": (
         "transformers.models.jamba.configuration_jamba.JambaConfig",
         "transformers.models.jamba.modeling_jamba.JambaExperts",
@@ -165,13 +163,9 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe.Qwen3VLMoeTextConfig",
         "transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe.Qwen3VLMoeTextExperts",
     ),
-    "inkling_mm_model": (
-        "transformers.models.inkling.configuration_inkling.InklingTextConfig",
-        "transformers.models.inkling.modeling_inkling.InklingExperts",
-    ),
 }
 
-ARCH_TO_LOAD_MAPPINGS = {
+ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
         [
@@ -209,101 +203,57 @@ ARCH_TO_LOAD_MAPPINGS = {
 }
 
 
-ARCH_TO_SAVE_MAPPINGS = {
-    "inkling_mm_model": (
-        # NOTE: linearization of shared linear weights is not supported yet
-        # remove:
-        # shared_w13_weight, mlp.experts.w13_weight (moe), mlp.w13_dn.weight (dense)
-        ["gate_proj", "mlp.experts.gate_up_proj", "mlp.gate_proj.weight"],
-        [
-            # 
-            WeightConverter(
-                source_patterns="mlp.experts.w13_weight",
-                target_patterns=[
-                    "mlp.experts.*.gate_proj.weight",
-                    "mlp.experts.*.up_proj.weight",
-                ],
-                operations=[Interleave(dim=1), Chunk(dim=1), SplitModulelist(dim=0)],
-            ),
-            WeightConverter(
-                source_patterns="mlp.experts.w2_weight",
-                target_patterns="mlp.experts.*.down_proj.weight",
-                operations=[SplitModulelist(dim=0)],
-            ),
-            WeightConverter(
-                source_patterns="mlp.experts.w13_input",
-                target_patterns=[
-                    "mlp.experts.*.gate_proj.input",
-                    "mlp.experts.*.up_proj.input",
-                ],
-                operations=[Interleave(dim=1), Chunk(dim=1), SplitModulelist(dim=0)],
-            ),
-            WeightConverter(
-                source_patterns="mlp.experts.w2_input",
-                target_patterns="mlp.experts.*.down_proj.input",
-                operations=[SplitModulelist(dim=0)],
-            ),
-        ],
-    )
-}
-
-
 def has_linearize_load_mappings(model_type: str) -> bool:
     remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_LOAD_MAPPINGS
+    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_2D_MAPPINGS
 
 
-def has_linearize_save_mappings(model_type: str) -> bool:
-    remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_SAVE_MAPPINGS
-
-
-def set_linearize_load_mappings(model_type: str):
+def get_linearize_load_mappings(
+    model_type: str,
+) -> tuple[type[torch.nn.Module], list[WeightTransform], list[WeightTransform]]:
+    """ """
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
-    mappings: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
+    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    remove_targets, load_mappings = ARCH_TO_LOAD_MAPPINGS[model_type]
+    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
-    mappings = [
+    # forwards has conversion mappings
+    # backwards has no mappings (stay 2d)
+    save_mappings = [
         converter
-        for converter in mappings
+        for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    mappings += load_mappings
+    load_mappings = save_mappings + new_mappings
 
     # validate that no transforms occur during loading/saving
-    for converter in mappings:
+    for converter in load_mappings:
         if isinstance(converter, WeightConverter):
-            logger.bind(log_once=True).warning(
+            logger.warning(
                 "Linearized model performs a weight conversion during loading. This "
-                "may lead to longer load times"
+                f"may lead to longer load times\n{converter}"
+            )
+    for converter in save_mappings:
+        if isinstance(converter, WeightConverter):
+            logger.warning(
+                "Linearized model performs a weight conversion during saving. This "
+                f"may lead to longer save times\n{converter}"
             )
 
-    linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
-    register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-    register_checkpoint_conversion_mapping(model_type, mappings, overwrite=True)
+    return experts_cls, load_mappings, save_mappings
 
 
-def set_linearize_save_mappings(model: PreTrainedModel, model_type: str):
-    mappings: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
-    remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    remove_targets, save_mappings = ARCH_TO_SAVE_MAPPINGS[remapped_type]
+def set_save_conversion_mapping(
+    model: PreTrainedModel, save_mappings: list[WeightTransform]
+):
+    """
+    Set the conversion mappings used when saving the model. The inverse of these
+    mappings will be applied to the model during saving via
+    `transformers.core_model_loading.py::revert_weight_conversion`.
 
-    mappings = [
-        converter
-        for converter in mappings
-        if not any(target in remove_targets for target in converter.target_patterns)
-    ]
-    #mappings += save_mappings
-
-    # for converter in mappings:
-    #     if isinstance(converter, WeightConverter):
-    #         logger.bind(log_once=True).warning(
-    #             "Linearized model performs a weight conversion during saving. This "
-    #             "may lead to longer save times"
-    #         )
-
-    model._weight_conversions = mappings
-    register_checkpoint_conversion_mapping(model_type, mappings, overwrite=True)
+    :param model: model to override conversion mapping of
+    :param save_mappings: mappings to override with
+    """
+    model._weight_conversions = save_mappings

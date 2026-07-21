@@ -6,10 +6,7 @@ import torch
 from compressed_tensors.utils import patch_attr
 from huggingface_hub.errors import StrictDataclassError
 from safetensors import safe_open
-from transformers import (
-    AutoConfig,
-    InklingForConditionalGeneration,
-)
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers import initialization as init
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
@@ -23,7 +20,7 @@ from llmcompressor.modeling.moe.helpers import (
     _getattr_fallbacks,
     import_or_none,
 )
-from llmcompressor.modeling.moe.linearize import linearize_moe
+from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
 from tests.testing_utils import requires_gpu
 
 NUM_TEST_TOKENS = 64
@@ -62,48 +59,36 @@ def patch_deepseek_fp32_modules():
 @torch.no_grad()
 @requires_gpu
 @pytest.mark.parametrize(
-    "model_cls,model_stub,exp_keys",
+    "model_stub,exp_keys",
     [
-        # (
-        #     "inference-optimization/DSV4-tiny-empty",
-        #     [
-        #         "model.layers.0.mlp.experts.2.up_proj.weight",
-        #         "model.layers.1.mlp.experts.0.gate_proj.weight",
-        #         "model.layers.2.mlp.experts.1.down_proj.weight",
-        #     ],
-        # ),
-        # (
-        #     "inference-optimization/Qwen3-1.6B-A0.9B",
-        #     [
-        #         "model.layers.0.mlp.experts.2.up_proj.weight",
-        #         "model.layers.1.mlp.experts.0.gate_proj.weight",
-        #         "model.layers.2.mlp.experts.1.down_proj.weight",
-        #     ],
-        # ),
-        # (
-        #     "inference-optimization/GLM-5.2-0.8B-A0.8B",
-        #     [
-        #         "model.layers.2.mlp.experts.2.up_proj.weight",
-        #         "model.layers.3.mlp.experts.0.gate_proj.weight",
-        #         "model.layers.4.mlp.experts.1.down_proj.weight",
-        #     ],
-        # ),
         (
-            InklingForConditionalGeneration,
-            "inference-optimization/Inkling-0.6B-A0.6B",
+            "inference-optimization/DSV4-tiny-empty",
             [
-                "model.llm.layers.0.mlp.w2_md.weight",  # dense 2d
-                "model.llm.layers.0.mlp.w13_dn.weight",  # dense 2d
-                "model.llm.layers.2.mlp.shared_experts.shared_w13_weight",
-                "model.llm.layers.2.mlp.shared_experts.shared_w2_weight",
-                "model.llm.layers.2.mlp.experts.w2_weight",
-                "model.llm.layers.2.mlp.experts.w13_weight",
+                "model.layers.0.mlp.experts.2.up_proj.weight",
+                "model.layers.1.mlp.experts.0.gate_proj.weight",
+                "model.layers.2.mlp.experts.1.down_proj.weight",
             ],
-        )
+        ),
+        (
+            "inference-optimization/Qwen3-1.6B-A0.9B",
+            [
+                "model.layers.0.mlp.experts.2.up_proj.weight",
+                "model.layers.1.mlp.experts.0.gate_proj.weight",
+                "model.layers.2.mlp.experts.1.down_proj.weight",
+            ],
+        ),
+        (
+            "inference-optimization/GLM-5.2-0.8B-A0.8B",
+            [
+                "model.layers.2.mlp.experts.2.up_proj.weight",
+                "model.layers.3.mlp.experts.0.gate_proj.weight",
+                "model.layers.4.mlp.experts.1.down_proj.weight",
+            ],
+        ),
     ],
 )
 def test_load_quantizable_moe(
-    model_cls, model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
+    model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
 ):
     try:
         AutoConfig.from_pretrained(model_stub)
@@ -111,25 +96,12 @@ def test_load_quantizable_moe(
         pytest.skip("Could not import model, please upgrade your transformers version")
 
     input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
-    model = model_cls.from_pretrained(model_stub, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
     del model
 
-    # with load_quantizable_moe(model_cls):
-    from compressed_tensors.offload import set_onload_device
-
-    from llmcompressor.utils import load_context
-
-    with load_context(model_cls):
-        model2 = model_cls.from_pretrained(
-            model_stub,
-            device_map="auto_offload",
-            max_memory={},
-            offload_folder="offload_folder",
-        )
-        set_onload_device(model2, "cuda")
-    # with load_quantizable_moe(model_cls):
-    #     model2 = model_cls.from_pretrained(model_stub, device_map="cuda")
+    with load_quantizable_moe():
+        model2 = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
 
     select_exp_outputs = model2(input_ids=input_ids).logits
 
@@ -139,8 +111,6 @@ def test_load_quantizable_moe(
     assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
     assert torch.nn.functional.mse_loss(true_outputs, select_exp_outputs) < MODEL_MSE
     assert torch.nn.functional.mse_loss(true_outputs, all_exp_outputs) < MODEL_MSE
-
-    # apply_quantization_config(model2, QuantizationConfig(config_groups={"": preset_name_to_scheme("W4A16_ASYM", ["re:.*mlp.*"])}))  # noqa: E501
 
     save_dir = tmp_path / "save_path"
     os.mkdir(save_dir)
