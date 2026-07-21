@@ -13,7 +13,7 @@ from llmcompressor.utils import load_context
 model_id = "zai-org/GLM-5.2"
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="auto"
+        model_id, device_map="auto_offload"
     )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 if tokenizer.pad_token is None:
