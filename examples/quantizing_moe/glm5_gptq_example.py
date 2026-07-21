@@ -12,9 +12,7 @@ from llmcompressor.utils import load_context
 # device_map="auto" places weights across available GPUs/CPU automatically.
 model_id = "zai-org/GLM-5.2"
 with load_context():
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="auto_offload"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token

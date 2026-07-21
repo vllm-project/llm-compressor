@@ -2,17 +2,18 @@ import pytest
 
 pytest.importorskip("transformers.models.glm_moe_dsa")
 
-import torch
-from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import GlmMoeDsaConfig
-from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (
+import torch  # noqa: E402
+from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import (  # noqa: E402
+    GlmMoeDsaConfig,
+)
+from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (  # noqa: E402
     GlmMoeDsaForCausalLM,
 )
 
-from llmcompressor.args.dataset_arguments import DatasetArguments
-from llmcompressor.modeling.moe.linearize import linearize_moe
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
-from llmcompressor.utils.dev import skip_weights_initialize
-
+from llmcompressor.args.dataset_arguments import DatasetArguments  # noqa: E402
+from llmcompressor.modeling.moe.linearize import linearize_moe  # noqa: E402
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs  # noqa: E402
+from llmcompressor.utils.dev import skip_weights_initialize  # noqa: E402
 
 TINY_CONFIG_KWARGS = dict(
     hidden_size=128,
