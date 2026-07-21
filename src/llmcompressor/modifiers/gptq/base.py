@@ -186,6 +186,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     scheme.weights.actorder = None
         return config
 
+    def requires_calibration_data(self) -> bool:
+        return True
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run the GPTQ algorithm on the current state

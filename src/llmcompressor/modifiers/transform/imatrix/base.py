@@ -65,6 +65,9 @@ class IMatrixGatherer(Modifier):
     #  Lifecycle
     # ------------------------------------------------------------------ #
 
+    def requires_calibration_data(self) -> bool:
+        return True
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Attach iMatrix observers to target modules for E[x²] collection

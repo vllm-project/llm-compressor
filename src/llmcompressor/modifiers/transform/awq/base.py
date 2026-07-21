@@ -161,6 +161,9 @@ class AWQModifier(Modifier):
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
+    def requires_calibration_data(self) -> bool:
+        return True
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Start AWQ on the given state. This runs before quantization config has been

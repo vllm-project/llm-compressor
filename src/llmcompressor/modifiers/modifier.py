@@ -27,6 +27,10 @@ class Modifier(ModifierInterface, HooksMixin):
         * on_calibration_end if event.type_ == EventType.CALIBRATION_END
     5. finalize
 
+    Subclasses that need calibration data must override
+    ``requires_calibration_data`` to return ``True``. This is used by the
+    pipeline registry to select the appropriate calibration pipeline.
+
     :param index: The index of the modifier in the list of modifiers
         for the model
     :param group: The group name for the modifier

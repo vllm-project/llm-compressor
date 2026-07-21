@@ -293,6 +293,23 @@ class QuantizationMixin(HooksMixin):
                     pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
 
+    def requires_calibration_data(self) -> bool:
+        if self.kv_cache_scheme is not None:
+            return True
+
+        for scheme in self.resolved_config.config_groups.values():
+            if scheme.weights is not None:
+                if scheme.weights.observer == "imatrix_mse":
+                    return True
+            if scheme.input_activations is not None:
+                if scheme.input_activations.dynamic in (False, DynamicType.LOCAL):
+                    return True
+            if scheme.output_activations is not None:
+                if not scheme.output_activations.dynamic:
+                    return True
+
+        return False
+
     def has_config(self) -> bool:
         """
         Determine if the user has specified a quantization config on this modifier

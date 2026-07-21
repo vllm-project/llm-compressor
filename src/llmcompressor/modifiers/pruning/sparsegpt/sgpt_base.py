@@ -100,6 +100,9 @@ class SparsityModifierBase(Modifier):
     def compress_modules(self):
         raise NotImplementedError()
 
+    def requires_calibration_data(self) -> bool:
+        return True
+
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
         Initialize and run the SparseGPT algorithm on the current state
