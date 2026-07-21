@@ -100,3 +100,7 @@ def test_oneshot_stacks(tmp_path):
     assert set(quant_config.ignore) == set(["lm_head"])
     assert ordered_schemes[0].targets[0] == "re:.*self_attn.(q|k|v|o)_proj*"
     assert ordered_schemes[1].targets[0] == "re:.*mlp.(gate|up|down)_proj*"
+
+    assert quant_config.format == "mixed-precision"
+    assert ordered_schemes[0].format == "float-quantized"
+    assert ordered_schemes[1].format == "int-quantized"
