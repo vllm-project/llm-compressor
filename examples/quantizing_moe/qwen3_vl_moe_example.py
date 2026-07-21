@@ -123,6 +123,7 @@ print("==========================================")
 
 
 # Save to disk compressed.
+# NOTE: for now, must use `save_original_format` to avoid errors with repacking qparams
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
 processor.save_pretrained(SAVE_DIR)
