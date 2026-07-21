@@ -62,14 +62,14 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         # load model
         model = original_from_pretrained(*args, **kwargs)
-
-        # model is 3d (or doesn't have mappings yet): fall back to post-load conversion
-        if not has_linearize_load_mappings(model_type):
-            linearize_moe(model)
-
-        # prepare for saving to be called later
         clear_patch_mapping()
-        if has_linearize_save_mappings(model_type):
+
+        # if model is 3d (or doesn't have mappings yet): use post-load conversion
+        if not has_linearize_load_mappings(model_type):
+            linearize_moe(model)  # includes `set_linearize_save_mappings`
+        
+        # prepare to save linearized weights
+        elif has_linearize_save_mappings(model_type):
             set_linearize_save_mappings(model, model_type)
 
         return model
@@ -102,14 +102,6 @@ def linearize_moe(model: PreTrainedModel):
 
     if len(non_linearized_moes) <= 0:
         return model
-
-    logger.warning(
-        "MoE is being linearized after loading in order to support efficient "
-        "calibration of experts. However, this may be inefficient if the model "
-        "checkpoint is already linearized (2D -> 3D -> 2D). Consider registering "
-        "a load converter for faster load times. See "
-        "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
-    )
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
         config = getattr(module, "config", model.config)

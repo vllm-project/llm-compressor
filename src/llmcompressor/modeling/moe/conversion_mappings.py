@@ -211,8 +211,12 @@ ARCH_TO_LOAD_MAPPINGS = {
 
 ARCH_TO_SAVE_MAPPINGS = {
     "inkling_mm_model": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        # NOTE: linearization of shared linear weights is not supported yet
+        # remove:
+        # shared_w13_weight, mlp.experts.w13_weight (moe), mlp.w13_dn.weight (dense)
+        ["gate_proj", "mlp.experts.gate_up_proj", "mlp.gate_proj.weight"],
         [
+            # 
             WeightConverter(
                 source_patterns="mlp.experts.w13_weight",
                 target_patterns=[
@@ -292,14 +296,14 @@ def set_linearize_save_mappings(model: PreTrainedModel, model_type: str):
         for converter in mappings
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    mappings += save_mappings
+    #mappings += save_mappings
 
-    for converter in mappings:
-        if isinstance(converter, WeightConverter):
-            logger.bind(log_once=True).warning(
-                "Linearized model performs a weight conversion during saving. This "
-                "may lead to longer save times"
-            )
+    # for converter in mappings:
+    #     if isinstance(converter, WeightConverter):
+    #         logger.bind(log_once=True).warning(
+    #             "Linearized model performs a weight conversion during saving. This "
+    #             "may lead to longer save times"
+    #         )
 
-    model._weight_conversions = save_mappings
-    register_checkpoint_conversion_mapping(model_type, save_mappings, overwrite=True)
+    model._weight_conversions = mappings
+    register_checkpoint_conversion_mapping(model_type, mappings, overwrite=True)
