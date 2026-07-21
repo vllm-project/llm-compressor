@@ -9,12 +9,13 @@ from compressed_tensors.quantization.quant_scheme import (
     NVFP4,
     QuantizationScheme,
 )
+from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
-# MODEL_ID = "thinkingmachines/Inkling"
-MODEL_ID = "inference-optimization/Inkling-0.6B-A0.6B"
+MODEL_ID = "thinkingmachines/Inkling"
+# MODEL_ID = "inference-optimization/Inkling-0.6B-A0.6B"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
 
 # Select model and load it in the `load_context` context
@@ -71,8 +72,8 @@ recipe = QuantizationModifier(
 DATASET_ID = "ultrachat-200k"
 DATASET_SPLIT = "train_sft"
 
-NUM_CALIBRATION_SAMPLES = 20
-MAX_SEQUENCE_LENGTH = 2048
+NUM_CALIBRATION_SAMPLES = 256
+MAX_SEQUENCE_LENGTH = 4096
 
 # Apply algorithms.
 oneshot(
@@ -88,3 +89,7 @@ oneshot(
 # Save to disk compressed.
 model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
 processor.save_pretrained(SAVE_DIR)
+
+save_mtp_tensors_to_checkpoint(
+    source_model=MODEL_ID, dest_dir=SAVE_DIR, mtp_prefix="model.mtp"
+)
