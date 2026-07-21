@@ -2,7 +2,6 @@ import time
 
 import torch
 from compressed_tensors.offload import dispatch_model, init_dist
-from compressed_tensors.quantization import preset_name_to_scheme
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -50,7 +49,7 @@ recipe = [
         scheme="NVFP4A16",
         targets="Linear",
         ignore=["lm_head"],
-        weight_observer="imatrix_mse"
+        weight_observer="imatrix_mse",
     ),
 ]
 
