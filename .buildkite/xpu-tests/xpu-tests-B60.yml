@@ -1,0 +1,13 @@
+steps:
+  - label: "Build and test on XPU"
+    env: 
+      IMAGE_NAME: "vllm-xpu-test:py312"
+    agents:
+      queue: Intel-XPU-B60
+    command: |
+      echo "--- Build XPU image"
+      chmod +x .buildkite/xpu-tests/scripts/image-build-xpu.sh
+      .buildkite/xpu-tests/scripts/image-build-xpu.sh
+      echo "+++ Run test on XPU"
+      chmod +x .buildkite/xpu-tests/scripts/run-tests-xpu.sh
+      .buildkite/xpu-tests/scripts/run-tests-xpu.sh
