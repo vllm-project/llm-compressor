@@ -1,10 +1,14 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from torch import nn
 
+from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.observers import Observer
 from llmcompressor.observers.fusion import FusionHandler
+from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 
 def _make_observer(strategy=QuantizationStrategy.TENSOR_GROUP, group_size=16):
@@ -28,6 +32,34 @@ def _make_fused_group(n=3):
     pairs = list(zip(observers, modules))
     FusionHandler.fuse(pairs)
     return observers, modules
+
+
+def _make_module_with_observer(strategy=QuantizationStrategy.TENSOR, group_size=None):
+    """Create a Linear module with a weight observer registered as a submodule."""
+    mod = _make_linear()
+    kwargs = {"num_bits": 8, "strategy": strategy}
+    if group_size is not None:
+        kwargs["group_size"] = group_size
+    args = QuantizationArgs(**kwargs)
+    obs = Observer.load_from_registry(
+        "memoryless_minmax", base_name="weight", args=args
+    )
+    mod.register_module("weight_observer", obs)
+    return mod
+
+
+def _make_fused_module_group(n=3):
+    """Create n Linear modules with fused TENSOR_GROUP weight observers."""
+    modules = []
+    observers = []
+    for _ in range(n):
+        mod = _make_linear()
+        obs = _make_observer()
+        mod.register_module("weight_observer", obs)
+        modules.append(mod)
+        observers.append(obs)
+    FusionHandler.fuse(zip(observers, modules))
+    return modules
 
 
 @pytest.mark.unit
@@ -242,3 +274,110 @@ class TestNVFP4FusedLifecycle:
         qparams = [obs.get_qparams() for obs in observers]
         for qp in qparams:
             assert qp["global_scale"] is not None
+
+
+_DIST_MODULE = "llmcompressor.utils.dist"
+_WEIGHT_Q_PARAMS = ["weight_scale", "weight_zero_point", "weight_global_scale"]
+_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
+
+
+def _simulate_ddp_broadcast(
+    modules, rank_to_modules, module_to_rank, qparam_names, skip_cpu=False
+):
+    """Simulate the DDP broadcast+cleanup path.
+
+    1. observe + update_qparams on rank 0's subset
+    2. call broadcast_qparams_and_cleanup on the full module list
+    """
+    observe(rank_to_modules[0], "weight")
+    update_qparams(rank_to_modules[0], "weight")
+
+    with (
+        patch("torch.distributed.broadcast", return_value=MagicMock()),
+        patch("compressed_tensors.distributed.utils.wait_for_comms"),
+    ):
+        broadcast_qparams_and_cleanup(
+            modules, module_to_rank, qparam_names, skip_cpu=skip_cpu
+        )
+
+
+def _make_rank_assignment(modules, split):
+    """Build rank_to_modules / module_to_rank dicts splitting at `split`."""
+    rank_to_modules = {0: modules[:split], 1: modules[split:]}
+    module_to_rank = {m: 0 for m in modules[:split]}
+    module_to_rank.update({m: 1 for m in modules[split:]})
+    return rank_to_modules, module_to_rank
+
+
+@pytest.mark.unit
+class TestDDPObserverCleanup:
+    """Regression tests for DDP observer stats leak.
+
+    In DDP, greedy_bin_packing assigns modules to ranks and only the owning
+    rank calls update_qparams (which triggers get_qparams -> delete_statistics).
+    Modules assigned to other ranks kept stats forever, leaking memory per layer.
+    The fix adds observer cleanup inside broadcast_qparams_and_cleanup.
+
+    These tests patch dist.broadcast and call the helper directly to simulate
+    the DDP flow without requiring multiple processes.
+    """
+
+    @pytest.mark.parametrize(
+        "qparam_names",
+        [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
+        ids=["QuantizationModifier", "GPTQ"],
+    )
+    def test_broadcast_cleans_up_unprocessed_modules(self, qparam_names):
+        modules = [_make_module_with_observer() for _ in range(4)]
+        observe(modules, "weight")
+
+        rank_to_modules, module_to_rank = _make_rank_assignment(modules, split=2)
+        _simulate_ddp_broadcast(modules, rank_to_modules, module_to_rank, qparam_names)
+
+        for mod in modules:
+            assert not mod.weight_observer.has_statistics
+
+    @pytest.mark.parametrize(
+        "qparam_names",
+        [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
+        ids=["QuantizationModifier", "GPTQ"],
+    )
+    def test_fused_cleanup_with_split_ranks(self, qparam_names):
+        """Fused observers (NVFP4 Q/K/V) split across ranks."""
+        modules = _make_fused_module_group(n=3)
+        observe(modules, "weight")
+
+        rank_to_modules, module_to_rank = _make_rank_assignment(modules, split=1)
+        _simulate_ddp_broadcast(modules, rank_to_modules, module_to_rank, qparam_names)
+
+        for mod in modules:
+            assert not mod.weight_observer.has_statistics
+
+    @pytest.mark.parametrize(
+        "qparam_names",
+        [_WEIGHT_Q_PARAMS, _GPTQ_Q_PARAMS],
+        ids=["QuantizationModifier", "GPTQ"],
+    )
+    def test_repeated_layers_no_accumulation(self, qparam_names):
+        """Stats from previous layers never pile up across sequential layers."""
+        all_layer_modules = []
+        for _ in range(5):
+            all_layer_modules.append([_make_module_with_observer() for _ in range(4)])
+
+        for layer_idx, modules in enumerate(all_layer_modules):
+            observe(modules, "weight")
+
+            rank_to_modules, module_to_rank = _make_rank_assignment(modules, split=2)
+            _simulate_ddp_broadcast(
+                modules, rank_to_modules, module_to_rank, qparam_names
+            )
+
+            for mod in modules:
+                assert (
+                    not mod.weight_observer.has_statistics
+                ), f"Layer {layer_idx}: observer stats not cleaned up"
+            for prev_idx in range(layer_idx):
+                for mod in all_layer_modules[prev_idx]:
+                    assert (
+                        not mod.weight_observer.has_statistics
+                    ), f"Layer {prev_idx} stats leaked into layer {layer_idx}"
