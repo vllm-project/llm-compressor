@@ -489,8 +489,8 @@ def handle_sequential_oom(func):
         except torch.OutOfMemoryError as e:
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
-                "Please consider choosing a smaller module for `sequential_targets`. "
-                "For dense models, ex. 'Linear'. "
+                "Please consider choosing a smaller module for `sequential_targets`, "
+                "ex. 'Linear' for dense models. "
                 "For MoE models with untraceable attention, "
                 "use the attention module and individual expert class instead, "
                 "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
