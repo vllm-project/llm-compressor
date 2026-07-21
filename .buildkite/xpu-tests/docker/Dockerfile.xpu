@@ -23,15 +23,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     make \
     python3.12 \
     python3.12-dev \
-    python3-pip
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get install -y software-properties-common \
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
     && add-apt-repository -y ppa:kobuk-team/intel-graphics \
     && apt-get update \
-    && apt-get install -y libze-intel-gpu1 libze1 intel-metrics-discovery intel-opencl-icd clinfo intel-gsc \
-    && apt-get install -y intel-media-va-driver-non-free libmfx-gen1 libvpl2 libvpl-tools libva-glx2 va-driver-all vainfo \
-    && apt-get install -y libze-dev intel-ocloc \
-    && apt-get install -y libze-intel-gpu-raytracing
+    && apt-get install -y --no-install-recommends \
+        libze-intel-gpu1 libze1 intel-metrics-discovery intel-opencl-icd clinfo intel-gsc \
+        intel-media-va-driver-non-free libmfx-gen1 libvpl2 libvpl-tools libva-glx2 va-driver-all vainfo \
+        libze-dev intel-ocloc \
+        libze-intel-gpu-raytracing \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -40,7 +43,7 @@ ARG GROUP_ID=1000
 
 RUN groupadd -g ${GROUP_ID} hostgroup && \
     useradd -m -u ${USER_ID} -g ${GROUP_ID} hostuser && \
-    groupadd -g 991 render && \
+    (groupadd -g ${RENDER_GID} render-host || true) && \
     usermod -aG render hostuser
 
 USER hostuser

@@ -1,7 +1,7 @@
 steps:
   - label: "Build and test on XPU"
     env: 
-      IMAGE_NAME: "vllm-xpu-test:py312"
+      IMAGE_NAME: "llmc-xpu-test:py312"
     agents:
       queue: Intel-XPU-B60
     command: |

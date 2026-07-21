@@ -15,7 +15,7 @@ if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER_NAME"; then
     docker rm -f "$CONTAINER_NAME"
 fi
 
-docker run -tid --disable-content-trust --privileged --name "$CONTAINER_NAME" -v "$REPO_PATH:/workspace" -w /workspace "$IMAGE_NAME"
+docker run -tid --disable-content-trust --privileged --ipc=host --name "$CONTAINER_NAME" -v "$REPO_PATH:/workspace" -w /workspace "$IMAGE_NAME"
 echo "Show the container list after docker run ... "
 docker ps -a | grep "$CONTAINER_NAME"
 

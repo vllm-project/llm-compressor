@@ -14,6 +14,8 @@ else
     fi
 fi
 if [[ "$NEED_BUILD" == "true" ]]; then
-    docker build --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) --label "dockerfile.hash=$CURRENT_HASH" -t "$IMAGE_NAME" -f "$DOCKERFILE" .
+    docker build --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) \
+        --build-arg RENDER_GID=$(getent group render | cut -d: -f3 || echo 991) \
+        --label "dockerfile.hash=$CURRENT_HASH" -t "$IMAGE_NAME" -f "$DOCKERFILE" .
 fi
-docker images | grep "vllm-xpu-test"
+docker images "$IMAGE_NAME"
