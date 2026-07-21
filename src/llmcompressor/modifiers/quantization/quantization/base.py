@@ -1,12 +1,9 @@
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import (
-    as_broadcastable,
     greedy_bin_packing,
     is_distributed,
-    wait_for_comms,
 )
-from compressed_tensors.offload import get_execution_device
 from compressed_tensors.quantization.utils import is_module_quantized
 
 from llmcompressor.core import Event, State
@@ -17,6 +14,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 __all__ = ["QuantizationModifier"]
 
@@ -107,31 +105,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         observe(rank_to_modules[rank], "weight")
         update_qparams(rank_to_modules[rank], "weight")
-        dist.barrier()  # wait for async offload updates to finish
-        self._broadcast_qparam_onloads(module_list, module_to_rank)
+        broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
         QuantizationMixin.end_calibration(self, state.model)
-
-    def _broadcast_qparam_onloads(
-        self,
-        module_list: list[torch.nn.Module],
-        module_to_rank: dict[torch.nn.Module, int],
-    ):
-        pending_comms = []
-        for module in module_list:
-            if get_execution_device(module) != torch.device("cpu"):
-                for qparam_name in _WEIGHT_Q_PARAMS:
-                    if (qparam := getattr(module, qparam_name, None)) is not None:
-                        pending_comms.append(
-                            dist.broadcast(
-                                as_broadcastable(qparam),
-                                src=module_to_rank[module],
-                                async_op=True,
-                            )
-                        )
-
-        wait_for_comms(pending_comms)

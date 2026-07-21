@@ -123,6 +123,8 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
+            kwargs.setdefault("max_shard_size", "20GB")
+
             # compress model using compressor
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
