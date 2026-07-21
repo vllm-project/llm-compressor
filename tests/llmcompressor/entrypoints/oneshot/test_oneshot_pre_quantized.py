@@ -1,11 +1,11 @@
 import pytest
-from loguru import logger
-
 from compressed_tensors.quantization import QuantizationConfig
+from loguru import logger
+from transformers import AutoConfig
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils.dev import skip_weights_initialize
-from transformers import AutoConfig
 
 SMOKE_MODEL = "nm-testing/tinysmokellama-3.2"
 CT_MODEL = "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16"
