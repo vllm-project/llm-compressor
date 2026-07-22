@@ -68,12 +68,15 @@ def test_oneshot_stacks(tmp_path):
     outdir1 = tmp_path / "out1"
     outdir2 = tmp_path / "out2"
 
+    attn_target = "re:.*self_attn.(q|k|v|o)_proj*"
+    mlp_target = "re:.*mlp.(gate|up|down)_proj*"
+
     def oneshot1():
         model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokeqwen3")
         oneshot(
             model=model,
             recipe=QuantizationModifier(
-                targets=["re:.*self_attn.(q|k|v|o)_proj*"],
+                targets=[attn_target],
                 ignore=["lm_head", "model.layers.1.mlp.down_proj"],
                 scheme="FP8_DYNAMIC",
             ),
@@ -85,7 +88,7 @@ def test_oneshot_stacks(tmp_path):
         oneshot(
             model=model,
             recipe=QuantizationModifier(
-                targets=["re:.*mlp.(gate|up|down)_proj*"],
+                targets=[mlp_target],
                 ignore=["lm_head"],
                 scheme="W8A8",
             ),
@@ -103,8 +106,8 @@ def test_oneshot_stacks(tmp_path):
 
     assert ordered_names == ["group_0", "group_1"]
     assert set(quant_config.ignore) == set(["lm_head"])
-    assert ordered_schemes[0].targets[0] == "re:.*self_attn.(q|k|v|o)_proj*"
-    assert ordered_schemes[1].targets[0] == r"re:.*mlp\.(gate|up|down)_proj*"
+    assert ordered_schemes[0].targets[0] == attn_target
+    assert ordered_schemes[1].targets[0] == mlp_target
 
     assert quant_config.format == "mixed-precision"
     assert ordered_schemes[0].format == "float-quantized"
