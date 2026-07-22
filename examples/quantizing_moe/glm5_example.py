@@ -20,7 +20,7 @@ with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map="auto_offload",
-        max_memory={},
+        max_memory={"cpu": "500GiB"},
         offload_folder="offload_folder",
     )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -79,11 +79,8 @@ recipe = QuantizationModifier(
         ),
     },
     ignore=[
-        r"re:^model\.layers\.[0-2]\..*"
-        r"re:.*mlp\.gate.*",  # not technically necessary
+        r"re:^model\.layers\.[0-2]\..*" r"re:.*mlp\.gate.*",
         r"re:.*indexer\.weights_proj$",  # sensitive to quantization
-        #        r"re:.*indexer\.wk$",  # fused with weights_proj
-        #        r"re:.*shared_experts.*",
         r"lm_head",
     ],
 )
