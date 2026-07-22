@@ -1,7 +1,7 @@
 import pytest
 from compressed_tensors.quantization import QuantizationConfig
 from loguru import logger
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -65,30 +65,36 @@ def test_oneshot_rejects_pre_quantized_smoke_model():
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_oneshot_stacks(tmp_path):
-    model_id = "nm-testing/tinysmokellama-3.2"
 
     outdir1 = tmp_path / "out1"
     outdir2 = tmp_path / "out2"
 
-    oneshot(
-        model=model_id,
-        recipe=QuantizationModifier(
-            targets=["re:.*self_attn.(q|k|v|o)_proj*"],
-            ignore=["lm_head", "model.layers.1.mlp.down_proj"],
-            scheme="FP8_DYNAMIC",
-        ),
-        output_dir=outdir1,
-    )
+    def oneshot1():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokeqwen3")
+        oneshot(
+            model=model,
+            recipe=QuantizationModifier(
+                targets=["re:.*self_attn.(q|k|v|o)_proj*"],
+                ignore=["lm_head", "model.layers.1.mlp.down_proj"],
+                scheme="FP8_DYNAMIC",
+            ),
+        )
+        model.save_pretrained(outdir1)
 
-    oneshot(
-        model=outdir1,
-        recipe=QuantizationModifier(
-            targets=[r"re:.*mlp\.(gate|up|down)_proj*"],
-            ignore=["lm_head"],
-            scheme="W8A8",
-        ),
-        output_dir=outdir2,
-    )
+    def oneshot2():
+        model = AutoModelForCausalLM.from_pretrained(outdir1)
+        oneshot(
+            model=model,
+            recipe=QuantizationModifier(
+                targets=["re:.*mlp.(gate|up|down)_proj*"],
+                ignore=["lm_head"],
+                scheme="W8A8",
+            ),
+        )
+        model.save_pretrained(outdir2, save_original_format=False)
+
+    oneshot1()
+    oneshot2()
 
     config = AutoConfig.from_pretrained(outdir2)
     quant_config = QuantizationConfig.model_validate(config.quantization_config)

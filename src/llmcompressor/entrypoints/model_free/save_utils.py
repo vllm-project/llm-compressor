@@ -123,7 +123,7 @@ def create_or_update_quant_config(
         # construct quantization config from scratch
         qconfig = new_config
     else:
-        # merge into pre-exisintg quant config
+        # merge into pre-existing quant config
         qconfig.merge(new_config)
 
     return qconfig
