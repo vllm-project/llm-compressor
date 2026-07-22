@@ -21,7 +21,7 @@ with load_context():
         model_id,
         device_map="auto_offload",
         max_memory={},
-        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder",
+        offload_folder="offload_folder",
     )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -82,8 +82,8 @@ recipe = QuantizationModifier(
         r"re:^model\.layers\.[0-2]\..*"
         r"re:.*mlp\.gate.*",  # not technically necessary
         r"re:.*indexer\.weights_proj$",  # sensitive to quantization
-#        r"re:.*indexer\.wk$",  # fused with weights_proj
-#        r"re:.*shared_experts.*",
+        #        r"re:.*indexer\.wk$",  # fused with weights_proj
+        #        r"re:.*shared_experts.*",
         r"lm_head",
     ],
 )
@@ -100,11 +100,7 @@ oneshot(
 # Save to disk compressed.
 # Note: base checkpoint generation_config needs fixing for newer transformers versions
 model.generation_config.top_p = None
-SAVE_DIR = (
-    "/mnt/nvme-data/engine/kylesayrs/"
-    + model_id.rstrip("/").split("/")[-1]
-    + "-NVFP4-FP8-fp32scales"
-)
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 
