@@ -161,8 +161,7 @@ class AWQModifier(Modifier):
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
 
-    def requires_calibration_data(self) -> bool:
-        return True
+    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

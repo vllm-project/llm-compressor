@@ -65,8 +65,7 @@ class IMatrixGatherer(Modifier):
     #  Lifecycle
     # ------------------------------------------------------------------ #
 
-    def requires_calibration_data(self) -> bool:
-        return True
+    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

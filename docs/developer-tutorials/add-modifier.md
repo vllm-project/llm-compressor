@@ -33,6 +33,9 @@ class MyModifier(Modifier):
     # Pydantic fields — declare your parameters here
     my_param: float = 1.0
 
+    # Set to True if this modifier needs calibration data
+    requires_calibration_data: bool = False
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         # Called once before calibration begins.
         # Set up hooks, attach attributes to modules, etc.
@@ -74,13 +77,7 @@ class MyModifier(Modifier):
         # For training scenarios with explicit start/end steps.
         ...
 
-    ## Calibration ##
-
-    def requires_calibration_data(self) -> bool:
-        # Return True if this modifier needs calibration data to run.
-        # The pipeline registry uses this to select sequential vs data-free
-        # calibration. Defaults to False if not overridden.
-        return False
+    ## Calibration lifecycle events ##
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # Called at the start of each calibration epoch.
@@ -111,7 +108,7 @@ class MyModifier(Modifier):
 | `on_initialize` | Once, during `initialize()`, before calibration | Yes |
 | `on_finalize` | Once, during `finalize()`, after all pipelines complete | No |
 | `on_event` | Every event, unconditionally (before lifecycle dispatch) | No |
-| `requires_calibration_data` | Queried during pipeline selection to decide sequential vs data-free | No (defaults to `False`) |
+| `requires_calibration_data` | Bool field queried during pipeline selection to decide sequential vs data-free | No (defaults to `False`) |
 | `on_calibration_start` | At the start of each calibration epoch (fired by `CALIBRATION_START` event) | No |
 | `on_sequential_epoch_end` | After each layer group (sequential) or once for entire model (basic/data-free) (fired by `SEQUENTIAL_EPOCH_END` event) | No |
 | `on_calibration_end` | At the end of each calibration epoch (fired by `CALIBRATION_END` event) | No |

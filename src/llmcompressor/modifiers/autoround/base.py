@@ -176,8 +176,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
 
-    def requires_calibration_data(self) -> bool:
-        return True
+    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

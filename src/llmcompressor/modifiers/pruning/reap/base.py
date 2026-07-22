@@ -75,8 +75,7 @@ class REAPPruningModifier(Modifier):
             raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
         return self
 
-    def requires_calibration_data(self) -> bool:
-        return True
+    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model

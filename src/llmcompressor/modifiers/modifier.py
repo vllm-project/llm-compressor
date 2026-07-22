@@ -41,6 +41,8 @@ class Modifier(ModifierInterface, HooksMixin):
 
     model_config = ConfigDict(extra="forbid")
 
+    requires_calibration_data: bool = False
+
     index: int | None = None
     group: str | None = None
     start: float | None = None

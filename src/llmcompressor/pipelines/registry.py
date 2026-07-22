@@ -54,10 +54,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _infer_pipeline(modifiers: list[Modifier]) -> str:
-        if any(
-            getattr(modifier, "requires_calibration_data", lambda: False)()
-            for modifier in modifiers
-        ):
+        if any(modifier.requires_calibration_data for modifier in modifiers):
             return "sequential"
         else:
             return "datafree"
