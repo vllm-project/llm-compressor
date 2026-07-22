@@ -65,7 +65,6 @@ def test_oneshot_rejects_pre_quantized_smoke_model():
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_oneshot_stacks(tmp_path):
-
     outdir1 = tmp_path / "out1"
     outdir2 = tmp_path / "out2"
 
