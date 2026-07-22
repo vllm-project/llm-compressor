@@ -270,18 +270,14 @@ class Oneshot:
         session.finalize()
 
     @staticmethod
-    def validate_model(model):
+    def validate_model(model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
         quant_method_key = f"{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
-        quant_method = (
-            getattr_chain(model, quant_method_key, None)
-            or getattr_chain(model, f"config.{quant_method_key}", None)
-            or getattr_chain(model, f"text_config.{quant_method_key}", None)
-        )
+        quant_method = getattr_chain(model, quant_method_key, None)
 
         if quant_method is None:
             return
