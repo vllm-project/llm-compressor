@@ -120,6 +120,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
+    requires_calibration_data: bool = True
+
     # gptq modifier arguments
     block_size: int = 128
     dampening_frac: float | None = 0.01
@@ -185,8 +187,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     )
                     scheme.weights.actorder = None
         return config
-
-    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

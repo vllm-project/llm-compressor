@@ -56,6 +56,8 @@ class REAPPruningModifier(Modifier):
           sparsity: 0.25
     """
 
+    requires_calibration_data: bool = True
+
     sparsity: float
     ignore: list[str] = Field(default_factory=list)
 
@@ -74,8 +76,6 @@ class REAPPruningModifier(Modifier):
         if not 0.0 < self.sparsity < 1.0:
             raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
         return self
-
-    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model

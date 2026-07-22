@@ -139,6 +139,8 @@ class AWQModifier(Modifier):
         Defaults to 20
     """
 
+    requires_calibration_data: bool = True
+
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
@@ -160,8 +162,6 @@ class AWQModifier(Modifier):
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
-
-    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

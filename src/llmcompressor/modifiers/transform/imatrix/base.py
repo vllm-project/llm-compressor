@@ -57,6 +57,8 @@ class IMatrixGatherer(Modifier):
         Must be ``"imatrix_mse"`` (default).
     """
 
+    requires_calibration_data: bool = True
+
     targets: str | list[str] = Field(default_factory=lambda: ["Linear"])
     ignore: list[str] = Field(default_factory=lambda: ["lm_head"])
     weight_observer: str = "imatrix_mse"
@@ -64,8 +66,6 @@ class IMatrixGatherer(Modifier):
     # ------------------------------------------------------------------ #
     #  Lifecycle
     # ------------------------------------------------------------------ #
-
-    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

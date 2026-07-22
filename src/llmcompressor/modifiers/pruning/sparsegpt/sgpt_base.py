@@ -24,6 +24,8 @@ class SparsityModifierBase(Modifier):
     Inheriters must implement `calibrate_module` and `compress_modules`
     """
 
+    requires_calibration_data: bool = True
+
     # modifier arguments
     sparsity: float | list[float] | None
     sparsity_profile: str | None = None
@@ -99,8 +101,6 @@ class SparsityModifierBase(Modifier):
     @abstractmethod
     def compress_modules(self):
         raise NotImplementedError()
-
-    requires_calibration_data: bool = True
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """

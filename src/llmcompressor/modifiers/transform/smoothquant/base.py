@@ -102,6 +102,8 @@ class SmoothQuantModifier(Modifier):
     to use the default tensor_module_forward
     """
 
+    requires_calibration_data: bool = True
+
     smoothing_strength: float = 0.5
     mappings: list[tuple | list] | None = None
     ignore: list[str] | None = None
@@ -113,8 +115,6 @@ class SmoothQuantModifier(Modifier):
         default=None, repr=False
     )
     scales_: dict | None = Field(default=None, repr=False)
-
-    requires_calibration_data: bool = True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
