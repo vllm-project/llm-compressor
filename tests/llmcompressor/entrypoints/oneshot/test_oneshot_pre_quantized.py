@@ -83,7 +83,7 @@ def test_oneshot_stacks(tmp_path):
     oneshot(
         model=outdir1,
         recipe=QuantizationModifier(
-            targets=["re:.*mlp.(gate|up|down)_proj*"],
+            targets=[r"re:.*mlp\.(gate|up|down)_proj*"],
             ignore=["lm_head"],
             scheme="W8A8",
         ),
@@ -99,7 +99,7 @@ def test_oneshot_stacks(tmp_path):
     assert ordered_names == ["group_0", "group_1"]
     assert set(quant_config.ignore) == set(["lm_head"])
     assert ordered_schemes[0].targets[0] == "re:.*self_attn.(q|k|v|o)_proj*"
-    assert ordered_schemes[1].targets[0] == "re:.*mlp.(gate|up|down)_proj*"
+    assert ordered_schemes[1].targets[0] == r"re:.*mlp\.(gate|up|down)_proj*"
 
     assert quant_config.format == "mixed-precision"
     assert ordered_schemes[0].format == "float-quantized"
