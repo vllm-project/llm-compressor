@@ -45,7 +45,7 @@ IMPORTANT: Start by only modifying the number of layers in the model. If the mod
 
 3. **Fine-tune**: Fine tune the model on a toy dataset using `finetune.py`. This validates that the model can actually learn. Note: vision-language models may require script modifications to load correctly. Make sure the target perplexity is ~3.0, a model with a high perplexity with respect to the toy dataset is not considered valid.
 
-If the model is a vision-language model, do not try to fine tune on a vision dataset, only fine tune on the provided text dataset. Continue to load with ``...ForConditionalGeneration`.
+If the model is a vision-language model, do not try to fine tune on a vision dataset, only fine tune on the provided text dataset. Continue to load with `...ForConditionalGeneration`.
 
 4. **Validate checkpoint structure**: Make sure that the saved model checkpoint structure is analogous to the checkpoint structure of the original large model checkpoint. The `transformers` library can sometimes contain bugs where models are saved in invalid checkpoint structures. First, inspect the original checkpoint structure using the HuggingFace Hub API or by checking `https://huggingface.co/{model_id}/resolve/main/model.safetensors.index.json`. If this file does not exist, download the original checkpoint directly. Use `inspect_tensors.py` to inspect the checkpoint format of the saved model and/or the downloaded model. If the two structures do not match, create a converter script to convert our tiny saved checkpoint structure into a checkpoint structure which matches the original. Do not try to match mtp layers.
 
