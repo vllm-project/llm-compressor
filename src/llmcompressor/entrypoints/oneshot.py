@@ -297,7 +297,7 @@ class Oneshot:
         else:
             raise ValueError(
                 "oneshot does not currently support models that are already quantized "
-                f"in a different format ({quant_method}). " + resolution
+                f"in a different format ({quant_method}). {resolution}"
             )
 
 
