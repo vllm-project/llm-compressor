@@ -421,25 +421,25 @@ class TestHookDisabling:
 
     def test_hook_skipped_under_disable_hooks(self):
         module = torch.nn.Linear(8, 4)
-        _make_observer(module, strategy="channel")
+        observer = _make_observer(module, strategy="channel")
 
         x = torch.randn(2, 8)
         module(x)
-        assert module._imatrix_count.item() > 0
-        count_before = module._imatrix_count.item()
+        assert observer._imatrix_count.item() > 0
+        count_before = observer._imatrix_count.item()
 
         with HooksMixin.disable_hooks():
             module(torch.randn(2, 8))
 
-        assert module._imatrix_count.item() == count_before
+        assert observer._imatrix_count.item() == count_before
 
     def test_hook_resumes_after_disable_hooks(self):
         module = torch.nn.Linear(8, 4)
-        _make_observer(module, strategy="channel")
+        observer = _make_observer(module, strategy="channel")
 
         with HooksMixin.disable_hooks():
             module(torch.randn(2, 8))
-        assert module._imatrix_count.item() == 0
+        assert observer._imatrix_count.item() == 0
 
         module(torch.randn(2, 8))
-        assert module._imatrix_count.item() > 0
+        assert observer._imatrix_count.item() > 0
