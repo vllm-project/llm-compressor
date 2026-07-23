@@ -131,8 +131,9 @@ def test_from_dataloader(value):
 @pytest.mark.unit
 @pytest.mark.parametrize("value", values_to_test)
 def test_offload_and_onload(value):
-    offloaded = IntermediatesCache._offload_value(value, torch.device("cpu"))
-    onloaded = IntermediatesCache._onload_value(offloaded)
+    cache = IntermediatesCache()
+    offloaded = cache._offload_value(value, torch.device("cpu"))
+    onloaded = cache._onload_value(offloaded)
     assert deep_equal(onloaded, value)
 
 
