@@ -116,7 +116,7 @@ setup(
         # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
         ("numpy>=2.0.0,<=2.3.5" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         (
-            "requests>=2.32.2,<=2.34.2"
+            "requests>=2.32.2,<2.35.0"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
@@ -138,7 +138,7 @@ setup(
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<=12.3.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
             "compressed-tensors==0.13.0"
             if BUILD_TYPE == "release"
