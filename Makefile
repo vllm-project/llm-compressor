@@ -46,7 +46,7 @@ test:
 # run xpu tests for the repo
 test-xpu: 
 	@echo "Running xpu tests"
-	pytest -ra -c pytest-xpu.ini;
+	pytest -c pytest-xpu.ini;
 
 # creates wheel file
 .PHONY: build

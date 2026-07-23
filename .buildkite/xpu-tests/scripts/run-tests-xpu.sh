@@ -19,11 +19,11 @@ docker run -tid --disable-content-trust --privileged --ipc=host --name "$CONTAIN
 echo "Show the container list after docker run ... "
 docker ps -a | grep "$CONTAINER_NAME"
 
-echo "Setup test environment..."
+echo "--- Setup test environment..."
 docker exec "$CONTAINER_NAME" \
               bash -c "uv pip install --upgrade pip setuptools && \
               uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match && \
-              echo '--- Installing compressed-tensors (nightly)' && \
+              echo 'Installing compressed-tensors (nightly)' && \
               git clone --quiet https://github.com/vllm-project/compressed-tensors.git && \
               uv pip uninstall compressed-tensors && \
               export GIT_CEILING_DIRECTORIES=/workspace && \
@@ -31,6 +31,6 @@ docker exec "$CONTAINER_NAME" \
               BUILD_TYPE=nightly uv pip install . --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match && \
               uv pip list"
 
-echo "Run tests inside the container..."
+echo "--- Run tests inside the container..."
 docker exec -e NUMA_NODE=${NUMA_NODE} -e NUMA_CPUSET=${NUMA_CPUSET} -e ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK} "$CONTAINER_NAME" \
               bash -c "numactl --physcpubind=${NUMA_CPUSET:-84-111} --membind=${NUMA_NODE:-3} make test-xpu"
