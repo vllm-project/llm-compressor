@@ -1,5 +1,4 @@
 import math
-from typing import Optional
 
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
@@ -46,7 +45,7 @@ class IMatrixMSEObserver(Observer):
         self.norm = kw.get("norm", 3.0)
         self.strict = kw.get("strict", False)
 
-        self._imatrix_sum: Optional[torch.Tensor] = None
+        self._imatrix_sum: torch.Tensor | None = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
 
         if self.grid <= 0:
@@ -141,7 +140,7 @@ class IMatrixMSEObserver(Observer):
 
     # ------------------------------------------------------------------
 
-    def _prepare_importance(self, observed: torch.Tensor) -> Optional[torch.Tensor]:
+    def _prepare_importance(self, observed: torch.Tensor) -> torch.Tensor | None:
         """Validate → normalize → broadcast to match observed shape."""
         imp = self._get_validated_importance(observed)
         if imp is None:
@@ -156,7 +155,7 @@ class IMatrixMSEObserver(Observer):
 
     def _get_validated_importance(
         self, observed: torch.Tensor
-    ) -> Optional[torch.Tensor]:
+    ) -> torch.Tensor | None:
         """Compute importance from sum/count, validate, and return 1D tensor or None."""
         if self.base_name != "weight":
             if self.strict:
@@ -262,7 +261,7 @@ def _grid_search(
     patience: int,
     grid: int,
     norm: float,
-    importance_weights: Optional[torch.Tensor] = None,
+    importance_weights: torch.Tensor | None = None,
 ) -> MinMaxTuple:
     """Grid search for min/max minimizing (importance-weighted) quant error.
 
