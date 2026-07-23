@@ -8,6 +8,6 @@ steps:
       echo "--- Build XPU image"
       chmod +x .buildkite/xpu-tests/scripts/image-build-xpu.sh
       .buildkite/xpu-tests/scripts/image-build-xpu.sh
-      echo "+++ Run test on XPU"
+      echo "+++ Trigger XPU tests"
       chmod +x .buildkite/xpu-tests/scripts/run-tests-xpu.sh
       .buildkite/xpu-tests/scripts/run-tests-xpu.sh
