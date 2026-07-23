@@ -163,7 +163,7 @@ setup(
             else "pynvml>=11.5.3"
         ),
         (
-            "pillow>=10.4.0,<=12.2.0"
+            "pillow>=10.4.0,<=12.3.0"
             if BUILD_TYPE == "release"
             else "pillow>=10.4.0"
         ),
