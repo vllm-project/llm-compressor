@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import sys
 import warnings
 from collections import defaultdict
@@ -11,6 +12,35 @@ from weakref import WeakKeyDictionary
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
+
+
+def handle_cache_error(func):
+    """
+    Decorator that catches exceptions and attaches cache size information
+    before reraising.
+
+    Expects the wrapped function to be an instance method of IntermediatesCache.
+    When an exception occurs, adds cache size information to the exception
+    message.
+
+    :param func: Method to wrap
+    :return: Wrapped method that attaches cache size info on error
+    """
+
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except Exception as exception:
+            cache_size = self.size()
+            size_info = ", ".join(
+                f"{device}: {nbytes / (1024**2):.2f} MB"
+                for device, nbytes in cache_size.items()
+            )
+            error_msg = f"{str(exception)}\nIntermediatesCache size: {size_info}"
+            raise type(exception)(error_msg) from exception
+
+    return wrapper
 
 
 @dataclass
@@ -101,6 +131,7 @@ class IntermediatesCache:
 
         return cls(batch_intermediates, offload_device)
 
+    @handle_cache_error
     def fetch(
         self, batch_index: int, input_names: list[str] | None = None
     ) -> dict[str, Any]:
@@ -119,6 +150,7 @@ class IntermediatesCache:
             if input_names is None or key in input_names
         }
 
+    @handle_cache_error
     def update(self, batch_index: int, values: dict[str, Any]):
         """
         Update/put values belonging to a batch
@@ -130,6 +162,7 @@ class IntermediatesCache:
         intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
+    @handle_cache_error
     def delete(self, batch_index: int, consumed_names: list[str] | None = None):
         """
         Delete values from the cache
@@ -146,6 +179,7 @@ class IntermediatesCache:
         for name in consumed_names:
             del intermediates[name]
 
+    @handle_cache_error
     def append(self, values: dict[str, Any]):
         """
         Append new values to the cache. The new values will be assigned the next
@@ -193,6 +227,7 @@ class IntermediatesCache:
 
         return dict(sizes)
 
+    @handle_cache_error
     def iter(self, input_names: list[str] | None = None) -> Generator[Any, None, None]:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)

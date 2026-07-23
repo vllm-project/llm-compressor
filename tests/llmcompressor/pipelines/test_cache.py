@@ -200,3 +200,32 @@ def test_override_eq_mode():
     with OverrideEqMode():
         assert a == b
         assert not (a == c)
+
+
+@pytest.mark.unit
+def test_handle_cache_error_decorator():
+    """Test that the handle_cache_error decorator attaches cache size
+    information to errors."""
+    # Create a cache with some data
+    input_ids = torch.tensor([[1, 2, 3]], dtype=torch.long)
+    dataset = StackDataset(input_ids=input_ids)
+    dataloader = DataLoader(dataset, batch_size=1)
+
+    cache = IntermediatesCache.from_dataloader(
+        dataloader=dataloader,
+        model_device=torch.device("cpu"),
+        offload_device=torch.device("cpu"),
+    )
+
+    # Add some data to the cache to ensure size() returns something meaningful
+    cache.update(0, {"extra_tensor": torch.randn(100, 100)})
+
+    # Trigger an error by trying to fetch from an invalid batch index
+    with pytest.raises(IndexError) as exc_info:
+        cache.fetch(999)  # Index out of bounds
+
+    # Check that the error message contains cache size information
+    error_message = str(exc_info.value)
+    assert "IntermediatesCache size:" in error_message
+    assert "cpu:" in error_message
+    assert "MB" in error_message
