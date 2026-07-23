@@ -171,7 +171,9 @@ def test_tensors_to_precision_half_cpu(tensors):
         [[torch.randn(1, 8)], torch.randn(8, 8)],
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="requires cuda availability"
+)
 def test_tensors_to_precision_full_cuda(tensors):
     tensors = tensors_to_device(tensors, "cuda")
     out = tensors_to_precision(tensors, True)
@@ -207,7 +209,9 @@ def test_tensors_to_precision_full_cuda(tensors):
         [[torch.randn(1, 8)], torch.randn(8, 8)],
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="requires cuda availability"
+)
 def test_tensors_to_precision_half_cuda(tensors):
     tensors = tensors_to_device(tensors, "cuda")
     out = tensors_to_precision(tensors, False)

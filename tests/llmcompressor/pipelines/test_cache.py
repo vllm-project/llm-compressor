@@ -131,14 +131,15 @@ def test_from_dataloader(value):
 @pytest.mark.unit
 @pytest.mark.parametrize("value", values_to_test)
 def test_offload_and_onload(value):
-    offloaded = IntermediatesCache._offload_value(value, torch.device("cpu"))
-    onloaded = IntermediatesCache._onload_value(offloaded)
+    cache = IntermediatesCache()
+    offloaded = cache._offload_value(value, torch.device("cpu"))
+    onloaded = cache._onload_value(offloaded)
     assert deep_equal(onloaded, value)
 
 
 @pytest.mark.unit
 def test_device_handling(sample_dataloader):
-    if not torch.cuda.is_available():
+    if not torch.accelerator.is_available():
         pytest.skip("CUDA not available")
 
     cuda_device = torch.device("cuda")
