@@ -22,13 +22,13 @@ docker ps -a | grep "$CONTAINER_NAME"
 echo "Setup test environment..."
 docker exec "$CONTAINER_NAME" \
               bash -c "uv pip install --upgrade pip setuptools && \
-              uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/xpu && \
+              uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match && \
               echo '--- Installing compressed-tensors (nightly)' && \
               git clone --quiet https://github.com/vllm-project/compressed-tensors.git && \
               uv pip uninstall compressed-tensors && \
               export GIT_CEILING_DIRECTORIES=/workspace && \
               cd compressed-tensors && \
-              BUILD_TYPE=nightly uv pip install . && \
+              BUILD_TYPE=nightly uv pip install . --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match && \
               uv pip list"
 
 echo "Run tests inside the container..."
