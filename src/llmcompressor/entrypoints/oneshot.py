@@ -292,7 +292,7 @@ class Oneshot:
             logger.warning(
                 "oneshot has limited support for models already quantized in the "
                 "`compressed-tensors` format. If the recipe targets layers that have "
-                "already been quantized, oneshot will likely fail. " + resolution
+                f"already been quantized, oneshot will likely fail. {resolution}"
             )
         else:
             raise ValueError(
