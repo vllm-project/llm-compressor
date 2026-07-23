@@ -16,30 +16,9 @@ steps:
   
   # Test check pipeline on XPU (only when relevant paths changed)
   - label: ":gear: llm-compressor XPU Tests"
-    shell: bash
+    if_changed:
+      - "src/llmcompressor/modifiers/**"
+      - "tests/llmcompressor/modifiers/**"
+      - ".buildkite/xpu-tests/**"
     command: |
-      git fetch origin main --depth=50
-      CHANGED=$$(git diff --name-only origin/main...HEAD)
-      XPU_RELEVANT_PATHS=(
-        "src/llmcompressor/modifiers/autoround"
-        "tests/llmcompressor/transformers/autoround"
-        "tests/llmcompressor/modifiers/autoround"
-        ".buildkite/xpu-tests"
-      )
-      XPU_RELEVANT=false
-
-      for path in "$${XPU_RELEVANT_PATHS[@]}"; do
-        if echo "$${CHANGED}" | grep -qE "^$${path}"; then
-          XPU_RELEVANT=true
-          break
-        fi
-      done
-
-      echo "Changed files:"
-      echo "$$CHANGED"
-      if [ "$$XPU_RELEVANT" = true ]; then
-        echo "XPU-relevant changes detected"
-        buildkite-agent pipeline upload .buildkite/xpu-tests/xpu-tests-B60.yml
-      else
-        echo "No XPU-relevant changes"
-      fi
+      buildkite-agent pipeline upload .buildkite/xpu-tests/xpu-tests-B60.yml

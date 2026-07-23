@@ -9,8 +9,8 @@ if ! docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Fxq "$IMAGE_NAM
 else
     EXISTING_HASH=$(docker inspect --format='{{index .Config.Labels "dockerfile.hash"}}' "$IMAGE_NAME" 2>/dev/null || echo "")
     if [[ "$CURRENT_HASH" != "$EXISTING_HASH" ]]; then
-    echo "Dockerfile changed (old=$EXISTING_HASH, new=$CURRENT_HASH), rebuilding image..."
-    NEED_BUILD=true
+        echo "Dockerfile changed (old=$EXISTING_HASH, new=$CURRENT_HASH), rebuilding image..."
+        NEED_BUILD=true
     fi
 fi
 if [[ "$NEED_BUILD" == "true" ]]; then
