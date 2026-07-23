@@ -128,7 +128,7 @@ setup(
             else "numpy>=2.0.0"
         ),
         (
-            "requests>=2.32.2,<=2.34.2"
+            "requests>=2.32.2,<2.35.0"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
@@ -163,7 +163,7 @@ setup(
             else "pynvml>=11.5.3"
         ),
         (
-            "pillow>=10.4.0,<=12.3.0"
+            "pillow>=10.4.0,<13.0.0"
             if BUILD_TYPE == "release"
             else "pillow>=10.4.0"
         ),
