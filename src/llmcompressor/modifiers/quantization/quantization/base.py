@@ -107,16 +107,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
         observe(rank_to_modules[rank], "weight")
         update_qparams(rank_to_modules[rank], "weight")
-<<<<<<< HEAD
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
         self.validate_module_calibration(state.model, rank_to_modules[rank])
-=======
-        self.validate_module_calibration(
-            state.model, rank_to_modules[rank], "weight"
-        )
-        dist.barrier()  # wait for async offload updates to finish
-        self._broadcast_qparam_onloads(module_list, module_to_rank)
->>>>>>> a13c76e1 (Validate calibration observers after sequential epochs)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """

@@ -60,9 +60,7 @@ class Observer(InternalModule, RegistryMixin):
 
     @property
     def has_statistics(self) -> bool:
-        return self.num_observations > 0 and all(
-            hasattr(self, attr) for attr in self._stats_attrs
-        )
+        return all(hasattr(self, attr) for attr in self._stats_attrs)
 
     @property
     def is_weight_obs(self) -> bool:

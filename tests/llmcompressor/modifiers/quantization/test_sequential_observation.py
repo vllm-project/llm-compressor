@@ -50,11 +50,17 @@ def test_sequential_epoch_end_only_observes_passed_modules():
 
     # Wrap update_statistics_from_observed to track which observers are called
     with patch.object(
-        model[0].weight_observer, "update_statistics_from_observed"
+        model[0].weight_observer,
+        "update_statistics_from_observed",
+        wraps=model[0].weight_observer.update_statistics_from_observed,
     ) as mock0, patch.object(
-        model[1].weight_observer, "update_statistics_from_observed"
+        model[1].weight_observer,
+        "update_statistics_from_observed",
+        wraps=model[1].weight_observer.update_statistics_from_observed,
     ) as mock1, patch.object(
-        model[2].weight_observer, "update_statistics_from_observed"
+        model[2].weight_observer,
+        "update_statistics_from_observed",
+        wraps=model[2].weight_observer.update_statistics_from_observed,
     ) as mock2:
         modifier.on_sequential_epoch_end(
             state,
