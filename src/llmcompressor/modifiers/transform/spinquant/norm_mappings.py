@@ -43,8 +43,21 @@ _default_mappings = [
     ),
 ]
 
+# Cohere2MoE uses a parallel block: a single input_layernorm feeds attention (q/k/v),
+# MLP (gate/up) AND the router; these span different parents and the router is absent in
+# the dense first layer, so `match_modules_set` can't group them.
+# Input_layernorm fusion is handled per-layer in `prepare_cohere2_moe_for_spinquant`;
+# only the final norm -> lm_head fusion remains here.
+_cohere2_moe_mappings = [
+    NormMapping(
+        norm="model.norm",
+        linears=["lm_head"],
+    ),
+]
+
 NORM_MAPPING_REGISTRY: dict[str, list[NormMapping]] = {
     "LlamaForCausalLM": _default_mappings,
+    "Cohere2MoeForCausalLM": _cohere2_moe_mappings,
 }
 
 

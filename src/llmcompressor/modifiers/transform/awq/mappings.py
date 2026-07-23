@@ -190,6 +190,16 @@ _glm4_moe_lite_mappings = [
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
+# GlmMoeDsa (GLM-5.x, DSV3.2 / DeepSeek-Sparse-Attention) is the same mixed
+# dense/MoE MLA family as Glm4MoeLite, but with a configurable number of leading
+# dense layers (first_k_dense_replace). Those dense layers have no mlp.gate
+# router, so — exactly as for Glm4MoeLite — mlp.gate must be omitted from the MLP
+# balance layers: otherwise the post_attention_layernorm set never closes on the
+# dense layers and match_modules_set collapses every layer's norm into one set
+# ("needs a single smoothlayer per mapping"). The unscoped gate_proj$/up_proj$
+# patterns still smooth the routed experts, shared experts, and dense MLPs.
+_glm_moe_dsa_mappings = _glm4_moe_lite_mappings
+
 _bloom_mappings = [
     AWQMapping("re:.*input_layernorm$", ["re:.*query_key_value$"]),
     AWQMapping("re:.*post_attention_layernorm$", ["re:.*dense_h_to_4h$"]),
@@ -272,7 +282,8 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Gemma3ForConditionalGeneration": _gemma_mappings,
     "Glm4MoeForCausalLM": _moe_default_mappings,
     "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
-    "GlmMoeDsaForCausalLM": _deepseek_mappings,
+    "GlmMoeDsaForCausalLM": _glm_moe_dsa_mappings,
+    "GraniteForCausalLM": default_mappings,
     "LlamaForCausalLM": default_mappings,
     "Llama4ForConditionalGeneration": _llama4_default_mappings,
     "Mistral3ForConditionalGeneration": default_mappings,

@@ -1,11 +1,16 @@
+from collections.abc import Sequence
 from typing import Hashable, TypeVar
 
+import torch
+import torch.distributed as dist
 from compressed_tensors.distributed import (
     greedy_bin_packing as _greedy_bin_packing,
 )
 from compressed_tensors.distributed import (
     wait_for_comms as _wait_for_comms,
 )
+from compressed_tensors.offload import get_execution_device
+from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.utils.helpers import deprecated
 
 T = TypeVar("T", bound=Hashable)
@@ -45,3 +50,39 @@ def wait_for_comms(*args, **kwargs) -> None:
         have completed.
     """
     return _wait_for_comms(*args, **kwargs)
+
+
+def broadcast_qparams_and_cleanup(
+    module_list: list[torch.nn.Module],
+    module_to_rank: dict[torch.nn.Module, int],
+    qparam_names: Sequence[str],
+    skip_cpu: bool = True,
+) -> None:
+    """Broadcast quantization params from owning rank and clean up observer stats.
+
+    :param module_list: all modules across all ranks
+    :param module_to_rank: mapping from module to the rank that computed its qparams
+    :param qparam_names: attribute names to broadcast (e.g. weight_scale, weight)
+    :param skip_cpu: if True, skip broadcasting for CPU-offloaded modules
+    """
+    pending_comms = []
+    for module in module_list:
+        should_broadcast = not skip_cpu or (
+            get_execution_device(module) != torch.device("cpu")
+        )
+        if should_broadcast:
+            for name in qparam_names:
+                if (param := getattr(module, name, None)) is not None:
+                    pending_comms.append(
+                        dist.broadcast(
+                            as_broadcastable(param),
+                            src=module_to_rank[module],
+                            async_op=True,
+                        )
+                    )
+
+        obs = getattr(module, "weight_observer", None)
+        if obs is not None and obs.has_statistics:
+            obs.delete_statistics(check_fused=True)
+
+    _wait_for_comms(pending_comms)
