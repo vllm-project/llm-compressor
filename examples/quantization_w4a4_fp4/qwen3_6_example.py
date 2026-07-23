@@ -1,13 +1,10 @@
 import torch
-from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
-from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
+from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
-
-# NOTE: This example requires transformers >= v5
 
 MODEL_ID = "Qwen/Qwen3.6-35B-A3B"
 
@@ -16,7 +13,7 @@ with load_context(Qwen3_5MoeForConditionalGeneration):
     model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
-# No need to include mtp layers as they are not loaded
+# No need to ignore mtp layers as they are not loaded
 # through Qwen3_5MoeForConditionalGeneration
 recipe = QuantizationModifier(
     targets="Linear",
@@ -86,7 +83,3 @@ oneshot(
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
-
-# MTP layers are excluded from the model through Qwen3_5MoeForConditionalGeneration
-# Save them as-is from the original checkpoint into the quantized output.
-save_mtp_tensors_to_checkpoint(source_model=MODEL_ID, dest_dir=SAVE_DIR)
