@@ -1,6 +1,79 @@
-import torch
+import os
 
-__all__ = ["fix_attention_mask"]
+import torch
+import torch.distributed as dist
+from compressed_tensors.offload import init_dist
+
+__all__ = [
+    "fix_attention_mask",
+    "get_local_gpu_group_size",
+    "init_gpu_group_dist",
+]
+
+
+def get_local_gpu_group_size() -> int:
+    return int(os.environ.get("LLMCOMPRESSOR_GPUS_PER_GROUP", "1"))
+
+
+def init_gpu_group_dist(gpus_per_group: int | None = None) -> tuple[int, int, int]:
+    """
+    Initialize DDP for AutoRound's rank-local GPU grouping.
+
+    Standard DDP binds each rank to ``LOCAL_RANK``. AutoRound can instead use a
+    rank-local group of GPUs to tune a single decoding block, so the process group
+    must be initialized on ``LOCAL_RANK * gpus_per_group`` from the start.
+    """
+    gpus_per_group = (
+        get_local_gpu_group_size() if gpus_per_group is None else gpus_per_group
+    )
+    if gpus_per_group < 1:
+        raise ValueError(
+            f"LLMCOMPRESSOR_GPUS_PER_GROUP must be >= 1, got {gpus_per_group}"
+        )
+
+    if gpus_per_group == 1:
+        init_dist()
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        return rank, world_size, int(os.environ["LOCAL_RANK"])
+
+    if "TORCHELASTIC_RUN_ID" not in os.environ:
+        raise ValueError(
+            "Cannot find distributed environment. "
+            "Please make sure you are using `torchrun --nproc-per-node ...`."
+        )
+
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    main_gpu = local_rank * gpus_per_group
+    device_count = torch.accelerator.device_count()
+
+    if main_gpu + gpus_per_group > device_count:
+        raise ValueError(
+            "Requested GPU group exceeds local visible devices: "
+            f"main_gpu={main_gpu}, gpus_per_group={gpus_per_group}, "
+            f"device_count={device_count}"
+        )
+
+    accel_type = torch.accelerator.current_accelerator().type
+    if accel_type == "cuda":
+        backend = "nccl"
+    elif accel_type == "xpu":
+        backend = "xccl"
+    else:
+        backend = "gloo"
+
+    torch.accelerator.set_device_index(main_gpu)
+    dist.init_process_group(
+        backend=backend,
+        init_method="env://",
+        rank=rank,
+        world_size=world_size,
+        device_id=torch.device(f"{accel_type}:{main_gpu}"),
+    )
+    dist.barrier()
+    return rank, world_size, main_gpu
 
 
 def _collapse_causal_attention_mask(mask: torch.Tensor) -> torch.Tensor:

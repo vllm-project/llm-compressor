@@ -1,21 +1,29 @@
+import torch
+from compressed_tensors.offload import init_dist
+from compressed_tensors.quantization.quant_scheme import (
+    FP8_BLOCK,
+    NVFP4,
+    QuantizationScheme,
+)
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.utils import load_context
 
 # Load the model
-model_id = "zai-org/GLM-5.1"
+init_dist()
+model_id = "zai-org/GLM-5.2"
 with load_context():
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        device_map="auto_offload",
+        max_memory={"cpu": "500GiB"},
+        offload_folder="offload_folder",
+    )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-# MoE calibration is now handled automatically by the pipeline.
-# The `CalibrationGlmMoeDsaMoE` modules (from `llmcompressor.modeling.glm_moe_dsa`)
-# will be applied during calibration to enable proper expert calibration.
-# These permanently unpack the fused 3D expert weights into individual nn.Linear
-# layers for quantization target matching and vLLM compatibility.
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -27,7 +35,9 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = load_dataset(
+    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
+)
 ds = ds.shuffle(seed=42)
 
 
@@ -56,32 +66,39 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-moe_ignores = [
-    # Layers 0-2: Dense layers - ignore entire layers
-    "re:model.layers.0.*",
-    "re:model.layers.1.*",
-    "re:model.layers.2.*",
-    # Ignore the output head
-    "lm_head",
-]
-
 # Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with AWQ with a group size 128
-recipe = [
-    AWQModifier(),
-    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=moe_ignores),
-]
+recipe = QuantizationModifier(
+    config_groups={
+        "attention_shared_experts": QuantizationScheme(
+            targets=[r"re:.*self_attn\..*"],
+            **FP8_BLOCK,
+        ),
+        "mlp": QuantizationScheme(
+            targets=[r"re:.*mlp\..*"],
+            **NVFP4,
+        ),
+    },
+    ignore=[
+        r"re:^model\.layers\.[0-2]\..*" r"re:.*mlp\.gate.*",
+        r"re:.*indexer\.weights_proj$",  # sensitive to quantization
+        r"lm_head",
+    ],
+)
 
 # Apply algorithms.
 oneshot(
     model=model,
     dataset=ds,
+    batch_size=4,
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    shuffle_calibration_samples=False,
 )
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+# Note: base checkpoint generation_config needs fixing for newer transformers versions
+model.generation_config.top_p = None
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
+
+torch.distributed.destroy_process_group()
