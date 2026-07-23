@@ -32,7 +32,7 @@ with load_context():
         MODEL_ID,
         device_map="auto_offload",
         max_memory={"cpu": "500GiB"},
-        offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder",
+        offload_folder="offload_folder",
     )
 
 tokenizer = AutoTokenizer.from_pretrained("RedHatAI/DeepSeek-V4-Flash-BF16")
