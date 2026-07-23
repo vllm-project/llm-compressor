@@ -276,7 +276,9 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        quant_method_key = f"{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
+        quant_method_key = (
+            f"config.{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
+        )
         quant_method = getattr_chain(model, quant_method_key, None)
 
         if quant_method is None:

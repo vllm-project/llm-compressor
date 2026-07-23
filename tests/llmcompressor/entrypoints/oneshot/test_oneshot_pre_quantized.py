@@ -46,7 +46,7 @@ def test_oneshot_warns_pre_quantized_smoke_model():
             recipe=_recipe(),
         )
 
-    assert "already quantized" in logs[0]
+    assert any("already quantized" in log for log in logs)
     logger.remove(handler_id)
 
 
