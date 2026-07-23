@@ -1,15 +1,23 @@
 import math
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.utils.dev import skip_weights_download
 
 model_id = "Qwen/Qwen3-30B-A3B"
 
+config = AutoConfig.from_pretrained(model_id)
+config.num_hidden_layers = 3
+
+# Check if the model is multimodal. If so, change `AutoModelForCausalLM` to `...ForConditionalGeneration`
 with skip_weights_download(AutoModelForCausalLM):
-    model = AutoModelForCausalLM.from_pretrained(model_id, num_hidden_layers=1)
-    model.init_weights()
+    model = AutoModelForCausalLM.from_pretrained(model_id, config=config)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Initialize weights
+for m in model.modules():
+    m._is_hf_initialized = False
+model.init_weights()
 
 # Fix initialization of weights which were not properly implemented by `init_weights`
 with torch.no_grad():

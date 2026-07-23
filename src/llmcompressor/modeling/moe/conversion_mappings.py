@@ -196,6 +196,23 @@ ARCH_TO_2D_MAPPINGS = {
             ),
         ],
     ),
+    "hy_v3": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.gate_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+            ),
+        ],
+    ),
 }
 
 
