@@ -12,6 +12,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers.conversion_mapping import extract_weight_conversions_for_model
 
 try:
     # Transformers < v5 support
@@ -95,6 +96,11 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         # replace model_path
         model.name_or_path = model_stub
         model.config._name_or_path = model_stub
+
+        # normally transformers populates `_weight_conversions` based on which were used
+        # but none were used (since no weights were loaded), so populate directly
+        # so that saving in original checkpoint format still works
+        model._weight_conversions = extract_weight_conversions_for_model(model)
 
         return model
 
