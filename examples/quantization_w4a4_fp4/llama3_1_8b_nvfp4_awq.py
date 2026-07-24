@@ -80,6 +80,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-AWQ"
+SAVE_DIR = "/data/dsikka/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-AWQ"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)

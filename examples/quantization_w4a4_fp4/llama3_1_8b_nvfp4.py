@@ -17,7 +17,7 @@ DATASET_SPLIT = "train_sft"
 # Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
 # MoE models may benefit from more samples (512-1024) for better expert calibration.
-NUM_CALIBRATION_SAMPLES = 100
+NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -77,6 +77,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = "/data/dsikka/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
