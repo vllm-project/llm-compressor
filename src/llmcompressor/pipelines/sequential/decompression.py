@@ -26,7 +26,8 @@ def stash_input_formats(model: torch.nn.Module, recompress: bool) -> None:
     """
     active = False
     for module in model.modules():
-        if getattr(module, "quantization_status", None) == QuantizationStatus.COMPRESSED:
+        status = getattr(module, "quantization_status", None)
+        if status == QuantizationStatus.COMPRESSED:
             scheme = getattr(module, "quantization_scheme", None)
             module._ct_input_format = getattr(scheme, "format", None)
             active = True
@@ -61,19 +62,31 @@ def _is_fp8_linear(module: torch.nn.Module) -> bool:
     return type(module).__name__ == "FP8Linear"
 
 
+def _is_compressed(module: torch.nn.Module) -> bool:
+    """A module is physically compressed if it has no dense ``weight`` but carries
+    packed weights. Status alone is unreliable: a modifier may flip
+    ``quantization_status`` away from COMPRESSED at init while the tensors stay packed.
+    """
+    if hasattr(module, "weight"):
+        return False
+    return hasattr(module, "weight_packed") or (
+        getattr(module, "quantization_status", None) == QuantizationStatus.COMPRESSED
+    )
+
+
 def _resolve_handlers(module: torch.nn.Module):
     """Return ``(decompress_fn, recompress_fn)`` for a module, or None if unhandled."""
-    if getattr(module, "quantization_status", None) == QuantizationStatus.COMPRESSED:
-        if _is_fp8_linear(module):
-            raise NotImplementedError(
-                "native-FP8 (FP8Linear) JIT decompression is Path A; not yet implemented"
-            )
-        fmt = getattr(module, "_ct_input_format", None)
-        return (
-            lambda m: decompress_module(m, format=fmt),
-            lambda m: compress_module(m),
+    if _is_fp8_linear(module):
+        raise NotImplementedError(
+            "native-FP8 (FP8Linear) JIT decompression is Path A; not yet implemented"
         )
-    return None
+    if not _is_compressed(module):
+        return None
+    fmt = getattr(module, "_ct_input_format", None)
+    return (
+        lambda m: decompress_module(m, format=fmt),
+        lambda m: compress_module(m, format=fmt),
+    )
 
 
 @contextlib.contextmanager
