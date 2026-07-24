@@ -17,7 +17,6 @@ Let's walk through the main steps of the quantization process:
 
 ```python
 import torch
-from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
@@ -116,8 +115,4 @@ oneshot(
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
-
-# MTP layers are excluded from the model through Qwen3_5MoeForConditionalGeneration
-# Save them as-is from the original checkpoint into the quantized output.
-save_mtp_tensors_to_checkpoint(source_model=MODEL_ID, dest_dir=SAVE_DIR)
 ```
