@@ -6,8 +6,9 @@ reviews:
   high_level_summary: false
   high_level_summary_in_walkthrough: false # Do not show high-level summary in walkthrough
   poem: false
-  review_status: true
+  review_status: false
   collapse_walkthrough: true
+  auto_title_update: false
   auto_apply_labels: true
   path_filters:
     - "!**/*.pyc"
@@ -75,7 +76,7 @@ reviews:
     - label: "two-reviews"
       instructions: "Apply when the PR makes significant or substantial changes to source code under src/ — such as large refactors, new core functionality, public API changes, or modifications spanning multiple components (more than 3 files changed OR 100+ lines changed in src/). Do NOT apply for small, targeted changes to a single file or a narrow, self-contained fix. Also apply when the PR changes dependency version bounds in pyproject.toml or setup.py."
   auto_review:
-    enabled: false
+    enabled: true
     ignore_title_keywords:
       - "WIP"
       - "DO NOT MERGE"
