@@ -109,9 +109,7 @@ class Observer(InternalModule, RegistryMixin):
         gparam_kwargs = {}
         gs_max = (self.args.observer_kwargs or {}).get("global_scale_max")
         if gs_max is not None:
-            gparam_kwargs["scale_data"] = _CustomFP8ScaleData(
-                max=gs_max, min=-gs_max
-            )
+            gparam_kwargs["scale_data"] = _CustomFP8ScaleData(max=gs_max, min=-gs_max)
 
         return generate_gparam(
             -global_absmax.reshape(1), global_absmax.reshape(1), **gparam_kwargs
