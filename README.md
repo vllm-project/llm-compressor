@@ -3,14 +3,14 @@
 <picture>
   <source
     media="(prefers-color-scheme: dark)"
-    srcset="./docs/assets/llmcompressor-icon-name-dark.png"
+    srcset="docs/assets/llmcompressor-icon-name-dark.png"
   >
   <source
     media="(prefers-color-scheme: light)"
-    srcset="./docs/assets/llmcompressor-icon-name-light.png"
+    srcset="docs/assets/llmcompressor-icon-name-light.png"
   >
   <img
-    src="./docs/assets/llmcompressor-icon-name-light.png"
+    src="docs/assets/llmcompressor-icon-name-light.png"
     alt="LLM Compressor"
     width="420"
   >
@@ -51,7 +51,7 @@ Some of the exciting new features include:
 
 * **GLM-5.2 NVFP4+FP8 Example and Checkpoints**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
   - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
-  - [GLM-5.2 Quantization Example](https://github.com/vllm-project/llm-compressor/pull/2869)
+  - [GLM-5.2 Example Script](examples/quantizing_moe/glm5_example.py)
 * **REAP Expert Pruning Modifier**: [REAP](https://arxiv.org/pdf/2510.13999) reduces the VRAM requirements to run Mixture-of-Experts models by structurally removing less-relevant experts in each layer. With relevancy proxied by a saliency metric calculated from calibration forward pass data, REAP achieves a desired expert sparsity (set by the user) while aiming to minimize the impact of the pruned experts. The modifier implementation is in [`modifiers/pruning/reap`](src/llmcompressor/modifiers/pruning/reap) and can be used as a template for implementing other expert pruning algorithms. Examples and additional documentation can be found below:
   - [REAP Pruning README](examples/reap_expert_pruning/README.md)
   - [REAP Prune Qwen/Qwen3-30B-A3B-Instruct-2507 to 25% Sparsity](examples/reap_expert_pruning/reap_qwen3_30b.py)
