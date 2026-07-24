@@ -1,20 +1,31 @@
 <div align="center">
 
-<h1>
-  <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />
-  <span style="font-size:80px;">LLM Compressor</span>
-</h1>
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="./docs/assets/llmcompressor-icon-name-dark.png"
+  >
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="./docs/assets/llmcompressor-icon-name-light.png"
+  >
+  <img
+    src="./docs/assets/llmcompressor-icon-name-light.png"
+    alt="LLM Compressor"
+    width="420"
+  >
+</picture>
 
 [![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/)
 
 </div>
 
-`llmcompressor` is an easy-to-use library for optimizing models for deployment with vLLM, including:
+`llmcompressor` the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
-* Comprehensive set of quantization algorithms and transforms for weight, activation, KV Cache, and attention quantization
+* Comprehensive set of quantization algorithms and transforms for weight, activation, KV cache, and attention quantization
 * Seamless integration with Hugging Face models and repositories
 * Models saved in the `compressed-tensors` format, compatible with vLLM
-* DDP and disk offloading support for compressing very large models
+* DDP and disk offloading support for compressing very large models with hardware efficiency
 
 **✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
 
@@ -38,7 +49,7 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
-* **GLM-5.2 NVFP4+FP8 Quantized Checkpoint**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
+* **GLM-5.2 NVFP4+FP8 Example and Checkpoints**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
   - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
   - [GLM-5.2 Quantization Example](https://github.com/vllm-project/llm-compressor/pull/2869)
 * **REAP Expert Pruning Modifier**: [REAP](https://arxiv.org/pdf/2510.13999) reduces the VRAM requirements to run Mixture-of-Experts models by structurally removing less-relevant experts in each layer. With relevancy proxied by a saliency metric calculated from calibration forward pass data, REAP achieves a desired expert sparsity (set by the user) while aiming to minimize the impact of the pruned experts. The modifier implementation is in [`modifiers/pruning/reap`](src/llmcompressor/modifiers/pruning/reap) and can be used as a template for implementing other expert pruning algorithms. Examples and additional documentation can be found below:
@@ -64,6 +75,7 @@ Some of the exciting new features include:
 * Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
 * Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
 * Attention and KV Cache Quantization: FP8, NVFP4
+* Low/Arbitrary-bit Quantization: WNA4, WNA8, WNA16
 
 ### Supported Algorithms
 * Simple PTQ
@@ -72,6 +84,7 @@ Some of the exciting new features include:
 * SmoothQuant
 * AutoRound
 * Rotation-based (SpinQuant, QuIP)
+* REAP expert pruning
 
 ### Quantizing your model, step-by-step
 
@@ -219,7 +232,3 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
-
-
-!!! warning
-    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due to lack of hardware support and usage
