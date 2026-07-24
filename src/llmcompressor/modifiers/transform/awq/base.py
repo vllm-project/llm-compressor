@@ -139,6 +139,8 @@ class AWQModifier(Modifier):
         Defaults to 20
     """
 
+    requires_calibration_data: bool = True
+
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 

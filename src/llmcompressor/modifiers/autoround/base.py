@@ -164,6 +164,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         Defaults to None.
     """
 
+    requires_calibration_data: bool = True
+
     # AutoRound modifier arguments
     iters: int = 200
     enable_torch_compile: bool = True
