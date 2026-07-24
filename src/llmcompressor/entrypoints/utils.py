@@ -161,15 +161,28 @@ def initialize_model_from_path(
         "trust_remote_code": model_args.trust_remote_code_model,
     }
 
-    # optimized models must be decompressed to carry out oneshot/train/etc
-    if is_model_ct_quantized_from_path(model_path):
+    # Compressed-tensors models load compressed and are decompressed one subgraph at a
+    # time during sequential calibration (see pipelines/sequential/decompression.py).
+    # `force_full_decompression` restores the legacy whole-model decompress on load.
+    is_ct_quantized = is_model_ct_quantized_from_path(model_path)
+    load_compressed = is_ct_quantized and not getattr(
+        model_args, "force_full_decompression", False
+    )
+    if is_ct_quantized:
         model_kwargs["quantization_config"] = CompressedTensorsConfig(
-            run_compressed=False
+            run_compressed=load_compressed
         )
 
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
     if "sequence_length" in model_kwargs:
         model.seqlen = model_kwargs["sequence_length"]
+
+    if load_compressed:
+        from llmcompressor.pipelines.sequential.decompression import (
+            stash_input_formats,
+        )
+
+        stash_input_formats(model, recompress=model_args.save_compressed)
 
     return model
 

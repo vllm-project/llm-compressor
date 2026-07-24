@@ -71,6 +71,14 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to compress models during save"},
     )
+    force_full_decompression: bool = field(
+        default=False,
+        metadata={
+            "help": "Force decompressing a compressed-tensors model fully on load "
+            "(legacy behavior) instead of decompressing one subgraph at a time "
+            "during sequential calibration."
+        },
+    )
     model_revision: str = field(
         default="main",
         metadata={

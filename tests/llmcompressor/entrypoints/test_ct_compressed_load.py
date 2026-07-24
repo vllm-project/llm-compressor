@@ -40,3 +40,29 @@ def test_run_compressed_true_keeps_modules_compressed():
     compress_module(mod, format=fmt)
     assert getattr(mod, "quantization_status", None) == QuantizationStatus.COMPRESSED
     assert not hasattr(mod, "weight")
+
+
+def test_ct_model_loads_compressed_and_stashes_formats():
+    from llmcompressor.args import ModelArguments
+    from llmcompressor.entrypoints.utils import initialize_model_from_path
+
+    model = initialize_model_from_path(
+        ModelArguments(model=COMPRESSED_MODEL, save_compressed=True)
+    )
+    mod = _first_quant_linear(model)
+    assert not hasattr(mod, "weight")
+    assert hasattr(mod, "_ct_input_format")
+    assert model._recompress_on_calibration is True
+    assert model._sequential_decompression_active is True
+
+
+def test_force_full_decompression_loads_dense():
+    from llmcompressor.args import ModelArguments
+    from llmcompressor.entrypoints.utils import initialize_model_from_path
+
+    model = initialize_model_from_path(
+        ModelArguments(model=COMPRESSED_MODEL, force_full_decompression=True)
+    )
+    mod = _first_quant_linear(model)
+    assert hasattr(mod, "weight")
+    assert getattr(model, "_sequential_decompression_active", False) is False
