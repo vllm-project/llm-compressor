@@ -59,3 +59,12 @@ def test_fp8linear_seam_raises():
     with pytest.raises(NotImplementedError, match="Path A"):
         with decompressed_modules([lin], recompress=True):
             pass
+
+
+@pytest.mark.skip(
+    reason="Offload<->decompress composition needs a real GPU onload device; the "
+    "CPU-only onload is degenerate. Covered end-to-end by the sequential pipeline "
+    "test which sets up onload/offload via the real machinery."
+)
+def test_roundtrip_under_offload():
+    pass

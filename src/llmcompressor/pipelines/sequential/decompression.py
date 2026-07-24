@@ -4,7 +4,11 @@ import torch
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.quantization import QuantizationStatus
 
-__all__ = ["stash_input_formats", "decompressed_modules"]
+__all__ = [
+    "stash_input_formats",
+    "decompressed_modules",
+    "ensure_dense_for_nonsequential",
+]
 
 
 def stash_input_formats(model: torch.nn.Module, recompress: bool) -> None:
@@ -28,6 +32,29 @@ def stash_input_formats(model: torch.nn.Module, recompress: bool) -> None:
             active = True
     model._sequential_decompression_active = active
     model._recompress_on_calibration = bool(recompress) and active
+
+
+def ensure_dense_for_nonsequential(model: torch.nn.Module) -> None:
+    """Fully decompress a compressed-loaded model for non-sequential pipelines.
+
+    ``data_free``/``basic`` pipelines do not decompress per subgraph, so a model
+    loaded with ``run_compressed=True`` must be decompressed wholesale before they run.
+    No-op unless the model was loaded compressed for sequential decompression.
+    """
+    if not getattr(model, "_sequential_decompression_active", False):
+        return
+
+    from compressed_tensors.utils.offload import align_modules
+
+    targets = [
+        m
+        for m in model.modules()
+        if getattr(m, "quantization_status", None) == QuantizationStatus.COMPRESSED
+    ]
+    with align_modules(targets):
+        for module in targets:
+            decompress_module(module, format=getattr(module, "_ct_input_format", None))
+    model._sequential_decompression_active = False
 
 
 def _is_fp8_linear(module: torch.nn.Module) -> bool:

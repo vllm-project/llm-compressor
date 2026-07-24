@@ -39,6 +39,14 @@ class BasicPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        # a model loaded compressed for sequential decompression must be decompressed
+        # fully here, since this pipeline does not decompress per subgraph
+        from llmcompressor.pipelines.sequential.decompression import (
+            ensure_dense_for_nonsequential,
+        )
+
+        ensure_dense_for_nonsequential(model)
+
         session = active_session()
         model_device = get_execution_device(model)
         if model_device == torch.device("cpu"):
