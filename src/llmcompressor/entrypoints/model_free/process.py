@@ -229,7 +229,6 @@ def process_file_microscale_scheme(
     # Save ALL tensors to this shard's output — including partner tensors fetched
     # from other shards. Partners are re-saved here so future runs don't need to
     # re-fetch them. The caller updates the safetensors index to reflect new locations.
-    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
     save_file(tensors, save_path)
     total_size = sum(t.nbytes for t in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
