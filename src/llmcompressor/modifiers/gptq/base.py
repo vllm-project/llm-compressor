@@ -92,7 +92,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         diagonal norm
     :param actorder: order in which weight columns are quantized. Defaults to "static"
         activation ordering, which achieves best accuracy recovery with no runtime cost.
-        For more information, see https://github.com/vllm-project/vllm/pull/8135
+        For more information, see https://github.com/vllm-project/vllm/pull/8135.
+        Note: "group"/ "dynamic" are deprecated and will be removed in a future release.
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -174,16 +175,20 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
-                if (
-                    scheme.weights.actorder == ActivationOrdering.GROUP
-                    and strategy not in grouped_strategies
-                ):
-                    logger.warning(
-                        f"ActivationOrdering.GROUP is not compatible with "
-                        f"strategy={strategy}; falling back to actorder=None "
-                        f"for this scheme."
+                if scheme.weights.actorder == ActivationOrdering.GROUP:
+                    logger.bind(log_once=False).warning(
+                        "ActivationOrdering.GROUP is deprecated and will be removed "
+                        "in a future release. Use default actorder='static' instead. "
                     )
-                    scheme.weights.actorder = None
+
+                    if strategy not in grouped_strategies:
+                        logger.warning(
+                            f"ActivationOrdering.GROUP is not compatible with "
+                            f"strategy={strategy}; falling back to actorder=None "
+                            f"for this scheme."
+                        )
+                        scheme.weights.actorder = None
+
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
