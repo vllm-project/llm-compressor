@@ -5,7 +5,10 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
+from compressed_tensors.utils import patch_attr
 
+import llmcompressor.modifiers.gptq.gptq_quantize as gptq_quantize
+from llmcompressor.core import active_session, create_session
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
@@ -16,6 +19,116 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
 )
 from tests.testing_utils import requires_compute_capability
+
+
+def _make_quantize_inputs(strategy: str = "group", device: str = "cpu"):
+    torch.manual_seed(0)
+    module = torch.nn.Linear(8, 6, bias=False).to(device)
+    quant_args_kwargs = dict(
+        num_bits=4,
+        symmetric=True,
+        strategy=strategy,
+    )
+    if strategy in ("group", "tensor_group"):
+        quant_args_kwargs["group_size"] = 2
+    if strategy == "block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["block_structure"] = [2, 2]
+
+    quant_args = QuantizationArgs(**quant_args_kwargs)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+
+    hessian = make_empty_hessian(module)
+    A = torch.randn(hessian.shape[0], hessian.shape[1], device=device)
+    hessian += A @ A.t()
+    hessian += torch.eye(hessian.shape[0], dtype=hessian.dtype, device=device)
+    return module, quant_args, hessian
+
+
+def _make_group_quantize_inputs(device: str = "cpu"):
+    return _make_quantize_inputs("group", device)
+
+
+@torch.no_grad()
+@pytest.mark.parametrize(
+    "strategy", ["tensor", "channel", "group", "tensor_group", "block"]
+)
+def test_quantize_weight_compiled_block_path_matches_eager(monkeypatch, strategy):
+    module, quant_args, hessian = _make_quantize_inputs(strategy)
+
+    with create_session() as session:
+        session.state.enable_compile = False
+        eager_loss, eager_qparams = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian.clone(),
+            blocksize=4,
+        )
+
+        calls = 0
+
+        def compiled_block(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return gptq_quantize._quantize_block(*args, **kwargs)
+
+        monkeypatch.setattr(gptq_quantize, "_quantize_block_compiled", compiled_block)
+
+        session.state.enable_compile = True
+        compiled_loss, compiled_qparams = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian.clone(),
+            blocksize=4,
+        )
+
+    assert calls > 0
+    assert compiled_loss == pytest.approx(eager_loss)
+    for key in ("weight", "weight_scale", "weight_zero_point"):
+        torch.testing.assert_close(compiled_qparams[key], eager_qparams[key])
+
+
+@torch.no_grad()
+def test_quantize_weight_compile_flag_off_uses_eager(monkeypatch):
+    module, quant_args, hessian = _make_group_quantize_inputs()
+
+    def compiled_block(*args, **kwargs):
+        raise AssertionError("compiled GPTQ block should not be used")
+
+    monkeypatch.setattr(gptq_quantize, "_quantize_block_compiled", compiled_block)
+
+    with create_session() as session:
+        session.state.enable_compile = False
+        loss, q_param_dict = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian,
+            blocksize=4,
+        )
+
+    assert loss >= 0
+    assert q_param_dict["weight"].shape == module.weight.shape
+
+
+@requires_compute_capability(8, 0)
+@torch.no_grad()
+def test_quantize_weight_runs_real_compiled_block_path():
+    module, quant_args, hessian = _make_group_quantize_inputs(device="cuda")
+
+    with patch_attr(active_session().state, "enable_compile", True):
+        loss, q_param_dict = quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian,
+            blocksize=4,
+        )
+
+    assert loss >= 0
+    assert q_param_dict["weight"].shape == module.weight.shape
 
 
 @pytest.mark.parametrize(
