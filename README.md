@@ -77,7 +77,7 @@ Some of the exciting new features include:
 
 Please refer to our [step-by-step compression guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/steps/choosing-model/) for detailed information about selecting quantization schemes, algorithms, and their use cases.
 
-Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/)
+Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/) and [FAQ](https://docs.vllm.ai/projects/llm-compressor/en/latest/faq/faq/).
 
 
 ## Installation
