@@ -13,6 +13,7 @@ DEVICE = get_accelerator_type()
 _MODEL_DTYPE = torch.float32
 _EXP_MSE = 5e-3
 
+
 @requires_gpu
 def test_quantization_with_automatic_untie():
     """
