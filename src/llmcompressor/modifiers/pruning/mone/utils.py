@@ -265,9 +265,13 @@ def replace_experts_with_novices(
             hidden_dim=hidden_size,
             dtype=dtype,
         ).to(device)
+        approx_value = approx_value.to(dtype=dtype)
+        novice._llmcompressor_mone_approx_value_cpu = (
+            approx_value.detach().cpu().clone()
+        )
         with torch.no_grad():
             novice.approx_value.copy_(
-                approx_value.to(device=novice.approx_value.device, dtype=dtype)
+                approx_value.to(device=novice.approx_value.device)
             )
 
         experts[expert_idx] = novice
