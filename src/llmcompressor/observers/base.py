@@ -27,7 +27,7 @@ class QParamsDict(TypedDict, total=False):
     global_scale: Optional[torch.Tensor]
 
 
-class _CustomFP8ScaleData(FloatArgs):
+class CustomFP8ScaleData(FloatArgs):
     exponent = 4
     mantissa = 3
     bits = 8
@@ -109,7 +109,7 @@ class Observer(InternalModule, RegistryMixin):
         gparam_kwargs = {}
         gs_max = (self.args.observer_kwargs or {}).get("global_scale_max")
         if gs_max is not None:
-            gparam_kwargs["scale_data"] = _CustomFP8ScaleData(max=gs_max, min=-gs_max)
+            gparam_kwargs["scale_data"] = CustomFP8ScaleData(max=gs_max, min=-gs_max)
 
         return generate_gparam(
             -global_absmax.reshape(1), global_absmax.reshape(1), **gparam_kwargs
