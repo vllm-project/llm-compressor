@@ -1,46 +1,57 @@
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.quantization import preset_name_to_scheme
+from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Select model and load it.
-model_id = "meta-llama/Meta-Llama-3.1-8B"
+MODEL_ID = "meta-llama/Meta-Llama-3.1-8B"
 
-model = AutoModelForCausalLM.from_pretrained(model_id)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
-DATASET_ID = "open_platypus"
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
+DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
-# Configure the quantization algorithm to run.
-#   * collect E[x²] during calibration through the imatrix_mse observer
-#   * quantize the weights to 4 bit with group size 128
-#   * use imatrix_mse observer to weight quantization error by channel importance
-scheme = preset_name_to_scheme("W4A16", ["Linear"])
-scheme.weights.observer = "imatrix_mse"
+# Load dataset and preprocess.
+ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = ds.shuffle(seed=42)
 
+
+def preprocess(example):
+    return {"text": "\n".join(m["content"] for m in example["messages"])}
+
+
+ds = ds.map(preprocess)
+
+# Configure the quantization algorithm to run.
+#   * quantize the weights to NVFP4 (fp4 with per-group-16 scales)
+#   * use imatrix_mse observer to weight quantization error by channel importance
 recipe = [
     QuantizationModifier(
-        config_groups={"group_0": scheme},
+        scheme="NVFP4A16",
+        targets="Linear",
         ignore=["lm_head"],
+        weight_observer="imatrix_mse",
     ),
 ]
 
 # Apply algorithms.
 oneshot(
     model=model,
-    dataset=DATASET_ID,
-    splits="train[:5%]",
+    dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    preprocessing_num_workers=32,
+    dataloader_num_workers=32,
 )
 
 # Confirm generations of the quantized model look sane.
@@ -54,6 +65,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-imatrix"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16-imatrix"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
