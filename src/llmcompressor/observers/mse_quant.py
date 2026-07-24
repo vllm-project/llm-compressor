@@ -8,7 +8,7 @@ from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 
 from llmcompressor.core import active_session
-from llmcompressor.observers.base import MinMaxTuple, CustomFP8ScaleData
+from llmcompressor.observers.base import CustomFP8ScaleData, MinMaxTuple
 
 # Allow torch.compile to handle scalar conversions inside
 # compressed_tensors' calculate_qparams (float(bit_range)).
@@ -64,7 +64,7 @@ def _grid_search_mse(
         global_absmax = torch.max(-original_min.min(), original_max.max())
         gparam_kwargs = {}
         if global_scale_max is not None:
-            gparam_kwargs["scale_data"] = _CustomFP8ScaleData(
+            gparam_kwargs["scale_data"] = CustomFP8ScaleData(
                 max=global_scale_max, min=-global_scale_max
             )
         global_scale = generate_gparam(
