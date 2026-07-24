@@ -34,6 +34,8 @@ def accumulate_hessian(
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
+    elif len(inp.shape) > 3:
+        inp = inp.reshape(inp.shape[0], -1, inp.shape[-1])
 
     num_added = inp.shape[0]
 
@@ -87,7 +89,6 @@ def quantize_weight(
     H = hessian
 
     observer = module.weight_observer
-
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
