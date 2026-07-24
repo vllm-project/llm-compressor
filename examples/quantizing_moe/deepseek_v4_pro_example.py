@@ -5,12 +5,12 @@ from compressed_tensors.quantization.quant_scheme import (
     NVFP4,
     QuantizationScheme,
 )
+from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
 )
 
-from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
