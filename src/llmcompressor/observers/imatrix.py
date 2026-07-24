@@ -39,6 +39,8 @@ class IMatrixMSEObserver(Observer):
         "_imatrix_count": dist.ReduceOp.SUM,
     }
 
+    _stats_attrs = ["min_vals", "max_vals", "_imatrix_sum", "_imatrix_count"]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs

@@ -414,6 +414,62 @@ class TestValidation:
 # ---------------------------------------------------------------------------
 
 
+class TestStatisticsCleanup:
+    """Verify that imatrix stats are cleaned up after get_qparams."""
+
+    def test_get_qparams_deletes_imatrix_stats(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(
+            module, strategy="channel", importance=_make_importance(in_features=8)
+        )
+        observer(module.weight)
+
+        assert hasattr(observer, "_imatrix_sum")
+        assert hasattr(observer, "_imatrix_count")
+        assert hasattr(observer, "min_vals")
+        assert hasattr(observer, "max_vals")
+
+        qparams = observer.get_qparams()
+        assert torch.isfinite(qparams["scale"]).all()
+
+        assert not hasattr(observer, "_imatrix_sum")
+        assert not hasattr(observer, "_imatrix_count")
+        assert not hasattr(observer, "min_vals")
+        assert not hasattr(observer, "max_vals")
+
+    def test_get_qparams_deletes_imatrix_stats_group_strategy(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(
+            module,
+            strategy="group",
+            group_size=4,
+            importance=_make_importance(in_features=8),
+        )
+        observer(module.weight)
+        observer.get_qparams()
+
+        assert not hasattr(observer, "_imatrix_sum")
+        assert not hasattr(observer, "_imatrix_count")
+        assert not hasattr(observer, "min_vals")
+        assert not hasattr(observer, "max_vals")
+
+    def test_has_statistics_false_after_cleanup(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(
+            module, strategy="channel", importance=_make_importance(in_features=8)
+        )
+        observer(module.weight)
+        assert observer.has_statistics
+
+        observer.get_qparams()
+        assert not observer.has_statistics
+
+
+# ---------------------------------------------------------------------------
+# Hook disabled during HooksMixin.disable_hooks()
+# ---------------------------------------------------------------------------
+
+
 class TestHookDisabling:
     """
     The iMatrix hook must not accumulate when HooksMixin.disable_hooks() is active.
