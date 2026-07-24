@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from compressed_tensors.quantization import QuantizationConfig
 from loguru import logger
@@ -9,7 +11,6 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 SMOKE_MODEL = "nm-testing/tinysmokellama-3.2"
 CT_MODEL = "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16"
-QUANTIZED_MODEL = "google/gemma-4-E2B-it-qat-mobile-transformers"
 
 
 def _recipe():
@@ -53,13 +54,11 @@ def test_oneshot_warns_pre_quantized_smoke_model():
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_oneshot_rejects_pre_quantized_smoke_model():
-    with skip_weights_initialize(), pytest.raises(
-        ValueError, match="already quantized"
-    ):
-        oneshot(
-            model=QUANTIZED_MODEL,
-            recipe=_recipe(),
-        )
+    with skip_weights_initialize():
+        model = AutoModelForCausalLM.from_pretrained(SMOKE_MODEL)
+    model.config.quantization_config = SimpleNamespace(quant_method="fp_quant")
+    with pytest.raises(ValueError, match="already quantized"):
+        oneshot(model=model, recipe=_recipe())
 
 
 @pytest.mark.smoke
