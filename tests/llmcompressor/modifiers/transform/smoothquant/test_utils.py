@@ -10,6 +10,7 @@ from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
     get_layer_mappings_from_model,
 )
 from llmcompressor.modifiers.transform.smoothquant.utils import (
+    COHERE2_MOE_SMOOTHQUANT_MAPPINGS,
     COHERE_SMOOTHQUANT_MAPPINGS,
     DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     DEFAULT_SMOOTHQUANT_MAPPINGS,
@@ -63,6 +64,7 @@ def test_get_layer_mappings_from_architecture():
     [
         ("CohereForCausalLM", COHERE_SMOOTHQUANT_MAPPINGS),
         ("Cohere2ForCausalLM", COHERE_SMOOTHQUANT_MAPPINGS),
+        ("Cohere2MoeForCausalLM", COHERE2_MOE_SMOOTHQUANT_MAPPINGS),
         ("Cohere2VisionForConditionalGeneration", COHERE_SMOOTHQUANT_MAPPINGS),
     ],
 )

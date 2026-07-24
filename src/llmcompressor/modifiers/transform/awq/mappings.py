@@ -154,6 +154,40 @@ _cohere_mappings = [
     ),
 ]
 
+# Cohere2MoE keeps Cohere's parallel block (a single input_layernorm feeds the
+# attention and the MLP simultaneously), with a mixed dense/MoE stack: the
+# leading first_k_dense_replace layer has a plain MLP (mlp.gate_proj/up_proj)
+# and no router, while MoE layers have per-expert projections
+# (mlp.experts.N.gate_proj/up_proj) plus a router (mlp.gate). As with
+# Glm4MoeLite, the router must be omitted from the balance layers — it does not
+# exist on the dense layer, which would break per-layer grouping in
+# match_modules_set (the collapse fixed in #2923). The unscoped
+# gate_proj$/up_proj$ patterns match both the dense MLP and every expert.
+# Known tradeoff, shared with the Glm4MoeLite/GlmMoeDsa mappings: on routed
+# layers the router consumes the smoothed norm output uncompensated, so
+# routing logits shift by the per-channel scales and top-k selection can
+# change on near-tie tokens. Cohere2MoE cannot avoid this by skipping MLP
+# smoothing (the Mixtral/Qwen-MoE convention) because the same norm also
+# feeds attention — omitting the norm from smoothing entirely would give up
+# attention smoothing too.
+_cohere2_moe_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            "re:.*self_attn.q_proj$",
+            "re:.*self_attn.k_proj$",
+            "re:.*self_attn.v_proj$",
+            "re:.*gate_proj$",
+            "re:.*up_proj$",
+        ],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 # DeepseekV3
 _deepseek_mappings = [
     AWQMapping(
@@ -274,7 +308,13 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
+    "Cohere2MoeForCausalLM": _cohere2_moe_mappings,
     "Cohere2VisionForConditionalGeneration": _cohere_mappings,
+    # DeepseekV2 is the same mixed dense/MoE MLA family as Glm4MoeLite
+    # (first_k_dense_replace dense layers without a router), so it takes the
+    # router-omitting mappings — registering it to _deepseek_mappings would hit
+    # the dense-layer grouping collapse fixed for GlmMoeDsa in #2923.
+    "DeepseekV2ForCausalLM": _glm4_moe_lite_mappings,
     "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Exaone4ForCausalLM": _exaone4_mappings,
     "Gemma2ForCausalLM": _gemma_mappings,
