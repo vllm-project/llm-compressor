@@ -38,6 +38,9 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **Hy3 NVFP4+FP8 Quantized Checkpoint**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) has been created by the Red Hat AI team, combining NVFP4 quantization of MoE layers with FP8 quantization of attention layers to significantly reduce VRAM requirements while maintaining accuracy recovery.
+  - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
+  - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
 * **GLM-5.2 NVFP4+FP8 Quantized Checkpoint**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
   - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
   - [GLM-5.2 Quantization Example](https://github.com/vllm-project/llm-compressor/pull/2869)
