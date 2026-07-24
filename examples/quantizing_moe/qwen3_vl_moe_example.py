@@ -7,7 +7,7 @@ from compressed_tensors.offload import dispatch_model
 # Note: this is an optional utility for processing vision inputs for qwen.
 # This can be installed via the "qwen" extra
 from qwen_vl_utils import process_vision_info
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from datasets import load_dataset
 from llmcompressor import oneshot
@@ -15,8 +15,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Load model.
-model_id = "Qwen/Qwen3-VL-8B-Instruct"
-model = Qwen3VLForConditionalGeneration.from_pretrained(model_id)
+model_id = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+model = Qwen3VLMoeForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
@@ -89,7 +89,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     data_collator=data_collator,
-    sequential_targets=["Qwen3VLTextDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
@@ -124,6 +123,7 @@ print("==========================================")
 
 
 # Save to disk compressed.
+# NOTE: for now, must use `save_original_format` to avoid errors with repacking qparams
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
+model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
 processor.save_pretrained(SAVE_DIR)
