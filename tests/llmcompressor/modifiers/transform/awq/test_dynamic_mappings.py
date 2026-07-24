@@ -13,6 +13,10 @@ from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     build_step3p5_mappings,
     get_layer_mappings_from_model,
 )
+from llmcompressor.modifiers.transform.awq.mappings import (
+    AWQ_MAPPING_REGISTRY,
+    default_mappings,
+)
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
     get_hybrid_attention_config,
 )
@@ -464,6 +468,50 @@ class TestGetLayerMappingsFromModel:
         mappings = get_layer_mappings_from_model(model)
         assert len(mappings) == 4
         assert not any("|" in m.smooth_layer for m in mappings)
+
+    def test_nanbeige_model_uses_default_mappings(self):
+        model = _make_standard_model()
+        model.__class__ = type("NanbeigeForCausalLM", (model.__class__,), {})
+
+        assert model.__class__.__name__ in AWQ_MAPPING_REGISTRY
+        mappings = get_layer_mappings_from_model(model)
+
+        assert mappings == default_mappings
+
+    def test_nanbeige_default_mappings_resolve(self):
+        model = _make_standard_model()
+        model.__class__ = type("NanbeigeForCausalLM", (model.__class__,), {})
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+        )
+
+        awq = AWQModifier(mappings=get_layer_mappings_from_model(model))
+        awq._set_resolved_mappings(model)
+
+        assert len(awq._resolved_mappings) == 16
+        assert {
+            mapping.smooth_name.removeprefix("model.layers.0.")
+            for mapping in awq._resolved_mappings
+            if mapping.smooth_name.startswith("model.layers.0.")
+        } == {
+            "input_layernorm",
+            "self_attn.v_proj",
+            "post_attention_layernorm",
+            "mlp.up_proj",
+        }
+        assert {
+            name.removeprefix("model.layers.0.")
+            for mapping in awq._resolved_mappings
+            if mapping.smooth_name == "model.layers.0.input_layernorm"
+            for name in mapping.balance_names
+        } == {"self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"}
+        assert {
+            name.removeprefix("model.layers.0.")
+            for mapping in awq._resolved_mappings
+            if mapping.smooth_name == "model.layers.0.post_attention_layernorm"
+            for name in mapping.balance_names
+        } == {"mlp.gate_proj", "mlp.up_proj"}
 
     def test_unknown_model_gets_default_mappings(self):
         model = _make_standard_model()
