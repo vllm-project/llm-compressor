@@ -116,7 +116,7 @@ setup(
         # https://librosa.org/doc/0.11.0/changelog.html
         ("numpy>=2.0.0,<=2.4.2" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         (
-            "requests>=2.32.2,<=2.32.5"
+            "requests>=2.32.2,<2.35.0"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
@@ -144,7 +144,7 @@ setup(
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<=12.2.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
             "compressed-tensors==0.14.0.1"
             if BUILD_TYPE == "release"
