@@ -9,7 +9,7 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 SMOKE_MODEL = "nm-testing/tinysmokellama-3.2"
 CT_MODEL = "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16"
-QUANTIZED_MODEL = "google/gemma-4-E2B-it-qat-mobile-transformers"
+QUANTIZED_MODEL = "ISTA-DASLab/Qwen3-0.6B-FPQuant-RTN-MXFP4"
 
 
 def _recipe():
