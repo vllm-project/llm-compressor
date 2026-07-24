@@ -20,7 +20,7 @@
 
 </div>
 
-`llmcompressor` the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
+`llmcompressor` is the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
 * Comprehensive set of quantization algorithms and transforms for weight, activation, KV cache, and attention quantization
 * Seamless integration with Hugging Face models and repositories
