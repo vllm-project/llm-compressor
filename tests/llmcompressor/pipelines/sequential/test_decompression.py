@@ -30,8 +30,7 @@ def _compressed_linear():
 def test_decompress_then_recompress_roundtrip():
     lin = _compressed_linear()
     with decompressed_modules([lin], recompress=True):
-        assert hasattr(lin, "weight")
-        assert lin.quantization_status == QuantizationStatus.DECOMPRESSED
+        assert hasattr(lin, "weight")  # dense during the block
     assert not hasattr(lin, "weight")
     assert lin.quantization_status == QuantizationStatus.COMPRESSED
 
