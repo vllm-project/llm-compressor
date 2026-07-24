@@ -69,31 +69,28 @@ oneshot(
 
 elapsed_time = time.time() - start_time
 peak_memory_gb = torch.accelerator.max_memory_allocated() / (1024**3)
+print("Quantization Complete")
+print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
+print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
 
+# Confirm generations of the quantized model look sane.
+print("\n\n")
+print("========== SAMPLE GENERATION ==============")
+device = torch.device("cuda", 0)
+mem = torch.accelerator.get_memory_info(0)[1]
+dispatch_model(model, device_memory={device: mem})
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to(model.device) for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
+print(tokenizer.decode(output[0]))
+print("==========================================\n\n")
+
+# Save to disk compressed.
 world_size = torch.distributed.get_world_size()
-rank = torch.distributed.get_rank()
+SAVE_DIR = (
+    MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16-imatrix-DDP" + str(world_size)
+)
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+
 torch.distributed.destroy_process_group()
-
-if rank == 0:
-    print("Quantization Complete")
-    print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
-    print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")
-
-    # Confirm generations of the quantized model look sane.
-    print("\n\n")
-    print("========== SAMPLE GENERATION ==============")
-    device = torch.device("cuda", 0)
-    mem = torch.accelerator.get_memory_info(0)[1]
-    dispatch_model(model, device_memory={device: mem})
-    sample = tokenizer("Hello my name is", return_tensors="pt")
-    sample = {key: value.to(model.device) for key, value in sample.items()}
-    output = model.generate(**sample, max_new_tokens=100)
-    print(tokenizer.decode(output[0]))
-    print("==========================================\n\n")
-
-    # Save to disk compressed.
-    SAVE_DIR = (
-        MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16-imatrix-DDP" + str(world_size)
-    )
-    model.save_pretrained(SAVE_DIR, save_compressed=True)
-    tokenizer.save_pretrained(SAVE_DIR)
