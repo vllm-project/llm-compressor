@@ -13,3 +13,12 @@ steps:
       echo "║ GPU Runner    : $${RUNNER}"
       echo "╚══════════════════════════════════════════╝"
       buildkite-agent pipeline upload .buildkite/gpu-tests/gpu-tests-$${RUNNER}.yml
+  
+  # Test check pipeline on XPU (only when relevant paths changed)
+  - label: ":gear: llm-compressor XPU Tests"
+    if_changed:
+      - "src/llmcompressor/modifiers/**"
+      - "tests/llmcompressor/modifiers/**"
+      - ".buildkite/xpu-tests/**"
+    command: |
+      buildkite-agent pipeline upload .buildkite/xpu-tests/xpu-tests-B60.yml
