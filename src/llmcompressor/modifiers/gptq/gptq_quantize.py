@@ -11,6 +11,14 @@ from compressed_tensors.quantization import (
 )
 from loguru import logger
 
+try:
+    import triton
+    import triton.language as tl
+
+    _triton_available = True
+except ImportError:
+    _triton_available = False
+
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
@@ -60,6 +68,178 @@ def accumulate_hessian(
     H += inp.matmul(inp.t())
 
     return H, num_samples
+
+
+def _get_block_shape(strategy, quant_args, num_rows, num_columns):
+    if strategy == QuantizationStrategy.TENSOR:
+        return num_rows, num_columns
+    elif strategy == QuantizationStrategy.CHANNEL:
+        return 1, num_columns
+    elif strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+        return 1, quant_args.group_size
+    elif strategy == QuantizationStrategy.BLOCK:
+        return quant_args.block_structure
+    else:
+        raise ValueError(f"Unsupported strategy for Triton GPTQ: {strategy}")
+
+
+def _build_codebook(scale, zero_point, quant_args, global_scale=None):
+    num_bits = quant_args.num_bits
+    if quant_args.symmetric:
+        q_min = -(2 ** (num_bits - 1))
+        q_max = 2 ** (num_bits - 1) - 1
+    else:
+        q_min = 0
+        q_max = 2**num_bits - 1
+
+    int_vals = torch.arange(
+        q_min, q_max + 1, device=scale.device, dtype=torch.float32
+    )
+
+    s = scale.to(dtype=torch.float32)
+    zp = zero_point.to(dtype=torch.float32)
+    while s.dim() < 2:
+        s = s.unsqueeze(0)
+        zp = zp.unsqueeze(0)
+
+    codebook = (int_vals - zp.unsqueeze(-1)) * s.unsqueeze(-1)
+
+    if global_scale is not None:
+        codebook = codebook / global_scale
+
+    return codebook.contiguous()
+
+
+def _build_cutoffs_and_codes(scale, zero_point, quant_args, global_scale=None):
+    codes = _build_codebook(scale, zero_point, quant_args, global_scale)
+    cutoffs = (codes[..., :-1] + codes[..., 1:]) * 0.5
+    return codes, cutoffs
+
+
+if _triton_available:
+
+    @triton.jit
+    def _quantize_block_triton_cutoff_kernel(
+        W1_ptr,
+        Hinv1_ptr,
+        codes_ptr,
+        cutoffs_ptr,
+        Q1_ptr,
+        Err1_ptr,
+        losses1_ptr,
+        num_rows,
+        count,
+        col_offset,
+        stride_w_row,
+        stride_h_row,
+        stride_codes_row,
+        stride_codes_col,
+        stride_cut_row,
+        stride_cut_col,
+        r_b,
+        c_b,
+        num_codes,
+        BLOCK_N: tl.constexpr,
+        BLOCK_C: tl.constexpr,
+    ):
+        row = tl.program_id(0)
+        if row >= num_rows:
+            return
+
+        qrow = row // r_b
+
+        cols = tl.arange(0, BLOCK_N)
+        cmask = cols < count
+        cut_idx = tl.arange(0, BLOCK_C)
+        num_cutoffs = num_codes - 1
+        cut_mask = cut_idx < num_cutoffs
+
+        w = tl.load(W1_ptr + row * stride_w_row + cols, mask=cmask, other=0.0)
+
+        q_out = tl.zeros([BLOCK_N], dtype=tl.float32)
+        err_out = tl.zeros([BLOCK_N], dtype=tl.float32)
+        loss_out = tl.zeros([BLOCK_N], dtype=tl.float32)
+
+        for i in range(count):
+            imask = cols == i
+            wi = tl.sum(tl.where(imask, w, 0.0))
+            d = tl.load(Hinv1_ptr + i * stride_h_row + i)
+
+            qcol = (col_offset + i) // c_b
+
+            cuts = tl.load(
+                cutoffs_ptr
+                + qrow * stride_cut_row
+                + qcol * stride_cut_col
+                + cut_idx,
+                mask=cut_mask,
+                other=float("inf"),
+            )
+
+            bin_idx = tl.sum((wi >= cuts).to(tl.int32), axis=0)
+
+            qi = tl.load(
+                codes_ptr
+                + qrow * stride_codes_row
+                + qcol * stride_codes_col
+                + bin_idx
+            )
+
+            diff = wi - qi
+            err = diff / d
+
+            q_out = tl.where(imask, qi, q_out)
+            err_out = tl.where(imask, err, err_out)
+            loss_out = tl.where(imask, diff * diff / (d * d), loss_out)
+
+            h_row = tl.load(
+                Hinv1_ptr + i * stride_h_row + cols, mask=cmask, other=0.0
+            )
+            w = tl.where(cols >= i, w - err * h_row, w)
+
+        tl.store(Q1_ptr + row * stride_w_row + cols, q_out, mask=cmask)
+        tl.store(Err1_ptr + row * stride_w_row + cols, err_out, mask=cmask)
+        tl.store(losses1_ptr + row * stride_w_row + cols, loss_out, mask=cmask)
+
+
+def _quantize_block_triton_cutoff(
+    W1, Hinv1, codes, cutoffs, count, col_offset, r_b, c_b
+):
+    num_rows = W1.shape[0]
+    num_codes = codes.shape[2]
+    Q1 = torch.zeros_like(W1)
+    Err1 = torch.zeros_like(W1)
+    losses1 = torch.zeros_like(W1)
+
+    BLOCK_N = triton.next_power_of_2(count)
+    BLOCK_C = triton.next_power_of_2(num_codes - 1) if num_codes > 1 else 1
+    grid = (num_rows,)
+
+    _quantize_block_triton_cutoff_kernel[grid](
+        W1,
+        Hinv1,
+        codes,
+        cutoffs,
+        Q1,
+        Err1,
+        losses1,
+        num_rows,
+        count,
+        col_offset,
+        W1.stride(0),
+        Hinv1.stride(0),
+        codes.stride(0),
+        codes.stride(1),
+        cutoffs.stride(0),
+        cutoffs.stride(1),
+        r_b,
+        c_b,
+        num_codes,
+        BLOCK_N=BLOCK_N,
+        BLOCK_C=BLOCK_C,
+    )
+
+    return Q1, Err1, losses1
 
 
 def quantize_weight(
@@ -162,16 +342,45 @@ def quantize_weight(
         )
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
+    use_triton_block = (
+        _triton_available
+        and W.is_cuda
+        and strategy
+        in (
+            QuantizationStrategy.TENSOR,
+            QuantizationStrategy.CHANNEL,
+            QuantizationStrategy.GROUP,
+            QuantizationStrategy.TENSOR_GROUP,
+            QuantizationStrategy.BLOCK,
+        )
+    )
+
+    if use_triton_block:
+        r_b, c_b = _get_block_shape(strategy, quant_args, num_rows, num_columns)
+        codes, cutoffs = _build_cutoffs_and_codes(
+            scale, zero_point, quant_args, global_scale
+        )
+
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
         count = i2 - i1
 
         W1 = W[:, i1:i2].clone()
+        Hinv1 = Hinv[i1:i2, i1:i2]
+
+        if use_triton_block:
+            Q1, Err1, losses1 = _quantize_block_triton_cutoff(
+                W1, Hinv1.contiguous(), codes, cutoffs, count, i1, r_b, c_b
+            )
+            W[:, i1:i2] = Q1
+            losses += torch.sum(losses1, 1) / 2
+            W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
+            continue
+
         Q1 = torch.zeros_like(W1)
         Err1 = torch.zeros_like(W1)
         losses1 = torch.zeros_like(W1)
-        Hinv1 = Hinv[i1:i2, i1:i2]
 
         for i in range(count):
             w = W1[:, i]
