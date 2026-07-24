@@ -61,4 +61,20 @@ The following models are among the most commonly used with LLM Compressor: Llama
 
       [:octicons-arrow-right-24: Mistral Large 3](mistral-large-3/index.md)
 
+  - **HY-V3**
+
+      ---
+
+      Tencent's HY-V3 sparse MoE model, quantized to NVFP4 + FP8.
+
+      [:octicons-arrow-right-24: HY-V3](hy-v3/index.md)
+
+  - **GLM-5.2**
+
+      ---
+
+      THUDM's GLM-5.2 mixed dense/MoE model, quantized to NVFP4 + FP8.
+
+      [:octicons-arrow-right-24: GLM-5.2](glm-5.2/index.md)
+
 </div>

@@ -79,7 +79,8 @@ recipe = QuantizationModifier(
         ),
     },
     ignore=[
-        r"re:^model\.layers\.[0-2]\..*" r"re:.*mlp\.gate.*",
+        r"re:^model\.layers\.[0-2]\..*",
+        r"re:.*mlp\.gate.*",
         r"re:.*indexer\.weights_proj$",  # sensitive to quantization
         r"lm_head",
     ],
