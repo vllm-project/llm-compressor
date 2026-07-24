@@ -316,7 +316,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
             num_samples = self._num_samples[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name} using {int(num_samples)} samples")
+            # To avoid an implicit `cudaStreamSynchronize`, explicitly materialize
+            # the sample count on the host once. See #2736.
+            if isinstance(num_samples, torch.Tensor):
+                num_samples = int(num_samples.detach().cpu().item())
+            logger.info(f"Quantizing {name} using {num_samples} samples")
             with (
                 torch.no_grad(),
                 align_module_device(module),
