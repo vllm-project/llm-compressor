@@ -237,6 +237,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+        self.validate_module_calibration(
+            state.model, modules, (*ACTIVATION_OBS, "weight")
+        )
         self.compress_modules()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
