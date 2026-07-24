@@ -21,6 +21,7 @@ from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from .conversion_mappings import (
     get_linearize_load_mappings,
     has_linearize_load_mappings,
+    set_linearize_save_mappings,
     set_save_conversion_mapping,
 )
 from .linear_experts import LinearExperts2D
@@ -123,6 +124,10 @@ def linearize_moe(model: PreTrainedModel):
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
+
+    set_linearize_save_mappings(model)
+
+    return model
 
 
 def get_non_linearized_moes(

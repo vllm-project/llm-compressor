@@ -1,4 +1,5 @@
 import torch
+from compressed_tensors.quantization import QuantizationMetadata
 from loguru import logger
 from transformers import PreTrainedModel
 from transformers.conversion_mapping import (
@@ -6,6 +7,9 @@ from transformers.conversion_mapping import (
     get_checkpoint_conversion_mapping,
 )
 from transformers.core_model_loading import (
+    Chunk,
+    SplitModulelist,
+    Transpose,
     WeightConverter,
     WeightRenaming,
     WeightTransform,
@@ -16,6 +20,7 @@ from .helpers import import_or_none
 __all__ = [
     "has_linearize_load_mappings",
     "get_linearize_load_mappings",
+    "set_linearize_save_mappings",
     "set_save_conversion_mapping",
 ]
 
@@ -161,6 +166,72 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
     ),
 }
 
+
+def _qwen3_vl_moe_unpack_converters() -> list[WeightConverter]:
+    """
+    Forward (load) converters: native 3D packed checkpoint -> 2D linearized experts.
+
+    These are also the backwards mapping for ``_weight_conversions`` (no manual
+    reverse). HF's ``revert_weight_conversion`` fuses back to 3D on save.
+    See https://github.com/vllm-project/llm-compressor/issues/2699
+    """
+    # Disk stores gate_up / down with dims 1/2 transposed relative to fused HF layout.
+    converters = [
+        WeightConverter(
+            source_patterns="mlp.experts.gate_up_proj$",
+            target_patterns=[
+                "mlp.experts.*.gate_proj.weight",
+                "mlp.experts.*.up_proj.weight",
+            ],
+            operations=[
+                Transpose(1, 2, check_dims=False),
+                Chunk(dim=1),
+                SplitModulelist(dim=0),
+            ],
+        ),
+        WeightConverter(
+            source_patterns="mlp.experts.down_proj$",
+            target_patterns="mlp.experts.*.down_proj.weight",
+            operations=[Transpose(1, 2, check_dims=False), SplitModulelist(dim=0)],
+        ),
+    ]
+
+    # Split weight_* qparams with the same expert structure (no transpose).
+    weight_qparams = [
+        name
+        for name in QuantizationMetadata.all_qparam_names()
+        if name.startswith("weight_")
+    ]
+    for qparam in weight_qparams:
+        suffix = qparam.removeprefix("weight_")
+        converters.append(
+            WeightConverter(
+                source_patterns=f"mlp.experts.gate_up_proj_{suffix}$",
+                target_patterns=[
+                    f"mlp.experts.*.gate_proj.{qparam}",
+                    f"mlp.experts.*.up_proj.{qparam}",
+                ],
+                operations=[Chunk(dim=-1), SplitModulelist(dim=0)],
+            )
+        )
+        converters.append(
+            WeightConverter(
+                source_patterns=f"mlp.experts.down_proj_{suffix}$",
+                target_patterns=f"mlp.experts.*.down_proj.{qparam}",
+                operations=[SplitModulelist(dim=0)],
+            )
+        )
+
+    return converters
+
+
+_QWEN3_VL_MOE_UNPACK = _qwen3_vl_moe_unpack_converters()
+
+# (remove_targets, load_mappings, backwards_mappings)
+# - remove_targets: drop conflicting HF fuse/transpose converters
+# - load_mappings: extra transforms applied on load into linearized experts
+# - backwards_mappings: assigned to ``_weight_conversions`` as-is (HF inverts on
+#   save). None => stay 2d by using the filtered HF mapping only.
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -178,6 +249,7 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
             ),
         ],
+        None,
     ),
     "qwen2_moe": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -195,6 +267,17 @@ ARCH_TO_2D_MAPPINGS = {
                 target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
             ),
         ],
+        None,
+    ),
+    "qwen3_vl_moe": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        _QWEN3_VL_MOE_UNPACK,
+        _QWEN3_VL_MOE_UNPACK,
+    ),
+    "qwen3_vl_moe_text": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        _QWEN3_VL_MOE_UNPACK,
+        _QWEN3_VL_MOE_UNPACK,
     ),
     "hy_v3": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
@@ -216,9 +299,20 @@ ARCH_TO_2D_MAPPINGS = {
 }
 
 
-def has_linearize_load_mappings(model_type: str) -> bool:
+def _resolve_2d_mapping_key(model_type: str) -> str | None:
+    if model_type in ARCH_TO_2D_MAPPINGS:
+        return model_type
     remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_2D_MAPPINGS
+    if remapped_type in ARCH_TO_2D_MAPPINGS:
+        return remapped_type
+    return None
+
+
+def has_linearize_load_mappings(model_type: str) -> bool:
+    return (
+        model_type in ARCH_TO_IMPORT_PATHS
+        and _resolve_2d_mapping_key(model_type) is not None
+    )
 
 
 def get_linearize_load_mappings(
@@ -228,20 +322,25 @@ def get_linearize_load_mappings(
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
-    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
-    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
+    mapping_key = _resolve_2d_mapping_key(model_type)
+    if mapping_key is None:
+        raise KeyError(f"No 2D MoE mappings registered for {model_type}")
 
-    # forwards has conversion mappings
-    # backwards has no mappings (stay 2d)
-    save_mappings = [
+    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
+    remove_targets, load_extra, backwards = ARCH_TO_2D_MAPPINGS[mapping_key]
+
+    # Strip HF fuse/transpose converters that conflict with linearized experts.
+    filtered_hf = [
         converter
         for converter in mapping
         if not any(target in remove_targets for target in converter.target_patterns)
     ]
-    load_mappings = save_mappings + new_mappings
+    load_mappings = filtered_hf + load_extra
 
-    # validate that no transforms occur during loading/saving
+    # Backwards mapping is used as-is (no reverse_transform). HF inverts on save.
+    # None => stay 2d (filtered HF mapping only).
+    save_mappings = backwards if backwards is not None else filtered_hf
+
     for converter in load_mappings:
         if isinstance(converter, WeightConverter):
             logger.warning(
@@ -270,3 +369,43 @@ def set_save_conversion_mapping(
     :param save_mappings: mappings to override with
     """
     model._weight_conversions = save_mappings
+
+
+def set_linearize_save_mappings(model: PreTrainedModel) -> bool:
+    """
+    After post-load linearization, install the architecture's backwards mapping
+    so save fuses back to the native 3D layout.
+
+    :return: True if mappings were installed
+    """
+    config = getattr(model, "config", None)
+    if config is None:
+        return False
+
+    def _get_model_type(cfg) -> str | None:
+        if isinstance(cfg, dict):
+            return cfg.get("model_type")
+        return getattr(cfg, "model_type", None)
+
+    candidates = [_get_model_type(config)]
+    text_config = getattr(config, "text_config", None)
+    if text_config is None and isinstance(config, dict):
+        text_config = config.get("text_config")
+    if text_config is None:
+        get_text_config = getattr(config, "get_text_config", None)
+        if callable(get_text_config):
+            text_config = get_text_config()
+    if text_config is not None:
+        candidates.append(_get_model_type(text_config))
+
+    for model_type in candidates:
+        if not model_type:
+            continue
+        mapping_key = _resolve_2d_mapping_key(model_type)
+        if mapping_key is None:
+            continue
+        _remove_targets, _load_extra, backwards = ARCH_TO_2D_MAPPINGS[mapping_key]
+        if backwards is not None:
+            set_save_conversion_mapping(model, backwards)
+            return True
+    return False
