@@ -41,10 +41,7 @@ def import_from_path(path: str) -> str:
 
     path = original_path.split(".py")[0]
     path = re.sub(r"/+", ".", path)
-    try:
-        module = importlib.import_module(path)
-    except ImportError:
-        raise ImportError(f"Cannot find module with path {_path}")
+    module = importlib.import_module(path)
 
     try:
         return getattr(module, class_name)
@@ -69,7 +66,7 @@ def disable_cache(module: torch.nn.Module):
     if isinstance(module, PreTrainedModel):
         config = module.config
         config = getattr(config, "text_config", config)
-        with patch_attr(config, "use_cache", False):
+        with patch_attr(config, "use_cache", True):
             yield
 
     else:

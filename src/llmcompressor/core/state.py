@@ -103,7 +103,7 @@ class State:
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
     loss_masks: list[torch.Tensor] | None = None
-    current_batch_idx: int = -1
+    current_batch_idx: int = 0
     sequential_prefetch: bool = False
     enable_compile: bool = False
 
