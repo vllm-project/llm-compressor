@@ -8,7 +8,7 @@ This shim will be removed in a future version.
 
 import warnings
 
-warnings.warn(
+warn_message = (
     "`llmcompressor.modifiers.awq.AWQModifier` is deprecated. "
     "Please update your imports to use 'llmcompressor.modifiers.transform.awq' "
     "or 'llmcompressor.modifiers.transform' instead."
@@ -27,16 +27,14 @@ New API:
     from llmcompressor.modifiers.transform.awq import AWQModifier
     from llmcompressor.modifiers.quantization import QuantizationModifier
     recipe = [
-        AWQTransformModifier(duo_scaling="both"),
+        AWQModifier(duo_scaling="both"),
         QuantizationModifier(
             ignore=["lm_head"],
             scheme="W4A16_ASYM",
             targets=["Linear"],
         ),
     ]
-This compatibility shim will be removed in a future version.""",
-    DeprecationWarning,
-    stacklevel=2,
+This compatibility shim will be removed in a future version."""
 )
 
 from llmcompressor.modifiers.transform.awq import (
@@ -60,6 +58,12 @@ __all__ = [
 def AWQModifier(**kwargs):
     from llmcompressor.modifiers.quantization import QuantizationModifier
     from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
+
+    warnings.warn(
+        warn_message,
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     quant_keys = (
         "config_groups",
