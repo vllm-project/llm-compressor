@@ -7,6 +7,7 @@ from compressed_tensors.compressors import compress_module
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import match_quantizable_tensors
+from compressed_tensors.utils.match import match_name
 from compressed_tensors.utils.safetensors_load import (
     InverseWeightMap,
     load_tensors_from_inverse_weight_map,
@@ -100,6 +101,8 @@ def process_file(
 
     if converter is not None:
         tensors = converter.process(tensors)
+
+    tensors = quantize_3d_moe_experts(tensors, scheme, ignore, device)
 
     for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
         validate_weight_for_quantization(tensors[name], scheme, name)
@@ -297,3 +300,80 @@ def split_fused_moe_experts(
             split_tensors[name] = tensor
 
     return split_tensors
+
+
+def quantize_3d_moe_experts(
+    tensors: dict[str, torch.Tensor],
+    scheme: QuantizationScheme,
+    ignore: Iterable[str],
+    device: str | torch.device,
+) -> dict[str, torch.Tensor]:
+    """
+    Quantize 3D MoE expert weight tensors that were not handled by
+    split_fused_moe_experts (e.g. Inkling's w13_weight / w2_weight naming).
+
+    For each 3D tensor [num_experts, out_features, in_features]:
+    1. Split into num_experts individual 2D [out_features, in_features] slices
+    2. Quantize each slice independently (calibrate scales, compress to FP8)
+    3. Stack quantized weights back to 3D [num_experts, out_features, in_features]
+    4. Stack per-expert scales back to 3D [num_experts, ...]
+    """
+    names_to_quantize = []
+    for name, tensor in tensors.items():
+        if tensor.ndim != 3:
+            continue
+        if not (name.endswith("_weight") or name.endswith(".weight")):
+            continue
+        is_ignored = any(match_name(name, ign) for ign in ignore)
+        if not is_ignored:
+            module_name = name.rpartition(".")[0]
+            is_ignored = any(match_name(module_name, ign) for ign in ignore)
+        if is_ignored:
+            continue
+        names_to_quantize.append(name)
+
+    for name in names_to_quantize:
+        tensor = tensors.pop(name)
+        num_experts, out_features, in_features = tensor.shape
+
+        logger.info(
+            f"Quantizing 3D MoE expert tensor {name} "
+            f"[{num_experts}, {out_features}, {in_features}] "
+            f"by splitting into {num_experts} 2D slices"
+        )
+
+        quantized_weights = []
+        weight_scales = []
+
+        for expert_idx in range(num_experts):
+            expert_weight = tensor[expert_idx]
+
+            module = initialize_quantized_linear(expert_weight, scheme, device)
+            calibrate_weight(module)
+            compress_module(module)
+
+            state = module.state_dict()
+            quantized_weights.append(state["weight"].to("cpu"))
+            if "weight_scale" in state:
+                weight_scales.append(state["weight_scale"].to("cpu"))
+
+            del module
+
+        fused_weight = torch.stack(quantized_weights, dim=0)
+        tensors[name] = fused_weight
+
+        if weight_scales:
+            fused_scale = torch.stack(weight_scales, dim=0)
+            tensors[name + "_scale"] = fused_scale
+            logger.info(
+                f"  -> {name}: {list(fused_weight.shape)} ({fused_weight.dtype}), "
+                f"scale: {list(fused_scale.shape)} ({fused_scale.dtype})"
+            )
+        else:
+            logger.info(
+                f"  -> {name}: {list(fused_weight.shape)} ({fused_weight.dtype})"
+            )
+
+        del tensor, quantized_weights, weight_scales
+
+    return tensors
