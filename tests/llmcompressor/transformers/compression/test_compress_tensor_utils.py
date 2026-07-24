@@ -1,8 +1,14 @@
+import datetime
+import os
+import time
+
 import pytest
 import torch
+import torch.distributed as dist
 from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors.compressors.format import infer_model_format
+from compressed_tensors.distributed import is_source_process
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
@@ -14,9 +20,10 @@ from transformers import AutoModelForCausalLM
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
+    suspend_distributed_timeout,
 )
 from llmcompressor.utils import untie_word_embeddings
-from tests.testing_utils import requires_gpu
+from tests.testing_utils import requires_gpu, torchrun
 
 
 @requires_gpu
@@ -98,6 +105,106 @@ def test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path):
 )
 def test_model_reload_gpu(offload, dtype, tie_word_embeddings, device, tmp_path):
     test_model_reload(offload, dtype, tie_word_embeddings, device, tmp_path)
+
+
+def _saved_weight_keys(save_path):
+    """Return the set of tensor names actually written to disk."""
+    import json
+    import os
+
+    from safetensors import safe_open
+
+    index_path = os.path.join(save_path, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        with open(index_path) as f:
+            return set(json.load(f)["weight_map"].keys())
+
+    with safe_open(os.path.join(save_path, "model.safetensors"), framework="pt") as f:
+        return set(f.keys())
+
+
+@pytest.mark.parametrize("offload", [False, True])
+@pytest.mark.parametrize("tie_word_embeddings", [True, False])
+def test_no_duplicate_tied_lm_head_on_save(offload, tie_word_embeddings, tmp_path):
+    """A tied lm_head must not be written as a duplicate of the embeddings on save.
+
+    Offloading splits the tied embedding and lm_head into separate parameters,
+    so without re-tying before save a redundant, identical ``lm_head.weight`` is
+    written. A model whose head has genuinely diverged from the embeddings keeps
+    both (embeddings are re-tied only when their tensors are exactly equal).
+    """
+    model_path = "Qwen/Qwen3-0.6B"
+    save_path = tmp_path / "save_path"
+
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
+    model = model.to("cpu")
+
+    if not tie_word_embeddings:
+        untie_word_embeddings(model)
+        # Untying clones the weight, so the two are still identical and would be
+        # re-tied by policy; diverge the head so the untie is meaningful.
+        with torch.no_grad():
+            model.get_output_embeddings().weight[0, 0] += 1.0
+
+    if offload:
+        model = dispatch_model(model, {"": "cpu"}, force_hooks=True)
+
+    modify_save_pretrained(model)
+    model.save_pretrained(save_path, safe_serialization=True)
+
+    saved_keys = _saved_weight_keys(save_path)
+    if tie_word_embeddings:
+        assert "lm_head.weight" not in saved_keys
+    else:
+        assert "lm_head.weight" in saved_keys
+
+
+def test_tied_quantized_embedding_no_duplicate_head(tmp_path):
+    """Identically-quantizing both embeddings of a tied model stores one table.
+
+    The input and output embeddings are untied during calibration and quantized
+    independently (so the head gets its own qparams and the config declares
+    both). At save, identical packed weights are re-tied into a single shared
+    table; the tie is reconstructed at load from ``tie_word_embeddings=True``.
+    """
+    import json
+
+    from llmcompressor import oneshot
+    from llmcompressor.modifiers.quantization import QuantizationModifier
+
+    model_path = "Qwen/Qwen3-0.6B"
+    save_path = tmp_path / "save_path"
+
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
+    model = model.to("cpu")
+    assert model.config.tie_word_embeddings
+
+    # Data-free (RTN) weight-only quantization of BOTH embeddings, identically.
+    weights = {
+        "num_bits": 4,
+        "type": "int",
+        "symmetric": True,
+        "strategy": "group",
+        "group_size": 64,
+    }
+    recipe = QuantizationModifier(
+        config_groups={
+            "input": {"targets": ["Embedding"], "weights": dict(weights)},
+            "output": {"targets": ["re:.*lm_head$"], "weights": dict(weights)},
+        }
+    )
+    oneshot(model=model, recipe=recipe)
+
+    modify_save_pretrained(model)
+    model.save_pretrained(save_path, safe_serialization=True)
+
+    # Re-tied: config stays tied and only one packed table is written.
+    config = json.loads((save_path / "config.json").read_text())
+    assert config["tie_word_embeddings"] is True
+
+    saved_keys = _saved_weight_keys(save_path)
+    assert "model.embed_tokens.weight_packed" in saved_keys
+    assert not any(k.startswith("lm_head") for k in saved_keys)
 
 
 class DummyLinearModel(nn.Module):
@@ -216,3 +323,26 @@ def test_correct_compressor_inferred(
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
     assert infer_model_format(model) == expected_format
+
+
+@requires_gpu(2)
+@torchrun(world_size=2, init_dist=False)
+def test_suspend_distributed_timeout():
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{local_rank}")
+
+    dist.init_process_group(
+        backend="nccl",
+        init_method="env://",
+        rank=rank,
+        world_size=world_size,
+        device_id=device,
+        timeout=datetime.timedelta(seconds=10),
+    )
+    dist.barrier()
+
+    with suspend_distributed_timeout(datetime.timedelta(seconds=30)):
+        if is_source_process():
+            time.sleep(20)

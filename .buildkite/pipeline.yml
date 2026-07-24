@@ -1,0 +1,15 @@
+steps:
+  - label: ":gear: llm-compressor GPU Tests"
+    command: |
+      RUNNER=$$(buildkite-agent meta-data get "test-runner" --default "H100")
+      echo "╔══════════════════════════════════════════╗"
+      echo "║          BUILD SUMMARY                   ║"
+      echo "╠══════════════════════════════════════════╣"
+      echo "║ Triggered by : $${BUILDKITE_BUILD_CREATOR}"
+      echo "║ Source        : $${BUILDKITE_SOURCE}"
+      echo "║ Branch        : $${BUILDKITE_BRANCH}"
+      echo "║ Commit        : $${BUILDKITE_COMMIT:0:8}"
+      echo "║ PR            : $${BUILDKITE_PULL_REQUEST:-none}"
+      echo "║ GPU Runner    : $${RUNNER}"
+      echo "╚══════════════════════════════════════════╝"
+      buildkite-agent pipeline upload .buildkite/gpu-tests/gpu-tests-$${RUNNER}.yml

@@ -26,7 +26,7 @@ from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
-from llmcompressor.core import Event, EventType, State, active_session
+from llmcompressor.core import Event, State, active_session
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -90,22 +90,22 @@ class AWQModifier(Modifier):
 
     Lifecycle:
 
+    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
-    - on_start
+    - on_calibration_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
             to balance layers
-    - on sequential epoch end
+    - on_sequential_epoch_end
         - apply smoothing to each smoothing layer
             - consume cached activations across all batches
                 - clear cached activations as they are used
             - find best smoothing scale for each smoothing layer via grid search
             - apply best scales to model weights
             - raise error if any unused activations remain
-    - on_end
+    - on_calibration_end
         - re-run logic of sequential epoch end (in case of basic pipeline)
         - remove activation hooks
     - on_finalize
@@ -193,7 +193,7 @@ class AWQModifier(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
         Start AWQ on the given state. This runs after quantization mixin has been
         initialized (i.e. after quantization config has been applied)
@@ -205,7 +205,6 @@ class AWQModifier(Modifier):
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
         """
-        self.started_ = True
 
         self._set_resolved_mappings(state.model)
 
@@ -245,26 +244,15 @@ class AWQModifier(Modifier):
 
         self._setup_activation_cache_hooks()
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+        self._apply_smoothing(state.model)
 
-        elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self._apply_smoothing(state.model)
-
-        elif event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks.
         No qparams are updated since this is just a transform.
         """
         self._assert_all_activations_consumed()
-
-        self.ended_ = True
 
         # remove activation hooks
         self.remove_hooks()
@@ -506,6 +494,12 @@ class AWQModifier(Modifier):
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
 
+            # pin memory for faster onloading during grid search
+            # pinned memory in cache is deleted before next mapping is pinned
+            cache = self._parent_args_cache[parent_module]
+            for batch_index in range(len(cache)):
+                cache.pin_memory(batch_index)
+
             with (
                 align_modules([parent_module, smooth_layer, *balance_layers]),
                 calibration_forward_context(model),
@@ -587,10 +581,9 @@ class AWQModifier(Modifier):
 
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_stats[mapping.smooth_name]
+                del self._parent_args_cache[parent_module]
                 del orig_layer_weights
 
-        for v in self._parent_args_cache.values():
-            v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
     @torch.no_grad()
@@ -689,6 +682,7 @@ class AWQModifier(Modifier):
                         orig_layer_weights[balance_layer].to(_scalesview.device)
                         * _scalesview
                     )
+                    balance_layer.weight_observer.delete_statistics(check_fused=False)
 
                 # calculate qparams
                 observe(balance_layers_to_patch, "weight")

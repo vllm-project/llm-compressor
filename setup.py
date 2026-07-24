@@ -123,16 +123,12 @@ setup(
         ("tqdm>=4.66.3,<=4.68.2" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.12.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=5.9.0,<=5.10.1"
+            "transformers>=5.9.0,<=5.12.1"
             if BUILD_TYPE == "release"
             else "transformers>=5.9.0"
         ),
         ("datasets>=4.8.4,<=5.0.0" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
-        (
-            "auto-round>=0.10.2,<=0.13.0"
-            if BUILD_TYPE == "release"
-            else "auto-round>=0.10.2"
-        ),
+        ("auto-round==0.14.1" if BUILD_TYPE == "release" else "auto-round>=0.14.1"),
         (
             "accelerate>=1.6.0,<=1.13.0"
             if BUILD_TYPE == "release"

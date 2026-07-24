@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 import tqdm
-from compressed_tensors.offload import dispatch_model, get_execution_device
+from compressed_tensors.offload import get_execution_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
@@ -39,8 +40,12 @@ class BasicPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
-        dispatch_model(model)  # basic dispatch is identical to generation
         model_device = get_execution_device(model)
+        if model_device == torch.device("cpu"):
+            logger.warning(
+                "Attempting to calibrate on CPU. Consider loading your model with"
+                " `device_map='auto'`"
+            )
         use_loss_mask = (
             getattr(dataset_args, "use_loss_mask", False) if dataset_args else False
         )
@@ -49,7 +54,7 @@ class BasicPipeline(CalibrationPipeline):
         if use_loss_mask:
             session.state.loss_masks = []
 
-        LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -68,7 +73,7 @@ class BasicPipeline(CalibrationPipeline):
                 model(**batch)
 
         LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
-        LifecycleCallbacks.calibration_epoch_end()
+        LifecycleCallbacks.calibration_end()
 
 
 def run_calibration(model: torch.nn.Module, dataloader: DataLoader):

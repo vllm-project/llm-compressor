@@ -110,7 +110,7 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
 
-        LifecycleCallbacks.calibration_epoch_start()
+        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -157,8 +157,7 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                    modules = list(subgraph.submodules(model))
-                    LifecycleCallbacks.sequential_epoch_end(modules)
+                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
@@ -179,4 +178,4 @@ class SequentialPipeline(CalibrationPipeline):
                                     )
 
             # redundant, finish any remaining compression
-            LifecycleCallbacks.calibration_epoch_end()
+            LifecycleCallbacks.calibration_end()
