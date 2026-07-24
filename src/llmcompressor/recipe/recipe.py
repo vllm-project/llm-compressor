@@ -229,7 +229,7 @@ class Recipe(BaseModel):
 
         return model
 
-    def dict(self, *args, **kwargs) -> dict[str, Any]:
+    def to_dict(self, *args, **kwargs) -> dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
         """
