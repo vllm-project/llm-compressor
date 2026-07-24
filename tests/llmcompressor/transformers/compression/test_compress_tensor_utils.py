@@ -207,6 +207,34 @@ def test_tied_quantized_embedding_no_duplicate_head(tmp_path):
     assert not any(k.startswith("lm_head") for k in saved_keys)
 
 
+def test_save_pretrained_warns_when_restore_ooms(monkeypatch, tmp_path):
+    """Post-save restore OOM should not turn a completed checkpoint into failure."""
+
+    import llmcompressor.transformers.compression.compressed_tensors_utils as utils
+
+    model_path = "nm-testing/tinysmokellama-3.2"
+    save_path = tmp_path / "save_path"
+    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.float32)
+
+    monkeypatch.setattr(utils, "to_accelerate", lambda model: None)
+
+    def raise_restore_oom(model):
+        raise torch.OutOfMemoryError("restore boom")
+
+    monkeypatch.setattr(utils, "from_accelerate", raise_restore_oom)
+
+    modify_save_pretrained(model)
+    model.save_pretrained(
+        save_path,
+        save_compressed=False,
+        safe_serialization=True,
+    )
+
+    assert (save_path / "model.safetensors").exists() or (
+        save_path / "model.safetensors.index.json"
+    ).exists()
+
+
 class DummyLinearModel(nn.Module):
     """
     A dummy linear model for testing purposes, simulating a quantized linear layer.

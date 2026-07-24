@@ -90,7 +90,13 @@ def pre_process(
 
     # if the model was loaded with accelerate offloading, convert to CT offloading
     if hasattr(model_args.model, "hf_device_map"):
-        from_accelerate(model_args.model)
+        if getattr(model_args.model, "_llmcompressor_keep_accelerate_hooks", False):
+            logger.info(
+                "Keeping Accelerate device hooks for model calibration; skipping "
+                "compressed-tensors offload conversion"
+            )
+        else:
+            from_accelerate(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
@@ -138,6 +144,10 @@ def initialize_model_from_path(
     # The .from_pretrained methods guarantee that only one local process can
     # concurrently download model & vocab.
     model_path = model_args.model
+    model_path = (
+        model_path.as_posix() if isinstance(model_path, PosixPath) else model_path
+    )
+
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
         cache_dir=None,

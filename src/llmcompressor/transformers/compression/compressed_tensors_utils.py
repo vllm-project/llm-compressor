@@ -34,6 +34,14 @@ def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
     return {name: tensor for name, tensor in tensors.items() if tensor is not None}
 
 
+def _tensors_equal(lhs: torch.Tensor, rhs: torch.Tensor) -> bool:
+    if lhs.shape != rhs.shape or lhs.dtype != rhs.dtype:
+        return False
+    if lhs.device == rhs.device:
+        return torch.equal(lhs, rhs)
+    return torch.equal(lhs.detach().cpu(), rhs.detach().cpu())
+
+
 def _retie_embeddings(model: PreTrainedModel):
     """Re-tie input and output embeddings before saving so one shared table is
     written instead of a duplicate.
@@ -58,7 +66,8 @@ def _retie_embeddings(model: PreTrainedModel):
     input_tensors = _named_tensors(input_embed)
     output_tensors = _named_tensors(output_embed)
     if input_tensors.keys() != output_tensors.keys() or not all(
-        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
+        _tensors_equal(input_tensors[name], output_tensors[name])
+        for name in input_tensors
     ):
         return
 
@@ -160,7 +169,16 @@ def modify_save_pretrained(model: PreTrainedModel):
                     copy_python_files_from_model_cache(model, save_directory)
 
             # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+            try:
+                from_accelerate(model)
+            except torch.OutOfMemoryError as err:
+                logger.warning(
+                    "Model was saved, but restoring the in-memory model from "
+                    "accelerate offload state failed with CUDA OOM. Reload the "
+                    f"checkpoint for continued use. ({err})"
+                )
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
@@ -168,8 +186,6 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
-
-
 @deprecated("ModelCompressor.from_pretrained_model")
 def get_model_compressor(
     model: torch.nn.Module,

@@ -64,6 +64,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
                 "AWQModifier",
                 "AutoRoundModifier",
                 "IMatrixGatherer",
+                "MoNEPruningModifier",
                 "REAPPruningModifier",
             ):
                 return True

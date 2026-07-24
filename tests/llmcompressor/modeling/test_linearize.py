@@ -13,7 +13,11 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 )
 
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.conversion_mappings import ARCH_TO_IMPORT_PATHS
+from llmcompressor.modeling.moe.conversion_mappings import (
+    ARCH_TO_IMPORT_PATHS,
+    get_linearize_load_mappings,
+    has_linearize_load_mappings,
+)
 from llmcompressor.modeling.moe.helpers import (
     FusedExpertsProtocol,
     MoEConfig,
@@ -197,6 +201,17 @@ def test_linearize_moe(model_type):
         assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
         assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
+
+
+def test_olmoe_uses_olmoe_experts_for_linearized_loading():
+    assert has_linearize_load_mappings("olmoe")
+
+    experts_cls, _, _ = get_linearize_load_mappings("olmoe")
+    olmoe_experts_cls = import_or_none(
+        "transformers.models.olmoe.modeling_olmoe.OlmoeExperts"
+    )
+
+    assert experts_cls is olmoe_experts_cls
 
 
 def test_linearize_moe_granite():
