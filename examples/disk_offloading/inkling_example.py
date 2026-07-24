@@ -11,12 +11,12 @@ from compressed_tensors.quantization.quant_scheme import (
 )
 from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
 from llmcompressor.utils import load_context
 
 MODEL_ID = "thinkingmachines/Inkling"
 # MODEL_ID = "inference-optimization/Inkling-0.6B-A0.6B"
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK-gptq"
 
 # Select model and load it in the `load_context` context
 with load_context(InklingForConditionalGeneration):
@@ -32,7 +32,7 @@ with load_context(InklingForConditionalGeneration):
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to NVFP4
-recipe = QuantizationModifier(
+recipe = GPTQModifier(
     config_groups={
         "config_group_0": QuantizationScheme(
             targets=[
@@ -66,13 +66,16 @@ recipe = QuantizationModifier(
         "re:.*audio.*",
         "re:model.mtp.*",
     ],
+    dampening_frac=0.05,
+    offload_hessians=True,
+    weight_observer="mse",
 )
 
 # Select calibration dataset.
 DATASET_ID = "ultrachat-200k"
 DATASET_SPLIT = "train_sft"
 
-NUM_CALIBRATION_SAMPLES = 256
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 4096
 
 # Apply algorithms.
@@ -84,6 +87,7 @@ oneshot(
     splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    batch_size=8,
 )
 
 # Save to disk compressed.
