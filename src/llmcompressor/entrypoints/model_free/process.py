@@ -31,7 +31,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
-from llmcompressor.observers import Observer
+from llmcompressor.observers import FusionHandler
 
 __all__ = [
     "validate_file",
@@ -207,7 +207,9 @@ def process_file_microscale_scheme(
     # Compress fused modules with shared global scale
     for named_modules in fused_modules.values():
         # 2. fuse observers, observe weights, and get qparams
-        Observer.fuse([(mod.weight_observer, mod) for mod in named_modules.values()])
+        FusionHandler.fuse(
+            [(mod.weight_observer, mod) for mod in named_modules.values()]
+        )
         observe(named_modules.values(), base_name="weight")
         update_qparams(named_modules.values(), base_name="weight")
 
@@ -284,6 +286,8 @@ def split_fused_moe_experts(
                 split_layers = expert_tensor.split(intermediate_size, dim=0)
                 for split_name, split_layer in zip(split_names, split_layers):
                     key = name.replace(unsplit_name, f"{expert_idx}.{split_name}")
+                    if not key.endswith(".weight"):
+                        key = f"{key}.weight"
                     split_tensors[key] = split_layer
 
             logger.info(f"Split {name} into {num_experts} experts")

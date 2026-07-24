@@ -178,7 +178,7 @@ def test_oneshot_application(recipe, tmp_path):
     output = tmp_path / "oneshot_output"
     model_id = "nm-testing/tinysmokeqwen3"
     dataset = "open_platypus"
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     # Load original model for numerical comparison
     original_model = AutoModelForCausalLM.from_pretrained(model_id, device_map=device)
@@ -255,4 +255,4 @@ def test_oneshot_application(recipe, tmp_path):
 
     # Cleanup
     del original_model, model_loaded
-    torch.cuda.empty_cache()
+    torch.accelerator.empty_cache()

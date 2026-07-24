@@ -10,4 +10,4 @@ def test_has_gpu():
     This test exists purely to raise an error if
     a runner performs transformers tests without a GPU
     """
-    assert torch.cuda.is_available()
+    assert torch.accelerator.is_available()

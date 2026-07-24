@@ -14,7 +14,7 @@ LLM Compressor is an open-source project that values community contributions. We
 
     Our community guidelines ensure that participation in the LLM Compressor project is a positive, inclusive, and respectful experience for everyone.
 
-    [:octicons-arrow-right-24: Code of Conduct](../../CODE_OF_CONDUCT.md)
+    [:octicons-arrow-right-24: Code of Conduct](https://github.com/vllm-project/llm-compressor/blob/main/CODE_OF_CONDUCT.md)
 
 - :material-source-pull:{ .lg .middle } Contributing Guide
 
@@ -22,6 +22,14 @@ LLM Compressor is an open-source project that values community contributions. We
 
     Learn how to effectively contribute to LLM Compressor, including reporting bugs, suggesting features, improving documentation, and submitting code.
 
-    [:octicons-arrow-right-24: Contributing Guide](../../CONTRIBUTING.md)
+    [:octicons-arrow-right-24: Contributing Guide](https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md)
+
+- :material-account-group:{ .lg .middle } Governance
+
+    ---
+
+    Learn how LLM Compressor is governed, including the responsibilities of committers and who owns which parts of the codebase.
+
+    [:octicons-arrow-right-24: Governance](governance.md)
 
 </div>

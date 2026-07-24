@@ -90,8 +90,8 @@ def setup_model_and_config(request, tmpdir_factory):
     yield model, config, output_dir
 
     del model
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
+    torch.accelerator.empty_cache()
+    torch.accelerator.synchronize()
 
 
 @requires_gpu
