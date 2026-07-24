@@ -18,15 +18,7 @@ from compressed_tensors.utils.safetensors_load import (
 )
 from loguru import logger
 
-from llmcompressor.entrypoints.model_free.microscale import (
-    build_microscale_inverse_weight_maps,
-    is_microscale_scheme,
-)
-from llmcompressor.entrypoints.model_free.process import (
-    process_file,
-    process_file_microscale_scheme,
-    validate_file,
-)
+from llmcompressor.entrypoints.model_free.process import ModelFreePtqConverter
 from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
 )
@@ -85,13 +77,14 @@ def model_free_ptq(
             logger.info(f"Copying {file_path} -> {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
+    # Construct the mfptq converter
+    mfptq = ModelFreePtqConverter(scheme, ignore, converter)
+
     # build quantization jobs
-    jobs = _build_jobs(
-        model_files, save_directory, scheme, ignore, resolved_devices, converter
-    )
+    jobs = _build_jobs(model_files, save_directory, mfptq, resolved_devices)
 
     # 1. validate quantizable tensors — fail fast before long-running quantization
-    validate_jobs = [(validate_file, *job[1:]) for job in jobs]
+    validate_jobs = [(mfptq.validate_file, *job[1:]) for job in jobs]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
     # 2-5. quantize and compress weights
@@ -136,10 +129,8 @@ def _resolve_devices(
 def _build_jobs(
     model_files: dict[str, str],
     save_directory: str | os.PathLike,
-    scheme: QuantizationScheme,
-    ignore: Iterable[str],
+    mfptq: ModelFreePtqConverter,
     devices: list[torch.device],
-    converter: Converter | None,
 ) -> list[tuple]:
     """
     Build jobs with precomputed inverse_weight_map per shard.
@@ -150,22 +141,19 @@ def _build_jobs(
     process function and eliminates redundant tensor reads.
 
     :returns: list of jobs tuples
-        (job_fn, inverse_weight_map, save_path, scheme, ignore, device, converter)
+        (mfptq.process_file, inverse_weight_map, save_path, device)
         Shards are distributed round-robin across the given devices.
     """
     weight_map = get_weight_map(model_files)
 
-    if is_microscale_scheme(scheme):
-        job_fn = process_file_microscale_scheme
-        build_inverse_weight_maps_fn = build_microscale_inverse_weight_maps
-    else:
-        job_fn = process_file
-        build_inverse_weight_maps_fn = build_inverse_weight_maps
+    converters = [mfptq]
+    if mfptq.converter is not None:
+        converters.append(mfptq.converter)
 
-    inverse_weight_maps = build_inverse_weight_maps_fn(
+    inverse_weight_maps = build_inverse_weight_maps(
         weight_map=weight_map,
         model_files=model_files,
-        converters=[converter] if converter is not None else [],
+        converters=converters,
     )
 
     shard_names = [name for name in model_files if name.endswith("safetensors")]
@@ -186,15 +174,7 @@ def _build_jobs(
         device = devices[i % len(devices)]
 
         jobs.append(
-            (
-                job_fn,
-                inverse_weight_maps[shard_name],
-                save_path,
-                scheme,
-                ignore,
-                device,
-                converter,
-            )
+            (mfptq.process_file, inverse_weight_maps[shard_name], save_path, device)
         )
 
     return jobs
