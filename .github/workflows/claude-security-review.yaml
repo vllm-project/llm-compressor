@@ -1,0 +1,29 @@
+name: Claude Security Review
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  security-review:
+    if: github.event.label.name == 'ready'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Security Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: "Review this PR for security issues"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --append-system-prompt "Follow our coding standards"
+            --max-turns 10
+            --model claude-sonnet-5
