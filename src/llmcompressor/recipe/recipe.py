@@ -224,7 +224,8 @@ class Recipe(BaseModel):
             ):
                 raise ValueError(
                     f"Recipe includes AWQModifier with no subsequent quantization "
-                    f"modifer: {model.modifiers}. AWQ must be run with "
+                    f"modifier: {model.modifiers}. AWQ must be run with "
+                    f"a subsequent quantization modifier"
                 )
 
         return model

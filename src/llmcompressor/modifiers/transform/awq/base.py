@@ -849,6 +849,9 @@ class AWQModifier(Modifier):
         # Save to disk
         logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
 
+        if not self._error_metrics:
+            return
+
         # Also print summary statistics
         reductions = [m["reduction"] for m in self._error_metrics]
         avg_reduction = sum(reductions) / len(reductions)

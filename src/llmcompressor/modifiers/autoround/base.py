@@ -432,19 +432,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
 
-    def _unwrapper_quantized_layer(self, model: torch.nn.Module):
-        # auto-round will return WrapperWALayer if activation is quantized
-        for name, module in model.named_modules():
-            if isinstance(module, WrapperWALayer):
-                if "." in name:
-                    parent, child = name.rsplit(".", maxsplit=1)
-                    parent = model.get_submodule(parent)
-                    setattr(parent, child, module.orig_layer)
-                else:
-                    # It's a top-level module
-                    setattr(model, name, module.orig_layer)
-        return model
-
     def _preprocess_qparams(self, model):
         """
         Collect and remove quantization parameters registered by LLMC.
