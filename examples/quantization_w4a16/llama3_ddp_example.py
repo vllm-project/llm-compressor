@@ -8,19 +8,20 @@
 import time
 
 import torch
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################
 
@@ -67,7 +68,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 
-torch.cuda.reset_peak_memory_stats()
+torch.accelerator.reset_peak_memory_stats()
 start_time = time.time()
 
 
@@ -81,7 +82,7 @@ oneshot(
 )
 
 elapsed_time = time.time() - start_time
-peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
+peak_memory_gb = torch.accelerator.max_memory_allocated() / (1024**3)
 print("Quantization Complete")
 print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
 print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")

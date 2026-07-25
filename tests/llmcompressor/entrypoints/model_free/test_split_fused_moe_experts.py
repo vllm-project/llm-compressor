@@ -3,6 +3,7 @@ Tests for split_fused_moe_experts function.
 """
 
 import torch
+from compressed_tensors.utils import match_quantizable_tensors
 
 from llmcompressor.entrypoints.model_free.process import split_fused_moe_experts
 
@@ -58,3 +59,34 @@ def test_split_fused_moe_experts():
 
     # Verify total tensor count: 1 non-MoE + 2*2 gate_up_proj + 2 down_proj = 7
     assert len(result) == 7
+
+
+def test_split_fused_moe_experts_direct_parameters_are_quantizable():
+    num_experts = 2
+    hidden_size = 32
+    intermediate_size = 64
+    tensors = {
+        "model.layers.0.mlp.experts.gate_up_proj": torch.randn(
+            num_experts, 2 * intermediate_size, hidden_size, dtype=torch.float16
+        ),
+        "model.layers.0.mlp.experts.down_proj": torch.randn(
+            num_experts, hidden_size, intermediate_size, dtype=torch.float16
+        ),
+    }
+
+    result = split_fused_moe_experts(tensors)
+    matched_tensor_names = {
+        name
+        for _, name in match_quantizable_tensors(result, ignore=[], targets=["Linear"])
+    }
+
+    expected_tensor_names = {
+        "model.layers.0.mlp.experts.0.gate_proj.weight",
+        "model.layers.0.mlp.experts.0.up_proj.weight",
+        "model.layers.0.mlp.experts.0.down_proj.weight",
+        "model.layers.0.mlp.experts.1.gate_proj.weight",
+        "model.layers.0.mlp.experts.1.up_proj.weight",
+        "model.layers.0.mlp.experts.1.down_proj.weight",
+    }
+    assert set(result.keys()) == expected_tensor_names
+    assert matched_tensor_names == expected_tensor_names

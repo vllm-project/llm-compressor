@@ -2,13 +2,13 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.utils import load_context
 
 # Load the model
 model_id = "zai-org/GLM-4.7"
-with load_quantizable_moe():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 

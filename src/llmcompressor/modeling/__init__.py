@@ -11,6 +11,5 @@ needed for efficient compression.
 
 # trigger registration
 from .offset_norm import CalibrationOffsetNorm  # noqa: F401
-# TODO: add granite4
 
 from .fuse import *
