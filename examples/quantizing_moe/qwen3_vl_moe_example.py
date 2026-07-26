@@ -3,16 +3,15 @@ from io import BytesIO
 
 import torch
 from compressed_tensors.offload import dispatch_model
+from datasets import load_dataset
 
 # Note: this is an optional utility for processing vision inputs for qwen.
 # This can be installed via the "qwen" extra
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
-from datasets import load_dataset
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 # Load model.
 model_id = "Qwen/Qwen3-VL-30B-A3B-Instruct"
@@ -68,14 +67,31 @@ ds = ds.map(preprocess_and_tokenize, remove_columns=ds.column_names)
 
 # Define a oneshot data collator for multimodal inputs.
 def data_collator(batch):
-    assert len(batch) == 1
-    return {key: torch.tensor(value) for key, value in batch[0].items()}
+    token_fields = ("input_ids", "attention_mask", "mm_token_type_ids")
+    concat_fields = ("pixel_values", "image_grid_thw")
+
+    result = {}
+    for key in token_fields:
+        if key not in batch[0]:
+            continue
+        tensors = [torch.tensor(sample[key]).squeeze(0) for sample in batch]
+        max_len = max(t.shape[0] for t in tensors)
+        padded = torch.zeros(len(tensors), max_len, dtype=tensors[0].dtype)
+        for i, t in enumerate(tensors):
+            padded[i, : t.shape[0]] = t
+        result[key] = padded
+
+    for key in concat_fields:
+        if key not in batch[0]:
+            continue
+        result[key] = torch.cat([torch.tensor(sample[key]) for sample in batch], dim=0)
+
+    return result
 
 
 # Recipe
 recipe = [
-    AWQModifier(duo_scaling=False),
-    QuantizationModifier(
+    GPTQModifier(
         scheme="W4A16",
         ignore=["re:.*lm_head", "re:.*visual.*"],
     ),
@@ -89,6 +105,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     data_collator=data_collator,
+    batch_size=4,
 )
 
 # Confirm generations of the quantized model look sane.
