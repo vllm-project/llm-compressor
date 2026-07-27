@@ -189,7 +189,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # execution devices, causing GPU→CPU copy timing to vary between
         # ranks → broadcast deadlock. Quant params are deterministic —
         # each rank computes identical values, no sync needed.
-        if QuantizationMixin.has_config(self):
+        deferred = self.defer_quantization(state.model)
+        if QuantizationMixin.has_config(self) and not deferred:
             from compressed_tensors.offload import disable_onloading
 
             with disable_onloading():
@@ -206,21 +207,31 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
         return True
 
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
         """
         Register activation calibration hooks and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.targets, self.ignore)
+        selected = None if modules is None else set(modules)
+        targets = [
+            (name, module)
+            for name, module in match_named_modules(model, self.targets, self.ignore)
+            if selected is None or module in selected
+        ]
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in targets:
             # skip register observers for auto-round
             apply_calibration_status(module)
 
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+        for _, module in targets:
+            enable_quantization(module)
 
     def input_capture_hook(self, module, args, kwargs):
         if module._tmp_name not in self._all_module_input:
@@ -230,13 +241,22 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        self.start_calibration(state.model)
+        if self._quantization_deferred:
+            if not getattr(state.model, "_sequential_decompression_active", False):
+                self.initialize_deferred_quantization(state.model)
+        else:
+            self.start_calibration(state.model)
         for _, module in state.model.named_modules():
             if self._is_decoding_layer(module):
                 # register input capture hook for decoding layers
                 self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        self.initialize_deferred_quantization(state.model, modules)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs

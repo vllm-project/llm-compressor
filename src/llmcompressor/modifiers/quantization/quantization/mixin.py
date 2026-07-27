@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import Any
 
 import torch
@@ -140,6 +141,9 @@ class QuantizationMixin(HooksMixin):
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
+    _quantization_deferred: bool = PrivateAttr(False)
+    _quantization_initialized: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+    _deferred_kv_initialized: bool = PrivateAttr(False)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: str | list[str]) -> list[str]:
@@ -218,43 +222,140 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def initialize_quantization(self, model: torch.nn.Module):
+    def defer_quantization(self, model: torch.nn.Module) -> bool:
+        """Defer setup while compressed weights await sequential decompression.
+
+        Args:
+            model: Model that may still contain compressed weights.
+
+        Returns:
+            Whether quantization setup was deferred.
+        """
+        self._quantization_deferred = bool(
+            getattr(model, "_sequential_decompression_active", False)
+        )
+        if (
+            self._quantization_deferred
+            and self.has_config()
+            and self.resolved_config.kv_cache_scheme is not None
+        ):
+            config = deepcopy(self.resolved_config)
+            config.config_groups = {}
+            apply_quantization_config(model, config)
+            self._deferred_kv_initialized = True
+        return self._quantization_deferred
+
+    def initialize_quantization(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ) -> list[torch.nn.Module]:
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
+        :param modules: optional subset of dense modules to initialize
+        :return: modules initialized by this call
         """
+        selected = None if modules is None else set(modules)
+        config = deepcopy(self.resolved_config)
+        if self._deferred_kv_initialized:
+            config.kv_cache_scheme = None
+        config_targets = {
+            target
+            for scheme in config.config_groups.values()
+            for target in scheme.targets
+        }
+        if config.kv_cache_scheme is not None:
+            config_targets.update(KV_CACHE_TARGETS)
+        matched = list(match_named_modules(model, config_targets, self.ignore))
+        initialized = [
+            module
+            for _, module in matched
+            if (selected is None or module in selected)
+            and module not in self._quantization_initialized
+        ]
+        if not initialized:
+            return []
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        initialized_set = set(initialized)
+        for module in initialized:
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        config.ignore.extend(
+            name for name, module in matched if module not in initialized_set
+        )
+        apply_quantization_config(model, config)
 
         if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
+            validate_group_size_divisibility(
+                model, self.resolved_targets, config.ignore
+            )
 
         # disable quantization until calibration
-        model.apply(disable_quantization)
+        for module in initialized:
+            disable_quantization(module)
 
-    def start_calibration(self, model: torch.nn.Module):
+        self._quantization_initialized.update(initialized)
+        return initialized
+
+    def start_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
         """
         Attach observers, register activation calibration hooks (including
         kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
+        :param modules: optional subset of initialized modules to prepare
         """
-        targets = match_named_modules(model, self.resolved_targets, self.ignore)
+        selected = None if modules is None else set(modules)
+        targets = [
+            (name, module)
+            for name, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+            if selected is None or module in selected
+        ]
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in targets:
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
         # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
         fuse_weight_observers(model)
+
+    def initialize_deferred_quantization(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ) -> list[torch.nn.Module]:
+        """Initialize and prepare newly dense modules for calibration.
+
+        Args:
+            model: Model containing the modules.
+            modules: Newly dense modules, or ``None`` for the full model.
+
+        Returns:
+            Modules initialized by this call.
+        """
+        if not self._quantization_deferred:
+            return []
+        initialized = (
+            self.initialize_quantization(model, modules)
+            if self.has_config()
+            else list(modules or [])
+        )
+        self.start_calibration(model, initialized if modules is not None else None)
+        if modules is None:
+            self._quantization_deferred = False
+        return initialized
 
     def end_calibration(self, model: torch.nn.Module):
         """

@@ -165,6 +165,21 @@ class LifecycleCallbacks:
         return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
 
     @classmethod
+    def sequential_epoch_start(cls, modules: list["Module"], **kwargs) -> ModifiedState:
+        """
+        Invoke a sequential epoch start event after the current modules are onloaded
+        and before their calibration begins.
+
+        Args:
+            modules: Modules in the current sequential subgraph.
+            **kwargs: Additional arguments passed to the session event.
+
+        Returns:
+            The modified session state.
+        """
+        return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
+
+    @classmethod
     def calibration_end(cls, **kwargs) -> ModifiedState:
         """
         Invoke an end event for the active session during calibration. This event

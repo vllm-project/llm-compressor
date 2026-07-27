@@ -70,7 +70,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        QuantizationMixin.initialize_quantization(self, state.model)
+        if not self.defer_quantization(state.model):
+            QuantizationMixin.initialize_quantization(self, state.model)
 
         return True
 
@@ -78,7 +79,17 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Begin calibrating activations.
         """
-        QuantizationMixin.start_calibration(self, state.model)
+        if self._quantization_deferred:
+            if getattr(state.model, "_sequential_decompression_active", False):
+                return
+            self.initialize_deferred_quantization(state.model)
+        else:
+            QuantizationMixin.start_calibration(self, state.model)
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        self.initialize_deferred_quantization(state.model, modules)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs

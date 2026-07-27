@@ -10,7 +10,13 @@ from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
 )
 
-from llmcompressor.pipelines.sequential.decompression import decompressed_modules
+from llmcompressor.core import Event, EventType, State
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.pipelines.sequential.decompression import (
+    decompressed_modules,
+    ensure_dense_for_nonsequential,
+    stash_input_formats,
+)
 
 
 def _compressed_linear():
@@ -47,6 +53,51 @@ def test_dense_module_is_noop():
     with decompressed_modules([lin], recompress=True):
         pass
     assert hasattr(lin, "weight")
+
+
+def test_quantization_initializes_only_after_subgraph_decompression():
+    model = torch.nn.Sequential(_compressed_linear(), _compressed_linear())
+    original_scale = model[1].weight_scale.detach().clone()
+    original_scheme = model[1].quantization_scheme
+    stash_input_formats(model, recompress=True)
+    modifier = QuantizationModifier(scheme="W8A8")
+    state = State(model=model)
+
+    modifier.on_initialize(state)
+
+    assert not hasattr(model[0], "weight")
+    assert torch.equal(model[1].weight_scale, original_scale)
+    assert model[1].quantization_scheme is original_scheme
+    assert not hasattr(model[0], "_ct_compressed_qparams")
+
+    with decompressed_modules([model[0]], recompress=False):
+        modifier.on_sequential_epoch_start(
+            state,
+            Event(type_=EventType.SEQUENTIAL_EPOCH_START),
+            modules=[model[0]],
+        )
+        assert hasattr(model[0], "weight")
+        assert model[0].quantization_scheme.weights.num_bits == 8
+        assert hasattr(model[0], "weight_observer")
+
+    assert not hasattr(model[1], "weight")
+    assert torch.equal(model[1].weight_scale, original_scale)
+    assert model[1].quantization_scheme is original_scheme
+
+
+def test_nonsequential_initializes_after_full_decompression():
+    model = torch.nn.Sequential(_compressed_linear(), _compressed_linear())
+    stash_input_formats(model, recompress=True)
+    modifier = QuantizationModifier(scheme="W8A8")
+    state = State(model=model)
+    modifier.on_initialize(state)
+
+    ensure_dense_for_nonsequential(model)
+    modifier.on_calibration_start(state, Event(type_=EventType.CALIBRATION_START))
+
+    assert all(hasattr(module, "weight") for module in model)
+    assert all(module.quantization_scheme.weights.num_bits == 8 for module in model)
+    assert all(hasattr(module, "weight_observer") for module in model)
 
 
 def test_fp8linear_seam_raises():

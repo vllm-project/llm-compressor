@@ -193,7 +193,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         :param state: session state storing input model and calibration data
         """
         # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
+        deferred = self.defer_quantization(state.model)
+        if QuantizationMixin.has_config(self) and not deferred:
             QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
@@ -207,15 +208,40 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        if self._quantization_deferred:
+            if getattr(state.model, "_sequential_decompression_active", False):
+                if not self._module_names:
+                    raise ValueError(
+                        "GPTQModifier was unable to find any modules to quantize. "
+                        "Please check quantization `config_groups` and `targets` "
+                        "in recipe"
+                    )
+                return
+            initialized = self.initialize_deferred_quantization(state.model)
+            self._register_gptq_hooks(state.model, initialized or None)
+            return
+
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
+        self._register_gptq_hooks(state.model)
 
-        # register gptq hooks
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        initialized = self.initialize_deferred_quantization(state.model, modules)
+        self._register_gptq_hooks(state.model, initialized)
+
+    def _register_gptq_hooks(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
+        selected = None if modules is None else set(modules)
         added_hook = False
-        for _, module in match_named_modules(
-            state.model, self.resolved_targets, self.ignore
-        ):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            if selected is not None and module not in selected:
+                continue
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
@@ -224,7 +250,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self.register_hook(module, self.calibrate_module, "forward")
                     added_hook = True
 
-        if not added_hook:
+        if selected is None and not added_hook:
             raise ValueError(
                 "GPTQModifier was unable to find any modules to quantize. Please "
                 "check quantization `config_groups` and `targets` in recipe"

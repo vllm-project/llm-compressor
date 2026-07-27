@@ -142,9 +142,15 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 recompress = getattr(model, "_recompress_on_calibration", False)
-                with disable_offloading(), decompressed_modules(
-                    subgraph.submodules(model), recompress=recompress
+                with (
+                    disable_offloading(),
+                    decompressed_modules(
+                        subgraph.submodules(model), recompress=recompress
+                    ),
                 ):
+                    LifecycleCallbacks.sequential_epoch_start(
+                        subgraph.submodules(model)
+                    )
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,

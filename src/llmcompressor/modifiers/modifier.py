@@ -22,6 +22,8 @@ class Modifier(ModifierInterface, HooksMixin):
     2. on_event ->
         * on_calibration_start if event.type_ == EventType.CALIBRATION_START
         * on_start if self.start <= event.current_index
+        * on_sequential_epoch_start if
+          event.type_ == EventType.SEQUENTIAL_EPOCH_START
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
         * on_calibration_end if event.type_ == EventType.CALIBRATION_END
@@ -134,6 +136,10 @@ class Modifier(ModifierInterface, HooksMixin):
             self.started_ = True
             return
 
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
+            self.on_sequential_epoch_start(state, event, **kwargs)
+            return
+
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self.on_sequential_epoch_end(state, event, **kwargs)
             return
@@ -223,6 +229,20 @@ class Modifier(ModifierInterface, HooksMixin):
         :param state: The current state of the model
         :param event: The event that triggered the update
         :param kwargs: Additional arguments for updating the model
+        """
+        pass
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        """
+        Called before a sequential subgraph is calibrated.
+
+        Args:
+            state: Session state.
+            event: Lifecycle event.
+            modules: Modules in the current sequential subgraph.
+            **kwargs: Additional event arguments.
         """
         pass
 

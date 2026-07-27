@@ -4,9 +4,6 @@ import torch
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.quantization import QuantizationStatus
 
-# Compression qparams that decompression needs and that quant init overwrites.
-_CT_COMPRESSED_QPARAMS = ("weight_scale", "weight_zero_point", "weight_shape")
-
 __all__ = [
     "stash_input_formats",
     "decompressed_modules",
@@ -40,14 +37,6 @@ def stash_input_formats(model: torch.nn.Module, recompress: bool) -> None:
         if status == QuantizationStatus.COMPRESSED:
             scheme = getattr(module, "quantization_scheme", None)
             module._ct_input_format = getattr(scheme, "format", None)
-            # Snapshot the compression qparams: quant init (at session.initialize)
-            # overwrites weight_scale/zero_point with new-scheme observers before the
-            # pipeline decompresses, which would corrupt decompression.
-            module._ct_compressed_qparams = {
-                name: getattr(module, name).data.clone()
-                for name in _CT_COMPRESSED_QPARAMS
-                if hasattr(module, name)
-            }
             active = True
     model._sequential_decompression_active = active
     model._recompress_on_calibration = bool(recompress) and active
@@ -63,14 +52,14 @@ def ensure_dense_for_nonsequential(model: torch.nn.Module) -> None:
     if not getattr(model, "_sequential_decompression_active", False):
         return
 
-    from compressed_tensors.utils.offload import align_modules
+    from compressed_tensors.offload import disable_offloading
 
     targets = [
         m
         for m in model.modules()
         if getattr(m, "quantization_status", None) == QuantizationStatus.COMPRESSED
     ]
-    with align_modules(targets):
+    with disable_offloading():
         for module in targets:
             decompress_module(module, format=getattr(module, "_ct_input_format", None))
     model._sequential_decompression_active = False
@@ -101,44 +90,10 @@ def _resolve_handlers(module: torch.nn.Module):
     if not _is_compressed(module):
         return None
     fmt = getattr(module, "_ct_input_format", None)
-    return (_decompress_ct, lambda m: compress_module(m, format=fmt))
-
-
-def _set_weight_param(module: torch.nn.Module, name: str, value) -> None:
-    existing = getattr(module, name, None)
-    if isinstance(value, torch.nn.Parameter):
-        module.register_parameter(name, value)
-    elif isinstance(existing, torch.nn.Parameter) or existing is None:
-        module.register_parameter(name, torch.nn.Parameter(value, requires_grad=False))
-    else:
-        setattr(module, name, value)
-
-
-def _decompress_ct(module: torch.nn.Module) -> None:
-    """Decompress a CT module while preserving the calibration scheme's qparams.
-
-    Quant init (at session.initialize) overwrote the input compression scale with the
-    new scheme's observer params. Temporarily restore the input compression qparams so
-    decompression uses the correct scale, then hand the scheme qparams back to the
-    (now dense) module so the calibrating modifier keeps its observer state.
-    """
-    scheme_qparams = {
-        name: getattr(module, name)
-        for name in ("weight_scale", "weight_zero_point")
-        if hasattr(module, name)
-    }
-    saved = getattr(module, "_ct_compressed_qparams", None)
-    if saved:
-        for name, tensor in saved.items():
-            _set_weight_param(module, name, tensor.clone())
-
-    decompress_module(module, format=getattr(module, "_ct_input_format", None))
-
-    # decompression drops the compression qparams; restore the scheme's qparams so the
-    # modifier's observers still have their targets on the dense weight.
-    for name, param in scheme_qparams.items():
-        if not hasattr(module, name):
-            _set_weight_param(module, name, param)
+    return (
+        lambda m: decompress_module(m, format=fmt),
+        lambda m: compress_module(m, format=fmt),
+    )
 
 
 @contextlib.contextmanager
