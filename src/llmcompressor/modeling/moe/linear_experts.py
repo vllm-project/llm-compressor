@@ -23,6 +23,33 @@ class ExpertMLP(torch.nn.Module, ABC):
         raise NotImplementedError()
 
 
+class NoviceExpertMLP(ExpertMLP):
+    """
+    Constant-output expert used by MoNE pruning.
+
+    A novice preserves the routed-expert interface while replacing a full MLP with
+    one learned/calibrated output vector.
+    """
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        dtype: torch.dtype,
+    ):
+        super().__init__()
+        self.approx_value = torch.nn.Parameter(torch.zeros(hidden_dim, dtype=dtype))
+
+    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        raise NotImplementedError("Novice experts cannot copy full expert weights")
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return (
+            self.approx_value.to(hidden_states.dtype)
+            .unsqueeze(0)
+            .expand(hidden_states.shape[0], -1)
+        )
+
+
 class ExpertMLPWithGate(ExpertMLP):
     up_proj: torch.nn.Linear
     gate_proj: torch.nn.Linear

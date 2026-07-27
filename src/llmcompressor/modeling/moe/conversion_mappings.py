@@ -6,6 +6,7 @@ from transformers.conversion_mapping import (
     get_checkpoint_conversion_mapping,
 )
 from transformers.core_model_loading import (
+    ConversionOps,
     WeightConverter,
     WeightRenaming,
     WeightTransform,
@@ -18,6 +19,31 @@ __all__ = [
     "get_linearize_load_mappings",
     "set_save_conversion_mapping",
 ]
+
+
+class _PassThrough(ConversionOps):
+    def convert(self, input_dict: dict, **kwargs) -> dict:
+        return input_dict
+
+    @property
+    def reverse_op(self) -> ConversionOps:
+        return self
+
+
+class _CastToDtype(ConversionOps):
+    def __init__(self, dtype: torch.dtype):
+        self.dtype = dtype
+
+    def convert(self, input_dict: dict, **kwargs) -> dict:
+        full_layer_name = kwargs["full_layer_name"]
+        tensors = next(iter(input_dict.values()))
+        tensor = tensors[0] if isinstance(tensors, list) else tensors
+        return {full_layer_name: tensor.to(self.dtype)}
+
+    @property
+    def reverse_op(self) -> ConversionOps:
+        return _PassThrough()
+
 
 ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
     "afmoe": (
@@ -179,6 +205,82 @@ ARCH_TO_2D_MAPPINGS = {
             ),
         ],
     ),
+    "minimax": (
+        [
+            ".mlp.",
+            ".mlp.e_score_correction_bias",
+            ".experts.gate_up_proj",
+            ".experts.down_proj",
+        ],
+        [
+            WeightRenaming(
+                source_patterns=r"\.block_sparse_moe\.gate\.",
+                target_patterns=r".mlp.gate.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.block_sparse_moe\.e_score_correction_bias",
+                target_patterns=r".mlp.e_score_correction_bias",
+            ),
+            WeightConverter(
+                source_patterns=r"\.self_attn\.(q_proj|k_proj|v_proj|o_proj)\.weight",
+                target_patterns=r".self_attn.\1.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+            WeightConverter(
+                source_patterns=r"\.block_sparse_moe\.experts\.(\d+)\.w1\.weight",
+                target_patterns=r".mlp.experts.\1.gate_proj.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+            WeightConverter(
+                source_patterns=r"\.block_sparse_moe\.experts\.(\d+)\.w2\.weight",
+                target_patterns=r".mlp.experts.\1.down_proj.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+            WeightConverter(
+                source_patterns=r"\.block_sparse_moe\.experts\.(\d+)\.w3\.weight",
+                target_patterns=r".mlp.experts.\1.up_proj.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+        ],
+    ),
+    "minimax_m2": (
+        [
+            ".mlp.",
+            ".mlp.e_score_correction_bias",
+            ".experts.gate_up_proj",
+            ".experts.down_proj",
+        ],
+        [
+            WeightRenaming(
+                source_patterns=r"\.block_sparse_moe\.gate\.",
+                target_patterns=r".mlp.gate.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.block_sparse_moe\.e_score_correction_bias",
+                target_patterns=r".mlp.e_score_correction_bias",
+            ),
+            WeightConverter(
+                source_patterns=r"\.self_attn\.(q_proj|k_proj|v_proj|o_proj)\.weight",
+                target_patterns=r".self_attn.\1.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+            WeightConverter(
+                source_patterns=r"\.block_sparse_moe\.experts\.(\d+)\.w1\.weight",
+                target_patterns=r".mlp.experts.\1.gate_proj.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+            WeightConverter(
+                source_patterns=r"\.block_sparse_moe\.experts\.(\d+)\.w2\.weight",
+                target_patterns=r".mlp.experts.\1.down_proj.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+            WeightConverter(
+                source_patterns=r"\.block_sparse_moe\.experts\.(\d+)\.w3\.weight",
+                target_patterns=r".mlp.experts.\1.up_proj.weight",
+                operations=[_CastToDtype(torch.bfloat16)],
+            ),
+        ],
+    ),
     "qwen2_moe": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
         [
@@ -216,9 +318,16 @@ ARCH_TO_2D_MAPPINGS = {
 }
 
 
+def _linearize_mapping_type(model_type: str) -> str:
+    if model_type in ARCH_TO_2D_MAPPINGS:
+        return model_type
+
+    return _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
+
+
 def has_linearize_load_mappings(model_type: str) -> bool:
-    remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_2D_MAPPINGS
+    mapping_type = _linearize_mapping_type(model_type)
+    return model_type in ARCH_TO_IMPORT_PATHS and mapping_type in ARCH_TO_2D_MAPPINGS
 
 
 def get_linearize_load_mappings(
@@ -229,8 +338,8 @@ def get_linearize_load_mappings(
     experts_cls = import_or_none(expert_paths)
 
     mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
-    model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
+    mapping_type = _linearize_mapping_type(model_type)
+    remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[mapping_type]
 
     # forwards has conversion mappings
     # backwards has no mappings (stay 2d)
