@@ -1,17 +1,16 @@
-from transformers import (
-    AutoProcessor,
-    InklingForConditionalGeneration,
-    InklingForCausalLM,
-    AutoModelForCausalLM,
-)
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
     QuantizationScheme,
 )
-from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
+from datasets import load_dataset
+from transformers import (
+    AutoProcessor,
+    InklingForConditionalGeneration,
+)
+
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import load_context
 
 MODEL_ID = "thinkingmachines/Inkling"
@@ -72,28 +71,53 @@ recipe = GPTQModifier(
 )
 
 # Select calibration dataset.
-DATASET_ID = "ultrachat-200k"
-DATASET_SPLIT = "train_sft"
+DATASET_ID = "mit-han-lab/pile-val-backup"
+DATASET_SPLIT = "validation"
 
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 4096
+
+
+def get_calib_dataset(tokenizer):
+    ds = load_dataset(
+        DATASET_ID,
+        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES*50}]",
+    )
+
+    def preprocess(example):
+        return {
+            "input_ids": tokenizer.encode(example["text"].strip())[:MAX_SEQUENCE_LENGTH]
+        }
+
+    ds = (
+        ds.shuffle(seed=42)
+        .map(preprocess, remove_columns=ds.column_names)
+        .filter(lambda example: len(example["input_ids"]) >= MAX_SEQUENCE_LENGTH)
+        .select(range(NUM_CALIBRATION_SAMPLES))
+    )
+
+    return ds
+
 
 # Apply algorithms.
 oneshot(
     model=model,
     processor=processor,
     recipe=recipe,
-    dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    dataset=get_calib_dataset(processor.tokenizer),
+    # dataset=DATASET_ID,
+    # splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    sequential_targets=["InklingAttention", "InklingMoE", "InklingMLP"],
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     batch_size=8,
+    data_collator="truncation",
 )
 
 # Save to disk compressed.
 model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
 processor.save_pretrained(SAVE_DIR)
 
-save_mtp_tensors_to_checkpoint(
-    source_model=MODEL_ID, dest_dir=SAVE_DIR, mtp_prefix="model.mtp"
-)
+# save_mtp_tensors_to_checkpoint(
+#     source_model=MODEL_ID, dest_dir=SAVE_DIR, mtp_prefix="model.mtp"
+# )

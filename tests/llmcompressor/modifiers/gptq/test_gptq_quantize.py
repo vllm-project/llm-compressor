@@ -7,7 +7,6 @@ from compressed_tensors.quantization import (
 )
 
 import llmcompressor.modifiers.gptq.gptq_quantize as gptq_quantize
-from llmcompressor.core import create_session
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,

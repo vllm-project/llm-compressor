@@ -1,4 +1,3 @@
-import math
 from copy import copy
 
 import torch
@@ -66,8 +65,7 @@ def accumulate_hessian(
     num_samples += num_added
 
     inp = inp.to(dtype=GPTQ_PRECISION)
-    inp = math.sqrt(2) * inp
-    H += inp.matmul(inp.t())
+    torch.addmm(H, inp, inp.t(), alpha=2, beta=1, out=H)
 
     return H, num_samples
 
@@ -94,9 +92,7 @@ def _build_codebook(scale, zero_point, quant_args, global_scale=None):
         q_min = 0
         q_max = 2**num_bits - 1
 
-    int_vals = torch.arange(
-        q_min, q_max + 1, device=scale.device, dtype=torch.float32
-    )
+    int_vals = torch.arange(q_min, q_max + 1, device=scale.device, dtype=torch.float32)
 
     s = scale.to(dtype=torch.float32)
     zp = zero_point.to(dtype=torch.float32)
@@ -170,10 +166,7 @@ if _triton_available:
             qcol = (col_offset + i) // c_b
 
             cuts = tl.load(
-                cutoffs_ptr
-                + qrow * stride_cut_row
-                + qcol * stride_cut_col
-                + cut_idx,
+                cutoffs_ptr + qrow * stride_cut_row + qcol * stride_cut_col + cut_idx,
                 mask=cut_mask,
                 other=float("inf"),
             )
@@ -181,10 +174,7 @@ if _triton_available:
             bin_idx = tl.sum((wi >= cuts).to(tl.int32), axis=0)
 
             qi = tl.load(
-                codes_ptr
-                + qrow * stride_codes_row
-                + qcol * stride_codes_col
-                + bin_idx
+                codes_ptr + qrow * stride_codes_row + qcol * stride_codes_col + bin_idx
             )
 
             diff = wi - qi
@@ -194,9 +184,7 @@ if _triton_available:
             err_out = tl.where(imask, err, err_out)
             loss_out = tl.where(imask, diff * diff / (d * d), loss_out)
 
-            h_row = tl.load(
-                Hinv1_ptr + i * stride_h_row + cols, mask=cmask, other=0.0
-            )
+            h_row = tl.load(Hinv1_ptr + i * stride_h_row + cols, mask=cmask, other=0.0)
             w = tl.where(cols >= i, w - err * h_row, w)
 
         tl.store(Q1_ptr + row * stride_w_row + cols, q_out, mask=cmask)
