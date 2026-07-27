@@ -20,6 +20,7 @@ COPYPASTAS = [
     """I'd just like to interject for a moment. What you're referring to as Linux, is in fact, GNU/Linux, or as I've recently taken to calling it, GNU plus Linux. Linux is not an operating system unto itself, but rather another free component of a fully functioning GNU system made useful by the GNU corelibs, shell utilities and vital system components comprising a full OS as defined by POSIX.""",
     """The FitnessGram Pacer Test is a multistage aerobic capacity test that progressively gets more difficult as it continues. The 20 meter pacer test will begin in 30 seconds. Line up at the start. The running speed starts slowly, but gets faster each minute after you hear this signal.""",
     """Did you ever hear the tragedy of Darth Plagueis The Wise? I thought not. It's not a story the Jedi would tell you. It's a Sith legend. Darth Plagueis was a Dark Lord of the Sith, so powerful and so wise he could use the Force to influence the midichlorians to create life.""",
+    """Hello my name is Inigo Montoya. You killed my father. Prepare to die""",
 ]
 
 
@@ -118,6 +119,22 @@ def main():
     print(f"Loading model: {args.model}")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForCausalLM.from_pretrained(args.model, device_map="auto")
+
+    # Pre-flight NaN check: catch bad weight initialization before training silently fails.
+    # A NaN loss on the first step almost always means weights have NaN/Inf/extreme values
+    # (common with bfloat16 allocation of custom norm layers). Diagnose early.
+    test_ids = tokenizer("hello world", return_tensors="pt").input_ids.to(model.device)
+    with torch.no_grad():
+        test_out = model(input_ids=test_ids, labels=test_ids)
+    if test_out.loss is None or not torch.isfinite(test_out.loss).item():
+        raise RuntimeError(
+            f"Pre-flight check failed: loss={test_out.loss}. "
+            "The model likely has uninitialized/extreme weights. "
+            "Re-run save_tiny_model.py (it now includes a weight fixup step) "
+            "or manually reset bad params: norm weights → 1.0, biases → 0.0, "
+            "other params → kaiming_uniform."
+        )
+    print(f"Pre-flight check passed: initial loss={test_out.loss.item():.3f}")
 
     # Set pad token if not set
     if tokenizer.pad_token is None:

@@ -51,6 +51,7 @@ def patch_deepseek_fp32_modules():
     BUG: norms should be loaded in float32, but usually aren't due to the base
     model having a quant_config which overrides this. Loading in float32 actually
     breaks the model definition (it expects bfloat16). Let's force load in bfloat16.
+    # Fixed upstream by: https://github.com/huggingface/transformers/pull/47486
     """
     with patch_attr(DeepseekV4PreTrainedModel, "_keep_in_fp32_modules_strict", set()):
         yield

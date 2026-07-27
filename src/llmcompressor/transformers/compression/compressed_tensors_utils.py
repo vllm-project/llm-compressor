@@ -123,12 +123,14 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
+            kwargs.setdefault("max_shard_size", "20GB")
+
             # compress model using compressor
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
             if save_compressed:
-                compressor.compress_model(model)
+                compressor.compress_model(model, skip_compressed=True)
 
             # Re-tie input and output embeddings before offload conversion so a
             # shared table is written once. Offloading splits a tied weight into
