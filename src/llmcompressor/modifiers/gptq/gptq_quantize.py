@@ -352,7 +352,7 @@ def _build_codebook(scale, zero_point, quant_args, global_scale=None):
 
 def _build_cutoffs_and_codes(scale, zero_point, quant_args, global_scale=None):
     codes = _build_codebook(scale, zero_point, quant_args, global_scale)
-    cutoffs = (codes[..., :-1] + codes[..., 1:]) * 0.5
+    cutoffs = ((codes[..., :-1] + codes[..., 1:]) * 0.5).contiguous()
     return codes, cutoffs
 
 
@@ -414,6 +414,7 @@ if _triton_available:
             )
 
             bin_idx = tl.sum((wi >= cuts).to(tl.int32), axis=0)
+            bin_idx = tl.minimum(bin_idx, num_codes - 1)
 
             qi = tl.load(
                 codes_ptr + qrow * stride_codes_row + qcol * stride_codes_col + bin_idx
