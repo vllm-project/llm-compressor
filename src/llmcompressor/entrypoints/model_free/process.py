@@ -10,6 +10,7 @@ from compressed_tensors.utils import match_quantizable_tensors
 from compressed_tensors.utils.safetensors_load import (
     InverseWeightMap,
     load_tensors_from_inverse_weight_map,
+    str_to_torch_dtype,
 )
 from loguru import logger
 from safetensors.torch import save_file
@@ -94,32 +95,49 @@ def process_file(
     """
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
 
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+    if not os.path.exists(save_path):
+        tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
-    tensors = split_fused_moe_experts(tensors)
+        tensors = split_fused_moe_experts(tensors)
 
-    if converter is not None:
-        tensors = converter.process(tensors)
+        if converter is not None:
+            tensors = converter.process(tensors)
 
-    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
-        validate_weight_for_quantization(tensors[name], scheme, name)
+        for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
+            validate_weight_for_quantization(tensors[name], scheme, name)
 
-        # 1. initialize module with qparams (on device)
-        module = initialize_quantized_linear(tensors[name], scheme, device)
+            # 1. initialize module with qparams (on device)
+            module = initialize_quantized_linear(tensors[name], scheme, device)
 
-        # 2. calibrate weight qparams
-        calibrate_weight(module)
+            # 2. calibrate weight qparams
+            calibrate_weight(module)
 
-        # 3. compress module using qparams
-        compress_module(module)
+            # 3. compress module using qparams
+            compress_module(module)
 
-        # 4. save compressed data (on cpu)
-        del tensors[name]
-        prefix = module_name + "."
-        for key, value in module.state_dict(prefix=prefix).items():
-            tensors[key] = value.to("cpu")
+            # 4. save compressed data (on cpu)
+            del tensors[name]
+            prefix = module_name + "."
+            for key, value in module.state_dict(prefix=prefix).items():
+                tensors[key] = value.to("cpu")
 
-    save_file(tensors, save_path)
+        save_file(tensors, save_path)
+
+    else:
+        logger.info(f"Skipping {save_path}")
+
+        from safetensors import safe_open
+
+        tensors = {}
+        with safe_open(save_path, framework="pt") as file:
+            for tensor_name in file.keys():
+                _slice = file.get_slice(tensor_name)
+                dtype = str_to_torch_dtype[_slice.get_dtype()]
+                size = _slice.get_shape()
+                tensors[tensor_name] = torch.empty(
+                    size=size, dtype=dtype, device="meta"
+                )
+
     total_size = sum(tensor.nbytes for tensor in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
     return total_size, weight_map
