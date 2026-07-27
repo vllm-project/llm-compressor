@@ -91,7 +91,7 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.hy_v3.configuration_hy_v3.HYV3Config",
         "transformers.models.hy_v3.modeling_hy_v3.HYV3Experts",
     ),
-    "inkling": (
+    "inkling_mm_model": (
         "transformers.models.inkling.configuration_inkling.InklingTextConfig",
         "transformers.models.inkling.modeling_inkling.InklingExperts",
     ),

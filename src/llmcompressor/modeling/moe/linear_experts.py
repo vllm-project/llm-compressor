@@ -2,12 +2,15 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    disable_onloading,
+    get_cache_init_kwargs,
+    offload_module,
+)
+from torch.nn import Parameter
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
-
-from llmcompressor.utils.dev import skip_weights_initialize
 
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
@@ -18,8 +21,11 @@ from .helpers import (
 
 
 class ExpertMLP(torch.nn.Module, ABC):
+    up_proj: torch.nn.Linear
+    down_proj: torch.nn.Linear
+
     @abstractmethod
-    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+    def view_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
         raise NotImplementedError()
 
 
@@ -39,6 +45,7 @@ class ExpertMLPWithGate(ExpertMLP):
     ):
         super().__init__()
         self.intermediate_size = intermediate_size
+        self.mlp_bias = mlp_bias
         self.up_proj = torch.nn.Linear(
             hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
@@ -50,31 +57,16 @@ class ExpertMLPWithGate(ExpertMLP):
         )
         self._apply_gate = _apply_gate
 
-    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        # load weights
-        if not experts.is_transposed:
-            gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
-            up_weight = experts.gate_up_proj[index, self.intermediate_size :]
-            down_weight = experts.down_proj[index]
+    def view_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        i_size = self.intermediate_size
+        self.gate_proj.weight = Parameter(experts.gate_up_proj[index, :i_size])
+        self.up_proj.weight = Parameter(experts.gate_up_proj[index, i_size:])
+        self.down_proj.weight = Parameter(experts.down_proj[index])
 
-        else:
-            gate_weight = experts.gate_up_proj[index, :, : self.intermediate_size].T
-            up_weight = experts.gate_up_proj[index, :, self.intermediate_size :].T
-            down_weight = experts.down_proj[index].T
-
-        self.gate_proj.weight.copy_(gate_weight)
-        self.up_proj.weight.copy_(up_weight)
-        self.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
-            up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
-            down_bias = experts.down_proj_bias[index]
-
-            self.gate_proj.bias.copy_(gate_bias)
-            self.up_proj.bias.copy_(up_bias)
-            self.down_proj.bias.copy_(down_bias)
+        if self.mlp_bias:
+            self.gate_proj.bias = Parameter(experts.gate_up_proj_bias[index, :i_size])
+            self.up_proj.bias = Parameter(experts.gate_up_proj_bias[index, i_size:])
+            self.down_proj.bias = Parameter(experts.down_proj_bias[index])
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
@@ -101,6 +93,7 @@ class ExpertMLPWithoutGate(ExpertMLP):
     ):
         super().__init__()
         self.intermediate_size = intermediate_size
+        self.mlp_bias = mlp_bias
         self.up_proj = torch.nn.Linear(
             hidden_dim, intermediate_size, bias=mlp_bias, dtype=dtype
         )
@@ -109,26 +102,14 @@ class ExpertMLPWithoutGate(ExpertMLP):
         )
         self.act_fn = act_fn
 
-    def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        # load weights
-        if not experts.is_transposed:
-            up_weight = experts.up_proj[index]
-            down_weight = experts.down_proj[index]
+    def view_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        i_size = self.intermediate_size
+        self.up_proj.weight = Parameter(experts.gate_up_proj[index, i_size:])
+        self.down_proj.weight = Parameter(experts.down_proj[index])
 
-        else:
-            up_weight = experts.up_proj[index].T
-            down_weight = experts.down_proj[index].T
-
-        self.up_proj.weight.copy_(up_weight)
-        self.down_proj.weight.copy_(down_weight)
-
-        # load biases
-        if experts.has_bias:
-            up_bias = experts.up_proj_bias[index]
-            down_bias = experts.down_proj_bias[index]
-
-            self.up_proj.bias.copy_(up_bias)
-            self.down_proj.bias.copy_(down_bias)
+        if self.mlp_bias:
+            self.up_proj.bias = Parameter(experts.gate_up_proj_bias[index, i_size:])
+            self.down_proj.bias = Parameter(experts.down_proj_bias[index])
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
@@ -140,7 +121,6 @@ class LinearExperts2D(torch.nn.ModuleList):
     # 1. try for mappings (efficient load)
     # 2. try for standardized moe, convert after load
     # 3. Explicit replacement (GraniteMoeLinearExperts)
-
     """
 
     is_concatenated: ClassVar[bool]
@@ -192,17 +172,33 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
-        with skip_weights_initialize():
+        with torch.device("meta"):
             self = cls(config)
 
+        # zero copy: remove weight to avoid offloading meta tensors
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
-            expert.copy_from_experts_module(experts, index)
+            if hasattr(expert, "gate_proj"):
+                del expert.gate_proj.weight
+                if self.has_bias:
+                    del expert.gate_proj.bias
+            del expert.up_proj.weight
+            if self.has_bias:
+                del expert.up_proj.bias
+            del expert.down_proj.weight
+            if self.has_bias:
+                del expert.up_proj.bias
 
         # copy offloading from original
         offload_kwargs = get_cache_init_kwargs(experts)
         for module in self.modules():
             offload_module(module, **offload_kwargs)
+
+        # zero copy: assign linear weights as a view
+        with disable_onloading():
+            for index in range(self.num_experts):
+                expert: ExpertMLP = self[index]
+                expert.view_from_experts_module(experts, index)
 
         return self
 
