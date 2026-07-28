@@ -1,3 +1,6 @@
+import os
+
+from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization.quant_scheme import (
     FP8_BLOCK,
     NVFP4,
@@ -10,6 +13,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import load_context
 
@@ -18,6 +22,8 @@ MODEL_ID = "thinkingmachines/Inkling"
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK-gptq"
 
 # Select model and load it in the `load_context` context
+init_dist()
+
 with load_context(InklingForConditionalGeneration):
     model = InklingForConditionalGeneration.from_pretrained(
         MODEL_ID,
@@ -66,7 +72,7 @@ recipe = GPTQModifier(
         "re:model.mtp.*",
     ],
     dampening_frac=0.05,
-    offload_hessians=True,
+    # offload_hessians=True,
     weight_observer="mse",
 )
 
@@ -77,11 +83,13 @@ DATASET_SPLIT = "validation"
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 4096
 
+world_size = int(os.environ["WORLD_SIZE"])
+
 
 def get_calib_dataset(tokenizer):
     ds = load_dataset(
         DATASET_ID,
-        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES*50}]",
+        split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES * 50),
     )
 
     def preprocess(example):
@@ -93,7 +101,7 @@ def get_calib_dataset(tokenizer):
         ds.shuffle(seed=42)
         .map(preprocess, remove_columns=ds.column_names)
         .filter(lambda example: len(example["input_ids"]) >= MAX_SEQUENCE_LENGTH)
-        .select(range(NUM_CALIBRATION_SAMPLES))
+        .select(range(NUM_CALIBRATION_SAMPLES // world_size))
     )
 
     return ds
@@ -108,9 +116,10 @@ oneshot(
     # dataset=DATASET_ID,
     # splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     sequential_targets=["InklingAttention", "InklingMoE", "InklingMLP"],
+    sequential_targets_per_subgraph=(128 // 4 + 2),
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    batch_size=8,
+    batch_size=4,
     data_collator="truncation",
 )
 
