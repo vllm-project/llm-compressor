@@ -1,6 +1,6 @@
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import load_context

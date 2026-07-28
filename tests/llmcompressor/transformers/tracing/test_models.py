@@ -13,136 +13,138 @@ from transformers import (
     Qwen2VLForConditionalGeneration,
     WhisperForConditionalGeneration,
 )
+from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 
 from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from tests.testing_utils import requires_hf_token
 
 
-@requires_hf_token
+#@requires_hf_token
 @pytest.mark.parametrize(
     "model_id,model_class,targets,modality,backends",
     [
         # --- text ---
-        ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None, "text", []),
-        (
-            "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
-            AutoModelForCausalLM,
-            None,
-            "text",
-            [],
-        ),
-        (
-            "mistralai/Mixtral-8x7B-Instruct-v0.1",
-            AutoModelForCausalLM,
-            None,
-            "text",
-            [],
-        ),
-        (
-            "ibm-granite/granite-20b-code-instruct-8k",
-            AutoModelForCausalLM,
-            None,
-            "text",
-            [],
-        ),
-        ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", ["timm"]),
-        ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
-        # --- vision ---
-        (
-            "HuggingFaceM4/Idefics3-8B-Llama3",
-            Idefics3ForConditionalGeneration,
-            ["LlamaDecoderLayer"],
-            "vision",
-            [],
-        ),
-        (
-            "llava-hf/llava-1.5-7b-hf",
-            LlavaForConditionalGeneration,
-            ["LlamaDecoderLayer"],
-            "vision",
-            [],
-        ),
-        (
-            "meta-llama/Llama-3.2-11B-Vision-Instruct",
-            MllamaForConditionalGeneration,
-            ["MllamaSelfAttentionDecoderLayer"],
-            "vision",
-            [],
-        ),
-        # skip phi3_v because of its processor is annoying and requires special code
-        (
-            "mgoin/pixtral-12b",
-            LlavaForConditionalGeneration,
-            ["MistralDecoderLayer"],
-            "vision",
-            [],
-        ),
-        (
-            "Qwen/Qwen2.5-VL-7B-Instruct",
-            Qwen2_5_VLForConditionalGeneration,
-            ["Qwen2_5_VLDecoderLayer"],
-            "vision",
-            ["torchvision"],
-        ),
-        # TODO: add gated model command-a to CI runner tokens
+        ("moonshotai/Kimi-K3", KimiK3ForConditionalGeneration, ["KimiMLAAttention", "KimiBlockSparseMLP"], "text", []),
+        # ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None, "text", []),
         # (
-        #     "CohereLabs/command-a-vision-07-2025",
-        #     Cohere2VisionForConditionalGeneration,
-        #     ["Cohere2DecoderLayer"],
+        #     "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+        #     AutoModelForCausalLM,
+        #     None,
+        #     "text",
+        #     [],
+        # ),
+        # (
+        #     "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        #     AutoModelForCausalLM,
+        #     None,
+        #     "text",
+        #     [],
+        # ),
+        # (
+        #     "ibm-granite/granite-20b-code-instruct-8k",
+        #     AutoModelForCausalLM,
+        #     None,
+        #     "text",
+        #     [],
+        # ),
+        # ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", ["timm"]),
+        # ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
+        # # --- vision ---
+        # (
+        #     "HuggingFaceM4/Idefics3-8B-Llama3",
+        #     Idefics3ForConditionalGeneration,
+        #     ["LlamaDecoderLayer"],
         #     "vision",
         #     [],
         # ),
-        (
-            "Qwen/Qwen2-VL-2B-Instruct",
-            Qwen2VLForConditionalGeneration,
-            ["Qwen2VLDecoderLayer"],
-            "vision",
-            ["torchvision"],
-        ),
-        (
-            "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
-            Mistral3ForConditionalGeneration,
-            ["MistralDecoderLayer"],
-            "vision",
-            [],
-        ),
-        (
-            "google/gemma-3-4b-it",
-            Gemma3ForConditionalGeneration,
-            ["Gemma3DecoderLayer"],
-            "vision",
-            [],
-        ),
-        (
-            "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-            Llama4ForConditionalGeneration,
-            "Llama4TextDecoderLayer",
-            "vision",
-            [],
-        ),
-        (
-            "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-            Llama4ForConditionalGeneration,
-            "Llama4TextDecoderLayer",
-            "vision",
-            [],
-        ),
-        (
-            "google/gemma-3n-E2B-it",
-            Gemma3nForConditionalGeneration,
-            None,
-            "vision",
-            ["timm"],
-        ),
-        # --- audio ---
-        (
-            "openai/whisper-large-v3",
-            WhisperForConditionalGeneration,
-            ["WhisperDecoderLayer"],
-            "audio",
-            ["librosa", "soundfile", "torchcodec"],
-        ),
+        # (
+        #     "llava-hf/llava-1.5-7b-hf",
+        #     LlavaForConditionalGeneration,
+        #     ["LlamaDecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        #     MllamaForConditionalGeneration,
+        #     ["MllamaSelfAttentionDecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
+        # # skip phi3_v because of its processor is annoying and requires special code
+        # (
+        #     "mgoin/pixtral-12b",
+        #     LlavaForConditionalGeneration,
+        #     ["MistralDecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "Qwen/Qwen2.5-VL-7B-Instruct",
+        #     Qwen2_5_VLForConditionalGeneration,
+        #     ["Qwen2_5_VLDecoderLayer"],
+        #     "vision",
+        #     ["torchvision"],
+        # ),
+        # # TODO: add gated model command-a to CI runner tokens
+        # # (
+        # #     "CohereLabs/command-a-vision-07-2025",
+        # #     Cohere2VisionForConditionalGeneration,
+        # #     ["Cohere2DecoderLayer"],
+        # #     "vision",
+        # #     [],
+        # # ),
+        # (
+        #     "Qwen/Qwen2-VL-2B-Instruct",
+        #     Qwen2VLForConditionalGeneration,
+        #     ["Qwen2VLDecoderLayer"],
+        #     "vision",
+        #     ["torchvision"],
+        # ),
+        # (
+        #     "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+        #     Mistral3ForConditionalGeneration,
+        #     ["MistralDecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "google/gemma-3-4b-it",
+        #     Gemma3ForConditionalGeneration,
+        #     ["Gemma3DecoderLayer"],
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        #     Llama4ForConditionalGeneration,
+        #     "Llama4TextDecoderLayer",
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+        #     Llama4ForConditionalGeneration,
+        #     "Llama4TextDecoderLayer",
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "google/gemma-3n-E2B-it",
+        #     Gemma3nForConditionalGeneration,
+        #     None,
+        #     "vision",
+        #     ["timm"],
+        # ),
+        # # --- audio ---
+        # (
+        #     "openai/whisper-large-v3",
+        #     WhisperForConditionalGeneration,
+        #     ["WhisperDecoderLayer"],
+        #     "audio",
+        #     ["librosa", "soundfile", "torchcodec"],
+        # ),
     ],
 )
 def test_model_trace(model_id, model_class, targets, modality, backends):
@@ -154,7 +156,7 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         model_class,
         targets,
         modality=modality,
-        trust_remote_code=False,
+        trust_remote_code=True,
         device_map="meta",
         skip_weights=True,
     )

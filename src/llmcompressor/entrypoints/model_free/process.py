@@ -103,7 +103,9 @@ def process_file(
         if converter is not None:
             tensors = converter.process(tensors)
 
-        for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
+        for module_name, name in match_quantizable_tensors(
+            tensors, ignore, scheme.targets
+        ):
             validate_weight_for_quantization(tensors[name], scheme, name)
 
             # 1. initialize module with qparams (on device)

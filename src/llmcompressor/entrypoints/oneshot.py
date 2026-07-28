@@ -38,7 +38,6 @@ __all__ = ["Oneshot", "oneshot"]
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
-
     from llmcompressor.recipe import RecipeInput
 
 
@@ -352,6 +351,7 @@ def oneshot(
         "_prepare_4d_causal_attention_mask_with_cache_position",
         "_update_linear_attn_mask",
         "project_per_layer_inputs",
+        "_forward_attn_residual",
     ],
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",

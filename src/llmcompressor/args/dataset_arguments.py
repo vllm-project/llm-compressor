@@ -225,6 +225,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_4d_causal_attention_mask_with_cache_position",
             "_update_linear_attn_mask",
             "project_per_layer_inputs",
+            "_forward_attn_residual",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "

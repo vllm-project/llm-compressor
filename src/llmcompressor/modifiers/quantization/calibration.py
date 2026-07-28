@@ -228,7 +228,9 @@ def freeze_module_quantization(module: Module):
             getattr(module, obs_name).detach(module)
             delattr(module, obs_name)
 
-    module.quantization_status = QuantizationStatus.FROZEN
+    # preserve COMPRESSED status so save_pretrained can skip already-compressed modules
+    if module.quantization_status != QuantizationStatus.COMPRESSED:
+        module.quantization_status = QuantizationStatus.FROZEN
 
 
 def reset_quantization_status(model: Module):

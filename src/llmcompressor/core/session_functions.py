@@ -154,6 +154,16 @@ class LifecycleCallbacks:
         return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod
+    def sequential_epoch_start(cls, modules: list["Module"], **kwargs) -> ModifiedState:
+        return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
+
+    @classmethod
+    def sequential_optimization(
+        cls, modules: list["Module"], **kwargs
+    ) -> ModifiedState:
+        return cls.event(EventType.SEQUENTIAL_OPTIMIZATION, modules=modules, **kwargs)
+
+    @classmethod
     def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
         """
         Invoke a sequential epoch end event for the active session. This event should be

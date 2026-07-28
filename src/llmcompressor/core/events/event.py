@@ -50,6 +50,8 @@ class EventType(Enum):
 
     # calibration lifecycle
     CALIBRATION_START = "calibration_start"
+    SEQUENTIAL_EPOCH_START = "sequential_epoch_start"
+    SEQUENTIAL_OPTIMIZATION = "sequential_optimization"
     SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
     CALIBRATION_END = "calibration_end"
 

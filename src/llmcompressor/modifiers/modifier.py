@@ -22,6 +22,8 @@ class Modifier(ModifierInterface, HooksMixin):
     2. on_event ->
         * on_calibration_start if event.type_ == EventType.CALIBRATION_START
         * on_start if self.start <= event.current_index
+        * on_sequential_epoch_start if event.type_ == EventType.SEQUENTIAL_EPOCH_START
+        * on_sequential_optimization if event.type_ == EventType.SEQUENTIAL_OPTIMIZATION
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
         * on_calibration_end if event.type_ == EventType.CALIBRATION_END
@@ -132,6 +134,14 @@ class Modifier(ModifierInterface, HooksMixin):
         if event.type_ == EventType.CALIBRATION_START:
             self.on_calibration_start(state, event, **kwargs)
             self.started_ = True
+            return
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
+            self.on_sequential_epoch_start(state, event, **kwargs)
+            return
+
+        if event.type_ == EventType.SEQUENTIAL_OPTIMIZATION:
+            self.on_sequential_optimization(state, event, **kwargs)
             return
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -272,6 +282,16 @@ class Modifier(ModifierInterface, HooksMixin):
         :param event: The event that triggered the calibration epoch start
         :param kwargs: Additional arguments for the calibration epoch start
         """
+        pass
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        pass
+
+    def on_sequential_optimization(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         pass
 
     def on_sequential_epoch_end(

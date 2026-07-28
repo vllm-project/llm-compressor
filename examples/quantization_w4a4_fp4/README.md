@@ -83,3 +83,28 @@ tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 We have successfully created an `nvfp4` model!
+
+## Kimi-K3 (MoE + Multimodal) Example
+
+`kimi_k3_nvfp4.py` shows how to apply NVFP4 quantization to [Kimi-K3](https://huggingface.co/inference-optimization/Kimi-K3-0.18B), a multimodal Mixture-of-Experts model with a hybrid attention architecture (KDA linear attention + MLA full attention).
+
+### Model Architecture
+
+| Property | Value |
+|---|---|
+| Architecture | Kimi-K3 (MoE + custom attention) |
+| Total parameters | 0.18B |
+| Active parameters | ~0.10B |
+| Experts | 8 total, 2 active per token |
+| Layers | 4 (dense FFN, MoE FFN, KDA linear, MLA full attention) |
+
+### Key Considerations
+
+- **Custom model class**: Kimi-K3 uses `KimiK3ForConditionalGeneration` (not `AutoModelForCausalLM`), which requires `load_context` and `trust_remote_code=True`.
+- **MoE gate excluded**: The `block_sparse_moe.gate` layer (`KimiMoEGate`) controls expert routing and is excluded from quantization to prevent routing degradation.
+- **Vision tower excluded**: All `vision_tower.*` layers are excluded to preserve multimodal capabilities.
+- **Calibration samples**: 512 samples are used (MoE models benefit from more samples to ensure all experts are well-calibrated).
+
+```bash
+python3 kimi_k3_nvfp4.py
+```

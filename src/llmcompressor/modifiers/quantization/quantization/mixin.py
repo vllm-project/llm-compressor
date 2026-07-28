@@ -17,7 +17,6 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
-    disable_quantization,
     enable_quantization,
     is_attention_module,
     is_preset_scheme,
@@ -37,10 +36,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_value_hook,
     freeze_module_quantization,
     initialize_observer,
-    reset_quantization_status,
-)
-from llmcompressor.modifiers.quantization.group_size_validation import (
-    validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -218,7 +213,9 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def initialize_quantization(self, model: torch.nn.Module):
+    def initialize_quantization(
+        self, model: torch.nn.Module, allow_modules: list[str] | set[str] | None = None
+    ):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
@@ -226,16 +223,16 @@ class QuantizationMixin(HooksMixin):
         :param model: model to attach schemes and observers to
         """
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            reset_quantization_status(module)  # reset any previously applied qconfigs
+        # for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        #     reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        apply_quantization_config(
+            model, self.resolved_config, allow_modules=allow_modules
+        )
 
-        if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
-
-        # disable quantization until calibration
-        model.apply(disable_quantization)
+        # TODO: only call once
+        # if not self.bypass_divisibility_checks:
+        #     validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
 
     def start_calibration(self, model: torch.nn.Module):
         """

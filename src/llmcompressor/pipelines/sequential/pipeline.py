@@ -2,6 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors.compressors import decompress_module
 from compressed_tensors.offload import disable_offloading, set_onload_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -134,6 +135,7 @@ class SequentialPipeline(CalibrationPipeline):
             session.state.sequential_prefetch = sequential_prefetch
 
             for subgraph_index, subgraph in enumerate(subgraphs):
+                print(subgraph.graph.python_code("self").src)
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -141,7 +143,17 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
-                    # do a preliminary pass to trigger modifier hooks
+                    modules = subgraph.submodules(model)
+                    for module in modules:
+                        decompress_module(module, leave_decompressed=False)
+
+                    for module in modules:
+                        assert getattr(module, "quantization_status", None) is None
+
+                    breakpoint()
+
+                    # calibrate modules
+                    LifecycleCallbacks.sequential_epoch_start(modules)
                     for batch_idx, inputs in _get_batches(
                         activations,
                         num_batches,
@@ -157,11 +169,11 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+                    # apply algorithms
+                    LifecycleCallbacks.sequential_optimization(modules)
 
                     if dataset_args.propagate_error:
-                        # this pass does not trigger modifier hooks
-                        # and is only used for capturing outputs of compressed modules
+                        # propagate error
                         with HooksMixin.disable_hooks():
                             for batch_idx, inputs in _get_batches(
                                 activations,
@@ -176,6 +188,9 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                    # apply compression
+                    LifecycleCallbacks.sequential_epoch_end(modules)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

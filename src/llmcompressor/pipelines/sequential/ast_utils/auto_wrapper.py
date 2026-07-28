@@ -156,7 +156,7 @@ class AutoWrapper(ast.NodeTransformer):
         try:
             caller = self._eval_expr(node.func)
 
-        except Exception:
+        except:
             caller = None
 
         finally:
@@ -181,7 +181,9 @@ class AutoWrapper(ast.NodeTransformer):
         expr = ast.Expression(body=node)  # wrap in expression in order to compile
         expr = ast.fix_missing_locations(expr)
         compiled = compile(expr, filename="<_eval_expr>", mode="eval")
-        return eval(compiled, self.namespace, {})
+        result = eval(compiled, self.namespace, {})
+        logger.debug(f"Eval {ast.unparse(expr)} => {result}")
+        return result
 
     def _can_wrap(self, node: ast.AST) -> bool:
         """

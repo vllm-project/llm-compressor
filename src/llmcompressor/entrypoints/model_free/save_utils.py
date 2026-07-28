@@ -116,7 +116,7 @@ def create_or_update_quant_config(
             "config_groups": {scheme_name: scheme},
             "ignore": ignore,
             "quantization_status": QuantizationStatus.COMPRESSED,
-            "format": "float-quantized",# scheme.format,
+            "format": "float-quantized",  # scheme.format,
         }
     )
     if qconfig is None:

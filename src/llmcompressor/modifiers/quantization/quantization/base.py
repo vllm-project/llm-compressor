@@ -1,19 +1,26 @@
 import torch
 import torch.distributed as dist
+from compressed_tensors.compressors import compress_module
 from compressed_tensors.distributed import (
     greedy_bin_packing,
     is_distributed,
+)
+from compressed_tensors.quantization import (
+    apply_quantization_config,
+    enable_quantization,
 )
 from compressed_tensors.quantization.utils import is_module_quantized
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
+    apply_calibration_status,
+    freeze_module_quantization,
     observe,
     update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
-from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 __all__ = ["QuantizationModifier"]
@@ -70,7 +77,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        QuantizationMixin.initialize_quantization(self, state.model)
+        # QuantizationMixin.initialize_quantization(self, state.model)
 
         return True
 
@@ -78,11 +85,21 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Begin calibrating activations.
         """
-        QuantizationMixin.start_calibration(self, state.model)
+        pass
+        # QuantizationMixin.start_calibration(self, state.model)
 
-    def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
-    ):
+    def on_sequential_epoch_start(self, state, event, modules, **kwargs):
+        model = state.model
+        apply_quantization_config(model, self.resolved_config, allowed_modules=modules)
+        for module in modules:
+            if is_module_quantized(module):
+                self._initialize_observers(module)
+                self._calibration_hooks |= self._initialize_hooks(module)
+                apply_calibration_status(module)
+
+        fuse_weight_observers(model)
+
+    def on_sequential_optimization(self, state, event, modules, **kwargs):
         modules = [module for module in modules if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS)
@@ -107,8 +124,20 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         update_qparams(rank_to_modules[rank], "weight")
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
+        self.remove_hooks(self._calibration_hooks)
+        for module in modules:
+            freeze_module_quantization(module)  # remove observers
+            module.apply(enable_quantization)  # keep quantization enabled
+
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        modules = [module for module in modules if is_module_quantized(module)]
+        for module in modules:
+            compress_module(module)
+
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        QuantizationMixin.end_calibration(self, state.model)
+        # QuantizationMixin.end_calibration(self, state.model)

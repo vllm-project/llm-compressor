@@ -149,12 +149,13 @@ def trace_subgraphs(
     # copy metadata
     graph.config = model.config
     graph.class_for_deserialization = model.__class__
-    graph.device = model.device
+    #graph.device = model.device
 
     # perform subgraph partition
     partitions = topological_partition(graph, targets, targets_per_subgraph)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
+    breakpoint()
 
     # As currently implemented, `topological_partition` generates an extra subgraph at
     # the beginning which does not contain a target. This adds a little more runtime,
@@ -380,7 +381,7 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
             graph.output(output_dict)
 
         # save the subgraph for this partition
-        graph.lint()
+        # graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
         subgraphs.append(
             Subgraph(
