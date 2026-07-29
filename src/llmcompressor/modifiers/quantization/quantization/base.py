@@ -133,10 +133,14 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         from functools import partial
-        from compressed_tensors.distributed import replace_module_parallel
+        from compressed_tensors.distributed import replace_module_parallel, is_distributed
         
-        compress_fn = partial(compress_module)
-        replace_module_parallel(modules, compress_fn)
+        if is_distributed():
+            compress_fn = partial(compress_module)
+            replace_module_parallel(modules, compress_fn)
+        else:
+            for module in modules:
+                compress_module(module)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """

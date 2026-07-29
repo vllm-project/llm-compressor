@@ -15,6 +15,7 @@ from llmcompressor.utils import load_context
 
 # Select model and load it.
 # MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
+# MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/models--moonshotai--Kimi-K3/snapshots/9f62e4e9fffbd0a83ddd60e1c209d828994b3569"
 MODEL_ID = "moonshotai/Kimi-K3"
 
 # mlp_res_proj
@@ -25,7 +26,7 @@ init_dist()
 with load_context(KimiK3ForConditionalGeneration):
     model = KimiK3ForConditionalGeneration.from_pretrained(  # KimiK3ForConditionalGeneration
         MODEL_ID,
-        device_map="auto",
+        device_map="auto_offload",
         max_memory={},
         offload_folder="/mnt/nvme-data/engine/kylesayrs/offload_folder",
         trust_remote_code=True,
@@ -38,7 +39,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 128#512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -89,19 +90,20 @@ oneshot(
     processor=tokenizer,
     dataset=ds,
     recipe=recipe,
-    batch_size=4,
-    shuffle_calibration_samples=False,
+    # batch_size=4,
+    # shuffle_calibration_samples=False,
     sequential_targets=[
         "KimiMLAAttention",
         "KimiBlockSparseMLP",
         "KimiMLP",
     ],
     sequential_targets_per_subgraph=(896 // 3),
-    sequential_offload_device="cuda:5",
+    propagate_error=False,
+    # sequential_offload_device="cuda:5",
 )
 
 # Save to disk compressed.
-SAVE_DIR = "/mnt/nvme-data/engine/kylesayrs/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = "/mnt/nvme-data/engine/kylesayrs/Kimi-K3-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
 tokenizer.save_pretrained(SAVE_DIR)
 
