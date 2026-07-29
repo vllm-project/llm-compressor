@@ -850,6 +850,12 @@ class AWQModifier(Modifier):
         logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
 
         if not self._error_metrics:
+            logger.warning(
+                "No error metrics were collected during AWQ transformation; "
+                "skipping error summary.",
+                log_once=True,
+            )
+            # to avoid div by 0, exit early 
             return
 
         # Also print summary statistics
