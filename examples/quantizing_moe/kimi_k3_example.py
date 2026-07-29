@@ -4,6 +4,7 @@ from compressed_tensors.quantization.quant_scheme import (
     QuantizationScheme,
 )
 from transformers import AutoTokenizer
+from compressed_tensors.distributed import init_dist
 
 from datasets import load_dataset
 from llmcompressor import oneshot
@@ -13,14 +14,14 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Select model and load it.
-MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
-#MODEL_ID = "moonshotai/Kimi-K3"
+# MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
+MODEL_ID = "moonshotai/Kimi-K3"
 
 # mlp_res_proj
 # self_attention_res_proj
 # block_sparse_moe.routed_expert_down_proj
 
-# init_dist()
+init_dist()
 with load_context(KimiK3ForConditionalGeneration):
     model = KimiK3ForConditionalGeneration.from_pretrained(  # KimiK3ForConditionalGeneration
         MODEL_ID,
@@ -79,7 +80,7 @@ recipe = QuantizationModifier(
             **NVFP4,
         ),
     },
-    ignore=["lm_head", r"re:.*block_sparse_moe\.gate.*"],
+    ignore=[r"re:.*block_sparse_moe\.gate.*", r"re:.*shared_experts.*", r"re:.*block_sparse_moe.routed_expert.*"],
 )
 
 # Apply algorithms.
@@ -93,9 +94,10 @@ oneshot(
     sequential_targets=[
         "KimiMLAAttention",
         "KimiBlockSparseMLP",
-        "KimiSparseMoeBlock",
+        "KimiMLP",
     ],
-    #sequential_targets_per_subgraph=(896 // 3),
+    sequential_targets_per_subgraph=(896 // 3),
+    sequential_offload_device="cuda:5",
 )
 
 # Save to disk compressed.

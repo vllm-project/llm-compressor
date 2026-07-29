@@ -132,9 +132,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        modules = [module for module in modules if is_module_quantized(module)]
-        for module in modules:
-            compress_module(module)
+        from functools import partial
+        from compressed_tensors.distributed import replace_module_parallel
+        
+        compress_fn = partial(compress_module)
+        replace_module_parallel(modules, compress_fn)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """

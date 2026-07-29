@@ -68,7 +68,8 @@ def copy_python_files_from_model_cache(model, save_path: str):
             cache_path = os.path.sep.join(config_file_path.split(os.path.sep)[:-1])
 
         for file in os.listdir(cache_path):
-            full_file_name = os.path.join(cache_path, file)
-            if file.endswith(".py") and os.path.isfile(full_file_name):
-                logger.debug(f"Transferring {full_file_name} to {save_path}")
-                shutil.copy(full_file_name, save_path)
+            full_file_path = os.path.join(cache_path, file)
+            if file.endswith(".py") and os.path.isfile(full_file_path):
+                save_file_path = os.path.join(save_path, file)
+                logger.debug(f"Transferring {full_file_path} to {save_file_path}")
+                shutil.copyfile(full_file_path, save_file_path)

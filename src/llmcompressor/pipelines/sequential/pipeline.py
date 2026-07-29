@@ -15,6 +15,8 @@ from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     trace_subgraphs,
 )
+from functools import partial
+from compressed_tensors.distributed import replace_module_parallel
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -143,8 +145,8 @@ class SequentialPipeline(CalibrationPipeline):
                 num_batches = len(dataloader)
                 with disable_offloading():
                     modules = subgraph.submodules(model)
-                    for module in modules:
-                        decompress_module(module, leave_decompressed=False)
+                    compress_fn = partial(decompress_module, leave_decompressed=False)
+                    replace_module_parallel(modules, compress_fn)
 
                     for module in modules:
                         assert getattr(module, "quantization_status", None) is None
