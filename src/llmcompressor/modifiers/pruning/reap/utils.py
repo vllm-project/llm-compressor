@@ -43,8 +43,13 @@ class MoeModelAttrs:
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
 NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
-TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
-N_GROUP_CONFIG_KEYS = ["n_group"]
+TOP_K_CONFIG_KEYS = [
+    "num_experts_per_tok",
+    "num_experts_per_token",
+    "top_k",
+    "moe_top_k",
+]
+N_GROUP_CONFIG_KEYS = ["n_group", "num_expert_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
 NUM_EXPERTS_MODULE_KEYS = ["num_experts", "n_experts", "n_routed_experts"]
 
@@ -408,6 +413,11 @@ def _prune_router(router: nn.Module, retained: list[int]):
     if new_bias is not None:
         router.bias = nn.Parameter(new_bias, requires_grad=router.bias.requires_grad)
     if new_correction is not None:
+        if isinstance(correction, nn.Parameter):
+            new_correction = nn.Parameter(
+                new_correction,
+                requires_grad=correction.requires_grad,
+            )
         router.e_score_correction_bias = new_correction
 
     if isinstance(getattr(router, "out_features", None), int):
