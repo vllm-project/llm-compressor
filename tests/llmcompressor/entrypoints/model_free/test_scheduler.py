@@ -36,58 +36,62 @@ def test_estimate_single_file(tmp_path):
     assert estimate_job_memory({str(f): None}) == int(500 * 3.0)
 
 
-# ── _pick_device ────────────────────────────────────────────────────────
+# ── _pick_device (no mocks needed — initial_free is a plain dict) ──────
 
 
-def _mock_mem_info(free_map):
-    """Build a mock for torch.accelerator.memory.get_memory_info that
-    returns per-device free memory from *free_map*."""
-
-    def _impl(dev):
-        return (free_map.get(dev, 0), 96_000_000_000)
-
-    return _impl
-
-
-@patch(
-    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
-)
-def test_pick_most_free_device(mock_mem_info):
+def test_pick_most_free_device():
     d0 = torch.device("cuda:0")
     d1 = torch.device("cuda:1")
-    mock_mem_info.side_effect = _mock_mem_info({d0: 40_000_000_000, d1: 80_000_000_000})
+    initial_free = {d0: 40_000_000_000, d1: 80_000_000_000}
     reserved = {d0: 0, d1: 0}
-    assert _pick_device([d0, d1], 1000, reserved) == d1
+    assert _pick_device([d0, d1], 1000, initial_free, reserved) == d1
 
 
-@patch(
-    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
-)
-def test_pick_none_when_nothing_fits(mock_mem_info):
+def test_pick_none_when_nothing_fits():
     d0 = torch.device("cuda:0")
-    mock_mem_info.side_effect = _mock_mem_info({d0: 1000})
-    assert _pick_device([d0], 2000, {d0: 0}) is None
+    initial_free = {d0: 1000}
+    assert _pick_device([d0], 2000, initial_free, {d0: 0}) is None
 
 
-@patch(
-    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
-)
-def test_pick_respects_reservations(mock_mem_info):
+def test_pick_respects_reservations():
     d0 = torch.device("cuda:0")
     d1 = torch.device("cuda:1")
-    mock_mem_info.side_effect = _mock_mem_info({d0: 80_000_000_000, d1: 50_000_000_000})
-    # d0: 80 GB free - 70 GB reserved = 10 GB available
-    # d1: 50 GB free - 0 reserved = 50 GB available
+    initial_free = {d0: 80_000_000_000, d1: 50_000_000_000}
+    # d0: 80 GB initial - 70 GB reserved = 10 GB available
+    # d1: 50 GB initial - 0 reserved = 50 GB available
     # job needs 20 GB -> pick d1
     reserved = {d0: 70_000_000_000, d1: 0}
-    assert _pick_device([d0, d1], 20_000_000_000, reserved) == d1
+    assert _pick_device([d0, d1], 20_000_000_000, initial_free, reserved) == d1
 
 
 def test_pick_cpu_always():
     """CPU is always eligible regardless of memory."""
     cpu = torch.device("cpu")
-    picked = _pick_device([cpu], 10**15, {cpu: 0})
+    picked = _pick_device([cpu], 10**15, {}, {cpu: 0})
     assert picked == cpu
+
+
+# ── _free_bytes ────────────────────────────────────────────────────────
+
+
+def test_free_bytes_cpu_returns_inf():
+    """CPU devices should always return inf."""
+    assert _free_bytes(torch.device("cpu"), {}, {}) == float("inf")
+
+
+def test_free_bytes_subtracts_reserved():
+    dev = torch.device("cuda:0")
+    initial_free = {dev: 10_000_000_000}
+    reserved = {dev: 3_000_000_000}
+    assert _free_bytes(dev, initial_free, reserved) == 7_000_000_000
+
+
+def test_free_bytes_clamps_to_zero():
+    """Should never return negative even if reserved exceeds initial."""
+    dev = torch.device("cuda:0")
+    initial_free = {dev: 1000}
+    reserved = {dev: 5000}
+    assert _free_bytes(dev, initial_free, reserved) == 0
 
 
 # ── exec_jobs_dynamic (CPU path, no GPU needed) ────────────────────────
@@ -121,34 +125,14 @@ def test_cpu_path_preserves_order():
     assert [r[0] for r in out] == list(range(10))
 
 
-# ── _free_bytes ────────────────────────────────────────────────────────
-
-
-def test_free_bytes_cpu_returns_inf():
-    """CPU devices should always return inf."""
-    assert _free_bytes(torch.device("cpu"), {}) == float("inf")
-
-
-@patch(
-    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
-)
-def test_free_bytes_subtracts_reserved(mock_mem_info):
-    dev = torch.device("cuda:0")
-    mock_mem_info.return_value = (10_000_000_000, 96_000_000_000)
-    reserved = {dev: 3_000_000_000}
-    assert _free_bytes(dev, reserved) == 7_000_000_000
-
-
 # ── exec_jobs_dynamic error handling ──────────────────────────────────
 
 
 @patch(
-    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
+    "llmcompressor.entrypoints.model_free.scheduler"
+    ".torch.accelerator.memory.get_memory_info"
 )
-@patch(
-    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.empty_cache"
-)
-def test_raises_when_no_device_fits(mock_cache, mock_mem_info):
+def test_raises_when_no_device_fits(mock_mem_info):
     """Multi-worker path should raise RuntimeError when no device can fit
     any remaining shard and nothing is in flight."""
     mock_mem_info.return_value = (1000, 96_000_000_000)
