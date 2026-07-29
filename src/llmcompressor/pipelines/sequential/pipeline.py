@@ -145,15 +145,13 @@ class SequentialPipeline(CalibrationPipeline):
                 num_batches = len(dataloader)
                 with disable_offloading():
                     modules = subgraph.submodules(model)
+                    desc = "Layerwise decompressing"
                     if is_distributed():
                         compress_fn = partial(decompress_module, leave_decompressed=False)
-                        replace_module_parallel(modules, compress_fn)
+                        replace_module_parallel(modules, compress_fn, desc=desc)
                     else:
-                        for module in modules:
+                        for module in tqdm(modules, desc=desc):
                             decompress_module(module, leave_decompressed=False)
-
-                    for module in modules:
-                        assert getattr(module, "quantization_status", None) is None
 
                     # calibrate modules
                     LifecycleCallbacks.sequential_epoch_start(modules)

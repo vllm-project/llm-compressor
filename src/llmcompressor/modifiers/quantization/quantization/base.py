@@ -22,6 +22,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
+from tqdm import tqdm
 
 __all__ = ["QuantizationModifier"]
 
@@ -135,11 +136,12 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         from functools import partial
         from compressed_tensors.distributed import replace_module_parallel, is_distributed
         
+        desc = "Layerwise compressing"
         if is_distributed():
             compress_fn = partial(compress_module)
-            replace_module_parallel(modules, compress_fn)
+            replace_module_parallel(modules, compress_fn, desc=desc)
         else:
-            for module in modules:
+            for module in tqdm(modules, desc=desc):
                 compress_module(module)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
