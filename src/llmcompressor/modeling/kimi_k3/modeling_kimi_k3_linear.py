@@ -1094,20 +1094,18 @@ class KimiDecoderLayer(nn.Module):
     ):
         batch_size, seq_len, hidden_size = hidden_states.shape
         prefix_sum = hidden_states
+        is_block_start = self.layer_idx % self.attn_res_block_size == 0
 
-        if block_residual is not None and block_residual.shape[1] > 0:
-            hidden_states = _apply_attn_res(
-                prefix_sum.view(-1, hidden_size),
-                block_residual,
-                self.self_attention_res_proj,
-                self.self_attention_res_norm,
-            ).view(batch_size, seq_len, hidden_size)
-
-        if self.layer_idx % self.attn_res_block_size == 0:
-            block_residual = torch.cat(
-                [block_residual, prefix_sum.view(-1, hidden_size).unsqueeze(1)], dim=1
-            )
-            prefix_sum = None
+        hidden_states, block_residual = _attn_res_pre_update(
+            block_residual,
+            prefix_sum,
+            hidden_size,
+            batch_size,
+            seq_len,
+            self.self_attention_res_proj,
+            self.self_attention_res_norm,
+            is_block_start,
+        )
 
         hidden_states = self.input_layernorm(hidden_states)
 
@@ -1132,10 +1130,10 @@ class KimiDecoderLayer(nn.Module):
                 **kwargs,
             )
 
-        if prefix_sum is not None:
-            prefix_sum = prefix_sum + hidden_states
-        else:
+        if is_block_start:
             prefix_sum = hidden_states
+        else:
+            prefix_sum = prefix_sum + hidden_states
 
         hidden_states = _apply_attn_res(
             prefix_sum.view(-1, hidden_size),
@@ -1150,10 +1148,7 @@ class KimiDecoderLayer(nn.Module):
         else:
             hidden_states = self.mlp(hidden_states)
 
-        if prefix_sum is None:
-            prefix_sum = hidden_states
-        else:
-            prefix_sum = prefix_sum + hidden_states
+        prefix_sum = prefix_sum + hidden_states
 
         return prefix_sum, block_residual
 
@@ -1205,6 +1200,32 @@ def _apply_attn_res(prefix_sum, block_residual, proj, norm):
     probs = scores.softmax(-1).unsqueeze(1)
     hidden_states = torch.matmul(probs, v_float).squeeze(1)
     return hidden_states.to(v.dtype)
+
+
+@torch.fx.wrap
+def _attn_res_pre_update(
+    block_residual,
+    prefix_sum,
+    hidden_size,
+    batch_size,
+    seq_len,
+    self_attention_res_proj,
+    self_attention_res_norm,
+    is_block_start,
+):
+    hidden_states = prefix_sum
+    if block_residual is not None and block_residual.shape[1] > 0:
+        hidden_states = _apply_attn_res(
+            prefix_sum.view(-1, hidden_size),
+            block_residual,
+            self_attention_res_proj,
+            self_attention_res_norm,
+        ).view(batch_size, seq_len, hidden_size)
+    if is_block_start:
+        block_residual = torch.cat(
+            [block_residual, prefix_sum.view(-1, hidden_size).unsqueeze(1)], dim=1
+        )
+    return hidden_states, block_residual
 
 
 class KimiLinearModel(KimiPreTrainedModel):

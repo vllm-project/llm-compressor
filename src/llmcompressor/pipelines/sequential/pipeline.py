@@ -135,7 +135,6 @@ class SequentialPipeline(CalibrationPipeline):
             session.state.sequential_prefetch = sequential_prefetch
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                print(subgraph.graph.python_code("self").src)
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -149,8 +148,6 @@ class SequentialPipeline(CalibrationPipeline):
 
                     for module in modules:
                         assert getattr(module, "quantization_status", None) is None
-
-                    breakpoint()
 
                     # calibrate modules
                     LifecycleCallbacks.sequential_epoch_start(modules)

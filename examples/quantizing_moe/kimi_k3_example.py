@@ -90,7 +90,11 @@ oneshot(
     recipe=recipe,
     batch_size=4,
     shuffle_calibration_samples=False,
-    sequential_targets=["KimiMLAAttention", "KimiBlockSparseMLP"],
+    sequential_targets=[
+        "KimiMLAAttention",
+        "KimiBlockSparseMLP",
+        "KimiSparseMoeBlock",
+    ],
     #sequential_targets_per_subgraph=(896 // 3),
 )
 

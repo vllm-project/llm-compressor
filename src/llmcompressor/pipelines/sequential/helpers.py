@@ -155,7 +155,6 @@ def trace_subgraphs(
     partitions = topological_partition(graph, targets, targets_per_subgraph)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
-    breakpoint()
 
     # As currently implemented, `topological_partition` generates an extra subgraph at
     # the beginning which does not contain a target. This adds a little more runtime,
