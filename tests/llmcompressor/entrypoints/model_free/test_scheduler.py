@@ -5,13 +5,12 @@ These run without a GPU and cover the core scheduling logic with mocked
 device memory, so they execute on every CI run — not just multi-GPU.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import torch
 
 from llmcompressor.entrypoints.model_free.scheduler import (
-    _empty_cache,
     _free_bytes,
     _pick_device,
     estimate_job_memory,
@@ -40,42 +39,43 @@ def test_estimate_single_file(tmp_path):
 # ── _pick_device ────────────────────────────────────────────────────────
 
 
-def _mock_gdm(free_map):
-    """Build a mock torch.get_device_module that returns per-device free
-    memory from *free_map*."""
+def _mock_mem_info(free_map):
+    """Build a mock for torch.accelerator.memory.get_memory_info that
+    returns per-device free memory from *free_map*."""
 
-    def _factory(dev):
-        m = MagicMock()
-        m.mem_get_info.return_value = (
-            free_map.get(dev, 0),
-            96_000_000_000,
-        )
-        return m
+    def _impl(dev):
+        return (free_map.get(dev, 0), 96_000_000_000)
 
-    return _factory
+    return _impl
 
 
-@patch("torch.get_device_module")
-def test_pick_most_free_device(mock_gdm):
+@patch(
+    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
+)
+def test_pick_most_free_device(mock_mem_info):
     d0 = torch.device("cuda:0")
     d1 = torch.device("cuda:1")
-    mock_gdm.side_effect = _mock_gdm({d0: 40_000_000_000, d1: 80_000_000_000})
+    mock_mem_info.side_effect = _mock_mem_info({d0: 40_000_000_000, d1: 80_000_000_000})
     reserved = {d0: 0, d1: 0}
     assert _pick_device([d0, d1], 1000, reserved) == d1
 
 
-@patch("torch.get_device_module")
-def test_pick_none_when_nothing_fits(mock_gdm):
+@patch(
+    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
+)
+def test_pick_none_when_nothing_fits(mock_mem_info):
     d0 = torch.device("cuda:0")
-    mock_gdm.side_effect = _mock_gdm({d0: 1000})
+    mock_mem_info.side_effect = _mock_mem_info({d0: 1000})
     assert _pick_device([d0], 2000, {d0: 0}) is None
 
 
-@patch("torch.get_device_module")
-def test_pick_respects_reservations(mock_gdm):
+@patch(
+    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
+)
+def test_pick_respects_reservations(mock_mem_info):
     d0 = torch.device("cuda:0")
     d1 = torch.device("cuda:1")
-    mock_gdm.side_effect = _mock_gdm({d0: 80_000_000_000, d1: 50_000_000_000})
+    mock_mem_info.side_effect = _mock_mem_info({d0: 80_000_000_000, d1: 50_000_000_000})
     # d0: 80 GB free - 70 GB reserved = 10 GB available
     # d1: 50 GB free - 0 reserved = 50 GB available
     # job needs 20 GB -> pick d1
@@ -121,22 +121,50 @@ def test_cpu_path_preserves_order():
     assert [r[0] for r in out] == list(range(10))
 
 
-# ── _empty_cache ───────────────────────────────────────────────────────
-
-
-def test_empty_cache_noop_on_cpu():
-    """_empty_cache should do nothing on CPU devices."""
-    _empty_cache(torch.device("cpu"))  # should not raise
-
-
 # ── _free_bytes ────────────────────────────────────────────────────────
 
 
-@patch("torch.get_device_module")
-def test_free_bytes_missing_mem_get_info(mock_gdm):
-    """Backend without mem_get_info should raise RuntimeError."""
-    mock_module = MagicMock(spec=[])  # no attributes
-    mock_gdm.return_value = mock_module
+def test_free_bytes_cpu_returns_inf():
+    """CPU devices should always return inf."""
+    assert _free_bytes(torch.device("cpu"), {}) == float("inf")
+
+
+@patch(
+    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
+)
+def test_free_bytes_subtracts_reserved(mock_mem_info):
     dev = torch.device("cuda:0")
-    with pytest.raises(RuntimeError, match="does not support mem_get_info"):
-        _free_bytes(dev, {dev: 0})
+    mock_mem_info.return_value = (10_000_000_000, 96_000_000_000)
+    reserved = {dev: 3_000_000_000}
+    assert _free_bytes(dev, reserved) == 7_000_000_000
+
+
+# ── exec_jobs_dynamic error handling ──────────────────────────────────
+
+
+@patch(
+    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.get_memory_info"
+)
+@patch(
+    "llmcompressor.entrypoints.model_free.scheduler.torch.accelerator.memory.empty_cache"
+)
+def test_raises_when_no_device_fits(mock_cache, mock_mem_info):
+    """Multi-worker path should raise RuntimeError when no device can fit
+    any remaining shard and nothing is in flight."""
+    mock_mem_info.return_value = (1000, 96_000_000_000)
+
+    def fn(iwm, sp, sch, ign, dev, conv):
+        return (0, {})
+
+    # job needs 10 GB but device only has 1000 bytes
+    jobs = [(fn, {}, "s0.st", "FP8", [], None)]
+    mem = [10_000_000_000]
+
+    with pytest.raises(RuntimeError, match="No device has enough"):
+        exec_jobs_dynamic(
+            jobs,
+            [torch.device("cuda:0")],
+            2,
+            mem,
+            desc="Test",
+        )

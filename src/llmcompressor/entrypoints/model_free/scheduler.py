@@ -6,7 +6,7 @@ which blows up when shards differ in size or GPUs differ in speed — the slow
 GPU accumulates pending work and eventually OOMs.
 
 This module replaces that with a capacity-first scheduler: before submitting
-a job the main thread checks ``torch.get_device_module(...).mem_get_info``
+a job the main thread checks ``torch.accelerator.memory.get_memory_info``
 and picks the GPU with the most headroom.  If nothing fits, it waits for a
 running job to finish and retries.
 """
@@ -40,22 +40,8 @@ def _free_bytes(dev: torch.device, reserved: dict[torch.device, int]) -> int | f
     jobs.  Returns ``inf`` for CPU devices (unbounded capacity)."""
     if dev.type == "cpu":
         return float("inf")
-    module = torch.get_device_module(dev)
-    mem_get_info = getattr(module, "mem_get_info", None)
-    if mem_get_info is None:
-        raise RuntimeError(f"{dev.type!r} backend does not support mem_get_info")
-    free, _ = mem_get_info(dev)
+    free, _ = torch.accelerator.memory.get_memory_info(dev)
     return max(0, free - reserved.get(dev, 0))
-
-
-def _empty_cache(dev: torch.device) -> None:
-    """Flush the caching allocator if the backend supports it."""
-    if dev.type == "cpu":
-        return
-    module = torch.get_device_module(dev)
-    empty_cache = getattr(module, "empty_cache", None)
-    if empty_cache is not None:
-        empty_cache()
 
 
 def _pick_device(
@@ -103,32 +89,25 @@ def exec_jobs_dynamic(
             out.append(fn(iwm, sp, sch, ign, devices[0], conv))
         return out
 
-    reserved = {d: 0 for d in devices}
-
-    # Single worker — simple loop, useful for debugging
+    # Single worker — pick the best device once upfront
     if max_workers == 1:
+        reserved = {d: 0 for d in devices}
+        device_free = {d: _free_bytes(d, reserved) for d in devices}
+        device = max(device_free, key=lambda d: device_free[d])
         out = []
         for i, job in enumerate(tqdm.tqdm(jobs, desc=desc)):
-            fn, iwm, sp, sch, ign, conv = job
-            dev = _pick_device(devices, memory_estimates[i], reserved)
-            if dev is None:
-                dev = max(
-                    devices,
-                    key=lambda d: _free_bytes(d, reserved),
-                )
+            if memory_estimates[i] > device_free[device]:
                 logger.warning(
-                    f"Shard {i} exceeds estimated capacity on all "
-                    f"devices, falling back to {dev}"
+                    f"Shard {i} (~{memory_estimates[i] / 1e9:.2f} GB) "
+                    f"exceeds estimated capacity of {device}"
                 )
-            logger.debug(
-                f"Shard {i} -> {dev} " f"(~{memory_estimates[i] / 1e9:.2f} GB)"
-            )
-            res = fn(iwm, sp, sch, ign, dev, conv)
-            out.append(res)
-            _empty_cache(dev)
+            fn, iwm, sp, sch, ign, conv = job
+            out.append(fn(iwm, sp, sch, ign, device, conv))
+            torch.accelerator.memory.empty_cache()
         return out
 
     # Multi-worker: main thread schedules, workers execute
+    reserved = {d: 0 for d in devices}
     results = [None] * n
     pending = list(range(n))
     fut_device: dict = {}  # future -> device, for releasing reservations
@@ -138,9 +117,8 @@ def exec_jobs_dynamic(
             inflight: dict = {}  # future -> job index
 
             while pending or inflight:
-                # --- try to fill idle workers ----------------------------
-                submitted = []
-                for idx in pending:
+                # --- try to fill idle workers ---
+                for idx in list(pending):
                     if len(inflight) >= max_workers:
                         break
                     dev = _pick_device(devices, memory_estimates[idx], reserved)
@@ -152,41 +130,23 @@ def exec_jobs_dynamic(
                     inflight[fut] = idx
                     fut_device[fut] = dev
                     reserved[dev] += memory_estimates[idx]
-                    submitted.append(idx)
+                    pending.remove(idx)
                     logger.debug(
                         f"Shard {idx} -> {dev} "
                         f"(~{memory_estimates[idx] / 1e9:.2f} GB)"
                     )
 
-                for idx in submitted:
-                    pending.remove(idx)
-
-                # --- nothing running and nothing fits: force it ----------
+                # --- nothing running and nothing fits ---
                 if not inflight:
                     if not pending:
                         break
-                    # pick smallest job, most-free device — better than
-                    # silently dropping work
-                    idx = min(pending, key=lambda i: memory_estimates[i])
-                    dev = max(
-                        devices,
-                        key=lambda d: _free_bytes(d, reserved),
+                    raise RuntimeError(
+                        "No device has enough estimated free memory "
+                        "for any remaining shard. Consider reducing "
+                        "max_workers or adjusting _MEMORY_MULTIPLIER."
                     )
-                    logger.warning(
-                        f"Shard {idx} "
-                        f"(~{memory_estimates[idx] / 1e9:.2f} GB) "
-                        f"exceeds estimated capacity on all devices; "
-                        f"forcing onto {dev}"
-                    )
-                    fn, iwm, sp, sch, ign, conv = jobs[idx]
-                    fut = pool.submit(fn, iwm, sp, sch, ign, dev, conv)
-                    inflight[fut] = idx
-                    fut_device[fut] = dev
-                    reserved[dev] += memory_estimates[idx]
-                    pending.remove(idx)
-                    continue
 
-                # --- wait for at least one job to finish -----------------
+                # --- wait for at least one job to finish ---
                 done, _ = wait(
                     inflight.keys(),
                     timeout=2.0,
@@ -199,8 +159,6 @@ def exec_jobs_dynamic(
                     reserved[dev] -= memory_estimates[i]
                     results[i] = f.result()  # propagates exceptions
                     bar.update(1)
-                    # flush the caching allocator so mem_get_info
-                    # reflects actually-free memory next pass
-                    _empty_cache(dev)
+                    torch.accelerator.memory.empty_cache()
 
     return results

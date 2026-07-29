@@ -100,16 +100,8 @@ def model_free_ptq(
 
     # validate first (runs on meta device, so device arg is ignored)
     validate_jobs = [
-        (
-            validate_file,
-            job[1],
-            job[2],
-            job[3],
-            job[4],
-            torch.device("meta"),
-            job[5],
-        )
-        for job in jobs
+        (validate_file, iwm, sp, sch, ign, torch.device("meta"), conv)
+        for _, iwm, sp, sch, ign, conv in jobs
     ]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
