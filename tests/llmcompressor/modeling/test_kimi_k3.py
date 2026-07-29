@@ -24,7 +24,8 @@ def _legacy_dispatch(experts, hidden_states, topk_ids, topk_weights):
         2, 1, 0
     )
 
-    for expert_idx, expert in enumerate(experts):
+    for expert_idx in range(experts.num_experts):
+        expert = experts[expert_idx]
         topk_pos, token_indices = torch.where(expert_mask[expert_idx])
         expert_outputs = expert(hidden_states[token_indices])
         routing_weights = topk_weights[token_indices, topk_pos, None]
@@ -61,6 +62,9 @@ def test_kimi_sparse_moe_uses_equivalent_linear_experts():
     moe_attrs = get_moe_attrs(moe, [])
 
     assert isinstance(moe.experts, LinearExperts2D)
+    assert isinstance(moe.experts.act_fn, torch.nn.Module)
+    assert moe.experts.alpha is None
+    assert moe.experts.limit is None
     assert moe_attrs.top_k == config.num_experts_per_token
     assert moe_attrs.n_group == config.num_expert_group
     torch.testing.assert_close(actual, expected)

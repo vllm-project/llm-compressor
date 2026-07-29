@@ -329,7 +329,8 @@ class KimiBlockSparseMLP(ExpertMLPWithGate):
             intermediate_size=self.ffn_dim,
             mlp_bias=False,
             _apply_gate=self._apply_gate,
-            dtype=config.dtype,
+            dtype=getattr(config, "dtype", None)
+            or getattr(config, "torch_dtype", None),
         )
         self.act_fn = act_fn
 
@@ -366,6 +367,13 @@ class KimiLinearExperts(LinearExperts2D):
                 for _ in range(self.num_experts)
             ],
         )
+        if config.hidden_act == "situ":
+            beta, linear_beta = _get_situ_activation_params(config)
+            self.act_fn = SituAndMul(beta=beta, linear_beta=linear_beta)
+        else:
+            self.act_fn = ACT2FN[config.hidden_act]
+        self.alpha = getattr(config, "alpha", None)
+        self.limit = getattr(config, "limit", None)
 
 
 class KimiMLP(nn.Module):
