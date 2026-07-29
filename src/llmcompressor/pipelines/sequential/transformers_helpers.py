@@ -1353,6 +1353,7 @@ class HFTracer(Tracer):
                         return parameter_proxy_cache[n]
                 return None
 
+            # TODO: probably cache inverse dict of params and buffers
             if isinstance(attr_val, torch.nn.Parameter):
                 maybe_parameter_proxy = maybe_get_proxy_for_attr(
                     attr_val, self.root.named_parameters(), parameter_proxy_cache

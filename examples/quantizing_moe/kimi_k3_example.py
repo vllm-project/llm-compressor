@@ -15,8 +15,8 @@ from llmcompressor.utils import load_context
 
 # Select model and load it.
 # MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
-# MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/models--moonshotai--Kimi-K3/snapshots/9f62e4e9fffbd0a83ddd60e1c209d828994b3569"
-MODEL_ID = "moonshotai/Kimi-K3"
+MODEL_ID = "/mnt/nvme-data/engine/kylesayrs/models--moonshotai--Kimi-K3/snapshots/9f62e4e9fffbd0a83ddd60e1c209d828994b3569"
+# MODEL_ID = "moonshotai/Kimi-K3"
 
 # mlp_res_proj
 # self_attention_res_proj
@@ -99,7 +99,7 @@ oneshot(
     ],
     sequential_targets_per_subgraph=(896 // 3),
     propagate_error=False,
-    # sequential_offload_device="cuda:5",
+    sequential_offload_device="cuda:3",
 )
 
 # Save to disk compressed.
