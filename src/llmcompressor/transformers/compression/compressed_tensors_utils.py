@@ -130,7 +130,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 model, quantization_format=quantization_format
             )
             if save_compressed:
-                compressor.compress_model(model)
+                compressor.compress_model(model, skip_compressed=True)
 
             # Re-tie input and output embeddings before offload conversion so a
             # shared table is written once. Offloading splits a tied weight into
