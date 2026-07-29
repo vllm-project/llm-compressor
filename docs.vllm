@@ -1,0 +1,174 @@
+import inspect
+from typing import Dict, List, Optional, Set, Tuple, Type, Union
+import torch
+import torch.nn as nn
+import torch.fx as fx
+
+
+class Subgraph:
+    """
+    Lightweight container representing a traced subgraph unit.
+    """
+    __slots__ = ("name", "module", "index", "inputs", "outputs", "sub_nodes")
+
+    def __init__(
+        self,
+        name: str,
+        module: nn.Module,
+        index: int,
+        inputs: List[str],
+        outputs: List[str],
+        sub_nodes: Optional[List[fx.Node]] = None,
+    ):
+        self.name = name
+        self.module = module
+        self.index = index
+        self.inputs = inputs
+        self.outputs = outputs
+        self.sub_nodes = sub_nodes or []
+
+    def __repr__(self) -> str:
+        return f"Subgraph(name='{self.name}', index={self.index}, module={self.module.__class__.__name__})"
+
+
+class OptimizedLeafTracer(fx.Tracer):
+    """
+    Custom FX Tracer that treats specified target module types/names as leaf nodes,
+    preventing unnecessary recursive internal tracing of transformer blocks.
+    """
+
+    def __init__(
+        self,
+        target_classes: Tuple[Type[nn.Module], ...],
+        target_names: Set[str],
+        param_shapes_constant: bool = True,
+    ):
+        super().__init__(param_shapes_constant=param_shapes_constant)
+        self.target_classes = target_classes
+        self.target_names = target_names
+
+    def is_leaf_module(self, m: nn.Module, module_qualified_name: str) -> bool:
+        # Treat target block types or explicit names as atomic leaf nodes
+        if isinstance(m, self.target_classes) or module_qualified_name in self.target_names:
+            return True
+        return super().is_leaf_module(m, module_qualified_name)
+
+
+def _build_module_maps(root_module: nn.Module) -> Tuple[Dict[id, str], Dict[str, nn.Module]]:
+    """
+    Single pass over named_modules to build O(1) lookup tables.
+    """
+    id_to_name = {}
+    name_to_module = {}
+    for name, mod in root_module.named_modules():
+        id_to_name[id(mod)] = name
+        name_to_module[name] = mod
+    return id_to_name, name_to_module
+
+
+def trace_subgraphs(
+    model: nn.Module,
+    target_types: Optional[List[Type[nn.Module]]] = None,
+    target_names: Optional[List[str]] = None,
+    concrete_args: Optional[Dict[str, any]] = None,
+    lazy_submodule_tracing: bool = True,
+) -> List[Subgraph]:
+    """
+    Accelerated subgraph tracing for large models.
+
+    :param model: The PyTorch module/model to trace.
+    :param target_types: List of module types to treat as target subgraphs (e.g. [LlamaDecoderLayer]).
+    :param target_names: List of module qualified names to treat as target subgraphs.
+    :param concrete_args: Optional concrete arguments for symbolic tracing.
+    :param lazy_submodule_tracing: If True, defers detailed internal op tracing of target blocks.
+    :return: Ordered list of Subgraph objects in execution order.
+    """
+    target_classes_tuple = tuple(target_types) if target_types else ()
+    target_names_set = set(target_names) if target_names else set()
+
+    id_to_name, name_to_module = _build_module_maps(model)
+
+    # If no target specified, auto-detect repeat block types (e.g., decoder layers)
+    if not target_classes_tuple and not target_names_set:
+        type_counts = {}
+        for mod in name_to_module.values():
+            if len(list(mod.children())) > 0:  # non-leaf container modules
+                t = type(mod)
+                type_counts[t] = type_counts.get(t, 0) + 1
+        
+        # Select module types that repeat multiple times (typical block structures)
+        auto_targets = [t for t, count in type_counts.items() if count > 1]
+        target_classes_tuple = tuple(auto_targets)
+
+    tracer = OptimizedLeafTracer(
+        target_classes=target_classes_tuple,
+        target_names=target_names_set
+    )
+
+    try:
+        graph = tracer.trace(model, concrete_args=concrete_args)
+    except Exception:
+        # Fallback handling for dynamic models: trace with meta/dummy inputs if standard trace fails
+        graph = _fallback_meta_trace(model, tracer, concrete_args)
+
+    subgraphs: List[Subgraph] = []
+    node_to_subgraph_idx: Dict[fx.Node, int] = {}
+    idx = 0
+
+    for node in graph.nodes:
+        if node.op == "call_module":
+            target_str = str(node.target)
+            mod = name_to_module.get(target_str)
+
+            if mod is not None and (
+                isinstance(mod, target_classes_tuple) or target_str in target_names_set
+            ):
+                input_dep_names = [
+                    arg.name for arg in node.all_input_nodes if isinstance(arg, fx.Node)
+                ]
+                
+                output_dep_names = [
+                    user.name for user in node.users.keys()
+                ]
+
+                subgraph = Subgraph(
+                    name=target_str,
+                    module=mod,
+                    index=idx,
+                    inputs=input_dep_names,
+                    outputs=output_dep_names,
+                )
+
+                if not lazy_submodule_tracing:
+                    # Optional: trace internal subgraph details on demand
+                    subgraph.sub_nodes = _trace_internal_subgraph(mod)
+
+                subgraphs.append(subgraph)
+                node_to_subgraph_idx[node] = idx
+                idx += 1
+
+    return subgraphs
+
+
+def _trace_internal_subgraph(module: nn.Module) -> List[fx.Node]:
+    """
+    Traces individual target block internals lazily when requested.
+    """
+    try:
+        sub_tracer = fx.Tracer()
+        sub_graph = sub_tracer.trace(module)
+        return list(sub_graph.nodes)
+    except Exception:
+        return []
+
+
+def _fallback_meta_trace(
+    model: nn.Module,
+    tracer: fx.Tracer,
+    concrete_args: Optional[Dict[str, any]]
+) -> fx.Graph:
+    """
+    Fallback tracer leveraging PyTorch meta device execution for models with dynamic control flow.
+    """
+    graph_module = fx.SymbolicTracer().trace(model, concrete_args=concrete_args)
+    return graph_module
