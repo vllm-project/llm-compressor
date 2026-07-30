@@ -136,6 +136,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         from functools import partial
         from compressed_tensors.distributed import replace_module_parallel, is_distributed
         
+        modules = [module for module in modules if is_module_quantized(module)]
         desc = "Layerwise compressing"
         if is_distributed():
             compress_fn = partial(compress_module)

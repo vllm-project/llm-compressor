@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterator
 import torch
 from compressed_tensors.compressors import decompress_module
 from compressed_tensors.offload import disable_offloading, set_onload_device
+from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -145,12 +146,13 @@ class SequentialPipeline(CalibrationPipeline):
                 num_batches = len(dataloader)
                 with disable_offloading():
                     modules = subgraph.submodules(model)
+                    modules_to_compress = [module for module in modules if is_module_quantized(module)]
                     desc = "Layerwise decompressing"
                     if is_distributed():
                         compress_fn = partial(decompress_module, leave_decompressed=False)
-                        replace_module_parallel(modules, compress_fn, desc=desc)
+                        replace_module_parallel(modules_to_compress, compress_fn, desc=desc)
                     else:
-                        for module in tqdm(modules, desc=desc):
+                        for module in tqdm(modules_to_compress, desc=desc):
                             decompress_module(module, leave_decompressed=False)
 
                     # calibrate modules
