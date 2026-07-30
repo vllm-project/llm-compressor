@@ -85,27 +85,29 @@ steps:
       chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
       .buildkite/gpu-tests/scripts/combine-coverage.sh
 
-  - label: ":mag: Detect changes for Transformers Tests"
+  # Transformers tests - always run on branch pushes
+  - label: ":mag: Transformers Tests (branch)"
+    if: build.pull_request == null
     agents:
       queue: RedHat-ModelOpt-Util
     command: |
-      if [ "$${BUILDKITE_PULL_REQUEST}" = "false" ]; then
-        echo "Push to branch — uploading transformers tests"
-        buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
-      else
-        git fetch --unshallow 2>/dev/null || true
-        git fetch origin "$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}"
-        DIFF_FILES=$$(git diff --name-only "origin/$${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD")
-        CHANGED=$$(echo "$${DIFF_FILES}" \
-          | grep -E '^(src/|tests/|setup\.py$$|MANIFEST\.in$$|\.buildkite/gpu-tests/transformers-tests-|\.buildkite/gpu-tests/scripts/run-tests\.sh$$)' \
-          | grep -vE '^tests/(e2e|lmeval|examples)/' \
-          | grep -vE '\.md$$' \
-          || true)
-        if [ -n "$${CHANGED}" ]; then
-          echo "Relevant changes detected:"
-          echo "$${CHANGED}"
-          buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
-        else
-          echo "No relevant changes — skipping transformers tests"
-        fi
-      fi
+      buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
+
+  # Transformers tests - conditional on PRs when relevant paths changed
+  - label: ":mag: Transformers Tests (PR)"
+    if: build.pull_request != null
+    agents:
+      queue: RedHat-ModelOpt-Util
+    if_changed:
+      - "src/**"
+      - "tests/**"
+      - "!tests/e2e/**"
+      - "!tests/lmeval/**"
+      - "!tests/examples/**"
+      - "!**/*.md"
+      - "setup.py"
+      - "MANIFEST.in"
+      - ".buildkite/gpu-tests/transformers-tests-*"
+      - ".buildkite/gpu-tests/scripts/run-tests.sh"
+    command: |
+      buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
