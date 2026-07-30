@@ -32,15 +32,117 @@ __all__ = [
 ]
 
 
+# redundant conversion artifacts which transformers never loads, but which repos
+# commonly ship and which are expensive to fetch (ex. `original/consolidated.00.pth`
+# in Meta's Llama repos). Kept deliberately narrow: anything broader risks skipping
+# a file some checkpoint or custom modeling code genuinely needs
+_UNUSED_CHECKPOINT_PATTERNS = ["original/**"]
+
+
+@contextlib.contextmanager
+def download_checkpoint_first(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+    """
+    Context manager which downloads a checkpoint on local rank zero before any rank
+    attempts to load it.
+
+    Ranks which populate and resolve the same hub cache concurrently can raise
+    `OSError: ... does not appear to have files named (...)` for shards which are
+    present on disk, because transformers resolves the cache through
+    `try_to_load_from_cache` while another rank is writing it.
+    See https://github.com/vllm-project/llm-compressor/issues/2984
+
+    Prefetching removes that overlap for the ranks of this job: none of them resolve
+    the cache until every downloader has finished. One downloader per node is
+    required for node-local caches, which would otherwise stay cold on every node
+    but one. Note that this does not protect against unrelated processes writing the
+    same cache concurrently, and that a cache shared across nodes still has one
+    downloader per node.
+
+    Assumes every rank receives the same arguments and sees the same filesystem, as
+    is the case for a torchrun job running one script. Ranks which disagree on
+    whether the checkpoint is a local directory would not reach the same collectives.
+
+    :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    """
+    if (
+        not torch.distributed.is_initialized()
+        or torch.distributed.get_world_size() <= 1
+    ):
+        yield
+        return
+
+    original_from_pretrained = model_cls.from_pretrained
+
+    @classmethod
+    @wraps(original_from_pretrained)
+    def patched(cls, *args, **kwargs):
+        stub = args[0] if args else kwargs.get("pretrained_model_name_or_path")
+
+        # local checkpoints and offline loads never populate the hub cache. A
+        # missing stub is left for transformers to report
+        if stub is None or os.path.isdir(stub) or kwargs.get("local_files_only"):
+            return original_from_pretrained(*args, **kwargs)
+
+        # raises if the launcher did not set `LOCAL_RANK`, which is safer than
+        # assuming zero and starting a downloader on every rank
+        local_rank = torch.distributed.get_node_local_rank()
+
+        error = None
+        try:
+            if local_rank == 0:
+                snapshot_download(
+                    stub,
+                    revision=kwargs.get("revision"),
+                    cache_dir=kwargs.get("cache_dir"),
+                    token=kwargs.get("token"),
+                    force_download=kwargs.get("force_download", False),
+                    ignore_patterns=_UNUSED_CHECKPOINT_PATTERNS,
+                )
+        except Exception as exception:
+            error = exception
+
+        # nccl must reduce on the accelerator, gloo reduces on cpu
+        if torch.distributed.get_backend() == "nccl":
+            accelerator = torch.accelerator.current_accelerator(check_available=True)
+            if accelerator is None:
+                raise RuntimeError("NCCL backend requires an available accelerator")
+            device = torch.device(
+                accelerator.type, torch.accelerator.current_device_index()
+            )
+        else:
+            device = torch.device("cpu")
+
+        # synchronizes ranks and ensures that none of them load against a cache
+        # which a downloader failed to populate
+        succeeded = torch.tensor(error is None, dtype=torch.uint8, device=device)
+        torch.distributed.all_reduce(succeeded, op=torch.distributed.ReduceOp.MIN)
+        if not succeeded.item():
+            if error is not None:
+                raise error
+            raise RuntimeError(
+                "Checkpoint prefetch failed on another rank. See that rank's "
+                "traceback for the underlying error"
+            )
+
+        # the checkpoint is cached now, and re-downloading it on every rank would
+        # restore exactly the concurrency this context exists to remove
+        kwargs["force_download"] = False
+
+        return original_from_pretrained(*args, **kwargs)
+
+    with patch_attr(model_cls, "from_pretrained", patched):
+        yield
+
+
 @contextlib.contextmanager
 def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
     Context manager for loading HuggingFace models with both offloading and
     MoE linearization support.
 
-    This context manager combines `load_offloaded_model` and `load_quantizable_moe`
-    contexts to provide a unified interface for loading models that may require
-    either or both capabilities.
+    This context manager combines `download_checkpoint_first`, `load_offloaded_model`
+    and `load_quantizable_moe` contexts to provide a unified interface for loading
+    models that may require any of those capabilities.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -49,6 +151,8 @@ def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     with contextlib.ExitStack() as stack:
         stack.enter_context(load_offloaded_model(model_cls))
         stack.enter_context(load_quantizable_moe(model_cls))
+        # entered last so that the checkpoint is fetched before any other patch runs
+        stack.enter_context(download_checkpoint_first(model_cls))
         yield
 
 
