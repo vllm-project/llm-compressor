@@ -2,11 +2,11 @@ import os
 from pathlib import Path
 
 import pytest
-from compressed_tensors.quantization import is_attention_module
-from datasets import load_dataset
+from compressed_tensors.quantization import is_cached_attention_module
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 
@@ -159,7 +159,7 @@ def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
 
     counts = 0
     for name, submodule in model.named_modules():
-        if is_attention_module(submodule):
+        if is_cached_attention_module(submodule):
             counts += 1
             assert hasattr(submodule, "v_scale")
             assert hasattr(submodule, "k_scale")
@@ -197,7 +197,7 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
 
     counts = 0
     for name, submodule in model.named_modules():
-        if is_attention_module(submodule):
+        if is_cached_attention_module(submodule):
             counts += 1
             assert hasattr(submodule, "v_scale")
             assert hasattr(submodule, "k_scale")
@@ -237,7 +237,7 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
 
     counts = 0
     for name, submodule in model.named_modules():
-        if is_attention_module(submodule):
+        if is_cached_attention_module(submodule):
             counts += 1
             assert hasattr(submodule, "v_scale")
             assert hasattr(submodule, "k_scale")

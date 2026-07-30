@@ -3,10 +3,10 @@ Test that start_calibration initializes KV cache observers on attention modules
 regardless of their name in the module tree.
 
 compressed_tensors' _apply_kv_cache_scheme discovers attention modules via
-is_attention_module() (name-agnostic), but QuantizationMixin.start_calibration
+is_cached_attention_module() (name-agnostic), but QuantizationMixin.start_calibration
 previously relied on resolved_targets which includes "re:.*self_attn$". This
 regex fails for models that name their attention differently (e.g. "attention",
-"self_attention"). The fix adds an is_attention_module() fallback pass.
+"self_attention"). The fix adds an is_cached_attention_module() fallback pass.
 """
 
 import torch.nn as nn
@@ -14,7 +14,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStatus,
     apply_quantization_config,
-    is_attention_module,
+    is_cached_attention_module,
 )
 from transformers import PretrainedConfig
 
@@ -22,9 +22,9 @@ from llmcompressor.modifiers.quantization.quantization import QuantizationModifi
 
 
 class _StubAttention(nn.Module):
-    """Minimal attention module recognized by is_attention_module().
+    """Minimal attention module recognized by is_cached_attention_module().
 
-    is_attention_module checks: "attention" in class name (lowercase) and
+    is_cached_attention_module checks: "attention" in class name (lowercase) and
     hasattr(k_proj) or hasattr(v_proj).
     """
 
@@ -35,7 +35,9 @@ class _StubAttention(nn.Module):
         self.v_proj = nn.Linear(dim, dim, bias=False)
         self.o_proj = nn.Linear(dim, dim, bias=False)
 
-    def forward(self, x):
+    def forward(self, x, past_key_values):
+        # past_key_values is necessary for `is_cached_attention_module`
+        # distinguishes between text (cached) attention and vision/other attention
         return self.o_proj(self.q_proj(x) + self.k_proj(x) + self.v_proj(x))
 
 
@@ -84,7 +86,7 @@ def test_attention_module_not_named_self_attn_gets_calibrated():
 
     # Verify our stub is recognized as attention
     attn_modules = [
-        (name, m) for name, m in model.named_modules() if is_attention_module(m)
+        (name, m) for name, m in model.named_modules() if is_cached_attention_module(m)
     ]
     assert len(attn_modules) == 2, "Expected 2 attention modules in _StubModel"
 
@@ -92,7 +94,7 @@ def test_attention_module_not_named_self_attn_gets_calibrated():
     for name, _ in attn_modules:
         assert "self_attn" not in name, f"{name} unexpectedly matches self_attn"
 
-    # Apply quantization config (this uses is_attention_module and WILL set scheme)
+    # Apply qconfig (this uses is_cached_attention_module and WILL set scheme)
     apply_quantization_config(model, modifier.resolved_config)
 
     # Verify schemes were applied to attention modules by _apply_kv_cache_scheme
