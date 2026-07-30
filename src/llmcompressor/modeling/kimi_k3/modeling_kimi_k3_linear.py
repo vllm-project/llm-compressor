@@ -33,6 +33,8 @@ from packaging import version
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache
+from transformers.conversion_mapping import register_checkpoint_conversion_mapping
+from transformers.core_model_loading import WeightRenaming
 from transformers.generation import GenerationMixin
 from transformers.masking_utils import create_causal_mask
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
@@ -61,9 +63,38 @@ try:
 except ImportError:
     raise ImportError("Plese run `pip install -U fla-core`")
 
-from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
+from llmcompressor.modeling.moe.linear_experts import (
+    ExpertMLPWithGate,
+    LinearExperts2D,
+)
 
 from .configuration_kimi_k3 import KimiLinearConfig
+
+_KIMI_LINEAR_WEIGHT_CONVERSIONS = [
+    WeightRenaming(
+        source_patterns=(
+            r"^(model\.layers\.\d+\.block_sparse_moe\.experts\.\d+)\.w1\."
+        ),
+        target_patterns=r"\1.gate_proj.",
+    ),
+    WeightRenaming(
+        source_patterns=(
+            r"^(model\.layers\.\d+\.block_sparse_moe\.experts\.\d+)\.w2\."
+        ),
+        target_patterns=r"\1.down_proj.",
+    ),
+    WeightRenaming(
+        source_patterns=(
+            r"^(model\.layers\.\d+\.block_sparse_moe\.experts\.\d+)\.w3\."
+        ),
+        target_patterns=r"\1.up_proj.",
+    ),
+]
+register_checkpoint_conversion_mapping(
+    KimiLinearConfig.model_type,
+    _KIMI_LINEAR_WEIGHT_CONVERSIONS,
+    overwrite=True,
+)
 
 assert version.parse(transformers.__version__) >= version.parse(
     "4.56.0"
@@ -274,42 +305,75 @@ class KimiRMSNorm(nn.Module):
 ALL_LAYERNORM_LAYERS.append(KimiRMSNorm)
 
 
-class KimiBlockSparseMLP(nn.Module):
+class KimiBlockSparseMLP(ExpertMLPWithGate):
     def __init__(
         self, config: KimiLinearConfig, hidden_size=None, intermediate_size=None
     ):
-        super().__init__()
         self.config = config
         self.ffn_dim = (
             config.intermediate_size if intermediate_size is None else intermediate_size
         )
         self.hidden_dim = config.hidden_size if hidden_size is None else hidden_size
 
-        self.w1 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)  # gate
-        self.w2 = nn.Linear(self.ffn_dim, self.hidden_dim, bias=False)  # down
-        self.w3 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)  # up
-
         if config.hidden_act == "situ":
             beta, linear_beta = _get_situ_activation_params(config)
-            self.act_fn = SituAndMul(
+            act_fn = SituAndMul(
                 beta=beta,
                 linear_beta=linear_beta,
             )
         else:
-            self.act_fn = ACT2FN[config.hidden_act]
+            act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, hidden_states):
+        super().__init__(
+            hidden_dim=self.hidden_dim,
+            intermediate_size=self.ffn_dim,
+            mlp_bias=False,
+            _apply_gate=self._apply_gate,
+            dtype=getattr(config, "dtype", None)
+            or getattr(config, "torch_dtype", None),
+        )
+        self.act_fn = act_fn
+
+    def _apply_gate(self, gate_up: torch.Tensor) -> torch.Tensor:
         if self.config.hidden_act == "situ":
-            gate_up = torch.cat(
-                [self.w1(hidden_states), self.w3(hidden_states)], dim=-1
-            )
-            current_hidden_states = self.act_fn(gate_up)
+            return self.act_fn(gate_up)
+
+        gate, up = gate_up.chunk(2, dim=-1)
+        return self.act_fn(gate) * up
+
+
+class KimiLinearExperts(LinearExperts2D):
+    is_concatenated = False
+    is_transposed = False
+    has_bias = False
+    has_gate = True
+
+    def __init__(self, config: KimiLinearConfig):
+        hidden_dim = (
+            config.routed_expert_hidden_size
+            if config.routed_expert_hidden_size is not None
+            else config.hidden_size
+        )
+        self.num_experts = config.num_experts
+        self.intermediate_size = config.moe_intermediate_size
+        nn.ModuleList.__init__(
+            self,
+            [
+                KimiBlockSparseMLP(
+                    config,
+                    hidden_size=hidden_dim,
+                    intermediate_size=self.intermediate_size,
+                )
+                for _ in range(self.num_experts)
+            ],
+        )
+        if config.hidden_act == "situ":
+            beta, linear_beta = _get_situ_activation_params(config)
+            self.act_fn = SituAndMul(beta=beta, linear_beta=linear_beta)
         else:
-            current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(
-                hidden_states
-            )
-        current_hidden_states = self.w2(current_hidden_states)
-        return current_hidden_states
+            self.act_fn = ACT2FN[config.hidden_act]
+        self.alpha = getattr(config, "alpha", None)
+        self.limit = getattr(config, "limit", None)
 
 
 class KimiMLP(nn.Module):
@@ -862,19 +926,7 @@ class KimiSparseMoeBlock(nn.Module):
         )
         self.latent_moe_use_norm = getattr(config, "latent_moe_use_norm", False)
 
-        self.ep_size = 1
-        self.experts_per_rank = config.num_experts
-        self.ep_rank = 0
-        self.experts = nn.ModuleList(
-            [
-                KimiBlockSparseMLP(
-                    config,
-                    hidden_size=self.moe_hidden_size,
-                    intermediate_size=config.moe_intermediate_size,
-                )
-                for _ in range(config.num_experts)
-            ],
-        )
+        self.experts = KimiLinearExperts(config)
         self.gate = KimiMoEGate(config)
         if config.num_shared_experts is not None:
             intermediate_size = config.moe_intermediate_size * config.num_shared_experts
@@ -909,10 +961,7 @@ class KimiSparseMoeBlock(nn.Module):
         if self.use_latent_moe:
             hidden_states = self.routed_expert_down_proj(hidden_states)
 
-        if False:#if not self.training:
-            y = self.moe_infer(hidden_states, topk_idx, topk_weight)
-        else:
-            y = self.moe_train(hidden_states, topk_idx, topk_weight)
+        y = self.experts(hidden_states, topk_idx, topk_weight)
 
         if self.use_latent_moe:
             if self.latent_moe_use_norm:
@@ -924,62 +973,6 @@ class KimiSparseMoeBlock(nn.Module):
         if self.config.num_shared_experts is not None:
             y = y + self.shared_experts(identity)
         return y
-
-    def moe_train(self, x, topk_ids, topk_weight):
-        """Training-compatible MoE dispatch with gradient flow."""
-        y = torch.zeros_like(x)
-
-        with torch.no_grad():
-            expert_mask = F.one_hot(topk_ids, self.num_experts).permute(2, 1, 0)
-
-        for expert_idx, expert in enumerate(self.experts):
-            top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
-
-            if get_calibrate_all_experts_flag():
-                expert_out = expert(x)[token_indices]
-            else:
-                expert_out = expert(x[token_indices])
-
-            expert_weights = topk_weight[token_indices, top_k_pos, None]
-            y.index_add_(0, token_indices, (expert_out * expert_weights).to(y.dtype))
-
-        return y
-
-    @torch.no_grad()
-    def moe_infer(self, x, topk_ids, topk_weight):
-        cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
-        cnts.scatter_(1, topk_ids, 1)
-        tokens_per_expert = cnts.sum(dim=0)
-        idxs = topk_ids.view(-1).argsort()
-        sorted_tokens = x[idxs // topk_ids.shape[1]]
-
-        tokens_per_expert = tokens_per_expert.cpu().numpy()
-
-        outputs = []
-        start_idx = 0
-        for i, num_tokens in enumerate(tokens_per_expert):
-            end_idx = start_idx + num_tokens
-            if num_tokens == 0:
-                continue
-            expert = self.experts[i + self.ep_rank * self.experts_per_rank]
-            tokens_for_this_expert = sorted_tokens[start_idx:end_idx]
-            expert_out = expert(tokens_for_this_expert)
-            outputs.append(expert_out)
-            start_idx = end_idx
-
-        outs = torch.cat(outputs, dim=0) if len(outputs) else sorted_tokens.new_empty(0)
-
-        new_x = torch.empty_like(outs)
-        new_x[idxs] = outs
-        final_out = (
-            new_x.view(*topk_ids.shape, -1)
-            .type(topk_weight.dtype)
-            .mul_(topk_weight.unsqueeze(dim=-1))
-            .sum(dim=1)
-            .type(new_x.dtype)
-        )
-        return final_out
-
 
 class KimiDecoderLayer(nn.Module):
     def __init__(self, config: KimiLinearConfig, layer_idx: int):
