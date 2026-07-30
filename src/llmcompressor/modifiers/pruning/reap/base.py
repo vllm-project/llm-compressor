@@ -56,6 +56,8 @@ class REAPPruningModifier(Modifier):
           sparsity: 0.25
     """
 
+    requires_calibration_data: bool = True
+
     sparsity: float
     ignore: list[str] = Field(default_factory=list)
 
