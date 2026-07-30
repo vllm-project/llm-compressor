@@ -115,11 +115,7 @@ setup(
         # librosa 0.11.0 supports numpy 2.x
         # https://librosa.org/doc/0.11.0/changelog.html
         ("numpy>=2.0.0,<=2.4.6" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
-        (
-            "requests>=2.32.2,<2.35.0"
-            if BUILD_TYPE == "release"
-            else "requests>=2.32.2"
-        ),
+        ("requests>=2.32.2,<2.35.0" if BUILD_TYPE == "release" else "requests>=2.32.2"),
         ("tqdm>=4.66.3,<=4.70.0" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.13.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
