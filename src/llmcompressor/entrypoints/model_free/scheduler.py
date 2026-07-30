@@ -171,7 +171,6 @@ def exec_jobs_dynamic(
                 # --- wait for at least one job to finish ---
                 done, _ = wait(
                     inflight.keys(),
-                    timeout=2.0,
                     return_when=FIRST_COMPLETED,
                 )
 
