@@ -26,9 +26,9 @@ import torch
 import torch.distributed
 from compressed_tensors.offload import init_dist, load_offloaded_model
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.autoround import AutoRoundModifier

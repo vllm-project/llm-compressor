@@ -35,7 +35,7 @@ class _StubAttention(nn.Module):
         self.v_proj = nn.Linear(dim, dim, bias=False)
         self.o_proj = nn.Linear(dim, dim, bias=False)
 
-    def forward(self, x, past_key_values):
+    def forward(self, x, past_key_values=None):
         # past_key_values is necessary for `is_cached_attention_module`
         # distinguishes between text (cached) attention and vision/other attention
         return self.o_proj(self.q_proj(x) + self.k_proj(x) + self.v_proj(x))

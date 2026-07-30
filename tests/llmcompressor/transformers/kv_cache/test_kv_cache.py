@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 from compressed_tensors.quantization import is_cached_attention_module
+from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 
