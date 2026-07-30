@@ -57,7 +57,7 @@ Anyone can contribute to LLM Compressor. For major features, submit an RFC (requ
 To submit an RFC, create an issue using the feature request template and clearly label it as an RFC.
 RFCs are similar to design docs that discuss the motivation, problem solved, alternatives considered, and proposed change.
 
-Once you submit the RFC, please post it in the `#llm-compressor` channel in the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack), and loop in area owners and committers for feedback.
+Once you submit the RFC, please post it in the `#llm-compressor` channel in the [vLLM Community Slack](https://inviter.co/vllm-slack), and loop in area owners and committers for feedback.
 For high-interest features, the committers nominate a person to help with the RFC process and PR review.
 This makes sure someone is guiding you through the process. It is reflected as the "assignee" field in the RFC issue.
 If the assignee and lead maintainers find the feature to be contentious, the maintainer team aims to make decisions quickly after learning the details from everyone.
