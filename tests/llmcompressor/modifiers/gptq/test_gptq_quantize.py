@@ -193,6 +193,64 @@ def test_quantize_weight_triton_cutoff_matches_eager(monkeypatch, strategy):
         )
 
 
+@requires_compute_capability(8, 0)
+@torch.no_grad()
+@pytest.mark.parametrize("strategy", ["group", "block"])
+def test_quantize_weight_triton_cutoff_actorder_weight(monkeypatch, strategy):
+    torch.manual_seed(0)
+    module = torch.nn.Linear(8, 6, bias=False).to("cuda")
+    quant_args_kwargs = dict(
+        num_bits=4,
+        symmetric=True,
+        strategy=strategy,
+        actorder=ActivationOrdering.WEIGHT,
+    )
+    if strategy == "group":
+        quant_args_kwargs["group_size"] = 2
+    if strategy == "block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["block_structure"] = [2, 2]
+
+    quant_args = QuantizationArgs(**quant_args_kwargs)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+
+    # non-uniform diagonal so actorder produces a non-identity permutation
+    hessian = make_empty_hessian(module)
+    diag = torch.arange(
+        1, hessian.shape[0] + 1, dtype=hessian.dtype, device=hessian.device
+    )
+    hessian += torch.diag(diag)
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", False)
+    eager_loss, eager_qparams = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian.clone(),
+        blocksize=4,
+    )
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", True)
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+    triton_loss, triton_qparams = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian.clone(),
+        blocksize=4,
+    )
+
+    # Tolerances allow ±1 quantization level from codebook vs round differences
+    # but still catch gross bugs like wrong group index mapping (116x loss).
+    assert triton_loss == pytest.approx(eager_loss, rel=0.5)
+    torch.testing.assert_close(
+        triton_qparams["weight"], eager_qparams["weight"], rtol=0.15, atol=0.05
+    )
+
+
 @torch.no_grad()
 def test_quantize_weight_triton_unavailable_falls_back(monkeypatch):
     module, quant_args, hessian = _make_quantize_inputs("group")

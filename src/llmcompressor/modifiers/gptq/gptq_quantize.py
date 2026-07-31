@@ -151,6 +151,8 @@ def quantize_weight(
 
         if actorder == ActivationOrdering.WEIGHT:
             g_idx = g_idx[perm]
+    elif use_triton_block:
+        g_idx = torch.zeros(num_columns, device=W.device, dtype=torch.int)
 
     qparams = observer.get_qparams()
     scale, zero_point, global_scale = (
@@ -160,7 +162,7 @@ def quantize_weight(
     )
 
     if use_triton_block:
-        r_b, c_b = _get_block_shape(strategy, quant_args, num_rows, num_columns)
+        r_b, _ = _get_block_shape(strategy, quant_args, num_rows, num_columns)
         codes, cutoffs = _build_cutoffs_and_codes(
             scale, zero_point, quant_args, global_scale
         )
@@ -196,7 +198,7 @@ def quantize_weight(
 
         if use_triton_block:
             _quantize_block_triton_cutoff(
-                W, Hinv, codes, cutoffs, i1, i2, r_b, c_b, losses
+                W, Hinv, codes, cutoffs, g_idx, i1, i2, r_b, losses
             )
             continue
 
@@ -334,7 +336,9 @@ def _build_codebook(scale, zero_point, quant_args, global_scale=None):
         q_min = 0
         q_max = 2**num_bits - 1
 
-    int_vals = torch.arange(q_min, q_max + 1, device=scale.device, dtype=torch.float32)
+    int_vals = torch.arange(
+        q_min, q_max + 1, device=scale.device, dtype=torch.float32
+    )
 
     s = scale.to(dtype=torch.float32)
     zp = zero_point.to(dtype=torch.float32)
@@ -364,12 +368,12 @@ if _triton_available:
         Hinv1_ptr,
         codes_ptr,
         cutoffs_ptr,
+        g_idx_ptr,
         Q1_ptr,
         Err1_ptr,
         losses1_ptr,
         num_rows,
         count,
-        col_offset,
         stride_w_row,
         stride_h_row,
         stride_codes_row,
@@ -377,7 +381,6 @@ if _triton_available:
         stride_cut_row,
         stride_cut_col,
         r_b,
-        c_b,
         num_codes,
         BLOCK_N: tl.constexpr,
         BLOCK_C: tl.constexpr,
@@ -405,19 +408,24 @@ if _triton_available:
             wi = tl.sum(tl.where(imask, w, 0.0))
             d = tl.load(Hinv1_ptr + i * stride_h_row + i)
 
-            qcol = (col_offset + i) // c_b
+            qcol = tl.load(g_idx_ptr + i)
 
             cuts = tl.load(
-                cutoffs_ptr + qrow * stride_cut_row + qcol * stride_cut_col + cut_idx,
+                cutoffs_ptr
+                + qrow * stride_cut_row
+                + qcol * stride_cut_col
+                + cut_idx,
                 mask=cut_mask,
                 other=float("inf"),
             )
 
             bin_idx = tl.sum((wi >= cuts).to(tl.int32), axis=0)
-            bin_idx = tl.minimum(bin_idx, num_codes - 1)
 
             qi = tl.load(
-                codes_ptr + qrow * stride_codes_row + qcol * stride_codes_col + bin_idx
+                codes_ptr
+                + qrow * stride_codes_row
+                + qcol * stride_codes_col
+                + bin_idx,
             )
 
             diff = wi - qi
@@ -427,7 +435,9 @@ if _triton_available:
             err_out = tl.where(imask, err, err_out)
             loss_out = tl.where(imask, diff * diff / (d * d), loss_out)
 
-            h_row = tl.load(Hinv1_ptr + i * stride_h_row + cols, mask=cmask, other=0.0)
+            h_row = tl.load(
+                Hinv1_ptr + i * stride_h_row + cols, mask=cmask, other=0.0
+            )
             w = tl.where(cols >= i, w - err * h_row, w)
 
         tl.store(Q1_ptr + row * stride_w_row + cols, q_out, mask=cmask)
@@ -435,10 +445,13 @@ if _triton_available:
         tl.store(losses1_ptr + row * stride_w_row + cols, loss_out, mask=cmask)
 
 
-def _quantize_block_triton_cutoff(W, Hinv, codes, cutoffs, i1, i2, r_b, c_b, losses):
+def _quantize_block_triton_cutoff(
+    W, Hinv, codes, cutoffs, g_idx, i1, i2, r_b, losses
+):
     count = i2 - i1
     W1 = W[:, i1:i2].clone()
     Hinv1 = Hinv[i1:i2, i1:i2].contiguous()
+    g_idx_block = g_idx[i1:i2].contiguous()
 
     num_rows = W1.shape[0]
     num_codes = codes.shape[2]
@@ -455,12 +468,12 @@ def _quantize_block_triton_cutoff(W, Hinv, codes, cutoffs, i1, i2, r_b, c_b, los
         Hinv1,
         codes,
         cutoffs,
+        g_idx_block,
         Q1,
         Err1,
         losses1,
         num_rows,
         count,
-        i1,
         W1.stride(0),
         Hinv1.stride(0),
         codes.stride(0),
@@ -468,7 +481,6 @@ def _quantize_block_triton_cutoff(W, Hinv, codes, cutoffs, i1, i2, r_b, c_b, los
         cutoffs.stride(0),
         cutoffs.stride(1),
         r_b,
-        c_b,
         num_codes,
         BLOCK_N=BLOCK_N,
         BLOCK_C=BLOCK_C,
