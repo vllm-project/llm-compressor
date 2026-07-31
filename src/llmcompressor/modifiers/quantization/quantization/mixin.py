@@ -19,7 +19,7 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
-    is_attention_module,
+    is_cached_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
 )
@@ -444,7 +444,7 @@ class QuantizationMixin(HooksMixin):
         )
         weight = scheme.weights is not None
         output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        is_attention = is_cached_attention_module(module)
 
         # input activations
         if input:
@@ -476,7 +476,7 @@ class QuantizationMixin(HooksMixin):
             DynamicType.LOCAL,
         )
         output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        is_attention = is_cached_attention_module(module)
 
         # input activations
         if input:
