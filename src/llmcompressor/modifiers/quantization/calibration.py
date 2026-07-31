@@ -90,9 +90,10 @@ def _is_module_collection(value: Any) -> bool:
     Container modules such as `ModuleDict` are both `Module` and `Iterable`, so the
     module check has to come first: iterating a `ModuleDict` yields its keys, which
     are strings, and iterating a one character string yields itself, so recursing
-    into a container module never terminates.
+    into a container module never terminates. `str` is excluded for the same reason,
+    so that a string passed here by mistake is ignored rather than recursed into.
     """
-    return isinstance(value, Iterable) and not isinstance(value, Module)
+    return isinstance(value, Iterable) and not isinstance(value, (Module, str))
 
 
 def observe(
