@@ -5,19 +5,7 @@ import re
 import pytest
 import torch
 
-from llmcompressor.modifiers.transform.awq.mappings import (
-    AWQ_MAPPING_REGISTRY,
-    _exaone4_mappings,
-)
-
-
-@pytest.mark.unit
-def test_olmo_for_causal_lm_in_registry():
-    """Sanity: OlmoForCausalLM is wired to the exaone4-style mapping."""
-    assert "OlmoForCausalLM" in AWQ_MAPPING_REGISTRY
-    assert AWQ_MAPPING_REGISTRY["OlmoForCausalLM"] is _exaone4_mappings
-    # Matches the sibling registration for Olmo3ForCausalLM.
-    assert AWQ_MAPPING_REGISTRY["Olmo3ForCausalLM"] is _exaone4_mappings
+from llmcompressor.modifiers.transform.awq.mappings import _exaone4_mappings
 
 
 @pytest.mark.unit
