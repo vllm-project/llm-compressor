@@ -77,24 +77,13 @@ model_free_ptq(
 
 ## Microscale Flow (NVFP4)
 
-NVFP4 requires a **global scale** that is fused across related weight groups (e.g. qkv projections, gate/up projections). For this fusion to work correctly, the weights of each fused group must reside in the **same safetensors shard**.
-
-Standard model checkpoints often split these weights across different shards. To fix this, run the `reindex_fused_weights` CLI tool first to reorganize the checkpoint:
-
-```bash
-llmcompressor.reindex_fused_weights \
-    unsloth/Kimi-K2-Thinking-BF16 \
-    Kimi-K2-Thinking-BF16-reindexed \
-    --num_workers=10
-```
-
-Then run `model_free_ptq` on the reindexed checkpoint:
+NVFP4 requires a **global scale** that is fused across related weight groups (e.g. qkv projections, gate/up projections). `model_free_ptq` handles this fusion directly, so no preprocessing step is required — run it just like the block/tensor schemes above:
 
 ```python
 from llmcompressor import model_free_ptq
 
 model_free_ptq(
-    model_stub="Kimi-K2-Thinking-BF16-reindexed",
+    model_stub="unsloth/Kimi-K2-Thinking-BF16",
     save_directory="Kimi-K2-Thinking-NVFP4A16",
     scheme="NVFP4A16",
     ignore=[
@@ -108,9 +97,6 @@ model_free_ptq(
     device="cuda:0",
 )
 ```
-
-!!! note
-    Reindexing is only required for **NVFP4**, which uses a global scale. MXFP4 does not use a global scale and does not require reindexing.
 
 ## Ignoring Layers
 
