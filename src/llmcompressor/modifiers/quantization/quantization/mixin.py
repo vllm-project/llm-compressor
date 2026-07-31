@@ -19,13 +19,13 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
-    is_attention_module,
+    is_cached_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.utils import match_named_modules
-from pydantic import Field, PrivateAttr, field_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.calibration import (
@@ -293,6 +293,31 @@ class QuantizationMixin(HooksMixin):
                     pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
 
+    @model_validator(mode="after")
+    def _set_requires_calibration_data(self):
+        if self.requires_calibration_data:
+            return self
+
+        if self.kv_cache_scheme is not None:
+            self.requires_calibration_data = True
+            return self
+
+        for scheme in self.resolved_config.config_groups.values():
+            if scheme.weights is not None:
+                if scheme.weights.observer == "imatrix_mse":
+                    self.requires_calibration_data = True
+                    return self
+            if scheme.input_activations is not None:
+                if scheme.input_activations.dynamic in (False, DynamicType.LOCAL):
+                    self.requires_calibration_data = True
+                    return self
+            if scheme.output_activations is not None:
+                if not scheme.output_activations.dynamic:
+                    self.requires_calibration_data = True
+                    return self
+
+        return self
+
     def has_config(self) -> bool:
         """
         Determine if the user has specified a quantization config on this modifier
@@ -419,7 +444,7 @@ class QuantizationMixin(HooksMixin):
         )
         weight = scheme.weights is not None
         output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        is_attention = is_cached_attention_module(module)
 
         # input activations
         if input:
@@ -451,7 +476,7 @@ class QuantizationMixin(HooksMixin):
             DynamicType.LOCAL,
         )
         output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        is_attention = is_cached_attention_module(module)
 
         # input activations
         if input:
