@@ -83,6 +83,18 @@ def initialize_observer(
         observer.attach(module)
 
 
+def _is_module_collection(value: Any) -> bool:
+    """
+    Whether a value is a collection of modules rather than a single module.
+
+    Container modules such as `ModuleDict` are both `Module` and `Iterable`, so the
+    module check has to come first: iterating a `ModuleDict` yields its keys, which
+    are strings, and iterating a one character string yields itself, so recursing
+    into a container module never terminates.
+    """
+    return isinstance(value, Iterable) and not isinstance(value, Module)
+
+
 def observe(
     module: Module | Iterable[Module],
     base_name: str,
@@ -94,7 +106,7 @@ def observe(
     :param module: module or iterable of modules with observer attributes
     :param base_name: substring used to fetch the observer and value to observe
     """
-    if isinstance(module, Iterable):
+    if _is_module_collection(module):
         for m in module:
             observe(m, base_name)
         return
@@ -126,8 +138,9 @@ def update_qparams(
         we want only want one rank to update the offload+onload to avoid
         multiple writes to the offload (rest just update onload)
     """
-    if isinstance(module, Iterable) or not isinstance(base_name, str):
-        modules = [module] if not isinstance(module, Iterable) else module
+    is_collection = _is_module_collection(module)
+    if is_collection or not isinstance(base_name, str):
+        modules = module if is_collection else [module]
         base_names = [base_name] if isinstance(base_name, str) else base_name
         for m, b in product(modules, base_names):
             update_qparams(m, b, only_update_onload=only_update_onload)
