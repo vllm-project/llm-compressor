@@ -156,6 +156,40 @@ def test_subnormal_scales_still_match():
             ),
             "float64 is not one of the dtypes the error path reproduces",
         ),
+        (
+            torch.zeros(1, 8, 4, 32),
+            QuantizationArgs(
+                num_bits=16, type="int", symmetric=True,
+                strategy=QuantizationStrategy.GROUP, group_size=32,
+            ),
+            "int16 builds 65536 codes and was never validated",
+        ),
+        (
+            torch.zeros(1, 8, 4, 32),
+            QuantizationArgs(
+                num_bits=8, type="float", symmetric=True,
+                strategy=QuantizationStrategy.GROUP, group_size=32,
+                scale_dtype=torch.float8_e4m3fn,
+            ),
+            "a rounded scale is a different scale path",
+        ),
+        (
+            torch.zeros(1, 8, 1, 32),
+            QuantizationArgs(
+                num_bits=8, type="float", symmetric=True,
+                strategy=QuantizationStrategy.GROUP, group_size=32,
+                scale_dtype=torch.uint8,
+            ),
+            "MX derives the scale as an exponent, not by the symmetric formula",
+        ),
+        (
+            torch.zeros(1, 8, 1, 4096),
+            QuantizationArgs(
+                num_bits=8, type="int", symmetric=True,
+                strategy=QuantizationStrategy.CHANNEL,
+            ),
+            "a 4096 wide group would ask one program to hold 4096 elements",
+        ),
     ],
 )
 def test_declines_what_it_cannot_reproduce(observed, args, why):

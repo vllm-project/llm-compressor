@@ -34,6 +34,18 @@ __all__ = ["can_use_triton", "grid_search_triton"]
 # 583 of 2048 groups for bf16 int8, at up to 84% relative regret.
 _ROUND_CODE = {torch.float32: 0, torch.bfloat16: 1, torch.float16: 2}
 
+# Bit widths whose codebook this has actually been checked against. Nothing
+# stops the int branch from building 65536 codes for int16, but
+# neighbors_for_config is quadratic in the cutoff count and the kernel would
+# binary search a table nobody has validated.
+_INT_BITS = (4, 8)
+
+# Largest group the kernel has been exercised at. BLOCK_G is the next power
+# of two above this, so a CHANNEL layout on a wide layer, or a 128x128
+# block, would otherwise ask one program to hold 4096 or 16384 elements.
+# Raising it is a measurement, not an edit.
+_MAX_GROUP_SIZE = 256
+
 
 def _codebook(args: QuantizationArgs) -> torch.Tensor:
     """The values an element can be rounded to, once divided by the scale.
@@ -42,7 +54,7 @@ def _codebook(args: QuantizationArgs) -> torch.Tensor:
         this kernel supports
     """
     bits = args.num_bits
-    if args.type == QuantizationType.INT:
+    if args.type == QuantizationType.INT and bits in _INT_BITS:
         return torch.arange(
             -(2 ** (bits - 1)), 2 ** (bits - 1), dtype=torch.float32
         )
@@ -138,15 +150,26 @@ def can_use_triton(observed: torch.Tensor, args: QuantizationArgs) -> bool:
     - ``observed`` must be 4d. TENSOR strategy flattens to 3d, and the
       launcher reads (obs, rows, groups, group_size).
     - symmetric only: the codebook search has no zero point.
-    - int and float8 only. float4's rounding in compressed_tensors casts to
-      bfloat16 before applying its thresholds, so a nearest-code search
-      disagrees on ~5% of groups in fp32 and fp16.
+    - int4, int8 and float8 only. float4 rounds through bfloat16 inside
+      compressed_tensors before applying its thresholds, so a nearest-code
+      search disagrees on ~5% of groups in fp32 and fp16, and wider int
+      widths have not been checked at all.
+    - ``scale_dtype`` unset. Rounding the scale, or deriving it as an MX
+      exponent, is a different scale path from the symmetric formula the
+      kernel reconstructs; NVFP4 additionally applies a global scale that
+      makes an exact match unreachable.
+    - the group has to fit a block the kernel has been run at.
+    - CUDA proper. torch.Tensor.is_cuda is also True under ROCm, and the
+      error path calls into libdevice.
     """
     return (
         _TRITON_AVAILABLE
         and observed.is_cuda
+        and torch.version.hip is None
         and observed.ndim == 4
+        and observed.shape[-1] <= _MAX_GROUP_SIZE
         and bool(args.symmetric)
+        and args.scale_dtype is None
         and observed.dtype in _ROUND_CODE
         and _codebook(args) is not None
     )
@@ -187,6 +210,7 @@ if _TRITON_AVAILABLE:
         ROUND_TO: tl.constexpr,
         HALF_RANGE: tl.constexpr,
         TINY_NORMAL: tl.constexpr,
+        ZERO_SCALE: tl.constexpr,
     ):
         """One program per group; the group's values stay in registers.
 
@@ -234,13 +258,15 @@ if _TRITON_AVAILABLE:
                 smax = tl.maximum(
                     _round_to(max_val.to(tl.float32) * p, ROUND_TO), 0.0
                 )
-                eff_scale = tl.maximum(
-                    _round_to(
-                        tl.maximum(tl.abs(smin), tl.abs(smax)) / HALF_RANGE,
-                        ROUND_TO,
-                    ),
-                    1e-38,
-                ).to(tl.float32)
+                raw_scale = _round_to(
+                    tl.maximum(tl.abs(smin), tl.abs(smax)) / HALF_RANGE,
+                    ROUND_TO,
+                )
+                # calculate_qparams replaces an exactly zero scale with the
+                # dtype's eps rather than clamping small ones, so match that
+                # instead of flooring everything at some tiny constant
+                eff_scale = tl.where(raw_scale == 0.0, ZERO_SCALE,
+                                     raw_scale).to(tl.float32)
 
                 # fake_quantize rounds x/scale to the observed dtype before
                 # applying its thresholds
@@ -386,11 +412,10 @@ def grid_search_triton(
         TIE_PARITY=parity,
         ROUND_TO=_ROUND_CODE[observed.dtype],
         HALF_RANGE=_half_bit_range(args),
-        TINY_NORMAL=(
-            0.0
-            if observed.dtype == torch.float32
-            else float(torch.finfo(observed.dtype).tiny)
-        ),
+        # the subnormal fallback applies in every dtype: fp32 has a
+        # subnormal range too, and the relative bound is just as void there
+        TINY_NORMAL=float(torch.finfo(observed.dtype).tiny),
+        ZERO_SCALE=float(torch.finfo(observed.dtype).eps),
     )
 
     return _restore_range(
