@@ -6,6 +6,7 @@ from compressed_tensors.quantization import (
 )
 
 from llmcompressor.observers import mse_quant
+from llmcompressor.observers.helpers import flatten_for_calibration
 from llmcompressor.observers.mse_quant import _grid_search_eager, _grid_search_mse
 from llmcompressor.observers.mse_triton import (
     can_use_triton,
@@ -18,11 +19,6 @@ MAXSHRINK = 0.20
 NORM = 2.4
 NO_PATIENCE = 10**6  # larger than the step count, so it never fires
 
-CUDA = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="requires a CUDA device"
-)
-
-
 def _args(num_bits=8, qtype="int", **kwargs):
     return QuantizationArgs(
         num_bits=num_bits,
@@ -32,6 +28,31 @@ def _args(num_bits=8, qtype="int", **kwargs):
         group_size=kwargs.pop("group_size", 128),
         **kwargs,
     )
+
+
+@pytest.fixture
+def requires_kernel_device():
+    """Skip unless this box has a device the kernel actually dispatches on.
+
+    A plain cuda.is_available() check is not the same question: production
+    also declines ROCm and compute capability below 8.0, so on a T4, a V100
+    or a ROCm box these tests would fail while the kernel is correctly not
+    being used. Asking can_use_triton keeps the two in step.
+
+    A fixture rather than a module-level marker so collection does not
+    initialise CUDA just to decide whether to skip.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device")
+    probe = torch.zeros(1, 2, 2, 32, device="cuda")
+    if not can_use_triton(probe, _args(8, "int", group_size=32)):
+        pytest.skip(
+            "this device is not one the kernel dispatches on "
+            "(needs triton, CUDA, compute capability 8.0+)"
+        )
+
+
+CUDA = pytest.mark.usefixtures("requires_kernel_device")
 
 
 def _eager(observed, args):
@@ -267,8 +288,18 @@ def test_grid_search_mse_actually_dispatches(monkeypatch):
     assert torch.equal(got[1], want[1])
 
 
-def test_grid_search_mse_falls_back_off_gpu():
-    """A CPU tensor must not reach the kernel at all."""
+def test_grid_search_mse_falls_back_off_gpu(monkeypatch):
+    """A CPU tensor must not reach the kernel at all.
+
+    Comparing results would pass even if the kernel ran and happened to
+    agree, so the kernel is replaced with something that raises: the only
+    way this completes is by not calling it.
+    """
+    def _explode(*args, **kwargs):
+        raise AssertionError("the kernel was called for a CPU tensor")
+
+    monkeypatch.setattr(mse_quant, "grid_search_triton", _explode)
+
     torch.manual_seed(0)
     observed = torch.randn(1, 8, 2, 32)
     args = _args(8, "int", group_size=32)
@@ -306,3 +337,36 @@ def test_declines_stacked_observations():
     """The kernel reads one observation; eager reduces over all of them."""
     observed = torch.zeros(4, 8, 2, 32, device="cuda")
     assert not can_use_triton(observed, _args(8, "int", group_size=32))
+
+
+@CUDA
+@pytest.mark.parametrize(
+    "strategy_args",
+    [
+        dict(strategy=QuantizationStrategy.TENSOR_GROUP, group_size=32),
+        dict(strategy=QuantizationStrategy.BLOCK, block_structure=[8, 32]),
+    ],
+    ids=["tensor_group", "block"],
+)
+def test_matches_eager_on_other_dispatched_layouts(strategy_args):
+    """Layouts the gate lets through but the parity tests did not cover.
+
+    can_use_triton keys off the flattened rank and group width, not the
+    strategy name, so anything that lands 4d with a small enough group is
+    dispatched. These two do; they should be held to the same bar as GROUP.
+    """
+    torch.manual_seed(0)
+    weight = torch.randn(64, 128, device="cuda")
+    args = QuantizationArgs(
+        num_bits=8, type="int", symmetric=True, **strategy_args
+    )
+    observed = flatten_for_calibration(weight, "weight", args)
+
+    assert can_use_triton(observed, args), (
+        f"{strategy_args} no longer dispatches; the parity claim below would "
+        "be vacuous"
+    )
+    got = grid_search_triton(observed, args, MAXSHRINK, GRID, NORM)
+    want = _eager(observed, args)
+    assert torch.equal(got[0], want[0])
+    assert torch.equal(got[1], want[1])
