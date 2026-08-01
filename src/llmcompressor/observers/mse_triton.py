@@ -158,15 +158,21 @@ def can_use_triton(observed: torch.Tensor, args: QuantizationArgs) -> bool:
       exponent, is a different scale path from the symmetric formula the
       kernel reconstructs; NVFP4 additionally applies a global scale that
       makes an exact match unreachable.
+    - a single observation. The kernel gives one program per group and reads
+      one row; eager reduces over the observation axis, so anything stacked
+      there would be silently dropped.
     - the group has to fit a block the kernel has been run at.
-    - CUDA proper. torch.Tensor.is_cuda is also True under ROCm, and the
-      error path calls into libdevice.
+    - CUDA proper, at compute capability 8.0 or above. torch.Tensor.is_cuda
+      is also True under ROCm, the error path calls into libdevice, and
+      Triton does not support older NVIDIA architectures.
     """
     return (
         _TRITON_AVAILABLE
         and observed.is_cuda
         and torch.version.hip is None
+        and torch.cuda.get_device_capability(observed.device)[0] >= 8
         and observed.ndim == 4
+        and observed.shape[0] == 1
         and observed.shape[-1] <= _MAX_GROUP_SIZE
         and bool(args.symmetric)
         and args.scale_dtype is None
@@ -343,8 +349,12 @@ def _restore_range(
     bf16. Walking the steps and overwriting only where each one won keeps the
     python float multiply, at one transient tensor.
     """
-    best_min = torch.empty_like(min_val)
-    best_max = torch.empty_like(max_val)
+    # Seeded from the unshrunk range rather than empty_like: with
+    # total_steps == 0 the loop below never runs, and an empty_like return
+    # would be uninitialised memory. Eager lands on the same values there,
+    # since its search loop does not execute either.
+    best_min = min_val.clone()
+    best_max = max_val.clone()
     for i in range(total_steps):
         won = best_step == i
         p = 1.0 - i / grid
@@ -377,7 +387,11 @@ def grid_search_triton(
 
     min_val = torch.amin(observed, dim=(0, -1)).contiguous()
     max_val = torch.amax(observed, dim=(0, -1)).contiguous()
-    total_steps = int(maxshrink * grid)
+    total_steps = int(maxshrink * grid) if grid > 0 else 0
+    if total_steps < 1:
+        # nothing to search. eager returns the unshrunk range here, and
+        # 1.0 / grid would divide by zero for grid == 0
+        return min_val, max_val
 
     codes = _codebook(args)
     parity = _tie_parity(codes)

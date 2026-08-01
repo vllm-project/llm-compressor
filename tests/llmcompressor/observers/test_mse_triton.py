@@ -5,7 +5,8 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 
-from llmcompressor.observers.mse_quant import _grid_search_eager
+from llmcompressor.observers import mse_quant
+from llmcompressor.observers.mse_quant import _grid_search_eager, _grid_search_mse
 from llmcompressor.observers.mse_triton import (
     can_use_triton,
     grid_search_triton,
@@ -231,3 +232,77 @@ def test_bound_is_config_only():
     second = neighbors_for_config(args, GRID, MAXSHRINK, torch.bfloat16)
     assert first == second
     assert isinstance(first, int)
+
+
+@CUDA
+def test_grid_search_mse_actually_dispatches(monkeypatch):
+    """The public entry point has to reach the kernel, not just the kernel.
+
+    Testing grid_search_triton directly says nothing about whether
+    _grid_search_mse ever calls it; a wrong condition in can_use_triton would
+    leave every one of those tests green while the kernel never ran.
+    """
+    torch.manual_seed(0)
+    observed = torch.randn(1, 32, 4, 128, device="cuda", dtype=torch.bfloat16)
+    args = _args(8, "int")
+    token_args = args.model_copy(
+        update={"strategy": QuantizationStrategy.TOKEN}
+    )
+
+    calls = []
+    real = mse_quant.grid_search_triton
+    monkeypatch.setattr(
+        mse_quant,
+        "grid_search_triton",
+        lambda *a, **k: (calls.append(1), real(*a, **k))[1],
+    )
+
+    got = _grid_search_mse(
+        observed, args, token_args, MAXSHRINK, 5, GRID, NORM, 5
+    )
+    assert calls, "_grid_search_mse did not take the triton path"
+
+    want = _eager(observed, args)
+    assert torch.equal(got[0], want[0])
+    assert torch.equal(got[1], want[1])
+
+
+def test_grid_search_mse_falls_back_off_gpu():
+    """A CPU tensor must not reach the kernel at all."""
+    torch.manual_seed(0)
+    observed = torch.randn(1, 8, 2, 32)
+    args = _args(8, "int", group_size=32)
+    token_args = args.model_copy(
+        update={"strategy": QuantizationStrategy.TOKEN}
+    )
+    got = _grid_search_mse(
+        observed, args, token_args, MAXSHRINK, 10**6, GRID, NORM, 5
+    )
+    want = _eager(observed, args)
+    assert torch.equal(got[0], want[0])
+    assert torch.equal(got[1], want[1])
+
+
+@CUDA
+@pytest.mark.parametrize("maxshrink,grid", [(0.0, 100.0), (0.001, 100.0), (0.2, 0.0)])
+def test_degenerate_grid_returns_the_unshrunk_range(maxshrink, grid):
+    """int(maxshrink * grid) can be zero, and grid can be zero.
+
+    With no steps to search the loop that fills the result never runs, so
+    starting it from empty_like would return uninitialised memory, and
+    1.0 / grid would raise. Eager returns the unshrunk range here.
+    """
+    torch.manual_seed(0)
+    observed = torch.randn(1, 8, 2, 32, device="cuda")
+    args = _args(8, "int", group_size=32)
+
+    got_min, got_max = grid_search_triton(observed, args, maxshrink, grid, NORM)
+    assert torch.equal(got_min, torch.amin(observed, dim=(0, -1)))
+    assert torch.equal(got_max, torch.amax(observed, dim=(0, -1)))
+
+
+@CUDA
+def test_declines_stacked_observations():
+    """The kernel reads one observation; eager reduces over all of them."""
+    observed = torch.zeros(4, 8, 2, 32, device="cuda")
+    assert not can_use_triton(observed, _args(8, "int", group_size=32))
