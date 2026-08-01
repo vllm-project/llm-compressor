@@ -169,7 +169,7 @@ def can_use_triton(observed: torch.Tensor, args: QuantizationArgs) -> bool:
     return (
         _TRITON_AVAILABLE
         and observed.is_cuda
-        and torch.version.hip is None
+        and getattr(torch.version, "hip", None) is None
         and torch.cuda.get_device_capability(observed.device)[0] >= 8
         and observed.ndim == 4
         and observed.shape[0] == 1
