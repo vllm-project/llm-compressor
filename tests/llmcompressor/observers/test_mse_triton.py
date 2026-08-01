@@ -1,0 +1,199 @@
+import pytest
+import torch
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationStrategy,
+)
+
+from llmcompressor.observers.mse_quant import _grid_search_eager
+from llmcompressor.observers.mse_triton import (
+    can_use_triton,
+    grid_search_triton,
+    neighbors_for_config,
+)
+
+GRID = 100.0
+MAXSHRINK = 0.20
+NORM = 2.4
+NO_PATIENCE = 10**6  # larger than the step count, so it never fires
+
+CUDA = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="requires a CUDA device"
+)
+
+
+def _args(num_bits=8, qtype="int", **kwargs):
+    return QuantizationArgs(
+        num_bits=num_bits,
+        type=qtype,
+        symmetric=True,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=kwargs.pop("group_size", 128),
+        **kwargs,
+    )
+
+
+def _eager(observed, args):
+    """The reference: full grid, no early stopping."""
+    token_args = args.model_copy(
+        update={"strategy": QuantizationStrategy.TOKEN}
+    )
+    min_val = torch.amin(observed, dim=(0, -1))
+    max_val = torch.amax(observed, dim=(0, -1))
+    return _grid_search_eager(
+        observed,
+        args,
+        token_args,
+        min_val,
+        max_val,
+        torch.full_like(min_val, torch.finfo(min_val.dtype).max),
+        min_val.clone(),
+        max_val.clone(),
+        int(MAXSHRINK * GRID),
+        NO_PATIENCE,
+        GRID,
+        NORM,
+    )
+
+
+@CUDA
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize(
+    "num_bits,qtype", [(8, "int"), (4, "int"), (8, "float")]
+)
+def test_matches_eager_full_grid(dtype, num_bits, qtype):
+    """The kernel has to pick the same range the eager search picks.
+
+    Not "close to": the same. Everything the kernel is allowed to run on is
+    a format where it reproduces eager exactly, and can_use_triton exists to
+    keep it off everything else.
+    """
+    torch.manual_seed(0)
+    observed = torch.randn(1, 64, 8, 128, device="cuda", dtype=dtype)
+    args = _args(num_bits, qtype)
+
+    assert can_use_triton(observed, args)
+    got_min, got_max = grid_search_triton(observed, args, MAXSHRINK, GRID, NORM)
+    want_min, want_max = _eager(observed, args)
+
+    assert torch.equal(got_min, want_min)
+    assert torch.equal(got_max, want_max)
+
+
+@CUDA
+def test_matches_eager_at_channel_granularity():
+    """CHANNEL flattens to one group per row, which is still 4d."""
+    torch.manual_seed(0)
+    observed = torch.randn(1, 32, 1, 256, device="cuda")
+    args = QuantizationArgs(
+        num_bits=8, type="int", symmetric=True,
+        strategy=QuantizationStrategy.CHANNEL,
+    )
+    assert can_use_triton(observed, args)
+    got = grid_search_triton(observed, args, MAXSHRINK, GRID, NORM)
+    want = _eager(observed, args)
+    assert torch.equal(got[0], want[0])
+    assert torch.equal(got[1], want[1])
+
+
+@CUDA
+def test_subnormal_scales_still_match():
+    """Scales below the smallest normal void the neighbor bound.
+
+    The spacing there is absolute rather than relative, so a scale can halve
+    between steps; enumerating every representable half scale finds a worst
+    ratio of 0.5, which no small neighbor count covers. The kernel is
+    supposed to notice and run its full search for those steps.
+    """
+    torch.manual_seed(0)
+    observed = (
+        torch.randn(1, 32, 4, 128, device="cuda") * 1e-6
+    ).to(torch.float16)
+    args = _args(4, "int")
+    scale = observed.abs().amax(dim=(0, -1)) / 7.5
+    assert (scale < torch.finfo(torch.float16).tiny).any(), (
+        "test data does not actually reach the subnormal range"
+    )
+
+    got = grid_search_triton(observed, args, MAXSHRINK, GRID, NORM)
+    want = _eager(observed, args)
+    assert torch.equal(got[0], want[0])
+    assert torch.equal(got[1], want[1])
+
+
+@pytest.mark.parametrize(
+    "observed,args,why",
+    [
+        (
+            torch.zeros(1, 1, 8192),
+            QuantizationArgs(
+                num_bits=8, type="int", symmetric=True,
+                strategy=QuantizationStrategy.TENSOR,
+            ),
+            "TENSOR flattens to 3d and the launcher reads four dims",
+        ),
+        (
+            torch.zeros(1, 8, 4, 32),
+            QuantizationArgs(
+                num_bits=8, type="int", symmetric=False,
+                strategy=QuantizationStrategy.GROUP, group_size=32,
+            ),
+            "asymmetric needs a zero point the codebook search has none of",
+        ),
+        (
+            torch.zeros(1, 8, 4, 32),
+            QuantizationArgs(
+                num_bits=4, type="float", symmetric=True,
+                strategy=QuantizationStrategy.GROUP, group_size=32,
+            ),
+            "float4 rounds through bfloat16 in compressed_tensors",
+        ),
+        (
+            torch.zeros(1, 8, 4, 32, dtype=torch.float64),
+            QuantizationArgs(
+                num_bits=8, type="int", symmetric=True,
+                strategy=QuantizationStrategy.GROUP, group_size=32,
+            ),
+            "float64 is not one of the dtypes the error path reproduces",
+        ),
+    ],
+)
+def test_declines_what_it_cannot_reproduce(observed, args, why):
+    """Each of these must fall back rather than silently differ."""
+    if torch.cuda.is_available():
+        observed = observed.cuda()
+    assert not can_use_triton(observed, args), why
+
+
+def test_declines_without_cuda():
+    """A CPU tensor keeps the eager path even where triton is installed."""
+    assert not can_use_triton(torch.zeros(1, 8, 4, 32), _args(8, "int", group_size=32))
+
+
+@pytest.mark.parametrize(
+    "dtype,expect_at_least",
+    [(torch.float32, 2), (torch.bfloat16, 3), (torch.float16, 2)],
+)
+def test_bound_widens_for_coarser_scales(dtype, expect_at_least):
+    """Rounding the scale makes steps move unevenly, so the bound must grow.
+
+    int8 at grid 100 / maxshrink 0.2 needs 2 neighbors when the scale is
+    exact. Rounding it to bf16 lets two consecutive scales drift further
+    apart than 1/grid, and the measured per-step code index jump goes to 3.
+    """
+    n = neighbors_for_config(_args(8, "int"), GRID, MAXSHRINK, dtype)
+    assert n >= expect_at_least
+
+
+def test_bound_is_config_only():
+    """N must not depend on the data.
+
+    NUM_NEIGHBORS is a tl.constexpr, so a data-dependent bound would compile
+    a separate kernel per layer, and reading a per-step ratio back to the
+    host to compute it would sync inside the launcher.
+    """
+    args = _args(8, "int")
+    first = neighbors_for_config(args, GRID, MAXSHRINK, torch.bfloat16)
+    second = neighbors_for_config(args, GRID, MAXSHRINK, torch.bfloat16)
+    assert first == second
+    assert isinstance(first, int)
