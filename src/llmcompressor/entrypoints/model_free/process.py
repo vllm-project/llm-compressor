@@ -6,12 +6,13 @@ import torch
 from compressed_tensors.compressors import compress_module
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import QuantizationScheme
-from compressed_tensors.utils import match_quantizable_tensors
+from compressed_tensors.utils import match_quantizable_tensors, str_to_torch_dtype
 from compressed_tensors.utils.safetensors_load import (
     InverseWeightMap,
     load_tensors_from_inverse_weight_map,
 )
 from loguru import logger
+from safetensors import safe_open
 from safetensors.torch import save_file
 from torch.nn import Module
 
@@ -94,32 +95,43 @@ def process_file(
     """
     assert not is_microscale_scheme(scheme), "Use `process_file_microscale_scheme`"
 
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+    if not os.path.exists(save_path):
+        tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
-    tensors = split_fused_moe_experts(tensors)
+        tensors = split_fused_moe_experts(tensors)
 
-    if converter is not None:
-        tensors = converter.process(tensors)
+        if converter is not None:
+            tensors = converter.process(tensors)
 
-    for module_name, name in match_quantizable_tensors(tensors, ignore, scheme.targets):
-        validate_weight_for_quantization(tensors[name], scheme, name)
+        for module_name, name in match_quantizable_tensors(
+            tensors, ignore, scheme.targets
+        ):
+            validate_weight_for_quantization(tensors[name], scheme, name)
 
-        # 1. initialize module with qparams (on device)
-        module = initialize_quantized_linear(tensors[name], scheme, device)
+            # 1. initialize module with qparams (on device)
+            module = initialize_quantized_linear(tensors[name], scheme, device)
 
-        # 2. calibrate weight qparams
-        calibrate_weight(module)
+            # 2. calibrate weight qparams
+            calibrate_weight(module)
 
-        # 3. compress module using qparams
-        compress_module(module)
+            # 3. compress module using qparams
+            compress_module(module)
 
-        # 4. save compressed data (on cpu)
-        del tensors[name]
-        prefix = module_name + "."
-        for key, value in module.state_dict(prefix=prefix).items():
-            tensors[key] = value.to("cpu")
+            # 4. save compressed data (on cpu)
+            del tensors[name]
+            prefix = module_name + "."
+            for key, value in module.state_dict(prefix=prefix).items():
+                tensors[key] = value.to("cpu")
 
-    save_file(tensors, save_path)
+        save_file(tensors, save_path)
+    else:
+        logger.info(f"Skipping {save_path}, already exists")
+        tensors = {}
+        with safe_open(save_path, framework="pt", device="meta") as f:
+            for key in f.keys():
+                tensor_meta = f.get_tensor(key)
+                tensors[key] = tensor_meta
+
     total_size = sum(tensor.nbytes for tensor in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
     return total_size, weight_map
@@ -229,6 +241,7 @@ def process_file_microscale_scheme(
     # Save ALL tensors to this shard's output — including partner tensors fetched
     # from other shards. Partners are re-saved here so future runs don't need to
     # re-fetch them. The caller updates the safetensors index to reflect new locations.
+    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
     save_file(tensors, save_path)
     total_size = sum(t.nbytes for t in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
