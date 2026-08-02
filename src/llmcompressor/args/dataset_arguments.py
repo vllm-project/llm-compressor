@@ -304,6 +304,22 @@ class DatasetArguments(CustomDatasetArguments):
             "calibration. Default False."
         },
     )
+    layerwise_decompression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, each layer is decompressed before calibrating in "
+            "the sequential pipeline. Use when loading a pre-compressed model "
+            "that needs recalibration. Default False."
+        },
+    )
+    layerwise_compression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, each layer is compressed after propagation in the "
+            "sequential pipeline. Reduces peak memory by keeping only the "
+            "active layer decompressed. Default False."
+        },
+    )
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None
