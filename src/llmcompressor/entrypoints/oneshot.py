@@ -362,6 +362,7 @@ def oneshot(
         "_prepare_4d_causal_attention_mask_with_cache_position",
         "_update_linear_attn_mask",
         "project_per_layer_inputs",
+        "_apply_attn_res",
     ],
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",
