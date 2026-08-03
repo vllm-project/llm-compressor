@@ -36,7 +36,7 @@ model_free_ptq(
 
 # Quantizing models to NVFP4A16/ MXFP4A16
 
-Using model_free_ptq to quantize models with microscale schemes (NVFP4/MXFP4) is the same as quantizing models with non-microscale schemes. `model_free_ptq` fuses the global scales across fused modules (qkv, gate_up) directly, so no additional reindexing step is required.
+Using `model_free_ptq` to quantize models with microscale schemes (NVFP4/MXFP4) is the same as quantizing models with non-microscale schemes. `model_free_ptq` fuses the global scales across fused modules (qkv, gate_up) directly, so no additional reindexing step is required.
 
 Call `model_free_ptq` with a microscale scheme:
 ```python
