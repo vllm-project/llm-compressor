@@ -77,7 +77,7 @@ model_free_ptq(
 
 ## Microscale Flow (NVFP4)
 
-NVFP4 requires a **global scale** that is fused across related weight groups (e.g. qkv projections, gate/up projections). `model_free_ptq` handles this fusion directly, so no preprocessing step is required — run it just like the block/tensor schemes above:
+NVFP4 requires a **global scale** that is fused across related weight groups (e.g. qkv projections, gate/up projections). `model_free_ptq` handles this fusion directly, so no preprocessing step is required — run it just like the non-microscale schemes above:
 
 ```python
 from llmcompressor import model_free_ptq
