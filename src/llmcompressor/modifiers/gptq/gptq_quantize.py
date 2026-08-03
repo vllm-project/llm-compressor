@@ -7,6 +7,7 @@ from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
+    QuantizationType,
     fake_quantize,
 )
 from loguru import logger
@@ -327,29 +328,58 @@ def _get_block_shape(strategy, quant_args, num_rows, num_columns):
         raise ValueError(f"Unsupported strategy for Triton GPTQ: {strategy}")
 
 
-def _build_codebook(scale, zero_point, quant_args, global_scale=None):
-    num_bits = quant_args.num_bits
-    if quant_args.symmetric:
-        q_min = -(2 ** (num_bits - 1))
-        q_max = 2 ** (num_bits - 1) - 1
+def _get_float_vals(num_bits, device):
+    if num_bits == 8:
+        all_bytes = torch.arange(0, 256, device=device, dtype=torch.uint8)
+        fp_vals = all_bytes.view(torch.float8_e4m3fn).to(torch.float32)
+        return fp_vals[~fp_vals.isnan()].unique()
+    elif num_bits == 4:
+        return torch.tensor(
+            [-6.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5,
+             0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0],
+            device=device, dtype=torch.float32,
+        )
     else:
-        q_min = 0
-        q_max = 2**num_bits - 1
+        raise NotImplementedError(f"Float codebook not supported for {num_bits}-bit")
 
-    int_vals = torch.arange(
-        q_min, q_max + 1, device=scale.device, dtype=torch.float32
-    )
 
-    s = scale.to(dtype=torch.float32)
-    zp = zero_point.to(dtype=torch.float32)
-    while s.dim() < 2:
-        s = s.unsqueeze(0)
-        zp = zp.unsqueeze(0)
+def _build_codebook(scale, zero_point, quant_args, global_scale=None):
+    if quant_args.type == QuantizationType.FLOAT:
+        fp_vals = _get_float_vals(quant_args.num_bits, scale.device)
 
-    codebook = (int_vals - zp.unsqueeze(-1)) * s.unsqueeze(-1)
+        s = scale.to(dtype=torch.float32)
+        zp = zero_point.to(dtype=torch.float32)
+        while s.dim() < 2:
+            s = s.unsqueeze(0)
+            zp = zp.unsqueeze(0)
 
-    if global_scale is not None:
-        codebook = codebook / global_scale
+        codebook = (fp_vals - zp.unsqueeze(-1)) * s.unsqueeze(-1)
+        if global_scale is not None:
+            codebook = codebook / global_scale
+    else:
+        num_bits = quant_args.num_bits
+        signed = zero_point.is_signed()
+        if signed:
+            q_min = -(2 ** (num_bits - 1))
+            q_max = 2 ** (num_bits - 1) - 1
+        else:
+            q_min = 0
+            q_max = 2**num_bits - 1
+
+        int_vals = torch.arange(
+            q_min, q_max + 1, device=scale.device, dtype=torch.float32
+        )
+
+        s = scale.to(dtype=torch.float32)
+        zp = zero_point.to(dtype=torch.float32)
+        while s.dim() < 2:
+            s = s.unsqueeze(0)
+            zp = zp.unsqueeze(0)
+
+        codebook = (int_vals - zp.unsqueeze(-1)) * s.unsqueeze(-1)
+
+        if global_scale is not None:
+            codebook = codebook / global_scale
 
     return codebook.contiguous()
 

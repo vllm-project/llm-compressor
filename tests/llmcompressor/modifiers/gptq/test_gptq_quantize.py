@@ -32,6 +32,29 @@ def _make_quantize_inputs(strategy: str = "group", device: str = "cpu"):
     if strategy == "block":
         quant_args_kwargs["num_bits"] = 8
         quant_args_kwargs["block_structure"] = [2, 2]
+    if strategy == "fp8":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["strategy"] = "channel"
+    if strategy == "fp8_block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["strategy"] = "block"
+        quant_args_kwargs["block_structure"] = [2, 2]
+    if strategy == "int_asym":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["symmetric"] = False
+        quant_args_kwargs["strategy"] = "channel"
+    if strategy == "fp8_asym":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["symmetric"] = False
+        quant_args_kwargs["strategy"] = "channel"
+    if strategy == "nvfp4":
+        quant_args_kwargs["num_bits"] = 4
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["strategy"] = "tensor_group"
+        quant_args_kwargs["group_size"] = 2
 
     quant_args = QuantizationArgs(**quant_args_kwargs)
     module.quantization_scheme = QuantizationScheme(
@@ -164,7 +187,7 @@ def test_quantize_weight_channel_actorder_weight():
 @requires_compute_capability(8, 0)
 @torch.no_grad()
 @pytest.mark.parametrize(
-    "strategy", ["tensor", "channel", "group", "tensor_group", "block"]
+    "strategy", ["tensor", "channel", "group", "tensor_group", "block", "fp8", "fp8_block", "int_asym", "fp8_asym", "nvfp4"]
 )
 def test_quantize_weight_triton_cutoff_matches_eager(monkeypatch, strategy):
     module, quant_args, hessian = _make_quantize_inputs(strategy, device="cuda")
@@ -188,9 +211,10 @@ def test_quantize_weight_triton_cutoff_matches_eager(monkeypatch, strategy):
 
     assert triton_loss == pytest.approx(eager_loss, rel=1e-4)
     for key in ("weight", "weight_scale", "weight_zero_point"):
-        torch.testing.assert_close(
-            triton_qparams[key], eager_qparams[key], rtol=1e-4, atol=1e-4
-        )
+        t, e = triton_qparams[key], eager_qparams[key]
+        if t.dtype.is_floating_point and t.element_size() == 1:
+            t, e = t.to(torch.float32), e.to(torch.float32)
+        torch.testing.assert_close(t, e, rtol=1e-4, atol=1e-4)
 
 
 @requires_compute_capability(8, 0)
