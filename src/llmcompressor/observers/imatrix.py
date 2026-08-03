@@ -306,10 +306,31 @@ def _grid_search(
         err = q.sum(dim=(0, -1))
 
         improved = err < best_error
+
+        expected_shape = best_error.shape
+        tensors = {
+            "err": err,
+            "best_min": best_min,
+            "shrink_min": shrink_min,
+            "best_max": best_max,
+            "shrink_max": shrink_max,
+            "improved": improved,
+        }
+        mismatches = {
+            name: tensor.shape
+            for name, tensor in tensors.items()
+            if tensor.shape != expected_shape
+        }
+        if mismatches:
+            raise RuntimeError(
+                "iMatrix grid-search shape mismatch: "
+                f"expected={expected_shape}, actual={mismatches}"
+            )
+
         if torch.any(improved):
-            best_error[improved] = err[improved]
-            best_min[improved] = shrink_min[improved]
-            best_max[improved] = shrink_max[improved]
+            best_error = torch.where(improved, err, best_error)
+            best_min = torch.where(improved, shrink_min, best_min)
+            best_max = torch.where(improved, shrink_max, best_max)
             no_improve = 0
         else:
             no_improve += 1
