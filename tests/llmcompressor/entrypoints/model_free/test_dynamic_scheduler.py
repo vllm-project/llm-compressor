@@ -64,19 +64,14 @@ def test_pick_respects_reservations():
     assert _pick_device([d0, d1], 20_000_000_000, initial_free, reserved) == d1
 
 
-def test_pick_cpu_always():
-    """CPU is always eligible regardless of memory."""
+def test_pick_skips_cpu_devices():
+    """CPU devices are not in initial_free, so they are never picked."""
     cpu = torch.device("cpu")
-    picked = _pick_device([cpu], 10**15, {}, {cpu: 0})
-    assert picked == cpu
+    picked = _pick_device([cpu], 1000, {}, {cpu: 0})
+    assert picked is None
 
 
 # ── _free_bytes ────────────────────────────────────────────────────────
-
-
-def test_free_bytes_cpu_returns_inf():
-    """CPU devices should always return inf."""
-    assert _free_bytes(torch.device("cpu"), {}, {}) == float("inf")
 
 
 def test_free_bytes_subtracts_reserved():
@@ -92,6 +87,12 @@ def test_free_bytes_clamps_to_zero():
     initial_free = {dev: 1000}
     reserved = {dev: 5000}
     assert _free_bytes(dev, initial_free, reserved) == 0
+
+
+def test_free_bytes_unknown_device_returns_zero():
+    """Devices not in initial_free (e.g. CPU) get zero available."""
+    cpu = torch.device("cpu")
+    assert _free_bytes(cpu, {}, {}) == 0
 
 
 # ── exec_jobs_dynamic (CPU path, no GPU needed) ────────────────────────

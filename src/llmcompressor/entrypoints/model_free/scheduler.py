@@ -40,7 +40,7 @@ def _snapshot_free(devices: list[torch.device]) -> dict[torch.device, int]:
     """Query free VRAM once per device.  CPU devices are skipped."""
     free = {}
     for d in devices:
-        if d.type != "cpu":
+        if d.type != "cpu" and d not in free:
             mem_free, _ = torch.accelerator.memory.get_memory_info(d)
             free[d] = mem_free
     return free
@@ -50,11 +50,14 @@ def _free_bytes(
     dev: torch.device,
     initial_free: dict[torch.device, int],
     reserved: dict[torch.device, int],
-) -> int | float:
+) -> int:
     """Available VRAM for *dev*: initial snapshot minus promised reservations.
-    Returns ``inf`` for CPU devices (unbounded capacity)."""
-    if dev.type == "cpu":
-        return float("inf")
+
+    CPU devices are not present in *initial_free* (skipped by
+    ``_snapshot_free``), so they always return 0 and are never picked by
+    ``_pick_device``.  The CPU-only path is handled separately in
+    ``exec_jobs_dynamic`` before any scheduling logic runs.
+    """
     return max(0, initial_free.get(dev, 0) - reserved.get(dev, 0))
 
 
@@ -68,8 +71,6 @@ def _pick_device(
     bytes, or ``None`` if nothing qualifies."""
     best, best_free = None, -1
     for dev in devices:
-        if dev.type == "cpu":
-            return dev
         available = _free_bytes(dev, initial_free, reserved)
         if available >= required and available > best_free:
             best, best_free = dev, available
@@ -98,7 +99,7 @@ def exec_jobs_dynamic(
     """
     n = len(jobs)
 
-    # CPU path — nothing to schedule
+    # CPU path — run sequentially regardless of max_workers
     if all(d.type == "cpu" for d in devices):
         out = []
         for job in tqdm.tqdm(jobs, desc=desc):
@@ -129,56 +130,57 @@ def exec_jobs_dynamic(
     pending = list(range(n))
     fut_device: dict = {}  # future -> device, for releasing reservations
 
-    with tqdm.tqdm(total=n, desc=desc) as bar:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            inflight: dict = {}  # future -> job index
+    with (
+        tqdm.tqdm(total=n, desc=desc) as bar,
+        ThreadPoolExecutor(max_workers=max_workers) as pool,
+    ):
+        inflight: dict = {}  # future -> job index
 
-            while pending or inflight:
-                # --- try to fill idle workers ---
-                for idx in list(pending):
-                    if len(inflight) >= max_workers:
-                        break
-                    dev = _pick_device(
-                        devices,
-                        memory_estimates[idx],
-                        initial_free,
-                        reserved,
-                    )
-                    if dev is None:
-                        continue
+        while pending or inflight:
+            # --- try to fill idle workers ---
+            for idx in list(pending):
+                if len(inflight) >= max_workers:
+                    break
+                dev = _pick_device(
+                    devices,
+                    memory_estimates[idx],
+                    initial_free,
+                    reserved,
+                )
+                if dev is None:
+                    continue
 
-                    fn, iwm, sp, sch, ign, conv = jobs[idx]
-                    fut = pool.submit(fn, iwm, sp, sch, ign, dev, conv)
-                    inflight[fut] = idx
-                    fut_device[fut] = dev
-                    reserved[dev] += memory_estimates[idx]
-                    pending.remove(idx)
-                    logger.debug(
-                        f"Shard {idx} -> {dev} "
-                        f"(~{memory_estimates[idx] / 1e9:.2f} GB)"
-                    )
-
-                # --- nothing running and nothing fits ---
-                if not inflight:
-                    if not pending:
-                        break
-                    raise RuntimeError(
-                        "No device has enough estimated free memory "
-                        "for any remaining shard. Consider reducing "
-                        "max_workers or adjusting _MEMORY_MULTIPLIER."
-                    )
-
-                # --- wait for at least one job to finish ---
-                done, _ = wait(
-                    inflight.keys(),
-                    return_when=FIRST_COMPLETED,
+                fn, iwm, sp, sch, ign, conv = jobs[idx]
+                fut = pool.submit(fn, iwm, sp, sch, ign, dev, conv)
+                inflight[fut] = idx
+                fut_device[fut] = dev
+                reserved[dev] += memory_estimates[idx]
+                pending.remove(idx)
+                logger.debug(
+                    f"Shard {idx} -> {dev} " f"(~{memory_estimates[idx] / 1e9:.2f} GB)"
                 )
 
-                for f in done:
-                    i = inflight.pop(f)
-                    dev = fut_device.pop(f)
-                    reserved[dev] -= memory_estimates[i]
-                    results[i] = f.result()  # propagates exceptions
-                    bar.update(1)
+            # --- nothing running and nothing fits ---
+            if not inflight:
+                if not pending:
+                    break
+                raise RuntimeError(
+                    "No device has enough estimated free memory "
+                    "for any remaining shard. Consider reducing "
+                    "max_workers or adjusting _MEMORY_MULTIPLIER."
+                )
+
+            # --- wait for at least one job to finish ---
+            done, _ = wait(
+                inflight.keys(),
+                return_when=FIRST_COMPLETED,
+            )
+
+            for f in done:
+                i = inflight.pop(f)
+                dev = fut_device.pop(f)
+                reserved[dev] -= memory_estimates[i]
+                results[i] = f.result()  # propagates exceptions
+                bar.update(1)
 
     return results
