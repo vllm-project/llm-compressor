@@ -38,6 +38,7 @@ from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
 from llmcompressor.modifiers.transform.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
+    SlicedSmoothTarget,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
@@ -366,6 +367,28 @@ class AWQModifier(Modifier):
                             f" not found on parent module '{ancestor_name}'"
                         )
 
+                extra_smooth_targets = []
+                if mapping.extra_smooth_targets:
+                    # Resolved against the module holding smooth_layer, not against
+                    # the balance layers' ancestor: in an AdaLN block the balance
+                    # layers sit under `attn` / `ff` while the shared modulation
+                    # projection is a sibling of the norm, one level up.
+                    smooth_parent_name = smooth_name.rpartition(".")[0]
+                    smooth_parent = (
+                        model.get_submodule(smooth_parent_name)
+                        if smooth_parent_name
+                        else model
+                    )
+                    for target in mapping.extra_smooth_targets:
+                        module = getattr_chain(smooth_parent, target.layer)
+                        if module is None:
+                            raise ValueError(
+                                f"extra_smooth_target '{target.layer}' not found on "
+                                f"'{smooth_parent_name or type(model).__name__}', the "
+                                f"module holding smooth layer '{smooth_name}'"
+                            )
+                        extra_smooth_targets.append((module, target))
+
                 resolved_mappings.append(
                     ResolvedMapping(
                         smooth_name,
@@ -375,6 +398,7 @@ class AWQModifier(Modifier):
                         parent=ancestor,
                         parent_name=ancestor_name,
                         activation_hook_target=activation_hook_target,
+                        extra_smooth_targets=extra_smooth_targets,
                     )
                 )
         if num_incompatible > 0:
@@ -495,6 +519,9 @@ class AWQModifier(Modifier):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
+            extra_smooth_modules = [
+                module for module, _ in mapping.extra_smooth_targets
+            ]
 
             # pin memory for faster onloading during grid search
             # pinned memory in cache is deleted before next mapping is pinned
@@ -503,7 +530,14 @@ class AWQModifier(Modifier):
                 cache.pin_memory(batch_index)
 
             with (
-                align_modules([parent_module, smooth_layer, *balance_layers]),
+                align_modules(
+                    [
+                        parent_module,
+                        smooth_layer,
+                        *balance_layers,
+                        *extra_smooth_modules,
+                    ]
+                ),
                 calibration_forward_context(model),
                 HooksMixin.disable_hooks(),
             ):
@@ -580,6 +614,10 @@ class AWQModifier(Modifier):
                 for layer in balance_layers:
                     _smooth(layer, orig_layer_weights)
                 _smooth(smooth_layer, orig_layer_weights)
+                for module, target in mapping.extra_smooth_targets:
+                    absorb_sliced_scales(
+                        module, target, best_scales.to(module.weight.device)
+                    )
 
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_stats[mapping.smooth_name]
@@ -966,6 +1004,57 @@ class AWQModifier(Modifier):
         if v not in (True, False, "both"):
             raise ValueError(f"duo_scaling must be True, False, or 'both', got {v!r}")
         return v
+
+
+@torch.no_grad()
+def absorb_sliced_scales(
+    module: Module,
+    target: SlicedSmoothTarget,
+    scales: torch.Tensor,
+) -> None:
+    """
+    Absorb ``1/scales`` into the rows of ``module`` that emit ``target``'s chunk.
+
+    Used for AdaLN-modulated blocks, where the balance layers' input is
+    ``norm(x) * (1 + scale) + shift`` and ``shift`` is a slice of a shared
+    projection's output. Dividing ``norm.weight`` handles the
+    ``norm(x) * (1 + scale)`` term, and this function handles ``shift``, which
+    together make the smoothing exactly output preserving.
+
+    Unlike the fused-qkv case in ``_apply_smoothing``, the rows cannot be taken
+    from the end of the weight: the chunk sits at a known offset inside the output
+    and is tiled ``target.repeat`` times across it.
+
+    :param module: the projection to slice
+    :param target: which chunk of the projection's output to scale
+    :param scales: per-channel smoothing scales, already on ``module``'s device
+    """
+    hidden = scales.size(0)
+    group = target.num_chunks * hidden
+    expected = group * target.repeat
+    if module.weight.size(0) != expected:
+        raise ValueError(
+            f"extra_smooth_target '{target.layer}' expects {expected} out_features "
+            f"({target.num_chunks} chunks of {hidden} x {target.repeat} repeats) "
+            f"but the module has {module.weight.size(0)}"
+        )
+    if not 0 <= target.chunk_index < target.num_chunks:
+        raise ValueError(
+            f"chunk_index {target.chunk_index} out of range for "
+            f"num_chunks {target.num_chunks}"
+        )
+
+    weight = module.weight
+    bias = getattr(module, "bias", None)
+    for group_index in range(target.repeat):
+        start = group_index * group + target.chunk_index * hidden
+        stop = start + hidden
+        weight[start:stop].div_(scales.view(-1, 1))
+        if bias is not None:
+            bias[start:stop].div_(scales)
+    update_offload_parameter(module, "weight", weight)
+    if bias is not None:
+        update_offload_parameter(module, "bias", bias)
 
 
 def _check_layers_are_compatible(
