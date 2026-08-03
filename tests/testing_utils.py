@@ -338,6 +338,13 @@ def requires_gpu(test_case_or_num):
         return decorator(test_case_or_num)
 
 
+def get_accelerator_type() -> str:
+    if not torch.accelerator.is_available():
+        raise RuntimeError("No accelerator available")
+
+    return torch.accelerator.current_accelerator().type
+
+
 def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
     """
     Pytest decorator to skip based on total available GPU memory (across all GPUs). This
