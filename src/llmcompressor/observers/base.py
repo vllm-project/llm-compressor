@@ -5,7 +5,6 @@ import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
-from compressed_tensors.quantization.quant_args import FloatArgs
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
@@ -25,18 +24,6 @@ class QParamsDict(TypedDict, total=False):
     scale: torch.Tensor
     zero_point: torch.Tensor
     global_scale: Optional[torch.Tensor]
-
-
-class CustomFP8ScaleData(FloatArgs):
-    exponent = 4
-    mantissa = 3
-    bits = 8
-    max = 0
-    min = 0
-
-    def __init__(self, max: float, min: float):
-        self.max = max
-        self.min = min
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -101,18 +88,14 @@ class Observer(InternalModule, RegistryMixin):
             return None
 
         all_stats = self.fusion_handler.get_fused_statistics()
+
         global_absmax = all_stats[0]["max_vals"].max()
         for stats in all_stats:
             global_absmax = torch.max(global_absmax, -stats["min_vals"].min())
             global_absmax = torch.max(global_absmax, stats["max_vals"].max())
 
-        gparam_kwargs = {}
-        gs_max = (self.args.observer_kwargs or {}).get("global_scale_max")
-        if gs_max is not None:
-            gparam_kwargs["scale_data"] = CustomFP8ScaleData(max=gs_max, min=-gs_max)
-
         return generate_gparam(
-            -global_absmax.reshape(1), global_absmax.reshape(1), **gparam_kwargs
+            -global_absmax.reshape(1), global_absmax.reshape(1)
         )
 
     @torch.no_grad
