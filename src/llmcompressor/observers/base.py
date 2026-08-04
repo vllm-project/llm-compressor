@@ -88,15 +88,12 @@ class Observer(InternalModule, RegistryMixin):
             return None
 
         all_stats = self.fusion_handler.get_fused_statistics()
-
         global_absmax = all_stats[0]["max_vals"].max()
         for stats in all_stats:
             global_absmax = torch.max(global_absmax, -stats["min_vals"].min())
             global_absmax = torch.max(global_absmax, stats["max_vals"].max())
 
-        return generate_gparam(
-            -global_absmax.reshape(1), global_absmax.reshape(1)
-        )
+        return generate_gparam(-global_absmax.reshape(1), global_absmax.reshape(1))
 
     @torch.no_grad
     def get_qparams(self) -> QParamsDict:
