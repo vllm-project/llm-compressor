@@ -282,7 +282,7 @@ def topological_partition(
 
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
-    queue = deque[Node](
+    queue = deque(
         node
         for node in graph.graph.nodes
         if remaining_indegrees[node] == 0 and node.op != "get_attr"
