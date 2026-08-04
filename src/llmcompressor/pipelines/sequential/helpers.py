@@ -272,8 +272,9 @@ def topological_partition(
         )
 
     partitions: list[list[Node]] = [[]]
+    partition_sets: list[set[Node]] = [set()]
     remaining_indegrees = {
-        node: len([node for node in node.all_input_nodes if node.op != "get_attr"])
+        node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
         for node in graph.graph.nodes
     }
     partition_index = 0  # global counter
@@ -281,7 +282,7 @@ def topological_partition(
 
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
-    queue = deque(
+    queue = deque[Node](
         node
         for node in graph.graph.nodes
         if remaining_indegrees[node] == 0 and node.op != "get_attr"
@@ -300,10 +301,12 @@ def topological_partition(
             if is_head or is_complete:
                 partition_index += 1
                 partitions.append([])
+                partition_sets.append(set())
                 targets_seen = 0
 
         # assign to partition
         partitions[partition_index].append(node)
+        partition_sets[partition_index].add(node)
 
         # increment after assignment so is_complete fires after the target is placed
         if is_target:
@@ -324,7 +327,7 @@ def topological_partition(
         user_partitions = []
         for user in node.users:
             for index in range(len(partitions)):
-                if user in partitions[index]:
+                if user in partition_sets[index]:
                     user_partitions.append(index)
                     break
 
@@ -332,6 +335,7 @@ def topological_partition(
         if len(user_partitions):
             partition_index = min(user_partitions)
             partitions[partition_index].insert(0, node)
+            partition_sets[partition_index].add(node)
 
     return partitions
 
@@ -352,6 +356,8 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
 
     # create subgraphs
     for partition_nodes in partitions:
+        partition_set = set(partition_nodes)
+
         # create a new graph for the partition
         graph = Graph(model)
         node_map = {}
@@ -361,7 +367,7 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
             input_node
             for node in partition_nodes
             for input_node in node.all_input_nodes
-            if input_node not in partition_nodes and input_node.op
+            if input_node not in partition_set and input_node.op
         }
         for input_node in new_input_nodes:
             node_map[input_node] = graph.placeholder(input_node.name)
@@ -375,7 +381,7 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
             output_dict = {
                 node.name: node_map[node]
                 for node in partition_nodes
-                if any(user not in partition_nodes for user in node.users.keys())
+                if any(user not in partition_set for user in node.users.keys())
             }
             graph.output(output_dict)
 
