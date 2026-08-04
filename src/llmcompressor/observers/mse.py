@@ -27,7 +27,6 @@ class MemorylessMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
         self.expand = observer_kwargs.get("expand", 1.0)
-        self.global_scale_max = observer_kwargs.get("global_scale_max", None)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
         if self.expand < 1.0:
@@ -50,7 +49,6 @@ class MemorylessMSEObserver(Observer):
             self.norm,
             self.chunk_size,
             self.expand,
-            self.global_scale_max,
         )
 
 
@@ -76,7 +74,6 @@ class MovingAverageMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
         self.expand = observer_kwargs.get("expand", 1.0)
-        self.global_scale_max = observer_kwargs.get("global_scale_max", None)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
 
@@ -97,7 +94,6 @@ class MovingAverageMSEObserver(Observer):
             self.norm,
             self.chunk_size,
             self.expand,
-            self.global_scale_max,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:

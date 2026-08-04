@@ -8,7 +8,7 @@ from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 
 from llmcompressor.core import active_session
-from llmcompressor.observers.base import CustomFP8ScaleData, MinMaxTuple
+from llmcompressor.observers.base import MinMaxTuple
 
 # Allow torch.compile to handle scalar conversions inside
 # compressed_tensors' calculate_qparams (float(bit_range)).
@@ -26,7 +26,6 @@ def _grid_search_mse(
     norm: float,
     chunk_size: int,
     expand: float = 1.0,
-    global_scale_max: float | None = None,
 ) -> MinMaxTuple:
     """Find per-channel min/max ranges that minimize quantization error.
 
@@ -49,7 +48,6 @@ def _grid_search_mse(
     :param expand: factor to scale the initial min/max range before searching.
         Values > 1.0 let the search explore ranges wider than the observed
         values (e.g. expand=2.0 starts at 2x the observed range).
-    :param global_scale_max: optional cap for the FP8 global scale range
     """
     original_min = torch.amin(observed, dim=(0, -1))
     original_max = torch.amax(observed, dim=(0, -1))
@@ -62,13 +60,8 @@ def _grid_search_mse(
     global_scale = None
     if args.strategy == QuantizationStrategy.TENSOR_GROUP:
         global_absmax = torch.max(-original_min.min(), original_max.max())
-        gparam_kwargs = {}
-        if global_scale_max is not None:
-            gparam_kwargs["scale_data"] = CustomFP8ScaleData(
-                max=global_scale_max, min=-global_scale_max
-            )
         global_scale = generate_gparam(
-            -global_absmax.reshape(1), global_absmax.reshape(1), **gparam_kwargs
+            -global_absmax.reshape(1), global_absmax.reshape(1)
         )
 
     total_steps = int(maxshrink * grid)
