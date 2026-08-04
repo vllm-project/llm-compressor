@@ -264,6 +264,7 @@ def _calculate_error(
         min_vals=shrinked_min,
         max_vals=shrinked_max,
         quantization_args=args,
+        global_scale=None,
     )
 
     q = fake_quantize(
