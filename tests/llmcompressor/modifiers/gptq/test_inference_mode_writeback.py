@@ -22,16 +22,18 @@ class _MainBlock(nn.Module):
 
 
 class _MainTransformer(nn.Module):
-    """Mirrors a vendored model whose top level forward is decorated for
-    inference only use (e.g. deepseekv32.model.Transformer.forward prior to
-    the fix for #2745)."""
+    """Mirrors a vendored model whose top level forward has no hardcoded
+    grad mode decorator (e.g. deepseekv32.model.Transformer.forward after
+    the fix for #2745). Whatever grad mode the caller is in, for example
+    calibration_forward_context's torch.no_grad(), applies here too, and a
+    gradient based algorithm calling this model directly still gets real
+    gradients since nothing here forces grad tracking off."""
 
     def __init__(self, embed, hidden):
         super().__init__()
         self.embed = embed
         self.main_block = _MainBlock(hidden)
 
-    @torch.no_grad()
     def forward(self, input_ids):
         x = self.embed(input_ids)
         return self.main_block(x)
@@ -79,18 +81,25 @@ class _ToyDataset(Dataset):
         return {"input_ids": torch.randint(0, VOCAB, (SEQ_LEN,))}
 
 
-def test_gptq_writeback_survives_forward_that_escapes_no_grad():
+def test_gptq_writeback_survives_forward_without_inference_mode():
     """
     Regression test for https://github.com/vllm-project/llm-compressor/issues/2745
 
-    A submodule whose forward pass is decorated with @torch.inference_mode()
+    A submodule whose forward pass was decorated with @torch.inference_mode()
     (as some vendored model definitions were, see deepseekv32/model.py)
     produces output tensors that stay tagged as inference tensors even after
     the call returns. If a downstream module (e.g. a speculative decode head
     reusing the base model's embedding) consumes that output, GPTQ's weight
     writeback later crashes trying to mutate a tensor derived from it in
-    place. Using @torch.no_grad() instead never produces inference tensors,
-    so the same calibration flow should complete without error.
+    place.
+
+    The fix is to not hardcode any grad mode into modeling code at all,
+    rather than swapping in @torch.no_grad(), since that would still block
+    gradient based algorithms like AutoRound from getting real gradients
+    through this forward. Relying on the caller's own context, for example
+    calibration_forward_context's no_grad() during regular calibration,
+    avoids inference tensors without taking that choice away from callers
+    that do need gradients.
     """
     model = _ToyModel()
     dataloader = DataLoader(_ToyDataset(), batch_size=1)
