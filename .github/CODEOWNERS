@@ -8,7 +8,7 @@
 /src/llmcompressor/datasets/ @HDCharles @brian-dellabetta
 /src/llmcompressor/entrypoints/ @kylesayrs @brian-dellabetta @dsikka
 /src/llmcompressor/entrypoints/model_free/ @kylesayrs @brian-dellabetta @dsikka
-/src/llmcompressor/modeling/ @dsikka @kylesayrs
+/src/llmcompressor/modeling/ @dsikka @kylesayrs @yiliu30
 /src/llmcompressor/modeling/deepseekv32/ @dsikka @kylesayrs
 /src/llmcompressor/modeling/moe/ @dsikka @kylesayrs
 /src/llmcompressor/modeling/patch/ @dsikka @kylesayrs
@@ -18,8 +18,8 @@
 /src/llmcompressor/pytorch/utils/ @kylesayrs @brian-dellabetta @HDCharles
 /src/llmcompressor/pytorch/utils/sparsification_info/ @kylesayrs @brian-dellabetta
 /src/llmcompressor/recipe/ @kylesayrs @dsikka @brian-dellabetta
-/src/llmcompressor/utils/ @kylesayrs @HDCharles @brian-dellabetta
-/src/llmcompressor/utils/pytorch/ @kylesayrs @HDCharles @brian-dellabetta
+/src/llmcompressor/utils/ @kylesayrs @HDCharles @brian-dellabetta @yiliu30
+/src/llmcompressor/utils/pytorch/ @kylesayrs @HDCharles @brian-dellabetta @yiliu30
 
 /src/llmcompressor/modifiers/ @kylesayrs @dsikka @HDCharles @brian-dellabetta
 /src/llmcompressor/modifiers/autoround/ @yiliu30 @kylesayrs @HDCharles @brian-dellabetta
