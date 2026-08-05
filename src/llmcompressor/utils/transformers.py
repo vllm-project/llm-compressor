@@ -1,3 +1,5 @@
+import inspect
+
 import torch
 from loguru import logger
 from torch.nn import Parameter
@@ -5,7 +7,12 @@ from transformers import PreTrainedModel
 
 from llmcompressor.typing import NamedModules
 
-__all__ = ["untie_word_embeddings", "targets_embeddings", "get_embeddings"]
+__all__ = [
+    "untie_word_embeddings",
+    "targets_embeddings",
+    "get_embeddings",
+    "warn_inference_mode_forwards",
+]
 
 
 def untie_word_embeddings(model: PreTrainedModel):
@@ -94,3 +101,43 @@ def get_embeddings(
         output_embed = None
 
     return input_embed, output_embed
+
+
+def warn_inference_mode_forwards(model: torch.nn.Module):
+    """
+    Warn if any submodule's forward method is decorated with
+    @torch.inference_mode(). Any tensor produced during such a call stays
+    tagged as an inference tensor even after the call returns. If a later
+    stage of calibration, for example GPTQ's weight writeback or the
+    offload cache, tries to update a tensor derived from that call in
+    place, the update crashes with "Inplace update to inference tensor
+    outside InferenceMode is not allowed", potentially after a long
+    compression run has already made it through most of the model.
+
+    :param model: model to scan for inference_mode decorated forwards
+    """
+    found = []
+    for name, module in model.named_modules():
+        forward = inspect.getattr_static(module, "forward", None)
+        closure = getattr(forward, "__closure__", None)
+        if closure is None:
+            continue
+
+        for cell in closure:
+            # torch's decorator context managers capture a bound method
+            # (e.g. self.clone) as the free variable, not the context
+            # manager instance itself, so unwrap __self__ before checking
+            content = cell.cell_contents
+            bound_to = getattr(content, "__self__", content)
+            if isinstance(bound_to, torch.inference_mode):
+                found.append(name or type(module).__name__)
+                break
+
+    if found:
+        logger.warning(
+            "Found forward methods decorated with @torch.inference_mode() on: "
+            f"{found}. Tensors produced during these calls remain inference "
+            "tensors even after the call returns, which can cause in place "
+            "weight updates to crash later in calibration. Consider removing "
+            "the decorator or using torch.no_grad() instead."
+        )
