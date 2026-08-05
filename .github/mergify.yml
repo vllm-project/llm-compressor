@@ -91,6 +91,11 @@ pull_request_rules:
       - author != dsikka
       - author != HDCharles
       - author != brian-dellabetta
+      - or:
+          - author != yiliu30
+          - and:
+              - author = yiliu30
+              - -files~=^(src|tests)/llmcompressor/(modifiers|transformers)/autoround/
     actions:
       label:
         add:
