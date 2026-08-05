@@ -272,7 +272,7 @@ def topological_partition(
         )
 
     partitions: list[list[Node]] = [[]]
-    partition_sets: list[set[Node]] = [set()]
+    node_to_partition: dict[Node, int] = {}
     remaining_indegrees = {
         node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
         for node in graph.graph.nodes
@@ -301,12 +301,11 @@ def topological_partition(
             if is_head or is_complete:
                 partition_index += 1
                 partitions.append([])
-                partition_sets.append(set())
                 targets_seen = 0
 
         # assign to partition
         partitions[partition_index].append(node)
-        partition_sets[partition_index].add(node)
+        node_to_partition[node] = partition_index
 
         # increment after assignment so is_complete fires after the target is placed
         if is_target:
@@ -326,16 +325,14 @@ def topological_partition(
     for node in graph.graph.find_nodes(op="get_attr"):
         user_partitions = []
         for user in node.users:
-            for index in range(len(partitions)):
-                if user in partition_sets[index]:
-                    user_partitions.append(index)
-                    break
+            if user in node_to_partition:
+                user_partitions.append(node_to_partition[user])
 
         # workaround
         if len(user_partitions):
             partition_index = min(user_partitions)
             partitions[partition_index].insert(0, node)
-            partition_sets[partition_index].add(node)
+            node_to_partition[node] = partition_index
 
     return partitions
 
