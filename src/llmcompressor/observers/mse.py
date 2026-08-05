@@ -21,12 +21,12 @@ class MemorylessMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
-        self.maxshrink = observer_kwargs.get("maxshrink", 0.6)
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
-        self.expand = observer_kwargs.get("expand", 2.0)
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
         if self.expand < 1.0:
@@ -68,12 +68,12 @@ class MovingAverageMSEObserver(Observer):
         super().__init__(*args, **kwargs)
         self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
         observer_kwargs = self.args.observer_kwargs
-        self.maxshrink = observer_kwargs.get("maxshrink", 0.6)
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
-        self.expand = observer_kwargs.get("expand", 2.0)
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
 
