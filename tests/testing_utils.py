@@ -264,7 +264,7 @@ class BaseTestConfig(BaseModel):
     # Test infra
     # -------------------------------------------------------------------------
     gpu_memory_utilization: Optional[float] = Field(
-        0.70,
+        0.30,
         description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
     )
     num_gpus: int = Field(
