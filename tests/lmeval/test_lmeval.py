@@ -2,6 +2,7 @@ import gc
 import json
 import os
 import random
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -58,9 +59,7 @@ class TestConfig(BaseTestConfig):
     )
 
 
-TEST_DATA_FILE = os.environ.get(
-    "TEST_DATA_FILE", "tests/lmeval/configs/w4a4_nvfp4.yaml"
-)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV")
 test_file_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -157,7 +156,7 @@ class TestLMEval:
 
         # Always evaluate base model for recovery testing
         logger.info("================= Evaluating BASE model ======================")
-        # base_results = self._eval_base_model()
+        base_results = self._eval_base_model()
 
         gc.collect()
         torch.accelerator.empty_cache()
@@ -204,10 +203,6 @@ class TestLMEval:
         compressed_results = self._eval_compressed_model()
 
         # Recovery Testing
-        base_results = {
-            "exact_match,strict-match": 0.7040,
-            "exact_match,flexible-extract": 0.7040,
-        }  # Hardcoded base results for gsm8k task with vllm model
         self._validate_recovery(base_results, compressed_results)
 
         # Absolute Testing
@@ -330,6 +325,5 @@ class TestLMEval:
         logger.info("=" * 80)
 
     def tear_down(self):
-        # if self.config.save_dir is not None and os.path.isdir(self.config.save_dir):
-        #    shutil.rmtree(self.config.save_dir)
-        pass
+        if self.config.save_dir is not None and os.path.isdir(self.config.save_dir):
+            shutil.rmtree(self.config.save_dir)
