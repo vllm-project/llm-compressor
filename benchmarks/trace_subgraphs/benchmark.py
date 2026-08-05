@@ -69,6 +69,10 @@ class TraceTargetModel(PreTrainedModel):
 
     def __init__(self, config: TraceTargetConfig):
         super().__init__(config)
+        self.register_buffer(
+            "residual_scale",
+            torch.ones(config.hidden_size),
+        )
         self.layers = nn.ModuleList(
             TraceTargetLayer(config.hidden_size)
             for _ in range(config.num_hidden_layers)
@@ -76,7 +80,7 @@ class TraceTargetModel(PreTrainedModel):
 
     def forward(self, hidden_states: torch.Tensor, **kwargs) -> torch.Tensor:
         for layer in self.layers:
-            hidden_states = layer(hidden_states)
+            hidden_states = layer(hidden_states) + self.residual_scale
         return hidden_states
 
 
@@ -148,6 +152,14 @@ def validate_subgraphs(
     assert len(targets) == num_targets, (
         f"matched {len(targets)} targets, expected {num_targets}"
     )
+
+    get_attrs = [
+        node
+        for subgraph in subgraphs
+        for node in subgraph.graph.nodes
+        if node.op == "get_attr"
+    ]
+    assert len(get_attrs) == 1, f"expected 1 get_attr node, got {len(get_attrs)}"
 
     min_subgraphs = num_targets // targets_per_subgraph + 1
     max_subgraphs = math.ceil(num_targets / targets_per_subgraph) + 1

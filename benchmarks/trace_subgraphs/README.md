@@ -38,17 +38,18 @@ the target count, subgraph count, trace time, and peak RSS.
 The benchmark was run on a 12th Gen Intel Core i5-12450H under WSL2 with Python
 3.13.4 and PyTorch 2.12.1 (CPU). The workload contains 100,000 matched targets and
 produces 335 subgraphs with up to 300 targets each. The synthetic model uses a hidden
-size of 64 and sequence length of 8. Grouping 300 targets makes the partition lists
+size of 64 and sequence length of 8, and each layer reads a shared model buffer to
+produce one shared `get_attr` node. Grouping 300 targets makes the partition lists
 large enough to exercise the membership-check optimization while avoiding the graph
 construction overhead of creating 100,001 single-target subgraphs (`--targets-per-subgraph 1`). Results are medians
 of three runs, and only `trace_subgraphs` is timed.
 
 | Revision | Run 1 (s) | Run 2 (s) | Run 3 (s) | Median (s) |
 | --- | ---: | ---: | ---: | ---: |
-| Baseline (`2d7a7ea0`) | 15.839 | 15.573 | 16.873 | 15.839 |
-| This PR | 13.748 | 13.666 | 14.297 | 13.748 |
+| Baseline (`2d7a7ea0`) | 587.682 | 574.621 | 543.853 | 574.621 |
+| This PR | 37.253 | 34.790 | 33.020 | 34.790 |
 
-Together, the changes provide a **1.15x speedup** on this workload.
+Together, the changes provide a **16.5x speedup** on this workload.
 
 The speedup comes from replacing repeated linear searches through partition node
 lists with average O(1) set membership checks. Ordered node lists remain the source
@@ -83,6 +84,7 @@ done
 The benchmark asserts:
 
 - Matched target count equals `--num-targets`
+- Exactly one shared `get_attr` node is present
 - Subgraph count is within the expected bounds from `test_helpers.py`
 - Middle subgraphs contain the expected number of sequential targets
 
