@@ -107,7 +107,6 @@ steps:
       - "!**/*.md"
       - "setup.py"
       - "MANIFEST.in"
-      - ".buildkite/gpu-tests/transformers-tests-*"
-      - ".buildkite/gpu-tests/scripts/run-tests.sh"
+      - ".buildkite/gpu-tests/**"
     command: |
       buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
