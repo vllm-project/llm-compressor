@@ -46,6 +46,39 @@ class FusedExpertsProtocol(TorchModuleProtocol):
         )
 
 
+class ReapPrunableExpertsProtocol(TorchModuleProtocol):
+    """Expert container operations required by REAP.
+
+    Implementations own norm collection because an expert container may store
+    experts either as child modules or as packed tensors.
+    """
+
+    num_experts: int
+
+    def start_reap_norm_collection(self) -> None:
+        raise NotImplementedError()
+
+    def stop_reap_norm_collection(self) -> None:
+        raise NotImplementedError()
+
+    def take_reap_norms(self) -> dict[int, torch.Tensor]:
+        raise NotImplementedError()
+
+    def prune_experts_(self, retained: list[int]) -> None:
+        raise NotImplementedError()
+
+    @classmethod
+    def __validate__(cls, object: object) -> bool:
+        return (
+            isinstance(getattr(object, "num_experts", None), int)
+            and callable(getattr(object, "forward", None))
+            and callable(getattr(object, "start_reap_norm_collection", None))
+            and callable(getattr(object, "stop_reap_norm_collection", None))
+            and callable(getattr(object, "take_reap_norms", None))
+            and callable(getattr(object, "prune_experts_", None))
+        )
+
+
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
     """
     Get the keyword arguments to the `@use_experts_implementation` decorator which

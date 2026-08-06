@@ -744,6 +744,29 @@ def test_reap_initialization_zero_drop():
 
 
 @pytest.mark.unit
+def test_reap_rejects_unpruned_calibration_and_finalize():
+    config = FakeMoEConfig(num_experts=8, num_hidden_layers=2)
+    model = FakeMoEModel(config)
+    modifier = REAPPruningModifier(sparsity=0.5)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    with pytest.raises(RuntimeError, match="calibration did not complete"):
+        modifier.finalize(state)
+
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with pytest.raises(RuntimeError, match="Unpruned: layers.0, layers.1"):
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    with pytest.raises(RuntimeError, match="refusing to update the model config"):
+        modifier.finalize(state)
+
+    assert model.config.num_experts == 8
+    assert not modifier.ended_
+    assert not modifier.finalized_
+
+
+@pytest.mark.unit
 def test_reap_full_lifecycle():
     """End-to-end test: initialize, calibrate, finalize, verify pruning.
 

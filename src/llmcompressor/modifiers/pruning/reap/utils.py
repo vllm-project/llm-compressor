@@ -13,7 +13,9 @@ from compressed_tensors import align_module_device
 from loguru import logger
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
+from llmcompressor.modeling.moe.fp8_experts import make_fp8_experts_reap_prunable
 from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
+from llmcompressor.modeling.moe.helpers import ReapPrunableExpertsProtocol
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
 
@@ -42,11 +44,21 @@ class MoeModelAttrs:
 
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
-NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
+NUM_EXPERTS_CONFIG_KEYS = [
+    "n_routed_experts",
+    "num_experts",
+    "num_local_experts",
+    "moe_num_experts",
+]
 TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
 N_GROUP_CONFIG_KEYS = ["n_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
-NUM_EXPERTS_MODULE_KEYS = ["num_experts", "n_experts", "n_routed_experts"]
+NUM_EXPERTS_MODULE_KEYS = [
+    "num_experts",
+    "n_experts",
+    "n_routed_experts",
+    "num_local_experts",
+]
 
 
 def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
@@ -148,13 +160,11 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             if any(re.search(pattern, name) for pattern in ignore):
                 continue
             experts = getattr(module, experts_attr)
-            # REAP currently only supports LinearExperts2D experts, as they receive the
-            # top_k indices and weights from the router in their forward pass.
-            # Granite and Llama4 experts diverge from this behavior, so they are
-            # unsupported for now.
-            if not isinstance(experts, LinearExperts2D):
+            experts = make_fp8_experts_reap_prunable(experts)
+            if not isinstance(experts, (LinearExperts2D, ReapPrunableExpertsProtocol)):
                 logger.warning(
-                    f"Skipping layer {name}: experts module is not LinearExperts2D"
+                    f"Skipping layer {name}: experts module is neither "
+                    "LinearExperts2D nor a REAP-prunable packed container"
                 )
                 continue
             if isinstance(experts, GraniteMoeLinearExperts):
@@ -171,18 +181,15 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
 
     if not moe_layer_names:
         raise ValueError(
-            "Could not find any supported MoE layers with experts in "
-            "LinearExperts2D format. Make sure the model has MoE layers "
+            "Could not find any supported MoE layers with REAP-prunable experts. "
+            "Make sure the model has MoE layers "
             "(excluding GraniteMoeLinearExperts and Llama4LinearExperts), "
             "and that the name of its experts module is in EXPERTS_ATTRS "
             "and it the name of its router module is in ROUTER_ATTRS in "
             "reap/utils.py"
         )
 
-    logger.info(
-        f"Found {len(moe_layer_names)} MoE layers with experts in "
-        "LinearExperts2D format"
-    )
+    logger.info(f"Found {len(moe_layer_names)} MoE layers with REAP-prunable experts")
 
     return MoeModelAttrs(
         num_experts_config_key=num_experts_config_key,
@@ -354,25 +361,33 @@ def prune_moe_layer(
     router = getattr(moe_block, moe_attrs.router_attr)
     experts = getattr(moe_block, moe_attrs.experts_attr)
 
-    # Preserve non-expert modules (e.g., act_fn in LinearExperts2D)
-    # These are modules that are not instances of ExpertMLP subclasses
-    non_expert_modules = {}
-    for key, module in experts._modules.items():
-        if not isinstance(module, ExpertMLP):
-            non_expert_modules[key] = module
+    if isinstance(experts, ReapPrunableExpertsProtocol):
+        experts.prune_experts_(retained)
+    elif isinstance(experts, LinearExperts2D):
+        # Preserve non-expert modules (e.g., act_fn in LinearExperts2D)
+        non_expert_modules = {
+            key: module
+            for key, module in experts._modules.items()
+            if not isinstance(module, ExpertMLP)
+        }
+        new_modules = OrderedDict(
+            (str(index), experts[position]) for index, position in enumerate(retained)
+        )
+        new_modules.update(non_expert_modules)
 
-    # Rebuild with retained experts
-    new_modules = OrderedDict(
-        ((str(i), experts[pos]) for i, pos in enumerate(retained))
-    )
-
-    # Re-add non-expert modules
-    new_modules.update(non_expert_modules)
-
-    experts._modules = new_modules
-    experts.num_experts = len(retained)
+        experts._modules = new_modules
+        experts.num_experts = len(retained)
+    else:
+        raise TypeError(
+            f"Experts at {layer_name} are neither LinearExperts2D nor a "
+            "REAP-prunable packed container"
+        )
 
     _prune_router(router, retained)
+
+    # Some architectures keep per-expert router state on the enclosing MoE
+    # block. Slice it in lockstep with the router logits when present.
+    _prune_expert_tensor(moe_block, "e_score_correction_bias", retained)
 
     # Update num_experts for any other modules in the layer that may track it
     for holder in (moe_block, router):
@@ -389,29 +404,43 @@ def _prune_router(router: nn.Module, retained: list[int]):
     with align_module_device(router):
         retained_t = retained_t.to(router.weight.device)
         new_weight = router.weight.detach()[retained_t].contiguous()
+        weight_requires_grad = router.weight.requires_grad
         new_bias = None
+        bias_requires_grad = False
         if getattr(router, "bias", None) is not None:
             new_bias = router.bias.detach()[retained_t].contiguous()
-        # group-limited routers (DeepSeek-V3 / GLM4 / GLM-DSA) carry a per-expert
-        # score-correction bias buffer that must be shrunk in lockstep
-        correction = getattr(router, "e_score_correction_bias", None)
-        new_correction = (
-            correction.detach()[retained_t].contiguous()
-            if correction is not None
-            else None
-        )
+            bias_requires_grad = router.bias.requires_grad
 
     # Direct attribute assignment replaces a parameter/buffer with a different
     # shape and is correct for both offloaded modules (routed through the
     # OffloadCache, which re-offloads the new shape) and ordinary modules.
-    router.weight = nn.Parameter(new_weight, requires_grad=router.weight.requires_grad)
+    router.weight = nn.Parameter(new_weight, requires_grad=weight_requires_grad)
     if new_bias is not None:
-        router.bias = nn.Parameter(new_bias, requires_grad=router.bias.requires_grad)
-    if new_correction is not None:
-        router.e_score_correction_bias = new_correction
+        router.bias = nn.Parameter(new_bias, requires_grad=bias_requires_grad)
+
+    _prune_expert_tensor(router, "e_score_correction_bias", retained)
 
     if isinstance(getattr(router, "out_features", None), int):
         router.out_features = len(retained)
+
+
+def _prune_expert_tensor(holder: nn.Module, name: str, retained: list[int]) -> None:
+    is_parameter = name in holder._parameters
+    is_buffer = name in holder._buffers
+    if not is_parameter and not is_buffer and not hasattr(holder, name):
+        return
+
+    retained_t = torch.tensor(retained, dtype=torch.long)
+    with align_module_device(holder):
+        value = getattr(holder, name)
+        retained_t = retained_t.to(value.device)
+        pruned = value.detach()[retained_t].contiguous()
+        requires_grad = value.requires_grad
+
+    if is_parameter:
+        setattr(holder, name, nn.Parameter(pruned, requires_grad=requires_grad))
+    else:
+        setattr(holder, name, pruned)
 
 
 def update_model_config(
