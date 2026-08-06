@@ -18,7 +18,9 @@ steps:
   - label: ":gear: llm-compressor XPU Tests"
     if_changed:
       - "src/llmcompressor/modifiers/**"
+      - "src/llmcompressor/transformers/**"
       - "tests/llmcompressor/modifiers/**"
+      - "tests/llmcompressor/transformers/autoround/**"
       - ".buildkite/xpu-tests/**"
     command: |
       buildkite-agent pipeline upload .buildkite/xpu-tests/xpu-tests-B60.yml
