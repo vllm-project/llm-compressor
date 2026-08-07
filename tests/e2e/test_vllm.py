@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 import sys
+
+# Test change: This should NOT trigger transformers tests (e2e excluded)
 import time
 from pathlib import Path
 from typing import NamedTuple
