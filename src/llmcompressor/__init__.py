@@ -3,6 +3,8 @@ LLM Compressor is a library for compressing large language models utilizing
 the latest techniques and research in the field for both training aware and
 post-training techniques.
 
+Test change: This should trigger transformers tests.
+
 The library is designed to be flexible and easy to use on top of
 PyTorch and HuggingFace Transformers, allowing for quick experimentation.
 """
