@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Test change: This should trigger transformers tests
 TEST_TYPE="${1:?Usage: run-tests.sh <base|transformers>}"
 
 echo "~~~ System info"
