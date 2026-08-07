@@ -1,0 +1,7 @@
+cadence: "nightly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: FP8_BLOCK
+lmeval:
+  metrics:
+    exact_match,flexible-extract: 0.757
+    exact_match,strict-match: 0.76
