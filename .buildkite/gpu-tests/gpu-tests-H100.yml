@@ -99,14 +99,16 @@ steps:
     agents:
       queue: RedHat-ModelOpt-Util
     if_changed:
-      - "src/**"
-      - "tests/**"
-      - "!tests/e2e/**"
-      - "!tests/lmeval/**"
-      - "!tests/examples/**"
-      - "!**/*.md"
-      - "setup.py"
-      - "MANIFEST.in"
-      - ".buildkite/gpu-tests/**"
+      include:
+        - "src/**"
+        - "tests/**"
+        - "setup.py"
+        - "MANIFEST.in"
+        - ".buildkite/gpu-tests/**"
+      exclude:
+        - "tests/e2e/**"
+        - "tests/lmeval/**"
+        - "tests/examples/**"
+        - "**/*.md"
     command: |
       buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-H100.yml
