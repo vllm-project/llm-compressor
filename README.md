@@ -240,3 +240,5 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
+
+<!-- Test change: This should NOT trigger transformers tests (markdown excluded) -->
