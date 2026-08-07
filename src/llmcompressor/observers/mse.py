@@ -102,21 +102,21 @@ class MovingAverageMSEObserver(Observer):
         self.max_vals = max_vals
 
 
-@Observer.register("nvfp4_mse")
-class NVFP4MSEObserver(MemorylessMSEObserver):
+@Observer.register("nvfp4_expanded_mse")
+class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
     """
     MSE observer with defaults tuned for NVFP4 range expansion.
 
     Searches from ``expand`` times the observed range down to
     ``(1 - maxshrink) * expand`` times the observed range.
-    With the defaults (expand=1.8, maxshrink=0.56), this covers
-    1.8x down to ~0.8x of the original per-group range.
+    With the defaults below, this covers 1.8x down to ~0.8x of
+    the original per-group range in 112 search steps.
 
     Usage::
 
         QuantizationArgs(
             ...
-            observer="nvfp4_mse",
+            observer="nvfp4_expanded_mse",
         )
     """
 
@@ -124,4 +124,6 @@ class NVFP4MSEObserver(MemorylessMSEObserver):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
         self.expand = observer_kwargs.get("expand", 1.8)
-        self.maxshrink = observer_kwargs.get("maxshrink", 0.56)
+        self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
+        self.grid = observer_kwargs.get("grid", 200.0)
+        self.patience = observer_kwargs.get("patience", 1000)
