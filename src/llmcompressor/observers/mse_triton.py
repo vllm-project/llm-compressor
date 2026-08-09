@@ -1,21 +1,21 @@
 """Triton grid search for the MSE observer.
 
-The eager search fake-quantizes the whole tensor once per shrink step, so it
-reads and writes ``observed`` twenty times over. This keeps each group's
-values in registers for the whole search and walks the codebook incrementally
-instead: shrinking the scale by a fraction of a percent moves most values to
-the same code they already had, so after the first step each value only has
-to compare against a bounded number of neighbors.
+The eager search fake-quantizes the full tensor once per shrink step. This
+kernel keeps each group in registers, normalizes it by the initial qparam
+scale, and walks the format's codebook incrementally as the range shrinks.
 
-What that bound is, and where it stops holding, is the subtle part; see
-:func:`neighbors_for_config`.
+The zero point is loaded once per group: shrinking min and max by ``p``
+leaves ``min / scale`` unchanged, so the zero point is invariant in exact
+arithmetic; eager's per-step recompute can differ by a code in bf16. The
+kernel adds it to ``x / (scale * p)`` and searches one unshifted table per
+format.
 """
 
 from typing import Tuple
 
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationType
-from compressed_tensors.quantization.utils.helpers import calculate_range
+from compressed_tensors.quantization.utils import calculate_qparams
 
 try:
     import triton
@@ -27,12 +27,11 @@ except ImportError:  # pragma: no cover - exercised by the fallback test
 
 __all__ = ["can_use_triton", "grid_search_triton"]
 
-# Rounding of the error accumulation, as a kernel constant: 0 leaves it in
-# fp32, 1 and 2 round to bf16 and fp16 after every step. Production
-# _calculate_error runs in the observed dtype, and reproducing that is what
-# makes the two agree - computing in fp32 instead disagrees with eager on
-# 583 of 2048 groups for bf16 int8, at up to 84% relative regret.
-_ROUND_CODE = {torch.float32: 0, torch.bfloat16: 1, torch.float16: 2}
+# Float dtypes the kernel has been exercised on. The search itself runs in
+# fp32 for all of them; this is about what amin/amax and calculate_qparams
+# were checked to produce, not about the arithmetic inside.
+_SUPPORTED_DTYPES = (torch.float32, torch.bfloat16, torch.float16)
+_SUPPORTED_SCALE_DTYPES = (None, torch.float8_e4m3fn)
 
 # Bit widths whose codebook this has actually been checked against. Nothing
 # stops the int branch from building 65536 codes for int16, but
@@ -55,8 +54,18 @@ def _codebook(args: QuantizationArgs) -> torch.Tensor:
     """
     bits = args.num_bits
     if args.type == QuantizationType.INT and bits in _INT_BITS:
-        return torch.arange(
-            -(2 ** (bits - 1)), 2 ** (bits - 1), dtype=torch.float32
+        q_min = -(2 ** (bits - 1))
+        q_max = 2 ** (bits - 1) - 1
+        return torch.arange(q_min, q_max + 1, dtype=torch.float32)
+    if args.type == QuantizationType.FLOAT and bits == 4:
+        # the float4_e2m1 values, written out like PR #2948's codebook
+        # builder rather than imported: compressed_tensors moved its copy of
+        # this table between nightlies, and an import from its internals
+        # breaks the whole observer at import time when it moves again
+        return torch.tensor(
+            [-6.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5, 0.0,
+             0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0],
+            dtype=torch.float32,
         )
     if args.type == QuantizationType.FLOAT and bits == 8:
         codes = (
@@ -68,96 +77,65 @@ def _codebook(args: QuantizationArgs) -> torch.Tensor:
     return None
 
 
-def _tie_parity(codes: torch.Tensor) -> int:
-    """Which index wins when two codes are equidistant.
-
-    Every rounding path in compressed_tensors breaks ties toward the even
-    mantissa - torch.round for int, the fp8 cast for float8 - which on a
-    sorted codebook is a parity rule on the index, fixed by where zero sits.
-    Taking the lower code unconditionally gets half of them wrong.
-    """
-    hits = (codes.detach().cpu() == 0).nonzero()
-    return (int(hits[0]) % 2) if hits.numel() else 0
-
-
-def _half_bit_range(args: QuantizationArgs) -> float:
-    """The divisor calculate_qparams uses for a symmetric scale."""
-    q_min, q_max = calculate_range(args, torch.device("cpu"))
-    return (float(q_max) - float(q_min)) / 2.0
-
-
 def neighbors_for_config(
-    args: QuantizationArgs, grid: float, maxshrink: float, dtype: torch.dtype
+    args: QuantizationArgs, grid: float, maxshrink: float
 ) -> int:
     """How many neighbors a value can move in one step of the search.
 
-    Between consecutive steps the scale shrinks by ``s = p_{i+1} / p_i``, so a
-    value sitting at ``cutoff[i]`` crosses ``cutoff[i+k]`` only when
-    ``cutoff[i] / cutoff[i+k] >= s``. The answer is the smallest ``k`` for
-    which that ratio stays below ``s`` for every cutoff.
+    In normalized units step ``k`` compares ``x / (scale * p_k) + zp``
+    against the fixed cutoffs, and ``p`` decreases, so every value drifts
+    away from its fixed point - the position where ``x / scale`` is zero,
+    which is ``zp``. A value at ``cutoff[i]`` drifts by
+    ``(cutoff[i] - zp) * (1/s - 1)`` per step, with ``s = p_{k+1} / p_k`` at
+    its tightest on the last step, and can reach ``cutoff[i+k]`` only when
+    that drift covers the gap between them. The answer is the smallest ``k``
+    whose gap no drift covers.
 
-    Two details make the plain ratio too optimistic:
-
-    The scale is rounded twice, after ``min/max * p`` and again after dividing
-    by the bit range, and each rounding can move a value half an ulp. Two
-    consecutive scales can therefore show a ratio as bad as ``s * f**2`` with
-    ``f = (1 - eps/2) / (1 + eps/2)``. Enumerating every representable bf16
-    and fp16 scale, modelling a single rounding falls under the real worst
-    case while the squared form covers it.
-
-    That reasoning is relative, so it does not survive into the subnormal
-    range, where the spacing is absolute and a scale can halve in one step -
-    the same sweep finds a worst ratio of exactly 0.5 for every format, which
-    would mean 64 neighbors for bf16 int8. Sizing N for that would punish
-    every normal input, so the kernel instead runs its full binary search for
-    any step whose scale is subnormal, and N stays a function of the config.
-    Keeping it config-only also matters because ``NUM_NEIGHBORS`` is a
-    ``tl.constexpr``: deriving it from the data would compile a separate
-    kernel per layer.
+    ``zp`` is data, but calculate_qparams clamps it to the code range, so
+    the two ends of the table bound every position it can take; symmetric
+    formats pin it to zero. That keeps the bound config-only, which matters
+    because ``NUM_NEIGHBORS`` is a ``tl.constexpr``: deriving it from the
+    data would compile a separate kernel per layer.
     """
     codes = _codebook(args)
     if codes is None:
         return 1
-    cutoffs = (codes[:-1] + codes[1:]) * 0.5
+    cutoffs = ((codes[:-1] + codes[1:]) * 0.5).double()
 
     total_steps = int(maxshrink * grid)
+    if grid - total_steps <= 0:
+        # maxshrink >= 1 drives the last steps to p <= 0, where nothing
+        # bounds the drift. Guard on the difference, not the ratio: at
+        # grid - total_steps == -1 the ratio is a division by zero, and
+        # below that both signs flip and it sneaks past a ratio check.
+        return int(cutoffs.numel())
     ratio = (grid - total_steps) / (grid - total_steps + 1)
-    if dtype != torch.float32:
-        slack = float(torch.finfo(dtype).eps) / 2.0
-        ratio *= ((1.0 - slack) / (1.0 + slack)) ** 2
+    drift = 1.0 / ratio - 1.0
+
+    lo = 0.0 if args.symmetric else float(codes[0])
+    hi = 0.0 if args.symmetric else float(codes[-1])
 
     limit = int(cutoffs.numel())
-    worst = 1
-    for side in (cutoffs[cutoffs > 0], -cutoffs[cutoffs < 0]):
-        side = side.double().sort().values
-        if side.numel() < 2:
-            continue
-        found = limit
-        for k in range(1, side.numel()):
-            if (side[:-k] / side[k:]).max().item() < ratio:
-                found = k
-                break
-        worst = max(worst, found)
-    return min(worst, limit)
+    for k in range(1, limit):
+        gap = cutoffs[k:] - cutoffs[:-k]
+        up = (cutoffs[:-k] - lo).clamp_min(0.0) * drift
+        down = (hi - cutoffs[k:]).clamp_min(0.0) * drift
+        if bool((up < gap).all() and (down < gap).all()):
+            return k
+    return limit
 
 
 def can_use_triton(observed: torch.Tensor, args: QuantizationArgs) -> bool:
-    """Whether the kernel reproduces the eager search for this input.
+    """Whether the kernel searches the same candidates the eager search does.
 
     Deliberately narrow. Everything outside this keeps the existing eager or
     compiled path, which stays the reference:
 
     - ``observed`` must be 4d. TENSOR strategy flattens to 3d, and the
       launcher reads (obs, rows, groups, group_size).
-    - symmetric only: the codebook search has no zero point.
-    - int4, int8 and float8 only. float4 rounds through bfloat16 inside
-      compressed_tensors before applying its thresholds, so a nearest-code
-      search disagrees on ~5% of groups in fp32 and fp16, and wider int
-      widths have not been checked at all.
-    - ``scale_dtype`` unset. Rounding the scale, or deriving it as an MX
-      exponent, is a different scale path from the symmetric formula the
-      kernel reconstructs; NVFP4 additionally applies a global scale that
-      makes an exact match unreachable.
+    - int4, int8, float4 and float8 only. Wider integer widths have not been
+      checked and make the codebook too large for this kernel.
+    - plain or fp8 scale storage. MX exponent scales use a different path.
     - a single observation. The kernel gives one program per group and reads
       one row; eager reduces over the observation axis, so anything stacked
       there would be silently dropped.
@@ -174,9 +152,17 @@ def can_use_triton(observed: torch.Tensor, args: QuantizationArgs) -> bool:
         and observed.ndim == 4
         and observed.shape[0] == 1
         and observed.shape[-1] <= _MAX_GROUP_SIZE
-        and bool(args.symmetric)
-        and args.scale_dtype is None
-        and observed.dtype in _ROUND_CODE
+        and observed.dtype in _SUPPORTED_DTYPES
+        and args.scale_dtype in _SUPPORTED_SCALE_DTYPES
+        # fp8 scale storage exists for NVFP4-style fp4 schemes; no scheme
+        # stores an int or fp8 codebook's scale in fp8
+        and (
+            args.scale_dtype is None
+            or (args.type == QuantizationType.FLOAT and args.num_bits == 4)
+        )
+        # no scheme quantizes float asymmetrically: fp4-asym raises inside
+        # calculate_qparams, and fp8-asym runs but nothing exercises it
+        and (bool(args.symmetric) or args.type == QuantizationType.INT)
         and _codebook(args) is not None
     )
 
@@ -184,19 +170,10 @@ def can_use_triton(observed: torch.Tensor, args: QuantizationArgs) -> bool:
 if _TRITON_AVAILABLE:
 
     @triton.jit
-    def _round_to(x, ROUND_TO: tl.constexpr):
-        """Round an fp32 value to the observed dtype and back."""
-        if ROUND_TO == 1:
-            return x.to(tl.bfloat16).to(tl.float32)
-        elif ROUND_TO == 2:
-            return x.to(tl.float16).to(tl.float32)
-        return x
-
-    @triton.jit
     def _grid_search_kernel(
         observed_ptr,
-        min_val_ptr,
-        max_val_ptr,
+        scale_base_ptr,
+        zero_point_ptr,
         codes_ptr,
         best_step_ptr,
         num_rows,
@@ -208,22 +185,19 @@ if _TRITON_AVAILABLE:
         stride_obs_group,
         inv_grid,
         norm,
+        patience,
         BLOCK_G: tl.constexpr,
         LOG_C: tl.constexpr,
         TOTAL_STEPS: tl.constexpr,
         NUM_NEIGHBORS: tl.constexpr,
-        TIE_PARITY: tl.constexpr,
-        ROUND_TO: tl.constexpr,
-        HALF_RANGE: tl.constexpr,
-        TINY_NORMAL: tl.constexpr,
-        ZERO_SCALE: tl.constexpr,
     ):
         """One program per group; the group's values stay in registers.
 
-        The scale is rebuilt each step from min/max rather than handed in
-        precomputed. Eager shrinks min/max first, in the observed dtype, and
-        only then calls calculate_qparams; multiplying one fp32 scale by p
-        skips that rounding and costs 345 of 2048 groups on bf16 int8.
+        Patience is per group here, unlike eager's single counter that resets
+        whenever any group in the tensor improves. Each program only sees its
+        own group, so a global counter has no meaning; the per-group version
+        stops strictly earlier, which is a behaviour change and the reason
+        the accuracy sweep exists.
         """
         pid = tl.program_id(0)
         row = pid // num_groups
@@ -240,8 +214,15 @@ if _TRITON_AVAILABLE:
             other=0.0,
         ).to(tl.float32)
 
-        min_val = tl.load(min_val_ptr + row * num_groups + group)
-        max_val = tl.load(max_val_ptr + row * num_groups + group)
+        scale_base = tl.load(
+            scale_base_ptr + row * num_groups + group
+        ).to(tl.float32)
+        # min * p / (scale * p) is min / scale, so the zero point does not
+        # move with p (exact arithmetic; bf16 recompute can differ)
+        zero_point = tl.load(
+            zero_point_ptr + row * num_groups + group
+        ).to(tl.float32)
+
         ig = inv_grid.to(tl.float32)
         norm_f = norm.to(tl.float32)
 
@@ -249,88 +230,60 @@ if _TRITON_AVAILABLE:
         best_err = tl.full([], float("inf"), dtype=tl.float32)
         best_s = 0
         bin_idx = tl.zeros([BLOCK_G], dtype=tl.int32)
+        stall = 0
 
         for step in range(TOTAL_STEPS):
             if step < total_steps:
-                p = (1.0 - step * ig).to(tl.float32)
-                # calculate_qparams(min * p, max * p), symmetric branch, with
-                # both roundings eager performs: the shrink lands in the
-                # observed dtype because min/max come from amin/amax on it,
-                # and so does the quotient, since calculate_qparams divides a
-                # tensor still in that dtype by a python float.
-                smin = tl.minimum(
-                    _round_to(min_val.to(tl.float32) * p, ROUND_TO), 0.0
-                )
-                smax = tl.maximum(
-                    _round_to(max_val.to(tl.float32) * p, ROUND_TO), 0.0
-                )
-                raw_scale = _round_to(
-                    tl.maximum(tl.abs(smin), tl.abs(smax)) / HALF_RANGE,
-                    ROUND_TO,
-                )
-                # calculate_qparams replaces an exactly zero scale with the
-                # dtype's eps rather than clamping small ones, so match that
-                # instead of flooring everything at some tiny constant
-                eff_scale = tl.where(raw_scale == 0.0, ZERO_SCALE,
-                                     raw_scale).to(tl.float32)
+                if stall < patience:
+                    p = (1.0 - step * ig).to(tl.float32)
+                    scale = scale_base * p
+                    sel = obs / scale + zero_point
 
-                # fake_quantize rounds x/scale to the observed dtype before
-                # applying its thresholds
-                sel = _round_to(obs / eff_scale, ROUND_TO)
+                    if step == 0:
+                        lo = tl.zeros([BLOCK_G], dtype=tl.int32)
+                        hi = tl.full([BLOCK_G], num_codes - 1, dtype=tl.int32)
+                        for _ in range(LOG_C):
+                            mid = (lo + hi) >> 1
+                            ge = sel >= tl.load(codes_ptr + mid)
+                            lo = tl.where(ge, mid + 1, lo)
+                            hi = tl.where(ge, hi, mid)
+                        idx_left = tl.maximum(lo - 1, 0)
+                        idx_right = tl.minimum(lo, num_codes - 1)
+                        d_left = tl.abs(sel - tl.load(codes_ptr + idx_left))
+                        d_right = tl.abs(sel - tl.load(codes_ptr + idx_right))
+                        bin_idx = tl.where(
+                            d_left <= d_right, idx_left, idx_right
+                        )
+                        best_d = tl.minimum(d_left, d_right)
+                    else:
+                        # accumulate into new_bin rather than bin_idx: writing
+                        # back inside the loop would move the base each
+                        # neighbor is measured from
+                        new_bin = bin_idx
+                        best_d = tl.abs(sel - tl.load(codes_ptr + bin_idx))
+                        for k in tl.static_range(1, NUM_NEIGHBORS + 1):
+                            idx_k = tl.maximum(
+                                tl.minimum(
+                                    bin_idx + shift_dir * k, num_codes - 1
+                                ),
+                                0,
+                            )
+                            d_k = tl.abs(sel - tl.load(codes_ptr + idx_k))
+                            better = d_k < best_d
+                            new_bin = tl.where(better, idx_k, new_bin)
+                            best_d = tl.where(better, d_k, best_d)
+                        bin_idx = new_bin
 
-                # A subnormal scale voids the neighbor bound, so search the
-                # whole codebook for those steps rather than sizing N for a
-                # range that barely occurs.
-                if step == 0 or eff_scale < TINY_NORMAL:
-                    lo = tl.zeros([BLOCK_G], dtype=tl.int32)
-                    hi = tl.full([BLOCK_G], num_codes - 1, dtype=tl.int32)
-                    for _ in range(LOG_C):
-                        mid = (lo + hi) >> 1
-                        ge = sel >= tl.load(codes_ptr + mid)
-                        lo = tl.where(ge, mid + 1, lo)
-                        hi = tl.where(ge, hi, mid)
-                    idx_left = tl.maximum(lo - 1, 0)
-                    idx_right = tl.minimum(lo, num_codes - 1)
-                    d_left = tl.abs(sel - tl.load(codes_ptr + idx_left))
-                    d_right = tl.abs(sel - tl.load(codes_ptr + idx_right))
-                    left_wins = (d_left < d_right) | (
-                        (d_left == d_right) & ((idx_left % 2) == TIE_PARITY)
+                    distance = best_d * scale
+                    powed = tl.extra.cuda.libdevice.pow(distance, norm_f)
+                    err = tl.sum(
+                        tl.where(g_mask, powed, 0.0), axis=0
                     )
-                    bin_idx = tl.where(left_wins, idx_left, idx_right)
-                else:
-                    new_bin = bin_idx
-                    new_d = tl.abs(sel - tl.load(codes_ptr + bin_idx))
-                    for k in tl.static_range(1, NUM_NEIGHBORS + 1):
-                        idx_k = tl.maximum(
-                            tl.minimum(
-                                bin_idx + shift_dir * k, num_codes - 1
-                            ),
-                            0,
-                        )
-                        d_k = tl.abs(sel - tl.load(codes_ptr + idx_k))
-                        better = (d_k < new_d) | (
-                            (d_k == new_d) & ((idx_k % 2) == TIE_PARITY)
-                        )
-                        new_bin = tl.where(better, idx_k, new_bin)
-                        new_d = tl.where(better, d_k, new_d)
-                    bin_idx = new_bin
 
-                # _calculate_error, step for step: dequantize, round, subtract
-                # in the observed dtype, raise to an exponent that was itself
-                # cast, round each power, accumulate in fp32, round the sum.
-                q = _round_to(tl.load(codes_ptr + bin_idx) * eff_scale,
-                              ROUND_TO)
-                resid = tl.abs(_round_to(q - obs, ROUND_TO))
-                powed = _round_to(
-                    tl.extra.cuda.libdevice.pow(resid, norm_f), ROUND_TO
-                )
-                err = _round_to(
-                    tl.sum(tl.where(g_mask, powed, 0.0), axis=0), ROUND_TO
-                )
-
-                is_better = err < best_err
-                best_err = tl.where(is_better, err, best_err)
-                best_s = tl.where(is_better, step, best_s)
+                    is_better = err < best_err
+                    best_err = tl.where(is_better, err, best_err)
+                    best_s = tl.where(is_better, step, best_s)
+                    stall = tl.where(is_better, 0, stall + 1)
 
         tl.store(best_step_ptr + row * num_groups + group, best_s)
 
@@ -342,45 +295,29 @@ def _restore_range(
     grid: float,
     total_steps: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Rebuild the winning range the way eager produced it.
-
-    ``min_val * ps[best_step]`` with ``ps`` materialised in the storage dtype
-    would round p before the multiply, which is not eager's arithmetic in
-    bf16. Walking the steps and overwriting only where each one won keeps the
-    python float multiply, at one transient tensor.
-    """
-    # Seeded from the unshrunk range rather than empty_like: with
-    # total_steps == 0 the loop below never runs, and an empty_like return
-    # would be uninitialised memory. Eager lands on the same values there,
-    # since its search loop does not execute either.
-    best_min = min_val.clone()
-    best_max = max_val.clone()
-    for i in range(total_steps):
-        won = best_step == i
-        p = 1.0 - i / grid
-        best_min = torch.where(won, min_val * p, best_min)
-        best_max = torch.where(won, max_val * p, best_max)
-    return best_min, best_max
+    """Apply the shrink factor selected by each Triton program."""
+    ps = torch.tensor(
+        [1.0 - i / grid for i in range(total_steps)],
+        dtype=min_val.dtype,
+        device=min_val.device,
+    )
+    best_p = ps[best_step.long()]
+    return min_val * best_p, max_val * best_p
 
 
 def grid_search_triton(
     observed: torch.Tensor,
     args: QuantizationArgs,
     maxshrink: float,
+    patience: int,
     grid: float,
     norm: float,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Full-grid MSE search on the GPU.
-
-    Early stopping is not implemented here on purpose. Patience is a
-    heuristic on a global counter that resets whenever any group improves,
-    which does not carry over to a kernel where each program only sees its
-    own group; a per-group version is a different knob and measurably worse
-    at 4 bits. Searching the whole grid keeps the result identical to eager
-    and is still far cheaper, since the cost the kernel removes is the
-    repeated pass over ``observed``, not the step count.
+    """MSE grid search on the GPU.
 
     :param observed: (num_observations, rows, groups, group_size)
+    :param patience: consecutive non-improving steps before this group stops.
+        Counted per group, where eager counts once for the whole tensor.
     :return: the min/max range minimising the quantization error per group
     """
     import math
@@ -393,9 +330,19 @@ def grid_search_triton(
         # 1.0 / grid would divide by zero for grid == 0
         return min_val, max_val
 
-    codes = _codebook(args)
-    parity = _tie_parity(codes)
-    codes = codes.to(observed.device)
+    # Calculate the base qparams once. The kernel evaluates scale * p per
+    # step, and the zero point is p-invariant in exact arithmetic
+    # (min / scale does not change when min and max shrink together).
+    scale, zero_point = calculate_qparams(
+        min_vals=min_val,
+        max_vals=max_val,
+        quantization_args=args,
+        global_scale=None,
+    )
+    scale = scale.to(torch.float32).contiguous()
+    zero_point = zero_point.to(torch.float32).contiguous()
+
+    codes = _codebook(args).to(observed.device)
     num_codes = codes.numel()
 
     _, num_rows, num_groups, group_size = observed.shape
@@ -404,32 +351,19 @@ def grid_search_triton(
         num_rows, num_groups, dtype=torch.int32, device=observed.device
     )
 
-    # torch casts a python-float exponent to the tensor dtype, so bf16 turns
-    # a norm of 2.4 into 2.40625; the kernel has to use the same value.
-    exponent = (
-        float(norm)
-        if observed.dtype == torch.float32
-        else float(torch.tensor(norm, dtype=observed.dtype).item())
-    )
-
     _grid_search_kernel[(num_rows * num_groups,)](
-        observed, min_val, max_val, codes, best_step,
+        observed, scale, zero_point, codes, best_step,
         num_rows, num_groups, group_size, total_steps, num_codes,
         observed.stride(1), observed.stride(2),
-        1.0 / grid, exponent,
+        # eager checks its counter only after incrementing it, so the value
+        # is at least 1 by then and patience=0 behaves exactly like 1. The
+        # kernel checks before evaluating, so a raw 0 would search nothing.
+        # The observer kwarg accepts 0, so this is a value users do pass.
+        1.0 / grid, float(norm), max(int(patience), 1),
         BLOCK_G=triton.next_power_of_2(group_size),
         LOG_C=max(1, math.ceil(math.log2(num_codes))),
         TOTAL_STEPS=triton.next_power_of_2(total_steps),
-        NUM_NEIGHBORS=neighbors_for_config(
-            args, grid, maxshrink, observed.dtype
-        ),
-        TIE_PARITY=parity,
-        ROUND_TO=_ROUND_CODE[observed.dtype],
-        HALF_RANGE=_half_bit_range(args),
-        # the subnormal fallback applies in every dtype: fp32 has a
-        # subnormal range too, and the relative bound is just as void there
-        TINY_NORMAL=float(torch.finfo(observed.dtype).tiny),
-        ZERO_SCALE=float(torch.finfo(observed.dtype).eps),
+        NUM_NEIGHBORS=neighbors_for_config(args, grid, maxshrink),
     )
 
     return _restore_range(

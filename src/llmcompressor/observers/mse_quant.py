@@ -30,15 +30,15 @@ def _grid_search_mse(
     """Find per-channel min/max ranges that minimize quantization error.
 
     Performs a 1-D grid search over shrink factors applied to the observed
-    tensor's min/max values.  Delegates to the Triton kernel when it can
-    reproduce the eager result for this input, otherwise to
+    tensor's min/max values.  Delegates to the Triton kernel when it searches
+    the same candidates for this input, otherwise to
     :func:`_grid_search_eager` or :func:`_grid_search_compiled` based on the
     session's ``enable_compile`` flag.
 
-    The Triton path searches the whole grid and ignores ``patience``. It is
-    taken automatically rather than behind a flag, on the same basis as the
-    GPTQ kernel: it is either exactly equivalent for a given input or it is
-    not used at all.  :func:`can_use_triton` is where that line is drawn.
+    The Triton path applies ``patience`` per group rather than once for the
+    whole tensor, so it can stop earlier than eager on the same setting. It
+    is taken automatically rather than behind a flag, on the same basis as
+    the GPTQ kernel; :func:`can_use_triton` is where that line is drawn.
 
     :param observed: value of shape (num_observations, *qparams_shape, group_size)
     :param args: quantization args used for computing qparams and fake quant
@@ -53,7 +53,9 @@ def _grid_search_mse(
     :param chunk_size: number of grid steps per compiled call
     """
     if can_use_triton(observed, args):
-        return grid_search_triton(observed, args, maxshrink, grid, norm)
+        return grid_search_triton(
+            observed, args, maxshrink, patience, grid, norm
+        )
 
     min_val = torch.amin(observed, dim=(0, -1))
     max_val = torch.amax(observed, dim=(0, -1))
