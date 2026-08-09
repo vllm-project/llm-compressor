@@ -490,7 +490,9 @@ def handle_sequential_oom(func):
                 "use the attention module and individual expert class instead, "
                 "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
                 "sequential_targets_per_subgraph set to batch multiple experts per "
-                "subgraph and reduce memory overhead."
+                "subgraph and reduce memory overhead. Choosing a smaller "
+                "calibration dataset, by reducing `num_calibration_samples` or "
+                "`max_seq_length`, can also help."
             ) from e
 
     return wrapper
