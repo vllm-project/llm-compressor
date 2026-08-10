@@ -1,6 +1,3 @@
-# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
-# - Formatting only (no functional changes)
-
 """Kimi K3 XTML encoding helpers.
 
 This module keeps chat rendering in Python.

@@ -1,6 +1,3 @@
-# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
-# - Formatting only (no functional changes)
-
 import os
 from logging import getLogger
 from pathlib import Path
