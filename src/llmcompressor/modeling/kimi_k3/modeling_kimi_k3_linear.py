@@ -21,6 +21,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main
+# (originally modeling_kimi_linear.py):
+# - Renamed file from modeling_kimi_linear.py to modeling_kimi_k3_linear.py
+# - KimiSparseMoeBlock: added moe_train() method with gradient flow for
+#   calibration; uses get_calibrate_all_experts_flag() to run all experts
+#   during calibration. Inference path disabled (if False) to force training
+#   path during quantization
+# - KimiMoEGate.forward: removed `assert not self.training` to allow
+#   calibration in training mode
+# - KimiPreTrainedModel._init_weights: early return to prevent initialization
+#   of meta tensors during disk offloading (quantized models)
+# - KimiDecoderLayer._forward_attn_residual: refactored attention residual
+#   logic into _attn_res_pre_update() decorated with @torch.fx.wrap for
+#   torch.compile compatibility
+# - KimiDynamicCache: added get_query_offset() method; get_mask_sizes()
+#   handles both int and tensor cache_position (new transformers API)
+# - KimiLinearModel.__init__: attention implementation fallback changed from
+#   forcing flash_attention_2 to graceful fallback to sdpa/eager when FA2
+#   is unavailable
+# - create_causal_mask call: fixed input_embeds -> inputs_embeds typo,
+#   removed cache_position kwarg
+# - KimiLinearForCausalLM._tied_weights_keys: changed from list to dict
+#   mapping format
 import math
 from collections.abc import Callable
 from typing import Any
