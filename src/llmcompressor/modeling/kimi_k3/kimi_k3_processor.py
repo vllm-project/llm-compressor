@@ -1,6 +1,3 @@
-# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
-# - Formatting only (no functional changes)
-
 """Kimi-K3 processor: wraps vision processor + tokenizer into a single interface.
 
 Chat rendering (including XTML tool-result ordering) is handled by the
