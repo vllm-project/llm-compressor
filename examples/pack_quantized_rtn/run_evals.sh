@@ -16,6 +16,7 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 TASKS="${TASKS:-wikitext}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-0}"
 OUTPUT_DIR="${OUTPUT_DIR:-eval_results}"
+LINEAR_BACKEND="${LINEAR_BACKEND:-humming}"
 
 MODEL_BASE="${MODEL_BASE:-Meta-Llama-3-8B-Instruct}"
 
@@ -81,7 +82,7 @@ for task, metrics in d.get('results', {}).items():
     echo "    output -> $out_file"
 
     lm_eval --model vllm \
-        --model_args "pretrained=${model_path},dtype=auto,max_model_len=${MAX_MODEL_LEN},add_bos_token=True,gpu_memory_utilization=0.85" \
+        --model_args "pretrained=${model_path},dtype=auto,max_model_len=${MAX_MODEL_LEN},add_bos_token=True,gpu_memory_utilization=0.85,linear_backend=${LINEAR_BACKEND}" \
         --tasks "$TASKS" \
         --num_fewshot "$NUM_FEWSHOT" \
         --apply_chat_template \
