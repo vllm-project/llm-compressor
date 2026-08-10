@@ -1,5 +1,6 @@
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization.utils import generate_gparam
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
@@ -27,6 +28,9 @@ class MemorylessMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
         self.expand = observer_kwargs.get("expand", 1.0)
+        self.use_global_scale_prior = observer_kwargs.get(
+            "use_global_scale_prior", False
+        )
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
 
@@ -36,7 +40,20 @@ class MemorylessMSEObserver(Observer):
             update={"strategy": QuantizationStrategy.TOKEN}
         )
 
+    def _compute_approx_global_scale(
+        self, observed: torch.Tensor
+    ) -> torch.Tensor | None:
+        if (
+            not self.use_global_scale_prior
+            or self.args.strategy != QuantizationStrategy.TENSOR_GROUP
+        ):
+            return None
+        absmax = observed.abs().max()
+        absmax = torch.clamp(absmax, min=torch.finfo(absmax.dtype).tiny)
+        return generate_gparam(-absmax.reshape(1), absmax.reshape(1))
+
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
+        gs_prior = self._compute_approx_global_scale(observed)
         self.min_vals, self.max_vals = _grid_search_mse(
             observed,
             self.args,
@@ -47,6 +64,7 @@ class MemorylessMSEObserver(Observer):
             self.norm,
             self.chunk_size,
             self.expand,
+            global_scale=gs_prior,
         )
 
 
