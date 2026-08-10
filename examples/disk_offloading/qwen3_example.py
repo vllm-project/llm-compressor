@@ -11,6 +11,8 @@ from llmcompressor.utils import load_context
 # Select model and load it in the `load_context` context
 # In this example, we emulate large model quantization with disk offloading by
 # restricting the theoretical size of CPU RAM to be smaller than the size of the model
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 with load_context():
     model_id = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(
