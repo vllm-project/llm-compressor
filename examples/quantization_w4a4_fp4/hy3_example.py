@@ -16,6 +16,8 @@ from llmcompressor.utils import load_context
 # Select model and load it.
 MODEL_ID = "tencent/Hy3"
 
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 init_dist()
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
