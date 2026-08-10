@@ -85,9 +85,9 @@ steps:
       chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
       .buildkite/gpu-tests/scripts/combine-coverage.sh
 
-  # Transformers tests - always run on branch pushes
+  # Transformers tests - run on main branch pushes
   - label: ":mag: Transformers Tests (branch)"
-    if: build.pull_request == null
+    if: build.pull_request.id == null && build.branch == "main"
     agents:
       queue: RedHat-ModelOpt-Util
     command: |
@@ -95,7 +95,7 @@ steps:
 
   # Transformers tests - conditional on PRs when relevant paths changed
   - label: ":mag: Transformers Tests (PR)"
-    if: build.pull_request != null
+    if: build.pull_request.id != null
     agents:
       queue: RedHat-ModelOpt-Util
     if_changed:
