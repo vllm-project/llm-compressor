@@ -1,3 +1,6 @@
+# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
+# - Formatting only (no functional changes)
+
 import base64
 import functools
 import io

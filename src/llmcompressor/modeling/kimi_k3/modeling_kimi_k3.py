@@ -20,6 +20,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
+# - KimiK3PreTrainedModel._init_weights: early return added to prevent
+#   initialization of meta tensors during disk offloading (quantized models)
+# - KimiK3ForConditionalGeneration.tie_weights: accepts **kwargs for
+#   compatibility with transformers API
 
 # NOTE: Reference implementation for model architecture; see the model card for production deployment.
 import math

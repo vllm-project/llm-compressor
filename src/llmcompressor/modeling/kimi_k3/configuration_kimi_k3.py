@@ -1,3 +1,6 @@
+# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
+# - Formatting only (no functional changes)
+
 from typing import Optional
 
 from transformers.configuration_utils import PretrainedConfig

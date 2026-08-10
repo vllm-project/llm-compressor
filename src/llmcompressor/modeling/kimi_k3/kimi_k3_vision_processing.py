@@ -1,3 +1,6 @@
+# Differences from https://huggingface.co/moonshotai/Kimi-K3/tree/main:
+# - Formatting only (no functional changes)
+
 """Image processor class for Kimi-K3."""
 
 import json
