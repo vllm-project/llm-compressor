@@ -290,13 +290,7 @@ class Oneshot:
             " -- https://github.com/vllm-project/compressed-tensors/blob/"
             "main/examples/convert_checkpoint/kimi_k26_example.py"
         )
-        if quant_method == QUANTIZATION_METHOD:
-            logger.warning(
-                "oneshot has limited support for models already quantized in the "
-                "`compressed-tensors` format. If the recipe targets layers that have "
-                f"already been quantized, oneshot will likely fail. {resolution}"
-            )
-        else:
+        if quant_method != QUANTIZATION_METHOD:
             raise ValueError(
                 "oneshot does not currently support models that are already quantized "
                 f"in a different format ({quant_method}). {resolution}"

@@ -39,7 +39,7 @@ def test_oneshot_allows_unquantized_smoke_model(tmp_path):
 @pytest.mark.integration
 def test_oneshot_warns_pre_quantized_smoke_model():
     logs = []
-    handler_id = logger.add(logs.append, format="{message}", level="WARNING")
+    handler_id = logger.add(logs.append, format="{message}", level="INFO")
 
     with skip_weights_initialize():
         oneshot(
@@ -47,7 +47,7 @@ def test_oneshot_warns_pre_quantized_smoke_model():
             recipe=_recipe(),
         )
 
-    assert any("already quantized" in log for log in logs)
+    assert any("Found a compressed-tensors model" in log for log in logs)
     logger.remove(handler_id)
 
 
