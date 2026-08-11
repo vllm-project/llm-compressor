@@ -253,12 +253,18 @@ def get_linearize_load_mappings(
     # whose inverses incorrectly revert per-expert keys during saving.
     save_mappings: list[WeightTransform] = []
 
-    # validate that no transforms occur during loading
+    # validate that no transforms occur during loading/saving
     for converter in load_mappings:
         if isinstance(converter, WeightConverter):
             logger.warning(
                 "Linearized model performs a weight conversion during loading. This "
                 f"may lead to longer load times\n{converter}"
+            )
+    for converter in save_mappings:
+        if isinstance(converter, WeightConverter):
+            logger.warning(
+                "Linearized model performs a weight conversion during saving. This "
+                f"may lead to longer save times\n{converter}"
             )
 
     return experts_cls, load_mappings, save_mappings
