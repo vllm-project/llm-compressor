@@ -1,0 +1,16 @@
+cadence: "weekly"
+model: Qwen/Qwen3.6-35B-A3B
+recipe: tests/e2e/recipes/NVFP4_FP8/recipe_moe_nvfp4_fp8_rtn.yaml
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+seed: 100
+num_calibration_samples: 20
+lmeval:
+  metrics:
+    # Note: recovery will be dependent on 
+    # the hardware cpabilities. For blackwell
+    # machines, we expect lower results as 
+    # activation quantization is also enabled.
+    exact_match,flexible-extract: 0.73
+    exact_match,strict-match: 0.66
+num_gpus: 2

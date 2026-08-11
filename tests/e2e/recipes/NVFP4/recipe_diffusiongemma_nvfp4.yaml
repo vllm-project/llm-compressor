@@ -1,0 +1,12 @@
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      ignore:
+        - "lm_head"
+        - "re:.*embed.*"
+        - "re:.*self_attn"
+        - "re:.*router"
+        - "re:.*vision_tower.*"
+        - "re:.*self_conditioning.*"
+      scheme: "NVFP4"
+      targets: ["Linear"]
