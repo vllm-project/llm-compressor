@@ -482,7 +482,7 @@ def handle_sequential_oom(func):
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module "
                 "for `sequential_targets` argument (e.g. 'Linear'), "
-                "or choose a smaller calibration data set by reducing "
+                "or choose a smaller calibration dataset by reducing "
                 "num_calibration_samples or max_seq_length."
             ) from e
 
