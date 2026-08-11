@@ -49,9 +49,10 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
-* **Muse-Glimmer-30B FP8_BLOCK Quantized Checkpoint**: A quantized FP8_BLOCK checkpoint for [Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) has been created by the Red Hat AI team using `model_free_ptq`, enabling single-GPU deployment of this multimodal model.
+* **Muse-Glimmer-30B FP8 and NVFP4 Quantized Checkpoints**: FP8 and NVFP4 checkpoints for [Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) have been created by the Red Hat AI team, enabling single-GPU deployment of this multimodal model.
   - [RedHatAI/Muse-Glimmer-30B-FP8-block](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-FP8-block)
-  - [Muse-Glimmer FP8_BLOCK Example](examples/model_free_ptq/muse_glimmer_fp8_block.py)
+  - [RedHatAI/Muse-Glimmer-30B-NVFP4](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-NVFP4)
+  - [Muse-Glimmer FP8_Block Example](examples/model_free_ptq/muse_glimmer_fp8_block.py)
 * **Hy3 NVFP4+FP8 Quantized Checkpoint**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) has been created by the Red Hat AI team, combining NVFP4 quantization of MoE layers with FP8 quantization of attention layers to significantly reduce VRAM requirements while maintaining accuracy recovery.
   - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
   - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
