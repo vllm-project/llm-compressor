@@ -163,7 +163,7 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
 
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
-        ["experts.gate_up_proj", "experts.down_proj"],
+        [".experts.gate_up_proj", ".experts.down_proj"],
         [
             WeightRenaming(
                 source_patterns=r"\.experts\.(\d+)\.w1\.",
@@ -180,7 +180,7 @@ ARCH_TO_2D_MAPPINGS = {
         ],
     ),
     "qwen2_moe": (
-        ["experts.gate_up_proj", "experts.down_proj"],
+        [".experts.gate_up_proj", ".experts.down_proj"],
         [
             WeightRenaming(
                 source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
@@ -197,7 +197,7 @@ ARCH_TO_2D_MAPPINGS = {
         ],
     ),
     "hy_v3": (
-        ["experts.gate_up_proj", "experts.down_proj"],
+        [".experts.gate_up_proj", ".experts.down_proj"],
         [
             WeightRenaming(
                 source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
@@ -232,26 +232,18 @@ def get_linearize_load_mappings(
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
-    # Build load mappings: structural renames (minus expert converters) + per-expert
-    # renames. The expert converters handle 3D->2D fusion which we replace with
-    # per-expert 2D loading.
-    load_base = [
+    # forwards has conversion mappings
+    # backwards reverts load mappings
+    base_mappings = [
         transform
         for transform in mapping
-        if not (
-            isinstance(transform, WeightConverter)
-            and any(
-                any(rm in target for rm in remove_targets)
-                for target in transform.target_patterns
-            )
+        if not any(
+            any(rm in target for rm in remove_targets)
+            for target in transform.target_patterns
         )
     ]
-    load_mappings = load_base + new_mappings
-
-    # Save with no conversion mapping so the model is persisted in HF format.
-    # Structural renames in newer transformers versions use unanchored patterns
-    # whose inverses incorrectly revert per-expert keys during saving.
-    save_mappings: list[WeightTransform] = []
+    load_mappings = base_mappings + new_mappings
+    save_mappings = load_mappings
 
     # validate that no transforms occur during loading/saving
     for converter in load_mappings:
