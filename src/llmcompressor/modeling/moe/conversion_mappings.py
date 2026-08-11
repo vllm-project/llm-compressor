@@ -163,53 +163,53 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
 
 ARCH_TO_2D_MAPPINGS = {
     "deepseek_v4": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        ["experts.gate_up_proj", "experts.down_proj"],
         [
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w1\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+                source_patterns=r"\.experts\.(\d+)\.w1\.",
+                target_patterns=r".experts.\1.gate_proj.",
             ),
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w2\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+                source_patterns=r"\.experts\.(\d+)\.w2\.",
+                target_patterns=r".experts.\1.down_proj.",
             ),
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.w3\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                source_patterns=r"\.experts\.(\d+)\.w3\.",
+                target_patterns=r".experts.\1.up_proj.",
             ),
         ],
     ),
     "qwen2_moe": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        ["experts.gate_up_proj", "experts.down_proj"],
         [
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.gate_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+                source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
+                target_patterns=r".experts.\1.gate_proj.",
             ),
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                source_patterns=r"\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r".experts.\1.up_proj.",
             ),
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+                source_patterns=r"\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r".experts.\1.down_proj.",
             ),
         ],
     ),
     "hy_v3": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        ["experts.gate_up_proj", "experts.down_proj"],
         [
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.gate_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.gate_proj.",
+                source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
+                target_patterns=r".experts.\1.gate_proj.",
             ),
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.up_proj.",
+                source_patterns=r"\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r".experts.\1.up_proj.",
             ),
             WeightRenaming(
-                source_patterns=r"^layers\.(\d+)\.mlp\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r"layers.\1.mlp.experts.\2.down_proj.",
+                source_patterns=r"\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r".experts.\1.down_proj.",
             ),
         ],
     ),
@@ -232,27 +232,33 @@ def get_linearize_load_mappings(
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
-    # forwards has conversion mappings
-    # backwards has no mappings (stay 2d)
-    save_mappings = [
-        converter
-        for converter in mapping
-        if not any(target in remove_targets for target in converter.target_patterns)
+    # Build load mappings: structural renames (minus expert converters) + per-expert
+    # renames. The expert converters handle 3D->2D fusion which we replace with
+    # per-expert 2D loading.
+    load_base = [
+        transform
+        for transform in mapping
+        if not (
+            isinstance(transform, WeightConverter)
+            and any(
+                any(rm in target for rm in remove_targets)
+                for target in transform.target_patterns
+            )
+        )
     ]
-    load_mappings = save_mappings + new_mappings
+    load_mappings = load_base + new_mappings
 
-    # validate that no transforms occur during loading/saving
+    # Save with no conversion mapping so the model is persisted in HF format.
+    # Structural renames in newer transformers versions use unanchored patterns
+    # whose inverses incorrectly revert per-expert keys during saving.
+    save_mappings: list[WeightTransform] = []
+
+    # validate that no transforms occur during loading
     for converter in load_mappings:
         if isinstance(converter, WeightConverter):
             logger.warning(
                 "Linearized model performs a weight conversion during loading. This "
                 f"may lead to longer load times\n{converter}"
-            )
-    for converter in save_mappings:
-        if isinstance(converter, WeightConverter):
-            logger.warning(
-                "Linearized model performs a weight conversion during saving. This "
-                f"may lead to longer save times\n{converter}"
             )
 
     return experts_cls, load_mappings, save_mappings
