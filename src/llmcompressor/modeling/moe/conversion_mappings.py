@@ -235,8 +235,8 @@ def get_linearize_load_mappings(
     # forwards has conversion mappings
     # backwards reverts load mappings
     base_mappings = [
-        converter
-        for converter in mapping
+        transform
+        for transform in mapping
         if not any(
             any(
                 rm in target for rm in remove_targets
