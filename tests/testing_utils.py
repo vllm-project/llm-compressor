@@ -408,7 +408,6 @@ def requires_version(package_name: str, req_version: str) -> pytest.MarkDecorato
     """
     import operator
     import re
-
     from importlib.metadata import PackageNotFoundError, version
 
     from packaging.version import Version
@@ -436,10 +435,7 @@ def requires_version(package_name: str, req_version: str) -> pytest.MarkDecorato
 
     return pytest.mark.skipif(
         not compare(Version(installed), Version(ver_str)),
-        reason=(
-            f"{package_name} {op_str}{ver_str} required, "
-            f"found {installed}"
-        ),
+        reason=(f"{package_name} {op_str}{ver_str} required, " f"found {installed}"),
     )
 
 
