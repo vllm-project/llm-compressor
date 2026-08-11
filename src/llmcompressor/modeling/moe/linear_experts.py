@@ -85,30 +85,30 @@ class ExpertMLPWithGate(ExpertMLP):
     def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
         """Inverse of :meth:`copy_from_experts_module` for weight (and bias) tensors."""
         if not experts.is_transposed:
-            experts.gate_up_proj.data[index, : self.intermediate_size] = (
-                self.gate_proj.weight.data
+            experts.gate_up_proj[index, : self.intermediate_size].copy_(
+                self.gate_proj.weight
             )
-            experts.gate_up_proj.data[index, self.intermediate_size :] = (
-                self.up_proj.weight.data
+            experts.gate_up_proj[index, self.intermediate_size :].copy_(
+                self.up_proj.weight
             )
-            experts.down_proj.data[index] = self.down_proj.weight.data
+            experts.down_proj[index].copy_(self.down_proj.weight)
         else:
-            experts.gate_up_proj.data[index, :, : self.intermediate_size] = (
-                self.gate_proj.weight.data.T
+            experts.gate_up_proj[index, :, : self.intermediate_size].copy_(
+                self.gate_proj.weight.T
             )
-            experts.gate_up_proj.data[index, :, self.intermediate_size :] = (
-                self.up_proj.weight.data.T
+            experts.gate_up_proj[index, :, self.intermediate_size :].copy_(
+                self.up_proj.weight.T
             )
-            experts.down_proj.data[index] = self.down_proj.weight.data.T
+            experts.down_proj[index].copy_(self.down_proj.weight.T)
 
         if experts.has_bias:
-            experts.gate_up_proj_bias.data[index, : self.intermediate_size] = (
-                self.gate_proj.bias.data
+            experts.gate_up_proj_bias[index, : self.intermediate_size].copy_(
+                self.gate_proj.bias
             )
-            experts.gate_up_proj_bias.data[index, self.intermediate_size :] = (
-                self.up_proj.bias.data
+            experts.gate_up_proj_bias[index, self.intermediate_size :].copy_(
+                self.up_proj.bias
             )
-            experts.down_proj_bias.data[index] = self.down_proj.bias.data
+            experts.down_proj_bias[index].copy_(self.down_proj.bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
@@ -167,15 +167,15 @@ class ExpertMLPWithoutGate(ExpertMLP):
     def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
         """Inverse of :meth:`copy_from_experts_module` for weight (and bias) tensors."""
         if not experts.is_transposed:
-            experts.up_proj.data[index] = self.up_proj.weight.data
-            experts.down_proj.data[index] = self.down_proj.weight.data
+            experts.up_proj[index].copy_(self.up_proj.weight)
+            experts.down_proj[index].copy_(self.down_proj.weight)
         else:
-            experts.up_proj.data[index] = self.up_proj.weight.data.T
-            experts.down_proj.data[index] = self.down_proj.weight.data.T
+            experts.up_proj[index].copy_(self.up_proj.weight.T)
+            experts.down_proj[index].copy_(self.down_proj.weight.T)
 
         if experts.has_bias:
-            experts.up_proj_bias.data[index] = self.up_proj.bias.data
-            experts.down_proj_bias.data[index] = self.down_proj.bias.data
+            experts.up_proj_bias[index].copy_(self.up_proj.bias)
+            experts.down_proj_bias[index].copy_(self.down_proj.bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
@@ -280,6 +280,10 @@ class LinearExperts2D(torch.nn.ModuleList):
         with skip_weights_initialize():
             fused: FusedExpertsProtocol = experts_cls(config)
 
+        first_param = next(self.parameters(), None)
+        if first_param is not None:
+            fused.to(device=first_param.device, dtype=first_param.dtype)
+
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
             expert.copy_to_experts_module(fused, index)
@@ -309,7 +313,9 @@ class LinearExperts2D(torch.nn.ModuleList):
                     getattr(self[i].up_proj, qparam, None)
                     for i in range(self.num_experts)
                 ]
-                if gate_vals[0] is not None and up_vals[0] is not None:
+                if all(g is not None for g in gate_vals) and all(
+                    u is not None for u in up_vals
+                ):
                     # Match weight packing: concat gate/up on the out-feature axis,
                     # then stack experts. Scalars (global_scale) are stacked only.
                     if gate_vals[0].ndim == 0:
@@ -335,7 +341,7 @@ class LinearExperts2D(torch.nn.ModuleList):
                 getattr(self[i].down_proj, qparam, None)
                 for i in range(self.num_experts)
             ]
-            if down_vals[0] is not None:
+            if all(d is not None for d in down_vals):
                 packed = torch.stack(down_vals, dim=0)
                 setattr(
                     fused,
@@ -348,7 +354,7 @@ class LinearExperts2D(torch.nn.ModuleList):
                     getattr(self[i].up_proj, qparam, None)
                     for i in range(self.num_experts)
                 ]
-                if up_vals[0] is not None:
+                if all(u is not None for u in up_vals):
                     packed = torch.stack(up_vals, dim=0)
                     setattr(
                         fused,
