@@ -74,9 +74,9 @@ steps:
       chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
       .buildkite/gpu-tests/scripts/combine-coverage.sh
 
-  # Transformers tests - run on main branch pushes
+  # Transformers tests - run on main and release branch pushes
   - label: ":mag: Transformers Tests (branch)"
-    if: build.pull_request.id == null && build.branch == "main"
+    if: build.pull_request.id == null && (build.branch == "main" || build.branch =~ /^release-/)
     agents:
       queue: RedHat-ModelOpt-Util
     command: |
