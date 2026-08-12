@@ -177,6 +177,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # private variables
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
+    _consumed_layers: set = PrivateAttr(default_factory=set)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -225,9 +226,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def input_capture_hook(self, module, args, kwargs):
-        if module._tmp_name not in self._all_module_input:
-            self._all_module_input[module._tmp_name] = []
-        self._all_module_input[module._tmp_name].append((args, kwargs))
+        name = module._tmp_name
+        # After apply_autoround consumes a layer's inputs, it is added to
+        # _consumed_layers so this hook becomes a no-op for subsequent forward
+        # calls during the SignSGD optimization loop.  Without this guard the
+        # hook fires on every mini-batch forward (gradient_accumulate_steps ×
+        # iters calls) and holds the hidden_states tensor alive, causing
+        # ~(gradient_accumulate_steps × hidden_states_size) MB of GPU memory
+        # growth per outer iteration.
+        if name in self._consumed_layers:
+            return
+        self._all_module_input.setdefault(name, []).append((args, kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
@@ -313,7 +322,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ar.batch_dim = 0
             first_param = next(decoding_layer.parameters())
             device = first_param.device
-            cur_inputs = self._all_module_input[decoding_layer._tmp_name]
+            # Mark consumed before pop so the hook immediately becomes a no-op
+            # for any forward call triggered during the optimization loop.
+            self._consumed_layers.add(decoding_layer._tmp_name)
+            cur_inputs = self._all_module_input.pop(decoding_layer._tmp_name)
             self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
             # Only hand device placement to AutoRound when the caller explicitly
@@ -359,6 +371,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
+        self._consumed_layers.clear()
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
