@@ -59,9 +59,18 @@ class ExpertMLPWithGate(ExpertMLP):
 
     def view_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
         i_size = self.intermediate_size
-        self.gate_proj.weight = Parameter(experts.gate_up_proj[index, :i_size])
-        self.up_proj.weight = Parameter(experts.gate_up_proj[index, i_size:])
-        self.down_proj.weight = Parameter(experts.down_proj[index])
+
+        tmp = experts.gate_up_proj[index, :i_size]
+        tmp.__class__ = Parameter
+        self.gate_proj.weight = tmp
+
+        tmp = experts.gate_up_proj[index, i_size:]
+        tmp.__class__ = Parameter
+        self.up_proj.weight = tmp
+        
+        tmp = experts.down_proj[index]
+        tmp.__class__ = Parameter
+        self.down_proj.weight = tmp
 
         if self.mlp_bias:
             self.gate_proj.bias = Parameter(experts.gate_up_proj_bias[index, :i_size])
