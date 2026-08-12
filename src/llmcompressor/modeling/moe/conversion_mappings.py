@@ -234,7 +234,7 @@ def get_linearize_load_mappings(
 
     # forwards has conversion mappings
     # backwards reverts load mappings
-    base_mappings = [
+    save_mappings = [
         transform
         for transform in mapping
         if not any(
@@ -244,8 +244,7 @@ def get_linearize_load_mappings(
             for target in converter.target_patterns
         )
     ]
-    load_mappings = base_mappings + new_mappings
-    save_mappings = load_mappings
+    load_mappings = save_mappings + new_mappings
 
     # validate that no transforms occur during loading/saving
     for converter in load_mappings:
