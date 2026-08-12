@@ -82,7 +82,12 @@ Two practical consequences:
 - **Below roughly 10B parameters, prefer weight-only (W4A16) over W4A4**, or
   step up to FP8. Re-running the same 7B with W4A16 recovered the knowledge
   and instruction-following losses entirely (−0.7 pt and −3.7 pt, neither
-  significant) at the same size and speed.
+  significant) at the same 4-bit weight footprint. Note the trade: W4A16
+  keeps 16-bit activation math, so it matches W4A4 only where decode is
+  memory-bandwidth-bound (small batch, short context). At larger batches or
+  longer contexts W4A4 can use 4-bit tensor cores and pulls ahead on compute
+  throughput — measure your own serving shape before treating them as
+  interchangeable.
 - **The two halves of W4A4 fail differently.** Quantizing activations is what
   damaged instruction following and knowledge; quantizing weights is what
   damaged long-chain mathematical reasoning (−5.4 pt, unchanged whether

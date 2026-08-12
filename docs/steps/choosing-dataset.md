@@ -48,7 +48,7 @@ the scales to English activation ranges, and the languages you actually serve
 inherit whatever error is left over.
 
 A mixed set is usually enough: half target-language, half English preserves
-English behaviour while covering the target language's activation ranges. In
+English behavior while covering the target language's activation ranges. In
 one NVFP4 run on a Thai-capable 30B model, a 50/50 Thai/English calibration
 set (512 samples) left Thai multiple-choice accuracy statistically unchanged
 against the BF16 source, while English tasks moved within the same small
