@@ -239,7 +239,7 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
 @contextmanager
 def suspend_distributed_timeout(
-    timeout: datetime.timedelta = datetime.timedelta(hours=3),
+    timeout: datetime.timedelta = datetime.timedelta(hours=12),
     current_group: dist.ProcessGroup | None = None,
 ):
     """
