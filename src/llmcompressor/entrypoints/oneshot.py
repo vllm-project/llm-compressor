@@ -23,12 +23,7 @@ from compressed_tensors.base import (
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
-from transformers import (
-    AutoConfig,
-    PreTrainedModel,
-    PreTrainedTokenizerBase,
-    ProcessorMixin,
-)
+from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
 
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
@@ -179,10 +174,6 @@ class Oneshot:
         self.recipe_args = recipe_args
         self.output_dir = output_dir
 
-        # validate before pre_process, which may strip quantization_config
-        # during decompression (run_compressed=False)
-        self.validate_model(model_args.model)
-
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
 
@@ -190,6 +181,8 @@ class Oneshot:
         self.model = self.model_args.model
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
+
+        self.validate_model(self.model)
 
     def __call__(self):
         """
@@ -277,26 +270,16 @@ class Oneshot:
         session.finalize()
 
     @staticmethod
-    def validate_model(model: str | Path | PreTrainedModel):
+    def validate_model(model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        if isinstance(model, (str, Path)):
-            # Also allow taking in a path, this directly loads the
-            # config from the path and checks for quantization method
-            config = AutoConfig.from_pretrained(str(model))
-            qc = getattr(config, QUANTIZATION_CONFIG_NAME, None)
-            if isinstance(qc, dict):
-                quant_method = qc.get(QUANTIZATION_METHOD_NAME)
-            else:
-                quant_method = getattr(qc, QUANTIZATION_METHOD_NAME, None)
-        else:
-            quant_method_key = (
-                f"config.{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
-            )
-            quant_method = getattr_chain(model, quant_method_key, None)
+        quant_method_key = (
+            f"config.{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
+        )
+        quant_method = getattr_chain(model, quant_method_key, None)
 
         if quant_method is None:
             return
