@@ -73,6 +73,7 @@ class ExpertMLPWithGate(ExpertMLP):
         self.down_proj.weight = tmp
 
         if self.mlp_bias:
+            assert False
             self.gate_proj.bias = Parameter(experts.gate_up_proj_bias[index, :i_size])
             self.up_proj.bias = Parameter(experts.gate_up_proj_bias[index, i_size:])
             self.down_proj.bias = Parameter(experts.down_proj_bias[index])
