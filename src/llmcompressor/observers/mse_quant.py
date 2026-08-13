@@ -26,6 +26,7 @@ def _grid_search_mse(
     norm: float,
     chunk_size: int,
     expand: float = 1.0,
+    global_scale: torch.Tensor | None = None,
 ) -> MinMaxTuple:
     """Find per-channel min/max ranges that minimize quantization error.
 
@@ -74,6 +75,7 @@ def _grid_search_mse(
             grid,
             norm,
             chunk_size,
+            global_scale,
         )
     return _grid_search_eager(
         observed,
@@ -88,6 +90,7 @@ def _grid_search_mse(
         patience,
         grid,
         norm,
+        global_scale,
     )
 
 
@@ -104,6 +107,7 @@ def _grid_search_eager(
     patience: int,
     grid: float,
     norm: float,
+    global_scale: torch.Tensor | None = None,
 ) -> MinMaxTuple:
     """Per-step grid search with boolean-indexing updates and early stopping."""
     no_improve_count = 0
@@ -120,6 +124,7 @@ def _grid_search_eager(
             shrinked_min_val,
             shrinked_max_val,
             norm,
+            global_scale,
         )
 
         improved = err < best_error
@@ -150,6 +155,7 @@ def _grid_search_compiled(
     grid: float,
     norm: float,
     chunk_size: int,
+    global_scale: torch.Tensor | None = None,
 ) -> MinMaxTuple:
     """Chunked grid search using torch.compiled inner loop.
 
@@ -189,6 +195,7 @@ def _grid_search_compiled(
             best_error,
             best_min_val,
             best_max_val,
+            global_scale,
         )
 
         if torch.equal(prev_best, best_error):
@@ -215,6 +222,7 @@ def _compute_chunk(
     best_error: torch.Tensor,
     best_min_val: torch.Tensor,
     best_max_val: torch.Tensor,
+    global_scale: torch.Tensor | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Evaluate ``chunk_size`` shrink-factor candidates in one call.
 
@@ -237,6 +245,7 @@ def _compute_chunk(
             shrinked_min,
             shrinked_max,
             norm,
+            global_scale,
         )
 
         improved = err < best_error
@@ -254,6 +263,7 @@ def _calculate_error(
     shrinked_min: torch.Tensor,
     shrinked_max: torch.Tensor,
     norm: float,
+    global_scale: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Fake-quantize ``observed`` using the given shrinked min/max range and
     return the per-channel error.
@@ -264,7 +274,7 @@ def _calculate_error(
         min_vals=shrinked_min,
         max_vals=shrinked_max,
         quantization_args=args,
-        global_scale=None,
+        global_scale=global_scale,
     )
 
     q = fake_quantize(
@@ -272,6 +282,7 @@ def _calculate_error(
         candidate_scales.unsqueeze(-1),
         candidate_zero_points.unsqueeze(-1),
         token_args,
+        global_scale=global_scale,
     ).to(observed.dtype)
 
     err = torch.sum((q - observed).abs().pow(norm), dim=(0, -1))

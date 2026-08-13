@@ -1,5 +1,6 @@
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization.utils import generate_gparam
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
@@ -27,6 +28,7 @@ class MemorylessMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
         self.expand = observer_kwargs.get("expand", 1.0)
+        self.gs_prior_scale = observer_kwargs.get("gs_prior_scale", None)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
         if self.expand < 1.0:
@@ -38,7 +40,27 @@ class MemorylessMSEObserver(Observer):
             update={"strategy": QuantizationStrategy.TOKEN}
         )
 
+    def _compute_approx_global_scale(
+        self, observed: torch.Tensor
+    ) -> torch.Tensor | None:
+        if (
+            self.gs_prior_scale is None
+            or self.args.strategy != QuantizationStrategy.TENSOR_GROUP
+        ):
+            return None
+
+        absmax = observed.abs().max()
+        for handler in self.fusion_handler._group:
+            mod = handler.module
+            if mod is not None:
+                absmax = torch.max(absmax, mod.weight.abs().max())
+
+        absmax = absmax * self.gs_prior_scale
+        absmax = torch.clamp(absmax, min=torch.finfo(absmax.dtype).tiny)
+        return generate_gparam(-absmax.reshape(1), absmax.reshape(1))
+
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
+        gs_prior = self._compute_approx_global_scale(observed)
         self.min_vals, self.max_vals = _grid_search_mse(
             observed,
             self.args,
@@ -49,6 +71,7 @@ class MemorylessMSEObserver(Observer):
             self.norm,
             self.chunk_size,
             self.expand,
+            global_scale=gs_prior,
         )
 
 
@@ -129,3 +152,4 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
         self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = observer_kwargs.get("grid", 200.0)
         self.patience = observer_kwargs.get("patience", 1000)
+        self.gs_prior_scale = observer_kwargs.get("gs_prior_scale", self.expand)
