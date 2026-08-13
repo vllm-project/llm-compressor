@@ -24,10 +24,10 @@ from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import (
+    AutoConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
     ProcessorMixin,
-    AutoConfig,
 )
 
 from llmcompressor.args import parse_args
@@ -281,12 +281,21 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        # config may have been modified during loading
-        # as is the case for decompressed models
+        # Check on-disk config first because decompressed models
+        # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(model.config.name_or_path)
-        quant_method = getattr(
+        quant_method = getattr_chain(
             config, f"{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}", None
         )
+
+        # Fall back to in-memory config for models with
+        # quantization_config set programmatically
+        if quant_method is None:
+            quant_method = getattr_chain(
+                model,
+                f"config.{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}",
+                None,
+            )
 
         resolution = (
             "To resolve, load a full-precision checkpoint instead, or dequantize the "
