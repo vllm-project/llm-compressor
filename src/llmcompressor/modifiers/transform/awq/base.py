@@ -139,6 +139,8 @@ class AWQModifier(Modifier):
         Defaults to 20
     """
 
+    requires_calibration_data: bool = True
+
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
@@ -494,6 +496,12 @@ class AWQModifier(Modifier):
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
 
+            # pin memory for faster onloading during grid search
+            # pinned memory in cache is deleted before next mapping is pinned
+            cache = self._parent_args_cache[parent_module]
+            for batch_index in range(len(cache)):
+                cache.pin_memory(batch_index)
+
             with (
                 align_modules([parent_module, smooth_layer, *balance_layers]),
                 calibration_forward_context(model),
@@ -575,10 +583,9 @@ class AWQModifier(Modifier):
 
                 # remove caches needed to smooth this mapping
                 del self._smooth_activation_stats[mapping.smooth_name]
+                del self._parent_args_cache[parent_module]
                 del orig_layer_weights
 
-        for v in self._parent_args_cache.values():
-            v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
     @torch.no_grad()

@@ -13,6 +13,10 @@ from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     build_step3p5_mappings,
     get_layer_mappings_from_model,
 )
+from llmcompressor.modifiers.transform.awq.mappings import (
+    AWQ_MAPPING_REGISTRY,
+    default_mappings,
+)
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
     get_hybrid_attention_config,
 )
@@ -464,6 +468,15 @@ class TestGetLayerMappingsFromModel:
         mappings = get_layer_mappings_from_model(model)
         assert len(mappings) == 4
         assert not any("|" in m.smooth_layer for m in mappings)
+
+    def test_nanbeige_model_uses_static_default_mappings(self):
+        model = _make_standard_model()
+        model.__class__ = type("NanbeigeForCausalLM", (model.__class__,), {})
+
+        model_name = model.__class__.__name__
+
+        assert AWQ_MAPPING_REGISTRY[model_name] == default_mappings
+        assert get_layer_mappings_from_model(model) == default_mappings
 
     def test_unknown_model_gets_default_mappings(self):
         model = _make_standard_model()
