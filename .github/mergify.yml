@@ -82,21 +82,21 @@ pull_request_rules:
         remove:
           - quality-failed
 
-  - name: label community PRs for two reviews
-    conditions:
-      - label != stale
-      - -closed
-      - -draft
-      - author != kylesayrs
-      - author != dsikka
-      - author != HDCharles
-      - author != brian-dellabetta
-    actions:
-      label:
-        add:
-          - two-reviews
-
 merge_protections:
+  - name: Require one maintainer review
+    description: >-
+      All PRs must have at least one approving review from a maintainer
+      before merging.
+    if: []
+    success_conditions:
+      - or:
+          - approved-reviews-by=kylesayrs
+          - approved-reviews-by=dsikka
+          - approved-reviews-by=HDCharles
+          - approved-reviews-by=brian-dellabetta
+          - approved-reviews-by=yiliu30
+      - "#changes-requested-reviews-by = 0"
+
   - name: Require two reviews
     description: >-
       PRs labelled "two-reviews" must have at least two approving reviews

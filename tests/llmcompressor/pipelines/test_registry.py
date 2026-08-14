@@ -9,7 +9,6 @@ from llmcompressor.modifiers.transform import (
     SmoothQuantModifier,
     SpinQuantModifier,
 )
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.pipelines import (
     CalibrationPipeline,
     DataFreePipeline,
@@ -22,13 +21,20 @@ from llmcompressor.pipelines import (
     [
         ([QuantizationModifier(scheme="FP8")], SequentialPipeline),
         ([QuantizationModifier(scheme="W4A16")], DataFreePipeline),
+        (
+            [QuantizationModifier(scheme="W4A16", weight_observer="imatrix_mse")],
+            SequentialPipeline,
+        ),
+        (
+            [QuantizationModifier(scheme="W4A16", observer={"weights": "imatrix_mse"})],
+            SequentialPipeline,
+        ),
         ([GPTQModifier(scheme="FP8")], SequentialPipeline),
         ([GPTQModifier(scheme="W4A16")], SequentialPipeline),
         ([SmoothQuantModifier(), GPTQModifier(scheme="W4A16")], SequentialPipeline),
         ([AWQModifier(), QuantizationModifier(scheme="W4A16")], SequentialPipeline),
         ([AWQModifier(), QuantizationModifier(scheme="FP8")], SequentialPipeline),
         ([SparseGPTModifier(sparsity=1.0)], SequentialPipeline),
-        ([IMatrixGatherer()], SequentialPipeline),
         ([WandaPruningModifier(sparsity=1.0)], SequentialPipeline),
         ([QuIPModifier()], DataFreePipeline),
         ([SpinQuantModifier()], DataFreePipeline),

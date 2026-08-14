@@ -32,7 +32,7 @@ Your GPU architecture determines what compression schemes can be hardware-accele
 - **Alternative**: MXFP8 or FP8 for balanced compression and speed
 
 ### NVIDIA Hopper
-- **Minimum compute capability**: 8.9
+- **Minimum compute capability**: 9.0
 - **Recommended**: W8A8-FP8 for maximum throughput
 - **Alternative**: W4AFP8 for mixed-precision with good accuracy
 
