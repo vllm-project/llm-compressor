@@ -284,19 +284,13 @@ class Oneshot:
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(model.config.name_or_path)
-        quant_method = getattr_chain(
-            config, f"{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}", None
+        qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
+        quant_method = (
+            qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None
         )
 
         # Fall back to in-memory config for models with
         # quantization_config set programmatically
-        if quant_method is None:
-            quant_method = getattr_chain(
-                model,
-                f"config.{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}",
-                None,
-            )
-
         resolution = (
             "To resolve, load a full-precision checkpoint instead, or dequantize the "
             "checkpoint first with the compressed-tensors convert_checkpoint entrypoint"
