@@ -40,6 +40,8 @@ convert_checkpoint(
 )
 
 # Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         DEQUANTIZED_SAVE_DIR,

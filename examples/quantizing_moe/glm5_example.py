@@ -14,6 +14,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Load the model
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 init_dist()
 model_id = "zai-org/GLM-5.2"
 with load_context():

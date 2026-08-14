@@ -118,11 +118,7 @@ setup(
         ("requests>=2.32.2,<2.35.0" if BUILD_TYPE == "release" else "requests>=2.32.2"),
         ("tqdm>=4.66.3,<=4.70.0" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.13.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
-        (
-            "transformers>=5.9.0,<=5.14.1"
-            if BUILD_TYPE == "release"
-            else "transformers>=5.9.0"
-        ),
+        ("transformers==5.15.0" if BUILD_TYPE == "release" else "transformers>=5.15.0"),
         ("datasets>=4.8.4,<=5.0.1" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
             "auto-round>=0.14.1,<=0.14.2"
@@ -141,9 +137,9 @@ setup(
         ),
         ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.17.1"
+            "compressed-tensors==0.18.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.17.2a2"
+            else "compressed-tensors>=0.18.1a2"
         ),
     ],
     extras_require={

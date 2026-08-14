@@ -47,6 +47,7 @@ from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
+    warn_inference_mode_forwards,
 )
 
 __all__ = ["QuantizationMixin"]
@@ -247,6 +248,7 @@ class QuantizationMixin(HooksMixin):
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
+        warn_inference_mode_forwards(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
