@@ -65,9 +65,9 @@ def patch_deepseek_fp32_modules():
         (
             "inference-optimization/DSV4-tiny-empty",
             [
-                "model.layers.0.mlp.experts.2.up_proj.weight",
-                "model.layers.1.mlp.experts.0.gate_proj.weight",
-                "model.layers.2.mlp.experts.1.down_proj.weight",
+                "model.layers.0.ffn.experts.2.w3.weight",
+                "model.layers.1.ffn.experts.0.w1.weight",
+                "model.layers.2.ffn.experts.1.w2.weight",
             ],
         ),
         (
