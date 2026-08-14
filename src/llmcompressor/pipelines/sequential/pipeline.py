@@ -24,6 +24,34 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
+def _configure_modifier_pipeline(modifiers, dataset_args):
+    has_autoround = any(type(m).__name__ == "AutoRoundModifier" for m in modifiers)
+    has_layerwise_qad = any(
+        type(m).__name__ == "LayerwiseQADModifier" for m in modifiers
+    )
+
+    if has_autoround and has_layerwise_qad:
+        raise ValueError(
+            "AutoRoundModifier and LayerwiseQADModifier require incompatible "
+            "sequential propagation behavior"
+        )
+
+    if has_layerwise_qad:
+        if not dataset_args.propagate_error:
+            raise ValueError(
+                "LayerwiseQADModifier requires `propagate_error=True` so each "
+                "block receives the optimized quantized output of the previous block"
+            )
+        if dataset_args.sequential_targets_per_subgraph != 1:
+            raise ValueError(
+                "LayerwiseQADModifier requires `sequential_targets_per_subgraph=1`"
+            )
+    elif has_autoround:
+        # AutoRound optimizes each layer independently using its own forward
+        # passes, so quantization error should not be propagated between layers.
+        dataset_args.propagate_error = False
+
+
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
@@ -86,12 +114,8 @@ class SequentialPipeline(CalibrationPipeline):
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
 
-        # AutoRoundModifier optimizes each layer independently using its own
-        # forward passes, so quantization error should not be propagated between
-        # layers during the calibration stage
         modifiers = session.lifecycle.recipe.modifiers
-        if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
-            dataset_args.propagate_error = False
+        _configure_modifier_pipeline(modifiers, dataset_args)
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
