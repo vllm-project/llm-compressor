@@ -45,7 +45,10 @@ def prefetch_model_on_rank0(model_id_or_path: str, **snapshot_download_kwargs) -
     if not (dist.is_available() and dist.is_initialized()):
         return  # single process: from_pretrained's own download is fine
 
-    if dist.get_rank() == 0:
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    is_local_master = local_rank == 0 if "LOCAL_RANK" in os.environ else dist.get_rank() == 0
+
+    if is_local_master:
         snapshot_download(model_id_or_path, **snapshot_download_kwargs)
 
     dist.barrier()
