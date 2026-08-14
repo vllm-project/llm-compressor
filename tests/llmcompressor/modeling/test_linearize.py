@@ -51,6 +51,7 @@ def patch_deepseek_fp32_modules():
     BUG: norms should be loaded in float32, but usually aren't due to the base
     model having a quant_config which overrides this. Loading in float32 actually
     breaks the model definition (it expects bfloat16). Let's force load in bfloat16.
+    # Fixed upstream by: https://github.com/huggingface/transformers/pull/47486
     """
     with patch_attr(DeepseekV4PreTrainedModel, "_keep_in_fp32_modules_strict", set()):
         yield
@@ -64,9 +65,9 @@ def patch_deepseek_fp32_modules():
         (
             "inference-optimization/DSV4-tiny-empty",
             [
-                "model.layers.0.mlp.experts.2.up_proj.weight",
-                "model.layers.1.mlp.experts.0.gate_proj.weight",
-                "model.layers.2.mlp.experts.1.down_proj.weight",
+                "model.layers.0.ffn.experts.2.w3.weight",
+                "model.layers.1.ffn.experts.0.w1.weight",
+                "model.layers.2.ffn.experts.1.w2.weight",
             ],
         ),
         (

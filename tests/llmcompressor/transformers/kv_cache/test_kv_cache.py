@@ -2,13 +2,14 @@ import os
 from pathlib import Path
 
 import pytest
-from compressed_tensors.quantization import is_attention_module
+from compressed_tensors.quantization import is_cached_attention_module
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
+from tests.testing_utils import requires_gpu, requires_version
 
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512
@@ -136,6 +137,7 @@ def kv_cache_fixture():
     return _kv_cache_fixture
 
 
+@requires_version("transformers", "!=5.15.0")
 def test_kv_cache_config_format(oneshot_fixture, tmp_path):
     _, used_args = next(oneshot_fixture(tmp_path))
     output_dir = used_args["output_dir"]
@@ -152,6 +154,7 @@ def test_kv_cache_config_format(oneshot_fixture, tmp_path):
     assert kv_cache_scheme["symmetric"] == used_args["symmetric"]
 
 
+@requires_version("transformers", "!=5.15.0")
 def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
     model, used_args = next(oneshot_fixture(tmp_path))
     output_dir = str(used_args["output_dir"])
@@ -159,13 +162,14 @@ def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
 
     counts = 0
     for name, submodule in model.named_modules():
-        if is_attention_module(submodule):
+        if is_cached_attention_module(submodule):
             counts += 1
             assert hasattr(submodule, "v_scale")
             assert hasattr(submodule, "k_scale")
     assert counts > 0
 
 
+@requires_version("transformers", "!=5.15.0")
 def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
     recipe = """
     quant_stage:
@@ -197,7 +201,7 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
 
     counts = 0
     for name, submodule in model.named_modules():
-        if is_attention_module(submodule):
+        if is_cached_attention_module(submodule):
             counts += 1
             assert hasattr(submodule, "v_scale")
             assert hasattr(submodule, "k_scale")
@@ -205,6 +209,8 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
     assert counts > 0
 
 
+@requires_gpu
+@requires_version("transformers", "!=5.15.0")
 def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     recipe = """
     quant_stage:
@@ -232,12 +238,12 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
 
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
-        quantization_config=CompressedTensorsConfig(run_compressed=False),
+        quantization_config=CompressedTensorsConfig(dequantize=True),
     )
 
     counts = 0
     for name, submodule in model.named_modules():
-        if is_attention_module(submodule):
+        if is_cached_attention_module(submodule):
             counts += 1
             assert hasattr(submodule, "v_scale")
             assert hasattr(submodule, "k_scale")

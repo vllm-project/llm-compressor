@@ -338,6 +338,13 @@ def requires_gpu(test_case_or_num):
         return decorator(test_case_or_num)
 
 
+def get_accelerator_type() -> str:
+    if not torch.accelerator.is_available():
+        raise RuntimeError("No accelerator available")
+
+    return torch.accelerator.current_accelerator().type
+
+
 def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
     """
     Pytest decorator to skip based on total available GPU memory (across all GPUs). This
@@ -386,6 +393,50 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
         f"found {device_capability[0]}.{device_capability[1]}"
     )
     return pytest.mark.skipif(not has_capability, reason=reason)
+
+
+def requires_version(package_name: str, req_version: str) -> pytest.MarkDecorator:
+    """
+    Pytest decorator to skip if the installed package version doesn't satisfy
+    a version requirement. Supports operator prefixes: >, >=, <, <=, ==, !=.
+    A bare version (no operator) is treated as >=.
+
+    Usage:
+    @requires_version("transformers", ">=4.45.0")
+    @requires_version("transformers", ">5.15")
+    @requires_version("transformers", "<6.0")
+    """
+    import operator
+    import re
+    from importlib.metadata import PackageNotFoundError, version
+
+    from packaging.version import Version
+
+    ops = {
+        ">=": operator.ge,
+        ">": operator.gt,
+        "<=": operator.le,
+        "<": operator.lt,
+        "==": operator.eq,
+        "!=": operator.ne,
+    }
+
+    match = re.match(r"^(>=|<=|!=|>|<|==)?(.+)$", req_version)
+    op_str = match.group(1) or ">="
+    ver_str = match.group(2)
+    compare = ops[op_str]
+
+    try:
+        installed = version(package_name)
+    except PackageNotFoundError:
+        return pytest.mark.skip(
+            reason=f"{package_name} is not installed",
+        )
+
+    return pytest.mark.skipif(
+        not compare(Version(installed), Version(ver_str)),
+        reason=(f"{package_name} {op_str}{ver_str} required, " f"found {installed}"),
+    )
 
 
 def torchrun(world_size: int = 1, init_dist: bool = False):
