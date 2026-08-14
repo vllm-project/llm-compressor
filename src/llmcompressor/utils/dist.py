@@ -1,3 +1,4 @@
+import os
 from collections.abc import Sequence
 from typing import Hashable, TypeVar
 
@@ -12,8 +13,42 @@ from compressed_tensors.distributed import (
 from compressed_tensors.offload import get_execution_device
 from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.utils.helpers import deprecated
+from huggingface_hub import snapshot_download
 
 T = TypeVar("T", bound=Hashable)
+
+
+def prefetch_model_on_rank0(model_id_or_path: str, **snapshot_download_kwargs) -> None:
+    """
+    Ensure a HuggingFace hub model is fully downloaded to the local cache
+    before every rank concurrently calls `from_pretrained`.
+
+    Without this, each DDP rank races to populate the same on-disk HF cache
+    (``HF_HOME``/``TRANSFORMERS_CACHE``) via `from_pretrained`'s internal
+    ``snapshot_download``/``cached_file`` calls. Concurrent writers can leave
+    partially-written blobs or a half-updated refs/index file behind, which
+    surfaces as flaky "file not found" / corrupt-shard errors under DDP.
+
+    Call this after ``init_dist()`` and before ``from_pretrained(...)``.
+    A no-op if ``model_id_or_path`` is a local path, or if the process
+    is not running under ``torch.distributed``.
+
+    :param model_id_or_path: hub repo id or local path, same value passed
+        to `from_pretrained`
+    :param snapshot_download_kwargs: forwarded to
+        `huggingface_hub.snapshot_download` (e.g. revision, token, cache_dir) --
+        pass the same values you pass to `from_pretrained` for these
+    """
+    if os.path.exists(model_id_or_path):
+        return  # local path: no shared cache, no race
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return  # single process: from_pretrained's own download is fine
+
+    if dist.get_rank() == 0:
+        snapshot_download(model_id_or_path, **snapshot_download_kwargs)
+
+    dist.barrier()
 
 
 @deprecated("compressed_tensors.distributed.assign::greedy_bin_packing")
