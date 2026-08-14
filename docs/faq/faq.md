@@ -36,7 +36,7 @@ For more information, see [Quantizing Multimodal Audio Models](https://github.co
 
 Yes. LLM Compressor supports multi-GPU compression via Distributed Data Parallel (DDP), available since v0.10.0.
 
-By default, LLM Compressor compresses large models through sequential onloading, whereby layers of the model are onloaded to a single GPU, optimized, then offloaded back to the CPU. DDP parallelizes this process across multiple GPUs, significantly reducing compression time — see the [Big Models and Distributed Guide](../guides/big_models_and_distributed/distributed_oneshot.md) for usage details and benchmark results.
+By default, LLM Compressor compresses large models through sequential onloading, whereby layers of the model are onloaded to a single GPU, optimized, then offloaded back to the CPU/Disk. DDP parallelizes this process across multiple GPUs, significantly reducing compression time. The following modifiers support DDP: `GPTQModifier`, `QuantizationModifier` and `AutoRoundModifier` and the following transforms support DDP: `SmoothQuantModifier` and `AWQModifier`. See the [Big Models and Distributed Guide](../guides/big_models_and_distributed/distributed_oneshot.md) for usage details and benchmark results.
 
 **8. Where can I learn more about LLM Compressor?**
 

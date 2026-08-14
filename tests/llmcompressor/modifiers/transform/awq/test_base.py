@@ -648,16 +648,25 @@ def test_block_strategy_compute_layer_means(rows, cols, block_height, block_widt
 def test_awq_with_kv_cache_quantization():
     """Test AWQModifier with kv_cache_scheme runs without errors"""
     model_id = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="cuda"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
     dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
 
     recipe = [
         AWQModifier(),
         QuantizationModifier(
-            targets="Linear",
-            scheme="W8A16",
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=8,
+                        type=QuantizationType.INT,
+                        strategy=QuantizationStrategy.GROUP,
+                        group_size=32,
+                        symmetric=True,
+                        dynamic=False,
+                    ),
+                )
+            },
             kv_cache_scheme=QuantizationArgs(
                 num_bits=8,
                 type=QuantizationType.FLOAT,
@@ -685,9 +694,7 @@ def test_awq_with_kv_cache_quantization():
 def test_awq_raises_on_non_finite_identity_grid_loss():
     """Test AWQModifier raises when the identity grid loss is non-finite"""
     model_id = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="cuda"
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
     dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
 
     self_attn = model.model.layers[0].self_attn
@@ -705,7 +712,21 @@ def test_awq_raises_on_non_finite_identity_grid_loss():
     handle = self_attn.register_forward_hook(corrupt_weights_after_baseline)
     recipe = [
         AWQModifier(n_grid=3),
-        QuantizationModifier(targets="Linear", scheme="W8A16"),
+        QuantizationModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=8,
+                        type=QuantizationType.INT,
+                        strategy=QuantizationStrategy.GROUP,
+                        group_size=32,
+                        symmetric=True,
+                        dynamic=False,
+                    ),
+                )
+            },
+        ),
     ]
 
     try:
@@ -782,7 +803,7 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
 
     model_id = "nm-testing/tinysmokellama-3.2"
     output = tmp_path / "nvfp4_awq_output"
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     # NVFP4 AWQ recipe targeting one layer
     recipe = [

@@ -1,0 +1,66 @@
+steps:
+  - group: ":test_tube: Transformers Tests (H100)"
+    steps:
+      - label: ":python: Transformers Tests py{{matrix.python}}"
+        agents:
+          queue: RedHat-H100-WDC
+
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 3
+            - exit_status: 255
+              limit: 3
+            - signal_reason: agent_stop
+              limit: 3
+
+        plugins:
+          - kubernetes:
+              podSpec:
+                serviceAccountName: buildkite-anyuid
+                securityContext:
+                  fsGroup: 0
+                  runAsUser: 0
+                  runAsGroup: 0
+                nodeSelector:
+                  vllm.ci/gpu-pool: upstream-ci-h100
+
+                containers:
+                  - name: tests
+                    image: buildkite/agent:3-ubuntu
+                    command:
+                      - chmod +x .buildkite/gpu-tests/scripts/run-tests.sh
+                      - .buildkite/gpu-tests/scripts/run-tests.sh transformers
+
+                    resources:
+                      limits:
+                        nvidia.com/gpu: 1
+
+                    volumeMounts:
+                      - name: ci-cache
+                        mountPath: /model-cache
+                        readOnly: false
+                      - name: devshm
+                        mountPath: /dev/shm
+
+                    env:
+                      - name: PYTHON_VERSION
+                        value: "{{matrix.python}}"
+                      - name: HF_TOKEN
+                        valueFrom:
+                          secretKeyRef:
+                            name: hf-token-secret
+                            key: token
+
+                volumes:
+                  - name: ci-cache
+                    hostPath:
+                      path: /var/mnt/ci-cache
+                      type: DirectoryOrCreate
+                  - name: devshm
+                    emptyDir:
+                      medium: Memory
+
+        matrix:
+          setup:
+            python: ["3.12"]

@@ -2,7 +2,7 @@ import contextlib
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
-from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
+from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.offload.dist_utils import is_source_process as is_src
 from compressed_tensors.quantization import (
     QuantizationConfig,
@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.quant_args import ActivationOrdering
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -21,17 +22,21 @@ from loguru import logger
 from pydantic import PrivateAttr
 from torch import distributed as dist
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
+from llmcompressor.modifiers.quantization.calibration import (
+    observe,
+    update_qparams,
+)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
@@ -73,12 +78,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - apply config to model
-    - on_start
+    - on_calibration_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
     - on_sequential_epoch_end
         - quantize_weight
-    - on_finalize
+    - on_calibration_end
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -87,7 +92,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         diagonal norm
     :param actorder: order in which weight columns are quantized. Defaults to "static"
         activation ordering, which achieves best accuracy recovery with no runtime cost.
-        For more information, see https://github.com/vllm-project/vllm/pull/8135
+        For more information, see https://github.com/vllm-project/vllm/pull/8135.
+        Note: "group"/ "dynamic" are deprecated and will be removed in a future release.
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -115,10 +121,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
+    requires_calibration_data: bool = True
+
     # gptq modifier arguments
     block_size: int = 128
     dampening_frac: float | None = 0.01
-    # TODO: this does not serialize / will be incorrectly written
     actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
     offload_hessians: bool = False
 
@@ -170,16 +177,20 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
-                if (
-                    scheme.weights.actorder == ActivationOrdering.GROUP
-                    and strategy not in grouped_strategies
-                ):
-                    logger.warning(
-                        f"ActivationOrdering.GROUP is not compatible with "
-                        f"strategy={strategy}; falling back to actorder=None "
-                        f"for this scheme."
+                if scheme.weights.actorder == ActivationOrdering.GROUP:
+                    logger.bind(log_once=False).warning(
+                        "ActivationOrdering.GROUP is deprecated and will be removed "
+                        "in a future release. Use default actorder='static' instead. "
                     )
-                    scheme.weights.actorder = None
+
+                    if strategy not in grouped_strategies:
+                        logger.warning(
+                            f"ActivationOrdering.GROUP is not compatible with "
+                            f"strategy={strategy}; falling back to actorder=None "
+                            f"for this scheme."
+                        )
+                        scheme.weights.actorder = None
+
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -202,21 +213,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True
-
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
 
         # register gptq hooks
         added_hook = False
-
-        named_modules = list(
-            match_named_modules(state.model, self.resolved_targets, self.ignore)
-        )
-
-        for _, module in named_modules:
+        for _, module in match_named_modules(
+            state.model, self.resolved_targets, self.ignore
+        ):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
@@ -231,21 +237,21 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.CALIBRATION_EPOCH_START:
-            if not self.started_:
-                self.on_start(state, None)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        modules = [module for module in modules if is_module_quantized(module)]
+        observe(modules, base_name="weight")
+        self.sync_obs_act_stats(modules)
+        update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+        self.compress_modules()
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            modules = self._num_samples.keys()
-            observe(modules, base_name="weight")
-            self.sync_obs_act_stats(modules)
-            update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
-            self.compress_modules()
-
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            if not self.ended_:
-                self.on_end(state, None)
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
+        """
+        Finish calibrating by removing observers and calibration hooks
+        """
+        QuantizationMixin.end_calibration(self, state.model)
+        self.remove_hooks()  # remove gptq hooks
 
     def calibrate_module(
         self,
@@ -309,7 +315,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self.compress_module_list(rank_to_modules[rank])
 
         # broadcast compressed modules to each rank
-        self._broadcast_quantized_params(module_list, module_to_rank)
+        broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
     def compress_module_list(self, module_list):
         for module in module_list:
@@ -362,31 +368,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self._hessians.pop(module, None)
                     self._num_samples.pop(module, None)
         wait_for_comms(pending_comms)
-
-    def _broadcast_quantized_params(self, module_list, module_to_rank):
-        pending_comms = []
-        for module in module_list:
-            src_rank = module_to_rank[module]
-
-            # Get parameters from module
-            for attr in _GPTQ_Q_PARAMS:
-                if getattr(module, attr, None) is not None:
-                    pending_comms.append(
-                        dist.broadcast(
-                            as_broadcastable(getattr(module, attr)),
-                            src=src_rank,
-                            async_op=True,
-                        )
-                    )
-        wait_for_comms(pending_comms)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        """
-        Finish calibrating by removing observers and calibration hooks
-        """
-        self.ended_ = True
-        QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove gptq hooks
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

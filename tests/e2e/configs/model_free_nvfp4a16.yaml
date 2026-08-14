@@ -1,0 +1,7 @@
+cadence: "nightly"
+entrypoint: model_free_ptq
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+scheme: NVFP4A16
+ignore:
+  - lm_head
+  - re:.*embed_tokens.*

@@ -213,9 +213,7 @@ def test_mse_vs_minmax_on_real_model_weights(strategy, symmetric, num_bits):
 
     try:
         with torch.no_grad():
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id, torch_dtype=torch.float32
-            )
+            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.float32)
 
             weight_tensor = None
             for name, module in model.named_modules():

@@ -282,6 +282,6 @@ class Recipe(BaseModel):
         return yaml_str
 
 
-RecipeInput = Union[str, list[str], Recipe, list[Recipe], Modifier, list[Modifier]]
-RecipeStageInput = Union[str, list[str], list[list[str]]]
-RecipeArgsInput = Union[dict[str, Any], list[dict[str, Any]]]
+RecipeInput = str | list[str] | Recipe | list[Recipe] | Modifier | list[Modifier]
+RecipeStageInput = str | list[str] | list[list[str]]
+RecipeArgsInput = dict[str, Any] | list[dict[str, Any]]

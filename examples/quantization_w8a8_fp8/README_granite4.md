@@ -55,7 +55,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "ibm-granite/granite-4.0-tiny-preview"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -70,27 +70,24 @@ Since simple PTQ does not require data for weight quantization and the activatio
 Note that we replace the 3D moe expert layers with their 2D equivalent counterpart before quantization and convert them back to 3D before model saving.
 
 ```python
-from compressed_tensors.utils import replace_module
+from compressed_tensors.offload import dispatch_model
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
-skip_router_only = True  # assume we want to quantize input/output moe layers
-
-ignore_lay = ["lm_head",]
-if skip_router_only:
-    # swap moe linears to a custom class
-    for n, m in model.named_modules():
-        if isinstance(m, GraniteMoeHybridParallelExperts):
-            new_mod = GraniteMoeHybridParallelExpertsLinear.from_3d_expert(m)
-            replace_module(model, n, new_mod)
-    ignore_lay += ["re:.*block_sparse_moe.router"]
-    SAVE_DIR = "ibm-granite-4-tiny-fp8-dynamic-skipMoeRouter"
+# Load model.
+model_id = "ibm-granite/granite-4.0-tiny-preview"
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Configure the simple PTQ quantization
 recipe = QuantizationModifier(
     targets=["Linear", "GraniteMoeHybridParallelExpertsLinear"],
     scheme="FP8_DYNAMIC",
-    ignore=ignore_lay,
+    ignore=["lm_head", "re:.*block_sparse_moe.router"],
 )
 
 # Apply the quantization algorithm.

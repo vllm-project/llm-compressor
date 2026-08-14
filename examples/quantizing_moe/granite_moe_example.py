@@ -1,0 +1,80 @@
+from compressed_tensors.offload import dispatch_model
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from llmcompressor import oneshot
+from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
+
+# select a Mixture of Experts model for quantization
+model_id = "ibm-research/PowerMoE-3b"
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Select calibration dataset.
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
+DATASET_SPLIT = "train_sft"
+NUM_CALIBRATION_SAMPLES = 512
+MAX_SEQUENCE_LENGTH = 2048
+
+
+# Load dataset and preprocess.
+ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+
+
+def preprocess(example):
+    return {
+        "text": str(example["messages"])  # TODO: apply a real chat template. Or don't.
+    }
+
+
+ds = ds.map(preprocess)
+
+
+# Tokenize inputs.
+def tokenize(sample):
+    return tokenizer(
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
+
+ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+# define a llmcompressor recipe for W416 quantization with a group size of 128
+# since the MoE gate layers are sensitive to quantization, we add them to the ignore
+# list so they remain at full precision
+
+recipe = GPTQModifier(
+    targets=["Linear"],
+    scheme="NVFP4",
+    ignore=["lm_head", "re:.*.block_sparse_moe.router.layer"],
+)
+
+oneshot(
+    model=model,
+    dataset=ds,
+    recipe=recipe,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    save_compressed=True,
+)
+
+# Confirm generations of the quantized model look sane.
+print("========== SAMPLE GENERATION ==============")
+dispatch_model(model)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to(model.device) for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
+print(tokenizer.decode(output[0]))
+print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-FP8"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
