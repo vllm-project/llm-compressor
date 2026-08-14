@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -10,7 +11,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union
 import pandas as pd
 import pytest
 import torch
-import transformers as _transformers
 import yaml
 from datasets import Dataset
 from loguru import logger
@@ -132,7 +132,7 @@ class BaseTestConfig(BaseModel):
         model: meta-llama/Meta-Llama-3-8B-Instruct
         scheme: FP8_DYNAMIC
         dataset_id: HuggingFaceH4/ultrachat_200k
-        dataset_split: train[:512]
+        dataset_split: train_sft
         num_calibration_samples: 512
         ```
 
@@ -218,11 +218,11 @@ class BaseTestConfig(BaseModel):
         description="Dataset config/subset (e.g. 'LLM' for neuralmagic/calibration)",
     )
     dataset_split: Optional[str] = Field(
-        None, description="Dataset split (e.g. 'train_sft', 'train[:512]')"
+        None,
+        description="Dataset split (e.g. 'train_sft', 'train').",
     )
-    num_calibration_samples: int = Field(
-        512, description="Number of calibration samples"
-    )
+    num_calibration_samples: int = Field(512, description="Num of calibration samples")
+    max_seq_length: int = Field(2048, description="Max calibration sequence length")
 
     # -------------------------------------------------------------------------
     # Model / quantization overrides
@@ -284,6 +284,10 @@ class BaseTestConfig(BaseModel):
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
     )
+    skip_sanity_check: bool = Field(
+        False,
+        description="Skip the sanity check that verifies vLLM generates coherent text",
+    )
 
     @model_validator(mode="after")
     def require_scheme_or_recipe(self) -> "BaseTestConfig":
@@ -298,7 +302,7 @@ def _enough_gpus(num_required_gpus):
     try:
         import torch  # noqa: F401
 
-        return torch.cuda.device_count() >= num_required_gpus
+        return torch.accelerator.device_count() >= num_required_gpus
     except ImportError:
         return False
 
@@ -334,6 +338,13 @@ def requires_gpu(test_case_or_num):
         return decorator(test_case_or_num)
 
 
+def get_accelerator_type() -> str:
+    if not torch.accelerator.is_available():
+        raise RuntimeError("No accelerator available")
+
+    return torch.accelerator.current_accelerator().type
+
+
 def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
     """
     Pytest decorator to skip based on total available GPU memory (across all GPUs). This
@@ -346,8 +357,8 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     """
 
     vram_bytes = sum(
-        torch.cuda.mem_get_info(device_id)[1]
-        for device_id in range(torch.cuda.device_count())
+        torch.get_device_module().mem_get_info(device_id)[1]
+        for device_id in range(torch.accelerator.device_count())
     )
     actual_vram = vram_bytes / 1024**3
     reason = (
@@ -369,10 +380,10 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     :param major: required major compute capability version
     :param minor: required minor compute capability version (default 0)
     """
-    if not torch.cuda.is_available():
+    if not torch.accelerator.is_available():
         return pytest.mark.skip(reason="CUDA not available")
 
-    device_capability = torch.cuda.get_device_capability(0)
+    device_capability = torch.get_device_module().get_device_capability(0)
     has_capability = device_capability[0] > major or (
         device_capability[0] == major and device_capability[1] >= minor
     )
@@ -384,27 +395,78 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     return pytest.mark.skipif(not has_capability, reason=reason)
 
 
-def torchrun(world_size: int = 1):
+def requires_version(package_name: str, req_version: str) -> pytest.MarkDecorator:
+    """
+    Pytest decorator to skip if the installed package version doesn't satisfy
+    a version requirement. Supports operator prefixes: >, >=, <, <=, ==, !=.
+    A bare version (no operator) is treated as >=.
+
+    Usage:
+    @requires_version("transformers", ">=4.45.0")
+    @requires_version("transformers", ">5.15")
+    @requires_version("transformers", "<6.0")
+    """
+    import operator
+    import re
+    from importlib.metadata import PackageNotFoundError, version
+
+    from packaging.version import Version
+
+    ops = {
+        ">=": operator.ge,
+        ">": operator.gt,
+        "<=": operator.le,
+        "<": operator.lt,
+        "==": operator.eq,
+        "!=": operator.ne,
+    }
+
+    match = re.match(r"^(>=|<=|!=|>|<|==)?(.+)$", req_version)
+    op_str = match.group(1) or ">="
+    ver_str = match.group(2)
+    compare = ops[op_str]
+
+    try:
+        installed = version(package_name)
+    except PackageNotFoundError:
+        return pytest.mark.skip(
+            reason=f"{package_name} is not installed",
+        )
+
+    return pytest.mark.skipif(
+        not compare(Version(installed), Version(ver_str)),
+        reason=(f"{package_name} {op_str}{ver_str} required, " f"found {installed}"),
+    )
+
+
+def torchrun(world_size: int = 1, init_dist: bool = False):
     """
     Pytest decorator to run a test within parallel torchrun subprocesses.
 
     This decorator automatically spawns torchrun when the test is run with regular
     pytest.
-    When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it simply
-    runs the test. The test is responsible for its own distributed initialization.
+    When running under torchrun (detected via TORCHELASTIC_RUN_ID env var), it
+    optionally initializes the distributed process group before running the test.
 
     related to https://github.com/vllm-project/compressed-tensors/blob/main/tests/test_offload/conftest.py#L81
 
     Usage:
         @pytest.mark.unit
         @requires_gpu(2)
-        @torchrun(world_size=2)
+        @torchrun(world_size=2, init_dist=True)
         def test_distributed_feature():
-            # Test must handle its own distributed setup
-            torch.distributed.init_process_group(...)
+            # Distributed already initialized
+            ...
+
+        @torchrun(world_size=2)  # init_dist=False by default
+        def test_custom_init():
+            # Handle your own distributed setup
+            from compressed_tensors.offload import init_dist
+            init_dist()
             ...
 
     :param world_size: number of ranks to spawn
+    :param init_dist: whether to automatically call init_dist() (default: False)
     """
     import subprocess
     import sys
@@ -412,8 +474,12 @@ def torchrun(world_size: int = 1):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # We're running in a torchrun subprocess: just run the test
+            # We're running in a torchrun subprocess: optionally init then run the test
             if "TORCHELASTIC_RUN_ID" in os.environ:
+                if init_dist:
+                    from compressed_tensors.offload import init_dist as _init_dist
+
+                    _init_dist()
                 return func(*args, **kwargs)
 
             # First time calling in the main process:
@@ -438,7 +504,7 @@ def torchrun(world_size: int = 1):
                     "--nproc_per_node",
                     str(world_size),
                     "--log-dir",
-                    "/tmp/torchrun-logs",
+                    tempfile.mkdtemp(prefix="torchrun-logs-"),
                     "--tee",
                     "3",
                     "--role",
@@ -467,19 +533,6 @@ def torchrun(world_size: int = 1):
 requires_hf_token: callable = pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tests requiring gated model access",
-)
-
-
-_TRANSFORMERS_MAJOR = int(_transformers.__version__.split(".")[0])
-
-requires_transformers_v5: pytest.MarkDecorator = pytest.mark.skipif(
-    _TRANSFORMERS_MAJOR < 5,
-    reason="Requires transformers v5+",
-)
-
-requires_transformers_v4: pytest.MarkDecorator = pytest.mark.skipif(
-    _TRANSFORMERS_MAJOR >= 5,
-    reason="Requires transformers v4 (not compatible with v5+)",
 )
 
 

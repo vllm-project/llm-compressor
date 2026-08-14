@@ -14,13 +14,13 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
+from llmcompressor.utils import load_context
 
 # Load model.
 model_id = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
-model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
-    model_id, torch_dtype="auto"
-)
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+with load_context(Qwen3OmniMoeForConditionalGeneration):
+    model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id)
 
 # Apply patch to fix accelerate offloading, can be removed after #2148
 model.thinker.visual.fast_pos_embed_interpolate = fast_pos_embed_interpolate.__get__(

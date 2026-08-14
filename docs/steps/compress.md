@@ -27,7 +27,7 @@ from compressed_tensors.offload import dispatch_model
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.

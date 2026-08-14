@@ -16,7 +16,7 @@ from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Load model.
 model_id = "Qwen/Qwen3-VL-8B-Instruct"
-model = Qwen3VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+model = Qwen3VLForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments

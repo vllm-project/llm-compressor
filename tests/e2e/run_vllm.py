@@ -21,7 +21,8 @@ def parse_args():
 
 def run_vllm(llm_kwargs: dict, prompts: list[str]) -> None:
     """Run vLLM with given kwargs and prompts, then print outputs."""
-    sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+    # Use greedy decoding for deterministic output
+    sampling_params = SamplingParams(temperature=0.0)
 
     llm = LLM(**llm_kwargs)
     outputs = llm.generate(prompts, sampling_params)

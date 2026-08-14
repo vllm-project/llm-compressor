@@ -21,7 +21,7 @@ GPU_CONFIGS_DIRECTORY = (
 def _clear_cuda_cache():
     yield
     gc.collect()
-    torch.cuda.empty_cache()
+    torch.accelerator.empty_cache()
 
 
 @pytest.mark.integration

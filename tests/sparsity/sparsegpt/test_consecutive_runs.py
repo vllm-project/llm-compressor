@@ -42,7 +42,7 @@ def test_consecutive_runs_gpu(config, tmp_path):
         config["model"]
     ), "The provided model is quantized. Please use a dense model."
     model = AutoModelForCausalLM.from_pretrained(
-        config["model"], device_map=config["device"], dtype="auto"
+        config["model"], device_map=config["device"]
     )
 
     _test_consecutive_runs(
@@ -61,7 +61,7 @@ def _test_consecutive_runs(
     output_first = tmp_path / "test_1"
     output_second = tmp_path / "test_2"
     num_calibration_samples = 16
-    quantization_config = CompressedTensorsConfig(run_compressed=False)
+    quantization_config = CompressedTensorsConfig(dequantize=True)
 
     # test recipe with 50% sparsity, quantization and smoothquant
     oneshot(
@@ -74,7 +74,6 @@ def _test_consecutive_runs(
 
     first_model = AutoModelForCausalLM.from_pretrained(
         output_first,
-        dtype="auto",
         quantization_config=quantization_config,
     )
 
@@ -99,7 +98,6 @@ def _test_consecutive_runs(
     second_model = AutoModelForCausalLM.from_pretrained(
         output_second,
         quantization_config=quantization_config,
-        dtype="auto",
     )
 
     layer_0_sparse = tensor_sparsity(
