@@ -180,7 +180,7 @@ ARCH_TO_2D_MAPPINGS = {
         ],
     ),
     "qwen2_moe": (
-        [".experts.gate_up_proj", ".experts.down_proj"],
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
         [
             WeightRenaming(
                 source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
@@ -197,7 +197,7 @@ ARCH_TO_2D_MAPPINGS = {
         ],
     ),
     "hy_v3": (
-        [".experts.gate_up_proj", ".experts.down_proj"],
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
         [
             WeightRenaming(
                 source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
@@ -237,12 +237,7 @@ def get_linearize_load_mappings(
     base_mappings = [
         converter
         for converter in mapping
-        if not any(
-            any(
-                rm in target for rm in remove_targets
-            )  # rm is a substring of target, not just exact match
-            for target in converter.target_patterns
-        )
+        if not any(target in remove_targets for target in converter.target_patterns)
     ]
     load_mappings = base_mappings + new_mappings
     save_mappings = load_mappings
