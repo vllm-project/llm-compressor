@@ -102,7 +102,7 @@ def test_quantization_reload(setup_model_and_config):
 
     model_reloaded = AutoModelForCausalLM.from_pretrained(
         output_dir,
-        quantization_config=CompressedTensorsConfig(decompress=True),
+        quantization_config=CompressedTensorsConfig(dequantize=True),
     )
 
     og_weights, og_inputs = _get_quant_info(model)
