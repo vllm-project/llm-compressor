@@ -260,6 +260,7 @@ class Oneshot:
 
             session.initialize(
                 model=self.model,
+                teacher_model=self.model_args.distill_teacher,
                 start=-1,
                 recipe=self.recipe,
                 recipe_stage=recipe_stage,
@@ -325,6 +326,7 @@ class Oneshot:
 def oneshot(
     # Model arguments
     model: str | PreTrainedModel,
+    distill_teacher: str | PreTrainedModel | None = None,
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,

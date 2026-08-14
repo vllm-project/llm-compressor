@@ -26,6 +26,15 @@ class ModelArguments:
             )
         },
     )
+    distill_teacher: str | None = field(
+        default=None,
+        metadata={
+            "help": (
+                "Optional full-precision teacher model or model identifier used "
+                "by distillation modifiers."
+            )
+        },
+    )
     config_name: str | None = field(
         default=None,
         metadata={
