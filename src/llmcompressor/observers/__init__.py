@@ -9,9 +9,9 @@ min-max observers, MSE observers, and helper utilities for quantization
 and other compression techniques.
 """
 
+from .fusion import *
 from .helpers import *
 from .base import *
-from .moving_base import *
 from .min_max import *
 from .mse import *
 from .imatrix import *

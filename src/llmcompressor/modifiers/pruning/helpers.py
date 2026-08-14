@@ -8,8 +8,9 @@ custom scheduler creation, and settings management for structured and
 
 import math
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict
+from typing import Any
 
 from llmcompressor.core import Event, State
 
@@ -34,7 +35,7 @@ class PruningCreateSettings:
     update: float
     init_sparsity: float
     final_sparsity: float
-    args: Dict[str, Any]
+    args: dict[str, Any]
 
 
 SchedulerCalculationType = Callable[[Event, State], float]
@@ -42,7 +43,7 @@ CreateSchedulerType = Callable[[PruningCreateSettings], SchedulerCalculationType
 
 
 class PruningSchedulerFactory:
-    registry = {}  # type: Dict[str, CreateSchedulerType]
+    registry: dict[str, CreateSchedulerType] = {}
 
     @staticmethod
     def register(name: str, func: CreateSchedulerType):

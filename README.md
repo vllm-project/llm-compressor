@@ -1,20 +1,31 @@
 <div align="center">
 
-<h1>
-  <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />
-  <span style="font-size:80px;">LLM Compressor</span>
-</h1>
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="docs/assets/llmcompressor-icon-name-dark.png"
+  >
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="docs/assets/llmcompressor-icon-name-light.png"
+  >
+  <img
+    src="docs/assets/llmcompressor-icon-name-light.png"
+    alt="LLM Compressor"
+    width="420"
+  >
+</picture>
 
 [![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/)
 
 </div>
 
-`llmcompressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
+`llmcompressor` is the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
-* Comprehensive set of quantization algorithms for weight-only and activation quantization
+* Comprehensive set of quantization algorithms and transforms for weight, activation, KV cache, and attention quantization
 * Seamless integration with Hugging Face models and repositories
-* `safetensors`-based file format compatible with `vllm`
-* Large model support via `accelerate`
+* Models saved in the `compressed-tensors` format, compatible with vLLM
+* DDP and disk offloading support for compressing very large models with hardware efficiency
 
 **✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
 
@@ -24,37 +35,55 @@
 
 ---
 
-💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:
+📊 Help us improve by taking our [1-minute user survey](https://red.ht/llm-compressor-user-survey)
+
+💬 Join us on the [vLLM Community Slack](https://inviter.co/vllm-slack) and share your questions, thoughts, or ideas in:
 
 - `#sig-quantization`
 - `#llm-compressor`
 
 ---
-
 ## 🚀 What's New!
 
 Big updates have landed in LLM Compressor! To get a more in-depth look, check out the [LLM Compressor overview](https://docs.google.com/presentation/d/1WNkYBKv_CsrYs69lb7bJKjh2dWt8U1HXUw7Gr4Wn3gE/edit?usp=sharing).
 
 Some of the exciting new features include:
 
-* **Gemma4 Support**: Gemma 4 can now be quantized using LLM Compressor. Support is available through main and will require updating to transformers 5.5 (`uv pip install transformers>=5.5`). For models quantized and published by the RedHat team, consider using:
-  - [gemma-4-31B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-31B-it-NVFP4)
-  - [gemma-4-31B-it-FP8-block](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-block)
-  - [gemma-4-31B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-31B-it-FP8-Dynamic)
-  - [gemma-4-26B-A4B-it-FP8-Dynamic](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic)
-  - [gemma-4-26B-A4B-it-NVFP4](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-NVFP4)
-* **Qwen3.5 Support**: Qwen 3.5 can now be quantized using LLM Compressor. You will need to update your local transformers version using `uv pip install --upgrade transformers` and install LLM Compressor from source if using `<0.11`. Once updated, you should be able to run examples for the [MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) and [non-MoE](examples/quantization_w4a4_fp4/qwen3_5_example.py) variants of Qwen 3.5 end-to-end. For models quantized and published by the RedHat team, consider using the [NVFP4](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-NVFP4) and FP8 checkpoints for [Qwen3.5-122B](https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-FP8-dynamic) and [Qwen3.5-397B](https://huggingface.co/RedHatAI/Qwen3.5-397B-A17B-FP8-dynamic).
-* **Updated offloading and model loading support**: Loading transformers models that are offloaded to disk and/or offloaded across distributed process ranks is now supported. Disk offloading allows users to load and compress very large models which normally would not fit in CPU memory. Offloading functionality is no longer supported through accelerate but through model loading utilities added to compressed-tensors. For a full summary of updated loading and offloading functionality, for both single-process and distributed flows, see the [Big Models and Distributed Support guide](docs/guides/big_models_and_distributed/model_loading.md).
-* **Distributed GPTQ Support**: GPTQ now supports Distributed Data Parallel (DDP) functionality to significantly improve calibration runtime. An example using DDP with GPTQ can be found [here](examples/quantization_w4a16/llama3_ddp_example.py).
-* **Updated FP4 Microscale Support**: GPTQ now supports FP4 quantization schemes, including both [MXFP4](examples/quantization_w4a16_fp4/mxfp4/llama3_example.py) and [NVFP4](examples/quantization_w4a4_fp4/llama3_gptq_example.py). MXFP4 support has also been improved with updated weight scale generation. Models with weight-only quantization in the MXFP4 format can now run in vLLM as of vLLM v0.14.0. MXFP4 models with activation quantization are not yet supported in vLLM for compressed-tensors models
-* **New Model-Free PTQ Pathway**: A new model-free PTQ pathway has been added to LLM Compressor, called [`model_free_ptq`](src/llmcompressor/entrypoints/model_free/__init__.py#L36). This pathway allows you to quantize your model without the requirement of Hugging Face model definition and is especially useful in cases where `oneshot` may fail. This pathway is currently supported for data-free pathways only i.e FP8 quantization and was leveraged to quantize the [Mistral Large 3 model](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512). Additional [examples](examples/model_free_ptq) have been added illustrating how LLM Compressor can be used for Kimi K2
-* **MXFP8 Microscale Support (Experimental)**: LLM Compressor now supports MXFP8 quantization via PTQ. Both W8A8 ([MXFP8](experimental/mxfp8/qwen3_example_w8a8_mxfp8.py)) and W8A16 weight-only ([MXFP8A16](experimental/mxfp8/qwen3_example_w8a16_mxfp8.py)) modes are available.
-* **Extended KV Cache and Attention Quantization Support**: LLM Compressor now supports attention quantization, as well as fine-grained KV Cache quantization. Previously only per-tensor KV cache quantization was supported. Now, you can quantize KV cache with `per-head` scales and run with vLLM. Examples of more generalized attention and kv cache quantization can be found in the [experimental folder](experimental/attention).
+* **Muse-Glimmer-30B FP8, NVFP4, and INT4 Quantized Checkpoints**: FP8, NVFP4, and INT4 checkpoints for [Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) have been created by the Red Hat AI team, enabling single-GPU deployment of this multimodal model.
+  - [RedHatAI/Muse-Glimmer-30B-FP8-block](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-FP8-block)
+  - [RedHatAI/Muse-Glimmer-30B-NVFP4](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-NVFP4)
+  - [RedHatAI/Muse-Glimmer-30B-W4A16](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-W4A16)
+  - [Muse-Glimmer FP8_Block Example](examples/model_free_ptq/muse_glimmer_fp8_block.py)
+* **Hy3 NVFP4+FP8 Quantized Checkpoint**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) has been created by the Red Hat AI team, combining NVFP4 quantization of MoE layers with FP8 quantization of attention layers to significantly reduce VRAM requirements while maintaining accuracy recovery.
+  - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
+  - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
+* **GLM-5.2 NVFP4+FP8 Example and Checkpoints**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
+  - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
+  - [GLM-5.2 Example Script](examples/quantizing_moe/glm5_example.py)
+* **REAP Expert Pruning Modifier**: [REAP](https://arxiv.org/pdf/2510.13999) reduces the VRAM requirements to run Mixture-of-Experts models by structurally removing less-relevant experts in each layer. With relevancy proxied by a saliency metric calculated from calibration forward pass data, REAP achieves a desired expert sparsity (set by the user) while aiming to minimize the impact of the pruned experts. The modifier implementation is in [`modifiers/pruning/reap`](src/llmcompressor/modifiers/pruning/reap) and can be used as a template for implementing other expert pruning algorithms. Examples and additional documentation can be found below:
+  - [REAP Pruning README](examples/reap_expert_pruning/README.md)
+  - [REAP Prune Qwen/Qwen3-30B-A3B-Instruct-2507 to 25% Sparsity](examples/reap_expert_pruning/reap_qwen3_30b.py)
+  - [REAP Prune moonshotai/Moonlight-16B-A3B-Instruct to 25% Sparsity](examples/reap_expert_pruning/reap_moonlight_16b.py)
+* **Transformers v5 Support**: LLM Compressor now supports Transformers v5, including updated MoE calibration workflows. Improved MoE calibration is powered by the [`modeling/moe`](src/llmcompressor/modeling/moe) classes, which provide linearization, expert-aware context management, and architecture-specific mappings for models like Llama 4 and GraniteMoE.
+* **Day-0 DiffusionGemma Support**: LLM Compressor now supports quantization of DiffusionGemma models on day zero. Quantized checkpoints generated by the Red Hat team are available on the HF Hub:
+  - [diffusiongemma-26B-A4B-it-NVFP4](https://huggingface.co/RedHatAI/diffusiongemma-26B-A4B-it-NVFP4)
+  - [diffusiongemma-26B-A4B-it-FP8-dynamic](https://huggingface.co/RedHatAI/diffusiongemma-26B-A4B-it-FP8-dynamic)
+* **Nemotron 3 Ultra Quantized Checkpoints**: Quantized FP8 and Int4 checkpoints for Nemotron 3 Ultra have been created by the Red Hat team and posted to the HF Hub using a [model_free_ptq example](examples/model_free_ptq/nemotron_3_ultra.py). Consider using:
+  - [Nemotron-3-Ultra-550B-A55B-FP8-Dynamic](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-FP8-Dynamic)
+  - [Nemotron-3-Ultra-550B-A55B-BF16-FP8-BLOCK](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16-FP8-BLOCK)
+  - [Nemotron-3-Ultra-550B-A55B-BF16-W4A16-G128](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16-W4A16-G128)
+* **DeepSeek-V4-Flash and Kimi-K2.6 Quantized Checkpoints**: Quantized checkpoints for DeepSeek-V4-Flash and Kimi-K2.6 have been generated by the Red Hat team and posted to the HF hub. Consider using:
+  - [DeepSeek-V4-Flash-NVFP4-FP8](https://huggingface.co/RedHatAI/DeepSeek-V4-Flash-NVFP4-FP8) — 163B DeepSeek-V4-Flash quantized to NVFP4 weights with FP8 KV cache
+  - [Kimi-K2.6-NVFP4](https://huggingface.co/RedHatAI/Kimi-K2.6-NVFP4) — Kimi-K2.6 quantized to NVFP4 (weights and activations), targeting NVIDIA Blackwell GPUs
+  - [Kimi-K2.6-FP8-BLOCK](https://huggingface.co/RedHatAI/Kimi-K2.6-FP8-BLOCK) — 1T parameter Kimi-K2.6 quantized to FP8 block format (weights and activations), compatible with DeepGEMM FP8 kernels
+* **Qwen3.6 NVFP4 Generated Checkpoint**: An [NVFP4 quantized checkpoint](https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4) has been generated by the RedHat team and posted to the HF hub. Qwen3.6 follows the same architecture as Qwen3.5, so existing LLM Compressor examples can be used for this model by swapping out the target model string.
 
 
-### Supported Formats
-* Activation Quantization: W8A8 (int8 and fp8), MXFP8 (experimental)
-* Mixed Precision: W4A16, W8A16, MXFP8A16 (experimental), NVFP4 (W4A4 and W4A16 support)
+### Supported Precisions and Types
+* Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
+* Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
+* Attention and KV Cache Quantization: FP8, NVFP4
+* Low/Arbitrary-bit Quantization: WNA4, WNA8, WNA16
 
 ### Supported Algorithms
 * Simple PTQ
@@ -62,10 +91,14 @@ Some of the exciting new features include:
 * AWQ
 * SmoothQuant
 * AutoRound
+* Rotation-based (SpinQuant, QuIP)
+* REAP expert pruning
 
-### When to Use Which Optimization
+### Quantizing your model, step-by-step
 
-Please refer to [compression_schemes.md](./docs/guides/compression_schemes.md) for detailed information about available optimization schemes and their use cases.
+Please refer to our [step-by-step compression guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/steps/choosing-model/) for detailed information about selecting quantization schemes, algorithms, and their use cases.
+
+Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/)
 
 
 ## Installation
@@ -79,31 +112,46 @@ pip install llmcompressor
 ### End-to-End Examples
 
 Applying quantization with `llmcompressor`:
+
+### Weight and Activation Quantization
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
-* [Activation quantization to MXFP8 (experimental)](experimental/mxfp8/qwen3_example_w8a8_mxfp8.py)
-* [Weight-only quantization to MXFP8A16 (experimental)](experimental/mxfp8/qwen3_example_w8a16_mxfp8.py)
-* [Activation quantization to `fp4`](examples/quantization_w4a4_fp4/llama3_example.py)
+* [Activation quantization to MXFP8](examples/quantization_w8a8_mxfp8)
+* [Activation quantization to `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
+* [Activation quantization to `fp4` (MXFP4)](examples/quantization_w4a4_mxfp4)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)
-* [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8/)
-* [Weight only quantization to `fp4` (NVFP4 format)](examples/quantization_w4a16_fp4/nvfp4/llama3_example.py)
+* [Activation quantization to `fp8` and weight quantization to `int4`](examples/quantization_w4a8_fp8)
+
+### Weight Only Quantization
+* [Weight only quantization to `fp4` (NVFP4 format)](examples/quantization_w4a16_fp4/nvfp4)
 * [Weight only quantization to `fp4` (MXFP4 format)](examples/quantization_w4a16_fp4/mxfp4)
 * [Weight only quantization to `int4` using GPTQ](examples/quantization_w4a16/README.md)
 * [Weight only quantization to `int4` using AWQ](examples/awq/README.md)
-* [Weight only quantization to `int4` using AutoRound](examples/autoround/quantization_w4a16/README.md)
+* [Weight only quantization with AutoRound (`wNa16`)](examples/autoround/quantization_wNa16/README.md)
+
+### Attention and KV Cache Quantization
 * [KV Cache quantization to `fp8`](examples/quantization_kv_cache/README.md)
 * [KV Cache quantization to `fp8` using per-head](examples/quantization_kv_cache/llama3_fp8_head_kv_example.py)
 * [Attention quantization to `fp8`](examples/quantization_attention/README.md)
-* [Attention quantization to `nvfp4` with SpinQuant (experimental)](experimental/attention/README.md)
+* [Attention quantization to `NVFP4` with SpinQuant (experimental)](experimental/attention/README.md)
+
+### Architecture-Specific Quantization
 * [Quantizing MoE LLMs](examples/quantizing_moe/README.md)
 * [Quantizing Vision-Language Models](examples/multimodal_vision/README.md)
 * [Quantizing Audio-Language Models](examples/multimodal_audio/README.md)
+
+### Non-Uniform Quantization
 * [Quantizing Models Non-uniformly](examples/quantization_non_uniform/README.md)
 
-
-### User Guides
-Deep dives into advanced usage of `llmcompressor`:
+### Big Model Quantization Support
 * [Quantizing large models with sequential onloading](examples/big_models_with_sequential_onloading/README.md)
+* [Quantizing large models with disk offloading](examples/disk_offloading/README.md)
+
+### Model-Free Definition Quantization
+* [Quantizing models without a Hugging Face model definition](examples/model_free_ptq/README.md)
+
+### DDP Quantization
+* [Distributed data parallel quantization with GPTQ](examples/quantization_w4a16/llama3_ddp_example.py)
 
 
 ## Quick Tour
@@ -124,7 +172,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -192,7 +240,3 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
-
-
-!!! warning
-    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due lack of hardware support and usage

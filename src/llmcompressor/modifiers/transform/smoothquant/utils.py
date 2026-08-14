@@ -7,6 +7,7 @@ __all__ = [
     "get_layer_mappings_from_architecture",
     "MAPPINGS_REGISTRY",
     "DEFAULT_SMOOTHQUANT_MAPPINGS",
+    "COHERE_SMOOTHQUANT_MAPPINGS",
 ]
 
 LayerMapType = tuple[list[str], str]
@@ -66,6 +67,31 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
+# MLP smoothing (post_attention_layernorm) is intentionally omitted for MoE.
+# A single smoothing scale across all experts causes inter-expert imbalance,
+# degrading PPL even with the router gate properly balanced. This matches
+# the Mixtral convention in this repo and TensorRT-LLM's approach:
+QWEN_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+    LayerMap(
+        balance_layers=["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+        smooth_layers="re:.*input_layernorm$",
+    ),
+]
+
+
+COHERE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+    LayerMap(
+        balance_layers=[
+            "re:.*self_attn\\.q_proj$",
+            "re:.*self_attn\\.k_proj$",
+            "re:.*self_attn\\.v_proj$",
+            "re:.*mlp\\.gate_proj$",
+            "re:.*mlp\\.up_proj$",
+        ],
+        smooth_layers="re:.*input_layernorm$",
+    ),
+]
+
 AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=[
@@ -88,20 +114,33 @@ AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
 MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
+    "CohereForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,
+    "Cohere2ForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,
+    "Cohere2VisionForConditionalGeneration": COHERE_SMOOTHQUANT_MAPPINGS,
     "DeepseekV2ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "DeepseekV3ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "Ernie4_5_MoeForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
     "Gemma2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Gemma3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Glm4MoeForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "GlmMoeDsaForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
+    "GraniteForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Llama4ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Mistral3ForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "MixtralForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
+    "Phi3ForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2_5OmniModel": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2_5OmniThinkerForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2_5_VLForConditionalGeneration": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen3ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
+    "Qwen3MoeForCausalLM": QWEN_MOE_SMOOTHQUANT_MAPPINGS,
+    "SeedOssForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "WhisperForConditionalGeneration": WHISPER_V2_SMOOTHQUANT_MAPPINGS,
     "AfmoeForCausalLM": AFMOE_SMOOTHQUANT_MAPPINGS,
 }

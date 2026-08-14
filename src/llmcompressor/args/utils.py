@@ -57,11 +57,17 @@ def parse_args(
                 arg_dict[key] = value
             recipe_args.recipe_args = arg_dict
 
-    # raise depreciation warnings
+    # raise deprecation warnings
     if dataset_args.remove_columns is not None:
         logger.warning(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "`remove_columns` argument is deprecated. When tokenizing datasets, all "
             "columns which are invalid inputs the tokenizer will be removed",
+            DeprecationWarning,
+        )
+    if not dataset_args.quantization_aware_calibration:
+        logger.warning(
+            "`quantization_aware_calibration` argument is deprecated and has no effect."
+            "It will be removed in a future release.",
             DeprecationWarning,
         )
 

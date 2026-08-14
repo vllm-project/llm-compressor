@@ -8,7 +8,6 @@ from loguru import logger
 
 __all__ = [
     "gpu_if_available",
-    "find_safetensors_index_file",
     "match_names_set_eager",
     "MatchedNamesSet",
     "invert_mapping",
@@ -23,28 +22,13 @@ def gpu_if_available(device: torch.device | str | None) -> torch.device:
     if device is not None:
         return torch.device(device)
 
-    elif torch.cuda.is_available():
-        return torch.device("cuda:0")
-
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu:0")
-
-    elif hasattr(torch, "npu") and torch.npu.is_available():
-        return torch.device("npu:0")
+    elif torch.accelerator.is_available():
+        accel_type = torch.accelerator.current_accelerator().type
+        return torch.device(accel_type, 0)
 
     else:
-        logger.warning(
-            "CUDA/XPU/NPU is not available! Compressing model on CPU instead"
-        )
+        logger.warning("No accelerator available! Compressing model on CPU instead")
         return torch.device("cpu")
-
-
-def find_safetensors_index_file(model_files: dict[str, str]) -> str | None:
-    for file_path, resolved_path in model_files.items():
-        if file_path.endswith("safetensors.index.json"):
-            return resolved_path
-
-    return None
 
 
 def match_names_set_eager(

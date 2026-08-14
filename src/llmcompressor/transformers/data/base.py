@@ -8,6 +8,7 @@ for fine-tuning workflows.
 """
 
 import inspect
+from contextlib import contextmanager
 from functools import cached_property
 from inspect import _ParameterKind as Kind
 from typing import Any, Callable
@@ -24,11 +25,42 @@ from llmcompressor.transformers.data.data_helpers import (
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
-from llmcompressor.transformers.utils.preprocessing_functions import (
-    PreprocessingFunctionRegistry,
-)
 from llmcompressor.typing import DatasetType, Processor
 from llmcompressor.utils import import_from_path
+
+
+@contextmanager
+def _preserve_tokenizer_state(tokenizer):
+    """
+    Snapshot and restore a fast tokenizer's truncation/padding across tokenization.
+
+    ``transformers>=4.51`` persists the per-call ``truncation``/``max_length`` and
+    ``padding`` arguments onto the fast tokenizer's backend. Calibration tokenization
+    therefore leaks these settings into the tokenizer, which is then serialized into
+    ``tokenizer.json`` on save -- silently breaking downstream inference. For VLMs this
+    is especially harmful: a large image expands to more placeholder tokens than the
+    leaked ``max_length`` and the request fails with "Mismatch in image token count
+    between text and input_ids". Snapshotting and restoring keeps the saved tokenizer
+    identical to the base model's.
+
+    See https://github.com/vllm-project/llm-compressor/issues/1418
+    """
+    backend = getattr(tokenizer, "backend_tokenizer", None)
+    if backend is None:  # slow tokenizer or no tokenizer -- nothing to leak
+        yield
+        return
+    truncation, padding = backend.truncation, backend.padding
+    try:
+        yield
+    finally:
+        if truncation is None:
+            backend.no_truncation()
+        else:
+            backend.enable_truncation(**truncation)
+        if padding is None:
+            backend.no_padding()
+        else:
+            backend.enable_padding(**padding)
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -69,15 +101,19 @@ class TextGenerationDataset(RegistryMixin):
 
             # configure sequence length
             max_seq_length = dataset_args.max_seq_length
-            if dataset_args.max_seq_length > self.tokenizer.model_max_length:
-                logger.warning(
-                    f"The max_seq_length passed ({max_seq_length}) is larger than "
-                    f"maximum length for model ({self.tokenizer.model_max_length}). "
-                    f"Using max_seq_length={self.tokenizer.model_max_length}."
+            if max_seq_length is not None:
+                if max_seq_length > self.tokenizer.model_max_length:
+                    logger.warning(
+                        f"The max_seq_length passed ({max_seq_length}) is larger "
+                        f"than maximum length for model "
+                        f"({self.tokenizer.model_max_length}). "
+                        f"Using max_seq_length={self.tokenizer.model_max_length}."
+                    )
+                self.max_seq_length = min(
+                    max_seq_length, self.tokenizer.model_max_length
                 )
-            self.max_seq_length = min(
-                dataset_args.max_seq_length, self.tokenizer.model_max_length
-            )
+            else:
+                self.max_seq_length = self.tokenizer.model_max_length
 
             # configure padding
             self.padding = (
@@ -122,19 +158,25 @@ class TextGenerationDataset(RegistryMixin):
             # tokenize/ process
             dataset = self.filter_tokenizer_args(dataset)
             logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
-            dataset = self.map(
-                dataset,
-                self.tokenize,
-                batched=False,  # batching is not well supported for vision processors
-                keep_in_memory=True,  # bug occurs when not batched and not in memory,
-                # subsequent ds.map calls are always batched,
-                # regardless of `batched` argument
-                remove_columns=get_columns(dataset),  # assumes that input names
-                # and output names are disjoint
-                num_proc=self.dataset_args.preprocessing_num_workers,
-                load_from_cache_file=not self.dataset_args.overwrite_cache,
-                desc="Tokenizing",
-            )
+            # `self.tokenize` calls the processor with truncation=True; preserve the
+            # tokenizer's truncation/padding state so it is not leaked into the saved
+            # tokenizer (#1418).
+            with _preserve_tokenizer_state(self.tokenizer):
+                dataset = self.map(
+                    dataset,
+                    self.tokenize,
+                    # batching is not well supported for vision processors
+                    batched=False,
+                    # bug occurs when not batched and not in memory;
+                    # subsequent ds.map calls are always batched,
+                    # regardless of `batched` argument
+                    keep_in_memory=True,
+                    remove_columns=get_columns(dataset),  # assumes that input names
+                    # and output names are disjoint
+                    num_proc=self.dataset_args.preprocessing_num_workers,
+                    load_from_cache_file=not self.dataset_args.overwrite_cache,
+                    desc="Tokenizing",
+                )
             logger.debug(f"Model kwargs after tokenizing: {get_columns(dataset)}")
 
         if self.dataset_args.concatenate_data:
@@ -214,14 +256,13 @@ class TextGenerationDataset(RegistryMixin):
             return preprocessing_func
 
         if isinstance(preprocessing_func, str):
-            if ":" in preprocessing_func:
-                # load func_name from "/path/to/file.py:func_name"
-                return import_from_path(preprocessing_func)
-            else:
-                # load from the registry
-                return PreprocessingFunctionRegistry.get_value_from_registry(
-                    name=preprocessing_func
+            # load func_name from "/path/to/file.py:func_name"
+            if ":" not in preprocessing_func:
+                raise ValueError(
+                    f"{preprocessing_func} does not match expected format "
+                    "`/path:func_name`"
                 )
+            return import_from_path(preprocessing_func)
 
         return self.dataset_template
 

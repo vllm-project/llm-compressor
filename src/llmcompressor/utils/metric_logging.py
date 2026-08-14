@@ -6,7 +6,7 @@ during module compression (optimization). Supports both NVIDIA and AMD GPU monit
 """
 
 import time
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 import torch
 from compressed_tensors.offload import is_distributed
@@ -29,8 +29,8 @@ class CompressionLogger:
 
     def set_results(
         self,
-        name: Optional[str] = None,
-        loss: Optional[float] = None,
+        name: str | None = None,
+        loss: float | None = None,
     ):
         self._name = name
         self._loss = loss
@@ -48,14 +48,17 @@ class CompressionLogger:
         if self._loss is not None:
             patch.log("METRIC", f"error {self._loss:.2f}")
 
+        if not torch.accelerator.is_available():
+            return
+
         for device_id in _get_visible_devices():
-            used_memory = torch.cuda.max_memory_allocated(device_id) / 1e9
-            max_memory = torch.cuda.get_device_properties(device_id).total_memory / 1e9
+            used_memory = torch.accelerator.max_memory_allocated(device_id) / 1e9
+            max_memory = torch.accelerator.get_memory_info(device_id)[1] / 1e9
             perc_used = 100 * used_memory / max_memory
             patch.log(
                 "METRIC",
                 (
-                    f"GPU {device_id} | usage: {perc_used:.2f}%"
+                    f"Accelerator {device_id} | usage: {perc_used:.2f}%"
                     f" | total memory: {max_memory:.1f} Gb"
                 ),
             )
@@ -63,7 +66,7 @@ class CompressionLogger:
 
 def _get_visible_devices() -> Iterable:
     if is_distributed():
-        return [torch.cuda.current_device()]
+        return [torch.accelerator.current_device_index()]
 
     else:
-        return range(torch.cuda.device_count())
+        return range(torch.accelerator.device_count())

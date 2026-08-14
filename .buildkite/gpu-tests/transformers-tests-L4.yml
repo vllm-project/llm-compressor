@@ -1,0 +1,55 @@
+steps:
+  - group: ":test_tube: Transformers Tests (L4)"
+    steps:
+      - label: ":python: Transformers Tests py{{matrix.python}}"
+        agents:
+          queue: RedHat-L4-GCP
+
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 3
+            - exit_status: 255
+              limit: 3
+            - signal_reason: agent_stop
+              limit: 3
+
+        plugins:
+          - kubernetes:
+              podSpec:
+                nodeSelector:
+                  pool: L4solo
+
+                containers:
+                  - name: tests
+                    image: buildkite/agent:3-ubuntu
+                    command:
+                      - chmod +x .buildkite/gpu-tests/scripts/run-tests.sh
+                      - .buildkite/gpu-tests/scripts/run-tests.sh transformers
+
+                    resources:
+                      limits:
+                        nvidia.com/gpu: 1
+
+                    volumeMounts:
+                      - name: model-cache
+                        mountPath: /model-cache
+                        readOnly: false
+                      - name: devshm
+                        mountPath: /dev/shm
+
+                    env:
+                      - name: PYTHON_VERSION
+                        value: "{{matrix.python}}"
+
+                volumes:
+                  - name: model-cache
+                    persistentVolumeClaim:
+                      claimName: buildkite-podpvc-ssd-blue
+                  - name: devshm
+                    emptyDir:
+                      medium: Memory
+
+        matrix:
+          setup:
+            python: ["3.12"]

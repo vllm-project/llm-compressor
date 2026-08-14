@@ -8,23 +8,23 @@
 import time
 
 import torch
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
+from compressed_tensors.offload import dispatch_model, init_dist
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 init_dist()
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, dtype="auto", device_map="auto_offload"
-    )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -67,12 +67,11 @@ def tokenize(sample):
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(
-        ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"], duo_scaling="both"
-    ),
+    AWQModifier(duo_scaling="both"),
+    QuantizationModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
 ]
 
-torch.cuda.reset_peak_memory_stats()
+torch.accelerator.reset_peak_memory_stats()
 start_time = time.time()
 
 # Apply algorithms.
@@ -85,7 +84,7 @@ oneshot(
 )
 
 elapsed_time = time.time() - start_time
-peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
+peak_memory_gb = torch.accelerator.max_memory_allocated() / (1024**3)
 print("Quantization Complete")
 print(f"Time: {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds)")
 print(f"Peak GPU Memory: {peak_memory_gb:.2f} GB")

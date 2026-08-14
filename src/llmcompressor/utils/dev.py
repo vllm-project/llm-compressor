@@ -6,12 +6,13 @@ from functools import wraps
 from typing import Type
 
 import torch
-from compressed_tensors.offload import dispatch_model
+from compressed_tensors.offload import dispatch_model, load_offloaded_model
 from compressed_tensors.utils import deprecated, patch_attr
 from huggingface_hub import snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers.conversion_mapping import extract_weight_conversions_for_model
 
 try:
     # Transformers < v5 support
@@ -25,8 +26,30 @@ __all__ = [
     "skip_weights_download",
     "patch_transformers_logger_level",
     "get_main_device",
+    "get_high_precision",
     "dispatch_for_generation",
+    "load_context",
 ]
+
+
+@contextlib.contextmanager
+def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+    """
+    Context manager for loading HuggingFace models with both offloading and
+    MoE linearization support.
+
+    This context manager combines `load_offloaded_model` and `load_quantizable_moe`
+    contexts to provide a unified interface for loading models that may require
+    either or both capabilities.
+
+    :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    """
+    from llmcompressor.modeling.moe.linearize import load_quantizable_moe
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(load_offloaded_model(model_cls))
+        stack.enter_context(load_quantizable_moe(model_cls))
+        yield
 
 
 @contextlib.contextmanager
@@ -74,6 +97,11 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         model.name_or_path = model_stub
         model.config._name_or_path = model_stub
 
+        # normally transformers populates `_weight_conversions` based on which were used
+        # but none were used (since no weights were loaded), so populate directly
+        # so that saving in original checkpoint format still works
+        model._weight_conversions = extract_weight_conversions_for_model(model)
+
         return model
 
     with (
@@ -120,19 +148,37 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
     restore_log_level = transformers_logger.getEffectiveLevel()
 
     transformers_logger.setLevel(level=level)
-    yield
-    transformers_logger.setLevel(level=restore_log_level)
+    try:
+        yield
+    finally:
+        transformers_logger.setLevel(level=restore_log_level)
 
 
 def get_main_device() -> torch.device:
-    rank = 0 if not torch.distributed.is_initialized() else torch.distributed.get_rank()
-    if torch.cuda.is_available():
-        return torch.device(f"cuda:{rank}")
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device(f"xpu:{rank}")
+    is_distributed_enable = torch.distributed.is_initialized()
+    rank = 0 if not is_distributed_enable else torch.distributed.get_rank()
+
+    # Check for unsupported MPS + distributed combination
+    if hasattr(torch, "mps") and torch.mps.is_available():
+        if is_distributed_enable:
+            raise RuntimeError("Parallelism has not been supported for MPS")
+        return torch.device("mps")
+
+    elif torch.accelerator.is_available():
+        accel_type = torch.accelerator.current_accelerator().type
+        return torch.device(accel_type, rank)
     else:
-        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
+        logger.warning("No accelerator available! Compressing model on CPU instead")
         return torch.device("cpu")
+
+
+def get_high_precision() -> torch.dtype:
+    main_device = get_main_device()
+
+    if main_device.type == "mps":  # MPS does not support float64
+        return torch.float32
+
+    return torch.float64
 
 
 @deprecated("compressed_tensors.offload::dispatch_model")

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
-from typing import Any, Dict, Generator, Tuple, Union
+from typing import Any, Generator
 
 import torch.nn
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,7 +42,7 @@ class SparsificationInfo(BaseModel, ABC):
     def loggable_items(
         self,
         **kwargs,
-    ) -> Generator[Tuple[str, Union[Dict[str, int], float, int]], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationInfo object.
 
@@ -50,7 +52,7 @@ class SparsificationInfo(BaseModel, ABC):
 
     @staticmethod
     def filter_loggable_items_percentages_only(
-        items_to_log: Generator[Tuple[str, Any], None, None],
+        items_to_log: Generator[tuple[str, Any], None, None],
         percentage_only: bool = False,
     ):
         """
@@ -128,11 +130,11 @@ class SparsificationSummaries(SparsificationInfo):
         description="A model that contains the number of "
         "parameters/the percent of parameters that are pruned."
     )
-    parameter_counts: Dict[str, int] = Field(
+    parameter_counts: dict[str, int] = Field(
         description="A dictionary that maps the name of a parameter "
         "to the number of elements (weights) in that parameter."
     )
-    operation_counts: Dict[str, int] = Field(
+    operation_counts: dict[str, int] = Field(
         description="A dictionary that maps the name of an operation "
         "to the number of times that operation is used in the model."
     )
@@ -141,7 +143,7 @@ class SparsificationSummaries(SparsificationInfo):
     def from_module(
         cls,
         module=torch.nn.Module,
-        pruning_thresholds: Tuple[float, float] = (0.05, 1 - 1e-9),
+        pruning_thresholds: tuple[float, float] = (0.05, 1 - 1e-9),
     ) -> "SparsificationSummaries":
         """
         Factory method to create a SparsificationSummaries object from a module.
@@ -192,7 +194,7 @@ class SparsificationSummaries(SparsificationInfo):
         non_zero_only: bool = False,
         percentages_only: bool = True,
         **kwargs,
-    ) -> Generator[Tuple[str, Union[Dict[str, int], float, int]], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationSummaries object.
 
@@ -227,7 +229,7 @@ class SparsificationPruning(SparsificationInfo):
     A model that contains the pruning information for a torch module.
     """
 
-    sparse_parameters: Dict[str, CountAndPercent] = Field(
+    sparse_parameters: dict[str, CountAndPercent] = Field(
         description="A dictionary that maps the name of a parameter "
         "to the number/percent of weights that are zeroed out "
         "in that layer."
@@ -261,7 +263,7 @@ class SparsificationPruning(SparsificationInfo):
         percentages_only: bool = False,
         non_zero_only: bool = False,
         **kwargs,
-    ) -> Generator[Tuple[str, Union[Dict[str, int], float, int]], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationPruning object.
 
@@ -302,12 +304,12 @@ class SparsificationQuantization(SparsificationInfo):
     A model that contains the quantization information for a torch module.
     """
 
-    enabled: Dict[str, bool] = Field(
+    enabled: dict[str, bool] = Field(
         description="A dictionary that maps the name of an "
         "operation to a boolean flag that indicates whether "
         "the operation is quantized or not."
     )
-    precision: Dict[str, Union[BaseModel, None, int]] = Field(
+    precision: dict[str, BaseModel | None | int] = Field(
         description="A dictionary that maps the name of a layer"
         "to the precision of that layer."
     )
@@ -344,7 +346,7 @@ class SparsificationQuantization(SparsificationInfo):
         self,
         enabled_only: bool = False,
         **kwargs,
-    ) -> Generator[Tuple[str, Union[Dict[str, int], float, int]], None, None]:
+    ) -> Generator[tuple[str, dict[str, int] | float | int | None], None, None]:
         """
         Yield the loggable items for SparsificationQuantization object.
 

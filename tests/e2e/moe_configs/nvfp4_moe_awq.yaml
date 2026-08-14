@@ -1,0 +1,7 @@
+cadence: "nightly"
+model: Qwen/Qwen3-30B-A3B
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+recipe: tests/e2e/recipes/NVFP4/recipe_awq_nvfp4.yaml
+save_dir: Qwen3-30B-A3B-NVFP4-AWQ
+num_calibration_samples: 50

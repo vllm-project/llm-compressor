@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
     parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
     parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
+    parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph")  # noqa: E501
     return parser.parse_args()
 
 
@@ -39,6 +40,7 @@ def trace(
     trust_remote_code: bool = True,
     skip_weights: bool = True,
     device_map: str | dict = "cpu",
+    targets_per_subgraph: int = 1
 ) -> Tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
@@ -51,6 +53,7 @@ def trace(
     :param ignore: patterns to ignore during tracing
     :param modality: data modality for dummy tracing data, defaults to 'text'
     :param trust_remote_code: trust remote model code
+    :param targets_per_subgraph: number of targets to include per subgraph
 
     Example usage from CLI
     llmcompressor.trace \
@@ -65,7 +68,6 @@ def trace(
         model = model_class.from_pretrained(
             model_id,
             device_map=device_map,
-            dtype="auto",
             trust_remote_code=trust_remote_code,
         )
     processor = AutoProcessor.from_pretrained(
@@ -78,7 +80,7 @@ def trace(
     dataset = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split=dataset_args.splits["calibration"],
+        split=dataset_args.splits,
         processor=processor,
     )(add_labels=False)
     sample = next(iter(dataset))
@@ -103,7 +105,11 @@ def trace(
         f"    ignore={dataset_args.tracing_ignore}\n"
     )
     subgraphs = trace_subgraphs(
-        model, sample, sequential_targets, dataset_args.tracing_ignore
+        model,
+        sample,
+        sequential_targets,
+        dataset_args.tracing_ignore,
+        targets_per_subgraph
     )
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
@@ -114,17 +120,17 @@ def get_dataset_kwargs(modality: str, ignore: list[str]) -> dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
-            "splits": {"calibration": "test_sft[:1]"},
+            "splits": "test_sft[:1]",
             "max_seq_length": 4096,
         },
         "vision": {
             "dataset": "flickr",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
         "audio": {
             "dataset": "peoples_speech",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
     }
@@ -165,6 +171,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         skip_weights=args.skip_weights,
         device_map=args.device_map,
+        targets_per_subgraph=args.targets_per_subgraph
     )
 
 

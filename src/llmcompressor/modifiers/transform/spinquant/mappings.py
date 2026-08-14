@@ -1,5 +1,3 @@
-from typing import Dict, List, Optional
-
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 from transformers import PreTrainedModel
@@ -35,10 +33,10 @@ class SpinQuantMapping(BaseModel):
     attn_k: str
     attn_v: str
     attn_o: str
-    attn_head_dim: Optional[int] = Field(default=None)
+    attn_head_dim: int | None = Field(default=None)
 
-    mlp_in: List[str]  # up_proj, gate_proj
-    mlp_out: List[str]  # down_proj
+    mlp_in: list[str]  # up_proj, gate_proj
+    mlp_out: list[str]  # down_proj
 
     lm_head: str
 
@@ -63,8 +61,26 @@ _default_mappings = SpinQuantMapping(
 )
 
 
-SPINQUANT_MAPPING_REGISTRY: Dict[str, SpinQuantMapping] = {
+# Cohere2MoE: parallel block with batched MoE experts. Experts must be linearized and
+# the router converted to an nn.Linear before use; see
+# `llmcompressor.modeling.moe.cohere2_moe.prepare_cohere2_moe_for_spinquant`. The router
+# (`mlp.gate.linear`) is in `mlp_in` so R1 applies to it, keeping routing invariant.
+_cohere2_moe_mappings = SpinQuantMapping(
+    embedding="re:.*embed_tokens$",
+    attn="re:.*self_attn$",
+    attn_q="re:.*q_proj$",
+    attn_k="re:.*k_proj$",
+    attn_v="re:.*v_proj$",
+    attn_o="re:.*o_proj$",
+    mlp_in=["re:.*gate_proj$", "re:.*up_proj$", r"re:.*mlp\.gate\.linear$"],
+    mlp_out=["re:.*down_proj$"],
+    lm_head="lm_head",
+)
+
+
+SPINQUANT_MAPPING_REGISTRY: dict[str, SpinQuantMapping] = {
     "LlamaForCausalLM": _default_mappings,
+    "Cohere2MoeForCausalLM": _cohere2_moe_mappings,
 }
 
 

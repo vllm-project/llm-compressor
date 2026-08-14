@@ -1,5 +1,5 @@
 """
-Tests for inverse_weights_map approach that eliminates the
+Tests for inverse_weight_map approach that eliminates the
 reindex_fused_weights preprocessing step for microscale schemes.
 """
 
@@ -9,7 +9,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.microscale import (
-    build_microscale_inverse_weights_map,
+    build_microscale_inverse_weight_maps,
 )
 from llmcompressor.entrypoints.model_free.process import (
     process_file_microscale_scheme,
@@ -35,30 +35,51 @@ def _rand_weight(*shape):
     return torch.randn(*shape, dtype=torch.float16)
 
 
-class TestBuildWeightsMap:
-    def test_basic_mapping(self, tmp_path):
+class TestBuildInverseWeightMaps:
+    def test_single_file(self, tmp_path):
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
-            "model.layers.0.self_attn.k_proj.weight": "shard-00002.safetensors",
+            "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
+            "model.layers.0.self_attn.v_proj.weight": "shard-00001.safetensors",
+            "model.layers.1.self_attn.q_proj.weight": "shard-00001.safetensors",
+            "model.layers.1.self_attn.k_proj.weight": "shard-00001.safetensors",
+            "model.layers.1.self_attn.v_proj.weight": "shard-00001.safetensors",
         }
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
-            "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_microscale_inverse_weights_map(
-            "shard-00001.safetensors", weight_map, model_files
+        inverse_weight_maps = build_microscale_inverse_weight_maps(
+            weight_map, model_files, []
         )
-        # result is {file_path: [tensor_names]}, check tensor is in the list
-        assert (
-            "model.layers.0.self_attn.q_proj.weight"
-            in result[str(tmp_path / "shard-00001.safetensors")]
-        )
-        assert (
-            "model.layers.0.self_attn.k_proj.weight"
-            in result[str(tmp_path / "shard-00002.safetensors")]
-        )
+        # result is {shard_name: {file_path: [tensor_names]}}, check tensor exists
+        inverse_weight_maps["shard-00001.safetensors"][
+            str(tmp_path / "shard-00001.safetensors")
+        ].sort()
+        assert inverse_weight_maps == {
+            "shard-00001.safetensors": {
+                str(tmp_path / "shard-00001.safetensors"): [
+                    "model.layers.0.self_attn.k_proj.weight",
+                    "model.layers.0.self_attn.q_proj.weight",
+                    "model.layers.0.self_attn.v_proj.weight",
+                    "model.layers.1.self_attn.k_proj.weight",
+                    "model.layers.1.self_attn.q_proj.weight",
+                    "model.layers.1.self_attn.v_proj.weight",
+                ],
+            }
+        }
 
-    def test_missing_shard_skipped(self, tmp_path):
+    def test_missing_dependency(self, tmp_path):
+        weight_map = {
+            "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
+            "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
+        }
+        model_files = {
+            "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
+        }
+        with pytest.raises(ValueError):
+            _ = build_microscale_inverse_weight_maps(weight_map, model_files, [])
+
+    def test_invalid_weight_map(self, tmp_path):
         weight_map = {
             "tensor.a": "shard-00001.safetensors",
             "tensor.b": "shard-00002.safetensors",
@@ -66,27 +87,44 @@ class TestBuildWeightsMap:
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
-        result = build_microscale_inverse_weights_map(
-            "shard-00001.safetensors", weight_map, model_files
-        )
-        # check tensor.a is in the result values
-        assert any("tensor.a" in tensors for tensors in result.values())
-        assert "tensor.b" not in result
+        with pytest.raises(KeyError):
+            _ = build_microscale_inverse_weight_maps(weight_map, model_files, [])
 
-
-class TestBuildInverseWeightsMap:
-    def test_colocated_no_partners_needed(self, tmp_path):
+    def test_all_colocated(self, tmp_path):
         """All fused weights in same shard — no cross-shard fetching needed."""
-        shard = "shard-00001.safetensors"
         weight_map = {
-            "model.layers.0.self_attn.q_proj.weight": shard,
-            "model.layers.0.self_attn.k_proj.weight": shard,
-            "model.layers.0.self_attn.v_proj.weight": shard,
+            "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
+            "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
+            "model.layers.0.self_attn.v_proj.weight": "shard-00001.safetensors",
+            "model.layers.1.self_attn.q_proj.weight": "shard-00002.safetensors",
+            "model.layers.1.self_attn.k_proj.weight": "shard-00002.safetensors",
+            "model.layers.1.self_attn.v_proj.weight": "shard-00002.safetensors",
         }
-        model_files = {shard: str(tmp_path / shard)}
-        result = build_microscale_inverse_weights_map(shard, weight_map, model_files)
-        assert len(result) == 1
-        assert str(tmp_path / shard) in result
+        model_files = {
+            "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
+            "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
+        }
+        inverse_weight_maps = build_microscale_inverse_weight_maps(
+            weight_map, model_files, []
+        )
+        assert set(
+            inverse_weight_maps["shard-00001.safetensors"][
+                str(tmp_path / "shard-00001.safetensors")
+            ]
+        ) == {
+            "model.layers.0.self_attn.q_proj.weight",
+            "model.layers.0.self_attn.k_proj.weight",
+            "model.layers.0.self_attn.v_proj.weight",
+        }
+        assert set(
+            inverse_weight_maps["shard-00002.safetensors"][
+                str(tmp_path / "shard-00002.safetensors")
+            ]
+        ) == {
+            "model.layers.1.self_attn.q_proj.weight",
+            "model.layers.1.self_attn.k_proj.weight",
+            "model.layers.1.self_attn.v_proj.weight",
+        }
 
     def test_cross_shard_partners_found(self, tmp_path):
         """q_proj on shard1, k/v on shard2 — shard1 should fetch from shard2."""
@@ -94,20 +132,47 @@ class TestBuildInverseWeightsMap:
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
             "model.layers.0.self_attn.k_proj.weight": "shard-00002.safetensors",
             "model.layers.0.self_attn.v_proj.weight": "shard-00002.safetensors",
+            "model.layers.1.self_attn.q_proj.weight": "shard-00002.safetensors",
+            "model.layers.1.self_attn.k_proj.weight": "shard-00001.safetensors",
+            "model.layers.1.self_attn.v_proj.weight": "shard-00001.safetensors",
         }
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
-        result = build_microscale_inverse_weights_map(
-            "shard-00001.safetensors", weight_map, model_files
+        inverse_weight_maps = build_microscale_inverse_weight_maps(
+            weight_map, model_files, []
         )
-        # Should include both shards
-        assert len(result) == 2
-        shard2_path = str(tmp_path / "shard-00002.safetensors")
-        assert shard2_path in result
-        assert "model.layers.0.self_attn.k_proj.weight" in result[shard2_path]
-        assert "model.layers.0.self_attn.v_proj.weight" in result[shard2_path]
+        assert set(
+            inverse_weight_maps["shard-00001.safetensors"][
+                str(tmp_path / "shard-00001.safetensors")
+            ]
+        ) == {
+            "model.layers.0.self_attn.q_proj.weight",
+        }
+        assert set(
+            inverse_weight_maps["shard-00001.safetensors"][
+                str(tmp_path / "shard-00002.safetensors")
+            ]
+        ) == {
+            "model.layers.0.self_attn.v_proj.weight",
+            "model.layers.0.self_attn.k_proj.weight",
+        }
+        assert set(
+            inverse_weight_maps["shard-00002.safetensors"][
+                str(tmp_path / "shard-00001.safetensors")
+            ]
+        ) == {
+            "model.layers.1.self_attn.v_proj.weight",
+            "model.layers.1.self_attn.k_proj.weight",
+        }
+        assert set(
+            inverse_weight_maps["shard-00002.safetensors"][
+                str(tmp_path / "shard-00002.safetensors")
+            ]
+        ) == {
+            "model.layers.1.self_attn.q_proj.weight",
+        }
 
 
 class TestProcessFileMicroscaleSchemeColocated:
@@ -129,11 +194,11 @@ class TestProcessFileMicroscaleSchemeColocated:
         save_path = tmp_path / "out.safetensors"
         save_file(qkv_tensors, shard_path)
 
-        # Build inverse_weights_map: just the one file with all tensors
-        inverse_weights_map = {str(shard_path): list(qkv_tensors.keys())}
+        # Build inverse_weight_map: just the one file with all tensors
+        inverse_weight_map = {str(shard_path): list(qkv_tensors.keys())}
 
         total_size, weight_map = process_file_microscale_scheme(
-            inverse_weights_map=inverse_weights_map,
+            inverse_weight_map=inverse_weight_map,
             save_path=save_path,
             scheme=_make_nvfp4_scheme(),
             ignore=[],
@@ -145,7 +210,7 @@ class TestProcessFileMicroscaleSchemeColocated:
 
 
 class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
-    """Tests for cross-shard fused weights using precomputed inverse_weights_map."""
+    """Tests for cross-shard fused weights using precomputed inverse_weight_map."""
 
     @pytest.fixture
     def split_shards(self, tmp_path):
@@ -173,14 +238,16 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
             "shard-00001.safetensors": str(shard1_path),
             "shard-00002.safetensors": str(shard2_path),
         }
-        # Precompute inverse_weights_map for each shard
-        iwm1 = build_microscale_inverse_weights_map(
-            "shard-00001.safetensors", weight_map, model_files
+        # Precompute inverse_weight_map for each shard
+        inverse_weight_maps = build_microscale_inverse_weight_maps(
+            weight_map, model_files, []
         )
-        iwm2 = build_microscale_inverse_weights_map(
-            "shard-00002.safetensors", weight_map, model_files
+        return (
+            shard1_path,
+            shard2_path,
+            inverse_weight_maps["shard-00001.safetensors"],
+            inverse_weight_maps["shard-00002.safetensors"],
         )
-        return shard1_path, shard2_path, iwm1, iwm2
 
     def test_shard1_produces_output(self, split_shards, tmp_path):
         """Shard-1 (q_proj only) processes correctly using precomputed inverse map."""
@@ -188,7 +255,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         save_path = tmp_path / "out-00001.safetensors"
 
         total_size, weight_map = process_file_microscale_scheme(
-            inverse_weights_map=iwm1,
+            inverse_weight_map=iwm1,
             save_path=save_path,
             scheme=_make_nvfp4_scheme(),
             ignore=[],
@@ -204,7 +271,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         save_path = tmp_path / "out-00002.safetensors"
 
         total_size, weight_map = process_file_microscale_scheme(
-            inverse_weights_map=iwm2,
+            inverse_weight_map=iwm2,
             save_path=save_path,
             scheme=_make_nvfp4_scheme(),
             ignore=[],

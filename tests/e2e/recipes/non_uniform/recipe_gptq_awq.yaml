@@ -1,0 +1,22 @@
+quant_stage:
+  quant_modifiers:
+    AWQModifier:
+      duo_scaling: true
+      mappings:
+        - smooth_layer: "re:.*input_layernorm$"
+          balance_layers: ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"]
+    
+    QuantizationModifier:
+      ignore: ["lm_head"]
+      scheme: "W4A16"
+      targets:
+        - "re:.*self_attn\\.(k|q|o|v)_proj$"
+
+    GPTQModifier:
+      ignore: ["lm_head"]
+      scheme: "W8A8"
+      targets:
+        - "re:.*mlp\\.(down|gate|up)_proj$"
+      block_size: 128
+      dampening_frac: 0.001
+      actorder: null

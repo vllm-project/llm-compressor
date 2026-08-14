@@ -7,7 +7,6 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -55,10 +54,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _infer_pipeline(modifiers: list[Modifier]) -> str:
-        # only in the case of weight-only qmod quantization can we skip calibration
-        if len(modifiers) == 1 and isinstance(modifiers[0], QuantizationModifier):
-            config = modifiers[0].resolve_quantization_config()
-            if not config.requires_calibration_data():
-                return "datafree"
-
-        return "sequential"
+        if any(modifier.requires_calibration_data for modifier in modifiers):
+            return "sequential"
+        else:
+            return "datafree"

@@ -1,4 +1,6 @@
-from typing import Any, Generator, Tuple
+from __future__ import annotations
+
+from typing import Any, Generator
 
 import torch
 from pydantic import Field
@@ -45,7 +47,7 @@ class ModuleSparsificationInfo(SparsificationInfo):
             quantization_info=SparsificationQuantization.from_module(module),
         )
 
-    def loggable_items(self, **kwargs) -> Generator[Tuple[str, Any], None, None]:
+    def loggable_items(self, **kwargs) -> Generator[tuple[str, Any], None, None]:
         """
         A generator that yields the loggable items of
         the ModuleSparsificationInfo object.

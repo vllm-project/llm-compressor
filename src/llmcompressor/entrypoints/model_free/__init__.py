@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 from pathlib import Path
@@ -7,21 +6,20 @@ from typing import Iterable, Optional
 import torch
 from compressed_tensors.entrypoints.convert import (
     Converter,
+    build_inverse_weight_maps,
     exec_jobs,
 )
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
+    get_weight_map,
     is_weights_file,
+    update_safetensors_index,
 )
 from loguru import logger
 
-from llmcompressor.entrypoints.model_free.helpers import (
-    find_safetensors_index_file,
-    gpu_if_available,
-)
 from llmcompressor.entrypoints.model_free.microscale import (
-    build_microscale_inverse_weights_map,
+    build_microscale_inverse_weight_maps,
     is_microscale_scheme,
 )
 from llmcompressor.entrypoints.model_free.process import (
@@ -46,7 +44,7 @@ def model_free_ptq(
     scheme: QuantizationScheme | str,
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
-    device: Optional[torch.device | str] = None,
+    device: Optional[str | torch.device | list[str | torch.device]] = None,
     converter: Converter | None = None,
 ):
     """
@@ -56,7 +54,7 @@ def model_free_ptq(
 
     For microscale schemes (NVFP4, MXFP4), fused weight sets (q/k/v, gate/up)
     are handled correctly even when split across shards. Each shard job receives
-    a precomputed inverse_weights_map specifying exactly which tensors to load
+    a precomputed inverse_weight_map specifying exactly which tensors to load
     from which files — enabling true partial reads with no runtime discovery
     and no redundant tensor reads.
 
@@ -66,15 +64,17 @@ def model_free_ptq(
     :param ignore: modules to ignore. Modules ending with "norm" are
         automatically ignored
     :param max_workers: number of worker threads to process files with
-    :param device: gpu device to accelerate quantization with
+    :param device: gpu devices to accelerate quantization with.
     :param converter: optional converter to apply to the checkpoint to convert
         it to compressed-tensors format before running model-free PTQ
     """
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
+
     scheme_name, scheme = validate_scheme(scheme)
-    device = gpu_if_available(device)
+    resolved_devices = _resolve_devices(device)
     validate_safetensors_index(model_files, scheme)
+    os.makedirs(save_directory, exist_ok=True)
 
     # copy non-safetensors files (configs, tokenizers, etc.)
     for file_path, resolved_path in model_files.items():
@@ -87,7 +87,9 @@ def model_free_ptq(
             shutil.copyfile(resolved_path, save_path)
 
     # build quantization jobs
-    jobs = _build_jobs(model_files, save_directory, scheme, ignore, device, converter)
+    jobs = _build_jobs(
+        model_files, save_directory, scheme, ignore, resolved_devices, converter
+    )
 
     # 1. validate quantizable tensors — fail fast before long-running quantization
     validate_jobs = [(validate_file, *job[1:]) for job in jobs]
@@ -105,6 +107,31 @@ def model_free_ptq(
     # weight_map may contain tensors re-located to new shards (partner tensors
     # re-saved alongside the shard that needed them for fused scale computation)
     update_config(save_directory, scheme_name, scheme, ignore, converter)
+    update_safetensors_index(save_directory, total_size, weight_map)
+
+
+def _resolve_devices(
+    device: Optional[str | torch.device | list[str | torch.device]],
+) -> list[torch.device]:
+    if device is None:
+        count = torch.accelerator.device_count()
+        if count > 0:
+            devices = [torch.device(f"cuda:{i}") for i in range(count)]
+            logger.info(
+                f"Auto-detected {count} CUDA device(s): "
+                f"{', '.join(str(d) for d in devices)}"
+            )
+            return devices
+
+        logger.warning("No accelerator available! Compressing model on CPU instead")
+        return [torch.device("cpu")]
+
+    if isinstance(device, list):
+        if not device:
+            raise ValueError("The device list cannot be empty.")
+        return [torch.device(d) for d in device]
+
+    return [torch.device(device)]
 
 
 def _build_jobs(
@@ -112,86 +139,57 @@ def _build_jobs(
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme,
     ignore: Iterable[str],
-    device: torch.device,
+    devices: list[torch.device],
     converter: Converter | None,
 ) -> list[tuple]:
     """
-    Build microscale jobs with precomputed inverse_weights_map per shard.
+    Build jobs with precomputed inverse_weight_map per shard.
 
-    For each output shard, build_inverse_weights_map() determines exactly which
+    For each output shard, build_inverse_weight_map() determines exactly which
     tensors to load from which source files — including any fused partner tensors
     from other shards. This avoids runtime fused-partner discovery inside the
     process function and eliminates redundant tensor reads.
 
     :returns: list of jobs tuples
-        (job_fn, inverse_weights_map, save_path, scheme, ignore, device, converter)
+        (job_fn, inverse_weight_map, save_path, scheme, ignore, device, converter)
+        Shards are distributed round-robin across the given devices.
     """
+    weight_map = get_weight_map(model_files)
+
     if is_microscale_scheme(scheme):
         job_fn = process_file_microscale_scheme
-        build_inverse_weights_map = build_microscale_inverse_weights_map
+        build_inverse_weight_maps_fn = build_microscale_inverse_weight_maps
     else:
         job_fn = process_file
-        # TODO brian-dellabetta (#2491): update here in follow-up PR based on converter
-        build_inverse_weights_map = None
+        build_inverse_weight_maps_fn = build_inverse_weight_maps
 
-    index_file = find_safetensors_index_file(model_files)
+    inverse_weight_maps = build_inverse_weight_maps_fn(
+        weight_map=weight_map,
+        model_files=model_files,
+        converters=[converter] if converter is not None else [],
+    )
 
-    if index_file is None:
-        # Single-file model — no cross-shard fused weights possible,
-        # Create inverse_weights_map dict format for process_file_microscale_scheme
-        jobs = []
-        for file_path, resolved_path in model_files.items():
-            if file_path.endswith("safetensors"):
-                save_path = Path(save_directory) / file_path
-                # Wrap as inverse_weights_map: {source_file: None}
-                # means load all tensors
-                inverse_weights_map = {resolved_path: []}
-                jobs.append(
-                    (
-                        job_fn,
-                        inverse_weights_map,
-                        save_path,
-                        scheme,
-                        ignore,
-                        device,
-                        converter,
-                    )
-                )
-        return jobs
-
-    # Read weight map from safetensors.index.json
-    with open(index_file, "r") as f:
-        weight_map: dict[str, str] = json.load(f)["weight_map"]
+    shard_names = [name for name in model_files if name.endswith("safetensors")]
+    logger.info(
+        f"Distributing {len(shard_names)} shard(s) across {len(devices)} "
+        f"device(s): {', '.join(str(d) for d in devices)}"
+    )
 
     jobs = []
-    for shard_name, resolved_path in model_files.items():
-        if not shard_name.endswith("safetensors"):
-            continue
-
+    for i, shard_name in enumerate(shard_names):
         save_path = Path(save_directory) / shard_name
 
-        # Precompute exactly which tensors to load from which files for this shard,
-        # including fused partner tensors that live in other shards
-        if build_inverse_weights_map is None:
-            inverse_weights_map = {resolved_path: []}
-        else:
-            inverse_weights_map = build_inverse_weights_map(
-                shard_name=shard_name,
-                weight_map=weight_map,
-                model_files=model_files,
+        if shard_name not in inverse_weight_maps:
+            raise ValueError(
+                f"Could not find inverse_weight_map for shard {shard_name}"
             )
 
-        if len(inverse_weights_map) > 1:
-            partner_shards = [s for s in inverse_weights_map if s != resolved_path]
-            logger.info(
-                f"{shard_name}: will fetch fused partners from "
-                f"{[os.path.basename(s) for s in partner_shards]}"
-            )
+        device = devices[i % len(devices)]
 
         jobs.append(
             (
                 job_fn,
-                inverse_weights_map,
+                inverse_weight_maps[shard_name],
                 save_path,
                 scheme,
                 ignore,

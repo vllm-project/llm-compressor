@@ -1,0 +1,4 @@
+cadence: nightly
+entrypoint: convert_checkpoint
+model: nvidia/Qwen3-8B-NVFP4
+recipe: ModelOptNvfp4Converter

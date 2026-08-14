@@ -1,25 +1,19 @@
 cadence: "weekly"
 model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
-scheme: INT8_dyn_per_token
-recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
+recipe: tests/e2e/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
 dataset_id: neuralmagic/calibration
 dataset_config: LLM
-dataset_split: "train[:512]"
+dataset_split: "train"
+num_calibration_samples: 512
 lmeval:
-  model: "hf-multimodal"
-  model_args:
-    dtype: bfloat16
-    convert_img_format: True
+  model: vllm-vlm
   task: chartqa
   apply_chat_template: True
+  add_bos_token: False
   num_fewshot: 0
-  batch_size: 100
-  limit: 500
-  # dense model achieves exact_match accuracy of 0.576
-  # dense model achieves relaxed_accuracy of 0.780
-  # dense model achieves anywhere_accuracy of 0.806
+  max_model_len: 128000
   metrics:
-    exact_match,none: 0.608
-    relaxed_accuracy,none: 0.806
-    anywhere_accuracy,none: 0.824
+    exact_match,none: 0.53
+    relaxed_accuracy,none: 0.76
+    anywhere_accuracy,none: 0.79

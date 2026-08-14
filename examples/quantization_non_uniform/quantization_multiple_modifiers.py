@@ -5,8 +5,9 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
 
 
 def parse_args():
@@ -22,7 +23,7 @@ def parse_args():
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
@@ -62,7 +63,6 @@ def tokenize(sample):
 recipe = [
     GPTQModifier(targets=r"re:.*self_attn\.(k|q|o|v)_proj$", scheme="W8A8"),
     AWQModifier(
-        targets=r"re:.*mlp\.(down|gate|up)_proj$",
         mappings=[
             AWQMapping(
                 "re:.*post_attention_layernorm$",
@@ -73,6 +73,9 @@ recipe = [
                 ["re:.*down_proj$"],
             ),
         ],
+    ),
+    QuantizationModifier(
+        targets=r"re:.*mlp\.(down|gate|up)_proj$",
         scheme="W4A16",
     ),
 ]

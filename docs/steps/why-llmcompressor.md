@@ -68,7 +68,7 @@ LLM Compressor supports a variety of optimization workflows depending on your de
 |----------|----------|----------|
 | Deploying large models on limited hardware | Deploy a 70B parameter model on a single 80GB GPU | Apply INT4 quantization (W4A16) to reduce model size by 75%, enabling single-GPU deployment |
 | Maximizing throughput for production serving | Serve high request volumes with minimal latency on modern NVIDIA hardware | Use FP8 quantization to leverage Hopper tensor cores for maximum throughput |
-| Optimizing MoE models | Deploy a Mixture of Experts model like DeepSeek or Mixtral efficiently | Use NVFP4 quantization with calibration support designed for MoE architectures |
+| Optimizing MoE models | Deploy a Mixture of Experts model like DeepSeek or Mixtral efficiently | Quantize your MoE to any supported format with calibration support designed for MoE architectures |
 
 ### Next Steps
 

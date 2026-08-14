@@ -1,5 +1,3 @@
-from typing import Dict, Optional
-
 import torch
 import transformers
 
@@ -7,7 +5,7 @@ WANDA_PRECISION = torch.float32
 
 
 def make_empty_row_scalars(
-    module: torch.nn.Module, device: Optional[torch.device] = None
+    module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
     weight = module.weight
     num_columns = weight.shape[1]
@@ -28,21 +26,21 @@ def accumulate_row_scalars(
     num_added = inp.shape[0]  # note this is the number of dataset samples, not
     # multiplied by the sequence length
 
-    if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
-        if len(inp.shape) == 3:
-            inp = inp.reshape((-1, inp.shape[-1]))
-        inp = inp.t()
-
-    if isinstance(module, torch.nn.Conv2d):
-        unfold = torch.nn.Unfold(
-            module.kernel_size,
-            dilation=module.dilation,
-            padding=module.padding,
-            stride=module.stride,
-        )
-        inp = unfold(inp)
-        inp = inp.permute([1, 0, 2])
-        inp = inp.flatten(1)
+    match module:
+        case torch.nn.Linear() | transformers.Conv1D():
+            if len(inp.shape) == 3:
+                inp = inp.reshape((-1, inp.shape[-1]))
+            inp = inp.t()
+        case torch.nn.Conv2d():
+            unfold = torch.nn.Unfold(
+                module.kernel_size,
+                dilation=module.dilation,
+                padding=module.padding,
+                stride=module.stride,
+            )
+            inp = unfold(inp)
+            inp = inp.permute([1, 0, 2])
+            inp = inp.flatten(1)
 
     row_scalars *= num_samples / (num_samples + num_added)
     num_samples += num_added
@@ -55,7 +53,7 @@ def accumulate_row_scalars(
 
 def sparsify_weight(
     module: torch.nn.Module,
-    row_scalars_dict: Dict[torch.nn.Module, torch.Tensor],
+    row_scalars_dict: dict[torch.nn.Module, torch.Tensor],
     sparsity: float,
     prune_n: int,
     prune_m: int,
@@ -70,10 +68,11 @@ def sparsify_weight(
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
     W = module.weight.data.clone()
-    if isinstance(module, torch.nn.Conv2d):
-        W = W.flatten(1)
-    if isinstance(module, transformers.Conv1D):
-        W = W.t()
+    match module:
+        case torch.nn.Conv2d():
+            W = W.flatten(1)
+        case transformers.Conv1D():
+            W = W.t()
     W = W.to(dtype=WANDA_PRECISION)
     S = row_scalars_dict[module]  # unfortunately python does not have a `move` keyword
     del row_scalars_dict[module]  # so we have to delete the original reference manually

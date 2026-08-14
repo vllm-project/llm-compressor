@@ -11,11 +11,12 @@ from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.awq import AWQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Load model.
 model_id = "Qwen/Qwen3-VL-8B-Instruct"
-model = Qwen3VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
+model = Qwen3VLForConditionalGeneration.from_pretrained(model_id)
 processor = AutoProcessor.from_pretrained(model_id)
 
 # Oneshot arguments
@@ -72,12 +73,13 @@ def data_collator(batch):
 
 
 # Recipe
-recipe = AWQModifier(
-    scheme="W4A16",
-    ignore=["re:.*lm_head", "re:.*visual.*"],
-    duo_scaling=False,
-)
-
+recipe = [
+    AWQModifier(duo_scaling=False),
+    QuantizationModifier(
+        scheme="W4A16",
+        ignore=["re:.*lm_head", "re:.*visual.*"],
+    ),
+]
 # Perform oneshot
 oneshot(
     model=model,

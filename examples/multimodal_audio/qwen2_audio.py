@@ -7,8 +7,8 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen2-Audio-7B-Instruct"
-model = Qwen2AudioForConditionalGeneration.from_pretrained(MODEL_ID, dtype="auto")
-processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+model = Qwen2AudioForConditionalGeneration.from_pretrained(MODEL_ID)
+processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "MLCommons/peoples_speech"
@@ -81,7 +81,7 @@ ds = ds.map(preprocess, remove_columns=ds.column_names)
 recipe = GPTQModifier(
     targets="Linear",
     scheme="W4A16",
-    ignore=["lm_head", "re:audio_tower.*"],
+    ignore=["language_model.lm_head", "re:audio_tower.*"],
 )
 
 # Apply algorithms.
