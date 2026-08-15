@@ -855,7 +855,7 @@ class AWQModifier(Modifier):
                 "skipping error summary.",
                 log_once=True,
             )
-            # to avoid div by 0, exit early 
+            # to avoid div by 0, exit early
             return
 
         # Also print summary statistics
