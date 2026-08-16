@@ -126,6 +126,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
 
+            # without this, quantization format will be inferred from the model
+            if not save_compressed and quantization_format is None:
+                quantization_format = CompressionFormat.dense.value
+
             # compress model using compressor
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
