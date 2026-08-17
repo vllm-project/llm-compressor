@@ -21,15 +21,17 @@ For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md
 
 ## New in this release
 
-Review the [LLM Compressor v0.12.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.12.0) for details about new features. New features to be aware of include:
+Review the [LLM Compressor v0.13.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.13.0) for details about new features. New features to be aware of include:
 
-- **Transformers v5 Upgrade**: Full integration with Transformers v5, including refactored MoE linearization with `load_context` for efficient loading, updated model structure handling, and improved tied embeddings support. LM eval performance is maintained across the transition. Note that LLM Compressor no longer supports installation with `transformers<5.0.0`
+- **REAP Expert Pruning**:  New modifier for structurally pruning Mixture-of-Experts (MoE) models by removing individual experts based on calibration-based saliency scores. Based on the REAP the Experts paper.
 
-- **Simplified Dataset Interface**: Legacy multi-split dataset logic has been removed, replacing `splits={"calibration": "train[:100]"}` with a cleaner `split="train[:100]"` API. The new interface is backwards compatible, and usage of the old dictionary-based `splits` argument is deprecated and will be removed in a future release
+- **Arbitrary Bit-Width Quantization (Humming)**: Dense packing for non-power-of-2 bit widths (3, 5, 6, 7) with no wasted bits, plus 16 new WxAy presets covering W2–W8 weights with A4, A8, or A16 activations.
 
-- **Multi-GPU Model-Free PTQ**: `model_free_ptq` jobs can now be distributed across multiple GPUs when available, automatically parallelizing the quantization workflow for significant speedups on large models
+- **Observer Fusion and Deletion**: Refactored observer lifecycle and significantly reduced memory usage for large models due to observer statistics persisting after calibration.
 
-- **Nemotron 3 Ultra Examples**: Model-free PTQ examples have been added for NVIDIA's Nemotron-3-Ultra-550B model, with pre-quantized FP8 checkpoints available on the HF Hub
+- **Expanded MoE Architecture Support**: Extended MoE linearization to support a broader range of architectures
+
+- **Improved XPU Compatibility**: Migrated torch.cuda calls to torch.accelerator for Intel XPU support.
 
 ## Supported algorithms and techniques
 
