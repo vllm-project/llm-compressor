@@ -27,6 +27,35 @@ parser.add_argument(
     default=200,
     help="Number of iterations for AutoRound",
 )
+parser.add_argument(
+    "--disable-torch-compile",
+    action="store_true",
+    help="Disable torch.compile in AutoRound tuning",
+)
+parser.add_argument(
+    "--batch-size",
+    type=int,
+    default=8,
+    help="AutoRound tuning batch size",
+)
+parser.add_argument(
+    "--num-calibration-samples",
+    type=int,
+    default=128,
+    help="Number of calibration samples",
+)
+parser.add_argument(
+    "--max-seq-length",
+    type=int,
+    default=2048,
+    help="Maximum calibration sequence length",
+)
+parser.add_argument(
+    "--sequential-targets",
+    nargs="+",
+    default=None,
+    help="Sequential targets passed to llm-compressor oneshot",
+)
 args = parser.parse_args()
 args.model = args.model or args.model_id
 
@@ -36,8 +65,8 @@ model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
-NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 2048
+NUM_CALIBRATION_SAMPLES = args.num_calibration_samples
+MAX_SEQUENCE_LENGTH = args.max_seq_length
 # Get aligned calibration dataset.
 
 ds = get_dataset(
@@ -53,6 +82,8 @@ recipe = AutoRoundModifier(
     scheme="MXFP4",
     ignore=["lm_head"],
     iters=args.iters,
+    enable_torch_compile=not args.disable_torch_compile,
+    batch_size=args.batch_size,
 )
 
 # Apply algorithms.
@@ -64,6 +95,8 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
+    moe_calibrate_all_experts=False,
+    sequential_targets=args.sequential_targets,
 )
 
 # Confirm generations of the quantized model look sane.

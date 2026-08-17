@@ -1,3 +1,4 @@
+import gc
 import os
 from contextlib import contextmanager
 
@@ -296,6 +297,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "device_map": self.device_ids,
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
             "disable_opt_rtn": self.disable_opt_rtn,
+            "low_gpu_mem_usage": True,
         }
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
@@ -333,20 +335,23 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             cur_inputs = self._move_inputs_to(cur_inputs, device)
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
-            q_input, _ = ar.quantize_block(
+            q_input = self._move_tensor_tree_to(self._q_input, device)
+            next_q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=ar_inputs,
-                q_input=self._q_input,
+                q_input=q_input,
                 device=str(device),
                 auto_offload=auto_offload,
             )
-            self._q_input = q_input
+            self._q_input = self._move_tensor_tree_to(next_q_input, "cpu")
+            del q_input, next_q_input
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
 
         decoding_layer.eval()
         # Update offload parameters and remove temporary attributes
         self._postprocess_qparams(decoding_layer, llmc_registered_qparams)
+        self._release_autoround_runtime_cache()
 
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
@@ -428,6 +433,35 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             )
             for args, kwargs in inputs
         ]
+
+    @staticmethod
+    def _move_tensor_tree_to(value, device):
+        if isinstance(value, torch.Tensor):
+            return value.to(device)
+        if isinstance(value, tuple):
+            return tuple(
+                AutoRoundModifier._move_tensor_tree_to(x, device) for x in value
+            )
+        if isinstance(value, list):
+            return [AutoRoundModifier._move_tensor_tree_to(x, device) for x in value]
+        if isinstance(value, dict):
+            return {
+                k: AutoRoundModifier._move_tensor_tree_to(v, device)
+                for k, v in value.items()
+            }
+        return value
+
+    @staticmethod
+    def _release_autoround_runtime_cache():
+        try:
+            torch._dynamo.reset()
+        except Exception:
+            pass
+        gc.collect()
+        if torch.accelerator.is_available():
+            torch.accelerator.empty_cache()
+        elif hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.empty_cache()
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
