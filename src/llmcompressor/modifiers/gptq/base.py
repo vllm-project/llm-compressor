@@ -41,7 +41,7 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
-_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
+_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point"]
 
 
 class GPTQModifier(Modifier, QuantizationMixin):
@@ -93,7 +93,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param actorder: order in which weight columns are quantized. Defaults to "static"
         activation ordering, which achieves best accuracy recovery with no runtime cost.
         For more information, see https://github.com/vllm-project/vllm/pull/8135.
-        Note: "group"/ "dynamic" are deprecated and will be removed in a future release.
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -157,13 +156,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "remove `actorder` from config groups."
             )
 
-        # compressed-tensors only accepts actorder=GROUP on these strategies
-        # on reload; other strategies fall back to None below.
-        grouped_strategies = (
-            QuantizationStrategy.GROUP,
-            QuantizationStrategy.TENSOR_GROUP,
-        )
-
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
             strategy = getattr_chain(scheme, "weights.strategy", None)
@@ -176,20 +168,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
             ):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
-
-                if scheme.weights.actorder == ActivationOrdering.GROUP:
-                    logger.bind(log_once=False).warning(
-                        "ActivationOrdering.GROUP is deprecated and will be removed "
-                        "in a future release. Use default actorder='static' instead. "
-                    )
-
-                    if strategy not in grouped_strategies:
-                        logger.warning(
-                            f"ActivationOrdering.GROUP is not compatible with "
-                            f"strategy={strategy}; falling back to actorder=None "
-                            f"for this scheme."
-                        )
-                        scheme.weights.actorder = None
 
         return config
 

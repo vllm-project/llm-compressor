@@ -278,7 +278,7 @@ class TestNVFP4FusedLifecycle:
 
 _DIST_MODULE = "llmcompressor.utils.dist"
 _WEIGHT_Q_PARAMS = ["weight_scale", "weight_zero_point", "weight_global_scale"]
-_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point", "weight_g_idx"]
+_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point"]
 
 
 def _simulate_ddp_broadcast(

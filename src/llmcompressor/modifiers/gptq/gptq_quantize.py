@@ -79,7 +79,8 @@ def quantize_weight(
     :param hessian: preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
-    :return: loss, quantized_weight, scale, zero_point, g_idx
+    :return: loss, q_param_dict (with keys: weight, weight_scale, weight_zero_point,
+        and optionally weight_global_scale)
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
@@ -93,26 +94,9 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    if actorder == ActivationOrdering.GROUP and strategy not in (
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-    ):
-        logger.warning(
-            "ActivationOrdering.GROUP requires a grouped quantization strategy; "
-            "falling back to actorder=None for this module."
-        )
-        actorder = None
-
     # handle activation ordering
     if actorder:
         W, H, perm = _apply_activation_ordering(W, H)
-
-    # handle g_idx and activation ordering
-    if actorder == ActivationOrdering.GROUP:
-        # re-observe with permuted weight for correct per-group scales
-        observer.delete_statistics(check_fused=False)
-        observer(W)
-        # use identity g_idx (invert permutation later)
 
     # handle g_idx
     if strategy in (
@@ -259,8 +243,6 @@ def quantize_weight(
     }
     if global_scale:
         q_param_dict["weight_global_scale"] = global_scale.to(dtype=final_dtype)
-    if actorder == ActivationOrdering.GROUP:
-        q_param_dict["weight_g_idx"] = g_idx[invperm]
     return (loss, q_param_dict)
 
 
