@@ -1,5 +1,8 @@
 """Drop GatedDeltaNet / RMSNormGated parents from reconstructed ignore lists."""
 
+import json
+from types import SimpleNamespace
+
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -10,6 +13,7 @@ from compressed_tensors.quantization import (
 )
 
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    modify_save_pretrained,
     prune_false_linear_ignores,
 )
 
@@ -47,6 +51,22 @@ class _TinyHybrid(torch.nn.Module):
         self.linear_attn = Qwen3NextGatedDeltaNet()
         self.mlp_gate = DeepseekV4TopKRouter()
         self.moe_gate = DeepseekV4TopKGate()
+
+
+class _SaveableHybrid(_TinyHybrid):
+    """Bound save_pretrained so modify_save_pretrained can wrap it."""
+
+    def __init__(self):
+        super().__init__()
+        self.name_or_path = "dummy"
+        self.config = SimpleNamespace(
+            get_text_config=lambda: SimpleNamespace(
+                num_mtp_layers=0, mtp_num_hidden_layers=0
+            )
+        )
+
+    def save_pretrained(self, save_directory, **kwargs):
+        return None
 
 
 def _quantize_out_proj(model: torch.nn.Module) -> None:
@@ -97,3 +117,33 @@ def test_from_pretrained_ignore_does_not_list_linear_attn_parent():
     assert "mlp_gate" in pruned
     assert "moe_gate" in pruned
     assert hasattr(model.linear_attn.out_proj, "quantization_scheme")
+
+
+def test_save_pretrained_persists_pruned_ignore(tmp_path, monkeypatch):
+    import llmcompressor.transformers.compression.compressed_tensors_utils as utils
+
+    monkeypatch.setattr(utils, "to_accelerate", lambda model: None)
+    monkeypatch.setattr(utils, "from_accelerate", lambda model: None)
+    monkeypatch.setattr(utils, "update_and_save_recipe", lambda *a, **k: None)
+    monkeypatch.setattr(
+        utils, "copy_python_files_from_model_cache", lambda *a, **k: None
+    )
+
+    model = _SaveableHybrid()
+    _quantize_out_proj(model)
+    reconstructed = QuantizationConfig.from_pretrained(model)
+    assert reconstructed is not None
+    assert "linear_attn" in reconstructed.ignore
+    assert "linear_attn.norm" in reconstructed.ignore
+
+    modify_save_pretrained(model)
+    model.save_pretrained(tmp_path, save_compressed=False)
+
+    config = json.loads((tmp_path / "config.json").read_text())
+    ignore = config["quantization_config"]["ignore"]
+    assert "linear_attn" not in ignore
+    assert "linear_attn.norm" not in ignore
+    assert "linear_attn.in_proj_a" in ignore
+    assert "linear_attn.in_proj_b" in ignore
+    assert "mlp_gate" in ignore
+    assert "moe_gate" in ignore
