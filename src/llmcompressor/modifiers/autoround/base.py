@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -177,7 +178,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # private variables
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
-    _capture_hooks: dict = PrivateAttr(default_factory=dict)
+    _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
