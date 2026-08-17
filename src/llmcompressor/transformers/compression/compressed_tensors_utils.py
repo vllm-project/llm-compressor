@@ -26,7 +26,7 @@ __all__ = ["modify_save_pretrained", "prune_false_linear_ignores"]
 # compressed-tensors remaps class names containing "Gate" to Linear when rebuilding
 # ignore lists. Match Gate as a CamelCase token so GatedDeltaNet / RMSNormGated are
 # not treated as Linear, while real MoE routers (Router / Gating / *Gate) still are.
-_MOE_GATE_TYPE = re.compile(r"(?:Router|Gating|(?<![A-Za-z])Gate(?![a-z]))")
+_MOE_GATE_TYPE = re.compile(r"(?:Router|Gating|Gate(?![a-z]))")
 
 
 def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:

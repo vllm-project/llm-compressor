@@ -35,11 +35,18 @@ class DeepseekV4TopKRouter(torch.nn.Module):
         self.weight = torch.nn.Parameter(torch.ones(4, dim))
 
 
+class DeepseekV4TopKGate(torch.nn.Module):
+    def __init__(self, dim: int = 8):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(4, dim))
+
+
 class _TinyHybrid(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_attn = Qwen3NextGatedDeltaNet()
         self.mlp_gate = DeepseekV4TopKRouter()
+        self.moe_gate = DeepseekV4TopKGate()
 
 
 def _quantize_out_proj(model: torch.nn.Module) -> None:
@@ -66,6 +73,7 @@ def test_prune_drops_gated_containers_keeps_linears_and_routers():
         "linear_attn.in_proj_a",
         "linear_attn.in_proj_b",
         "mlp_gate",
+        "moe_gate",
     ]
     pruned = prune_false_linear_ignores(model, ignore)
     assert "linear_attn" not in pruned
@@ -73,6 +81,7 @@ def test_prune_drops_gated_containers_keeps_linears_and_routers():
     assert "linear_attn.in_proj_a" in pruned
     assert "linear_attn.in_proj_b" in pruned
     assert "mlp_gate" in pruned
+    assert "moe_gate" in pruned
 
 
 def test_from_pretrained_ignore_does_not_list_linear_attn_parent():
@@ -86,4 +95,5 @@ def test_from_pretrained_ignore_does_not_list_linear_attn_parent():
     assert "linear_attn.in_proj_a" in pruned
     assert "linear_attn.in_proj_b" in pruned
     assert "mlp_gate" in pruned
+    assert "moe_gate" in pruned
     assert hasattr(model.linear_attn.out_proj, "quantization_scheme")
