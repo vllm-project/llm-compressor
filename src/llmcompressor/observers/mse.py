@@ -37,13 +37,11 @@ class MemorylessMSEObserver(Observer):
         self._token_args = self.args.model_copy(
             update={"strategy": QuantizationStrategy.TOKEN}
         )
-        # make copy in case calculate_qparams behavior needs to be modified for grid searching
-        self._search_args = self.args
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         self.min_vals, self.max_vals = _grid_search_mse(
             observed,
-            self._search_args,
+            self.args,
             self._token_args,
             self.maxshrink,
             self.patience,
@@ -131,4 +129,3 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
         self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = observer_kwargs.get("grid", 200.0)
         self.patience = observer_kwargs.get("patience", 1000)
-        self._search_args = self.args.model_copy(update={"scale_dtype": None}) # disable rounding

@@ -50,7 +50,6 @@ class IMatrixMSEObserver(Observer):
         self.norm = kw.get("norm", 3.0)
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
-        self._search_args = self.args
 
         self._imatrix_sum: Optional[torch.Tensor] = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
@@ -128,7 +127,7 @@ class IMatrixMSEObserver(Observer):
         importance_weights = self._prepare_importance(observed)
         self.min_vals, self.max_vals = _grid_search(
             observed,
-            self._search_args,
+            self.args,
             self.maxshrink,
             self.patience,
             self.grid,
@@ -269,6 +268,9 @@ def _grid_search(
     using FP32 scales. After optimization, global_scale is computed from the final
     min/max values in get_qparams().
     """
+    if args.strategy == QuantizationStrategy.TENSOR_GROUP and args.scale_dtype is not None:
+        args = args.model_copy(update={"scale_dtype": None})
+
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
     best_error = torch.full(
@@ -346,4 +348,3 @@ class NVFP4ExpandedIMatrixMSEObserver(IMatrixMSEObserver):
         self.maxshrink = kw.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = kw.get("grid", 200)
         self.patience = kw.get("patience", 1000)
-        self._search_args = self.args.model_copy(update={"scale_dtype": None})

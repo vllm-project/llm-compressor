@@ -3,7 +3,7 @@ from typing import Tuple
 import torch
 import torch._dynamo.config
 import torch._dynamo.decorators
-from compressed_tensors.quantization import QuantizationArgs
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams
 
@@ -49,6 +49,10 @@ def _grid_search_mse(
         Values > 1.0 let the search explore ranges wider than the observed
         values (e.g. expand=2.0 starts at 2x the observed range).
     """
+    if args.strategy == QuantizationStrategy.TENSOR_GROUP and args.scale_dtype is not None:
+        args = args.model_copy(update={"scale_dtype": None})
+        token_args = token_args.model_copy(update={"scale_dtype": None})
+
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
     best_error = torch.full_like(min_val, torch.finfo(min_val.dtype).max)
