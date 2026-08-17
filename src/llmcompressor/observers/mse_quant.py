@@ -25,6 +25,7 @@ def _grid_search_mse(
     grid: float,
     norm: float,
     chunk_size: int,
+    expand: float = 1.0,
 ) -> MinMaxTuple:
     """Find per-channel min/max ranges that minimize quantization error.
 
@@ -44,9 +45,12 @@ def _grid_search_mse(
         in shrink factors
     :param norm: exponent used when computing the error. norm = 2 approximates MSE
     :param chunk_size: number of grid steps per compiled call
+    :param expand: factor to scale the initial min/max range before searching.
+        Values > 1.0 let the search explore ranges wider than the observed
+        values (e.g. expand=2.0 starts at 2x the observed range).
     """
-    min_val = torch.amin(observed, dim=(0, -1))
-    max_val = torch.amax(observed, dim=(0, -1))
+    min_val = torch.amin(observed, dim=(0, -1)) * expand
+    max_val = torch.amax(observed, dim=(0, -1)) * expand
     best_error = torch.full_like(min_val, torch.finfo(min_val.dtype).max)
     best_min_val = min_val.clone()
     best_max_val = max_val.clone()
