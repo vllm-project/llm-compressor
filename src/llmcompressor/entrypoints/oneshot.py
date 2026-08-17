@@ -23,7 +23,12 @@ from compressed_tensors.base import (
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
+from transformers import (
+    AutoConfig,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+    ProcessorMixin,
+)
 
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
@@ -276,21 +281,26 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        quant_method_key = (
-            f"config.{QUANTIZATION_CONFIG_NAME}.{QUANTIZATION_METHOD_NAME}"
+        # Check on-disk config first because decompressed models
+        # no longer retain quantization_config in memory
+        config = AutoConfig.from_pretrained(model.config.name_or_path)
+        qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
+        quant_method = (
+            qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None
         )
-        quant_method = getattr_chain(model, quant_method_key, None)
 
-        if quant_method is None:
-            return
-
+        # Fall back to in-memory config for models with
+        # quantization_config set programmatically
         resolution = (
             "To resolve, load a full-precision checkpoint instead, or dequantize the "
             "checkpoint first with the compressed-tensors convert_checkpoint entrypoint"
             " -- https://github.com/vllm-project/compressed-tensors/blob/"
             "main/examples/convert_checkpoint/kimi_k26_example.py"
         )
-        if quant_method == QUANTIZATION_METHOD:
+        if quant_method is None:
+            return
+
+        elif quant_method == QUANTIZATION_METHOD:
             logger.warning(
                 "oneshot has limited support for models already quantized in the "
                 "`compressed-tensors` format. If the recipe targets layers that have "
