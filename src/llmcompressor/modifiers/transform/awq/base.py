@@ -1,4 +1,4 @@
-
+import inspect
 from collections.abc import Iterator
 from typing import Literal
 
@@ -397,17 +397,17 @@ class AWQModifier(Modifier):
             args: tuple[torch.Tensor, ...],
             kwargs,
         ):
-            args = tuple(
-                None if isinstance(a, QuantizedKVCache) else a for a in args
-            )
-            kwargs = {
-                k: None if isinstance(v, QuantizedKVCache) else v
-                for k, v in kwargs.items()
-            }
+            # bind() nests **kwargs contents under a 'kwargs' key;
+            # flatten them so the result can be replayed as module(**cached)
+            bound = inspect.signature(module.forward).bind(*args, **kwargs)
+            cached = bound.arguments
+            cached |= cached.pop("kwargs", {})
 
-            if args:
-                kwargs["__positional_args__"] = args
-            self._parent_args_cache[module].append(kwargs)
+            for k, v in cached.items():
+                if isinstance(v, QuantizedKVCache):
+                    cached[k] = None
+
+            self._parent_args_cache[module].append(cached)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -596,13 +596,7 @@ class AWQModifier(Modifier):
         cache = self._parent_args_cache[module]
         use_prefetch = active_session().state.sequential_prefetch
         batch_iter = cache.iter_prefetch() if use_prefetch else cache
-        outputs = []
-        for batch_kwargs in batch_iter:
-            args = batch_kwargs.get("__positional_args__", ())
-            kwargs = {
-                k: v for k, v in batch_kwargs.items() if k != "__positional_args__"
-            }
-            outputs.append(module(*args, **kwargs))
+        outputs = [module(**batch) for batch in batch_iter]
         return [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
