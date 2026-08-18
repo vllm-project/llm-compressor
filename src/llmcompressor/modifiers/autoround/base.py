@@ -228,7 +228,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def input_capture_hook(self, module, args, kwargs):
         name = module._tmp_name
-        self._all_module_input.setdefault(name, []).append((args, kwargs))
+        # Immediately offload to CPU so captured inputs don't accumulate on GPU.
+        # auto_round's block_forward (compressors/utils.py) handles per-batch CPU->GPU
+        # transfer, so no device mismatch occurs during optimization.
+        cpu_args = tuple(
+            x.detach().cpu() if isinstance(x, torch.Tensor) else x for x in args
+        )
+        cpu_kwargs = {
+            k: v.detach().cpu() if isinstance(v, torch.Tensor) else v
+            for k, v in kwargs.items()
+        }
+        self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
@@ -341,9 +351,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 decoding_layer.to("cpu")
                 auto_offload = True
 
-            # Ensure cached inputs are on the same device as the block.
-            # Calibration forward may have run on a different GPU.
-            cur_inputs = self._move_inputs_to(cur_inputs, device)
+            # cur_inputs 保留在 CPU；auto_round block_forward 内按 batch 自动搬运到 device
+            # (auto_round/compressors/utils.py block_forward 已处理 device mismatch)
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             q_input, _ = ar.quantize_block(
