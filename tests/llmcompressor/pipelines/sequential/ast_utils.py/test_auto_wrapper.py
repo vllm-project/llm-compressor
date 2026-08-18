@@ -239,7 +239,7 @@ def test_dead_branch_names_not_tracked():
     @torch.fx.wrap
     def wrapped_0(x, *, _=None):
         if isinstance(x, tuple):
-            x, _ = x
+            x, _ = x  # skip: some envs use "(x,)" -> "x,"
         return (_, x)
 
     def forward(self, x):
