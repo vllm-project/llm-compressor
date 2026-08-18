@@ -2,6 +2,7 @@ import ast
 from types import FunctionType, MethodType
 from typing import Any
 
+from compressed_tensors.utils import patch_attr
 from loguru import logger
 
 from .control_flow_analyzer import ControlFlowAnalyzer
@@ -126,10 +127,9 @@ class AutoWrapper(ast.NodeTransformer):
             # (e.g. `_` in `elif False: hidden_states, _ = self.self_attn(...)`)
             # are not added to `_local_names`
             dead_attr = "orelse" if value else "body"
-            dead_code = getattr(node, dead_attr)
-            setattr(node, dead_attr, [])
-            node = super().generic_visit(node)
-            setattr(node, dead_attr, dead_code)
+            tmp_dead_branch = [ast.Pass()] if isinstance(node, ast.If) else ast.Constant(value=None)
+            with patch_attr(node, dead_attr, tmp_dead_branch):
+                node = super().generic_visit(node)
             return node
 
     def visit_IfExp(self, node: ast.IfExp) -> ast.IfExp | ast.Call:
