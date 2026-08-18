@@ -326,28 +326,3 @@ def _grid_search(
                 break
 
     return best_min, best_max
-
-
-@Observer.register("nvfp4_expanded_imatrix_mse")
-class NVFP4ExpandedIMatrixMSEObserver(IMatrixMSEObserver):
-    """
-    Importance-weighted MSE observer with defaults tuned for NVFP4 range expansion.
-
-    Combines imatrix weighting with the expanded search range from
-    :class:`~llmcompressor.observers.mse.NVFP4ExpandedMSEObserver`.
-
-    Usage::
-
-        QuantizationArgs(
-            ...
-            observer="nvfp4_expanded_imatrix_mse",
-        )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        kw = self.args.observer_kwargs
-        self.expand = kw.get("expand", 1.8)
-        self.maxshrink = kw.get("maxshrink", 1 - 0.8 / 1.8)
-        self.grid = kw.get("grid", 200)
-        self.patience = kw.get("patience", 1000)
