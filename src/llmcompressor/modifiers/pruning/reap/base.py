@@ -14,7 +14,8 @@ from pydantic import Field, PrivateAttr, model_validator
 from llmcompressor.core import Event, State
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
-from llmcompressor.modeling.moe.linear_experts import ExpertMLP
+from llmcompressor.modeling.moe.helpers import ReapPrunableExpertsProtocol
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.reap.utils import (
     MoeModelAttrs,
@@ -67,6 +68,7 @@ class REAPPruningModifier(Modifier):
     )
     _n_experts_to_drop: int = PrivateAttr(default=0)
     _n_experts_to_drop_per_group: int | None = PrivateAttr(default=None)
+    _pruning_complete: bool = PrivateAttr(default=False)
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
@@ -155,6 +157,7 @@ class REAPPruningModifier(Modifier):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
+        self._pruning_complete = False
 
         # Ensure that REAP is the only modifier for this calibration pass
         session = active_session()
@@ -182,35 +185,56 @@ class REAPPruningModifier(Modifier):
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(
                 self._moe_attrs.num_experts
             )
-            self._norm_buffers[layer_name] = {}
-
-            # One hook per expert to record its per-token output norm and
-            # store in the layer's norm buffer
             experts = getattr(module, self._moe_attrs.experts_attr)
-            expert_list = [
-                expert for expert in experts.children() if isinstance(expert, ExpertMLP)
-            ]  # Filter out the activation function submodule
-            for idx, expert in enumerate(expert_list):
-                self.register_hook(
-                    expert, partial(self._expert_hook, layer_name, idx), "forward"
+            if isinstance(experts, LinearExperts2D):
+                self._norm_buffers[layer_name] = {}
+                expert_list = [
+                    expert
+                    for expert in experts.children()
+                    if isinstance(expert, ExpertMLP)
+                ]
+                for index, expert in enumerate(expert_list):
+                    self.register_hook(
+                        expert,
+                        partial(self._expert_hook, layer_name, index),
+                        "forward",
+                    )
+            elif isinstance(experts, ReapPrunableExpertsProtocol):
+                experts.start_reap_norm_collection()
+            else:
+                raise TypeError(
+                    f"Experts at {layer_name} are neither LinearExperts2D nor a "
+                    "REAP-prunable packed container"
                 )
 
             # Hook for the experts block to capture the router's top-k
-            # routing decisions and weights. This hook also executes pruning,
-            # which requires the expert output norms. Therefore, it must be a
-            # forward hook, so that it runs after the individual expert hooks
-            # have populated the norm buffer
+            # routing decisions and weights after the container has recorded
+            # the corresponding unweighted expert output norms.
             self.register_hook(
                 experts, partial(self._experts_block_hook, layer_name), "forward"
             )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
+        for layer_name in self._moe_attrs.moe_layer_names:
+            module = state.model.get_submodule(layer_name)
+            experts = getattr(module, self._moe_attrs.experts_attr)
+            if isinstance(experts, ReapPrunableExpertsProtocol):
+                experts.stop_reap_norm_collection()
+
+        self._ensure_all_layers_pruned()
+        self._pruning_complete = True
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """Finalize the model config to reflect the new number of experts."""
 
         model = state.model
+        if not self._pruning_complete:
+            raise RuntimeError(
+                "REAP calibration did not complete; refusing to update the model "
+                "config"
+            )
+        self._ensure_all_layers_pruned()
 
         new_num_experts = self._moe_attrs.num_experts - self._n_experts_to_drop
         update_model_config(model, self._moe_attrs, new_num_experts)
@@ -219,6 +243,19 @@ class REAPPruningModifier(Modifier):
         self._norm_buffers.clear()
 
         return True
+
+    def _ensure_all_layers_pruned(self) -> None:
+        if not self._saliency_trackers:
+            return
+
+        unpruned = sorted(self._saliency_trackers)
+        preview = ", ".join(unpruned[:3])
+        if len(unpruned) > 3:
+            preview += f", ... ({len(unpruned)} total)"
+        raise RuntimeError(
+            "REAP did not collect saliency and structurally prune every MoE "
+            f"layer; refusing to update the model config. Unpruned: {preview}"
+        )
 
     # -- decision finalization ----------------------------------------------
 
@@ -242,11 +279,15 @@ class REAPPruningModifier(Modifier):
                 len(retained) == expected
             ), f"Expected {expected} retained experts, got {len(retained)}"
 
+            moe_block = model.get_submodule(layer_name)
+            experts = getattr(moe_block, self._moe_attrs.experts_attr)
             prune_moe_layer(model, layer_name, retained, self._moe_attrs)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]
             self._norm_buffers.pop(layer_name, None)
+            if isinstance(experts, ReapPrunableExpertsProtocol):
+                experts.stop_reap_norm_collection()
 
     # -- calibration hooks ---------------------------------------------------
 
@@ -283,9 +324,13 @@ class REAPPruningModifier(Modifier):
         if tracker is None:
             return
 
-        norm_buffer = self._norm_buffers[layer_name]
+        if isinstance(module, ReapPrunableExpertsProtocol):
+            expert_norms = module.take_reap_norms()
+        else:
+            expert_norms = self._norm_buffers[layer_name]
 
         with torch.no_grad():
-            tracker.update(top_k_indices, top_k_weights, norm_buffer)
+            tracker.update(top_k_indices, top_k_weights, expert_norms)
 
-        self._norm_buffers[layer_name] = {}
+        if isinstance(module, LinearExperts2D):
+            self._norm_buffers[layer_name] = {}
