@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -177,6 +178,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # private variables
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
+    _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -225,9 +227,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def input_capture_hook(self, module, args, kwargs):
-        if module._tmp_name not in self._all_module_input:
-            self._all_module_input[module._tmp_name] = []
-        self._all_module_input[module._tmp_name].append((args, kwargs))
+        name = module._tmp_name
+        self._all_module_input.setdefault(name, []).append((args, kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
@@ -235,10 +236,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self.start_calibration(state.model)
         for _, module in state.model.named_modules():
             if self._is_decoding_layer(module):
-                # register input capture hook for decoding layers
-                self.register_hook(
+                handle = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
+                self._capture_hooks[module._tmp_name] = handle
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -313,7 +314,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ar.batch_dim = 0
             first_param = next(decoding_layer.parameters())
             device = first_param.device
-            cur_inputs = self._all_module_input[decoding_layer._tmp_name]
+            # Remove this layer's input-capture hook before optimization begins
+            # so subsequent forward passes during the SignSGD loop do not
+            # re-populate _all_module_input with hidden_states tensors.
+            layer_name = decoding_layer._tmp_name
+            if layer_name in self._capture_hooks:
+                self.remove_hooks({self._capture_hooks.pop(layer_name)})
+            cur_inputs = self._all_module_input.pop(layer_name, None)
+            if not cur_inputs:
+                raise RuntimeError(
+                    f"No calibration inputs captured for layer {layer_name}. "
+                    "This can happen if calibration data is missing or the "
+                    "forward pass did not execute for this layer."
+                )
             self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
             # Only hand device placement to AutoRound when the caller explicitly
@@ -359,6 +372,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
+        self._capture_hooks.clear()
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
