@@ -45,9 +45,8 @@ do
     LOCAL_SUCCESS=0
 
     # skip configs that don't match the filter pattern (substring match on filename)
-    if [ ! -z "$FILTER" ]; then
-        config_basename=$(basename "$MODEL_CONFIG")
-        if [[ "$config_basename" != *"$FILTER"* ]]; then
+    if [ -n "$FILTER" ]; then
+        if [[ "${MODEL_CONFIG##*/}" != *"$FILTER"* ]]; then
             echo "=== SKIPPING MODEL (filter): $MODEL_CONFIG ==="
             continue
         fi
