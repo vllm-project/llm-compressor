@@ -305,6 +305,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Mistral3ForConditionalGeneration": default_mappings,
     "MistralForCausalLM": default_mappings,
     "NanbeigeForCausalLM": default_mappings,
+    "OlmoForCausalLM": _exaone4_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
