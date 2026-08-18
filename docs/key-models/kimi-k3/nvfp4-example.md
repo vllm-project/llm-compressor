@@ -1,7 +1,19 @@
+## Kimi-K3 NVFP4 Example
+
+### Overview
+
+Kimi-K3 requires custom modeling files bundled with LLM Compressor, since it is not yet supported in Transformers.
+The example below quantizes the model to NVFP4 using calibration data.
+
+The full example script can be found [here](../../../examples/quantizing_moe/kimi_k3_example.py).
+
+### Code Walkthrough
+
+```python
 from compressed_tensors.quantization import QuantizationConfig
-from datasets import load_dataset
 from transformers import AutoTokenizer
 
+from datasets import load_dataset
 from llmcompressor import oneshot
 from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -85,3 +97,4 @@ oneshot(
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
+```
