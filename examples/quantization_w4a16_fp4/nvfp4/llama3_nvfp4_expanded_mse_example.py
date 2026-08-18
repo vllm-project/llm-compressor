@@ -11,13 +11,6 @@ Usage::
     python llama3_nvfp4_expanded_mse_example.py
 """
 
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-    QuantizationStrategy,
-    QuantizationType,
-)
-from compressed_tensors.quantization.quant_args import FP8_E4M3_DATA
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
