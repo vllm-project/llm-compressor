@@ -127,7 +127,9 @@ class AutoWrapper(ast.NodeTransformer):
             # (e.g. `_` in `elif False: hidden_states, _ = self.self_attn(...)`)
             # are not added to `_local_names`
             dead_attr = "orelse" if value else "body"
-            tmp_dead_branch = [ast.Pass()] if isinstance(node, ast.If) else ast.Constant(value=None)
+            tmp_dead_branch = (
+                [ast.Pass()] if isinstance(node, ast.If) else ast.Constant(value=None)
+            )
             with patch_attr(node, dead_attr, tmp_dead_branch):
                 node = super().generic_visit(node)
             return node
