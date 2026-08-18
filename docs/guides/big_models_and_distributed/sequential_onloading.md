@@ -35,9 +35,6 @@ You can use sequential onloading by calling `oneshot` with the `pipeline="sequen
 
 If you are compressing a model using a GPU with a small amount of memory, you may need to change your sequential targets. Sequential targets control how many weights to onload to the GPU at a time. By default, the sequential targets are decoder layers which may include large MoE layers. In these cases, setting the `sequential_targets="Linear"` argument in `oneshot` will result in lower VRAM usage, but a longer runtime.
 
-!!! warning
-    Using a highly granular sequential target such as `"Linear"` is not supported for NVFP4/NVFP4A16 quantization, which requires that fused weights (qkv, gate_up, etc.) all be a part of the same sequential target.
-
 ![sequential_onloading](../../assets/seq_targets.jpg)
 
 ## More information ##
