@@ -74,6 +74,19 @@ def test_existing_architectures_still_resolve(model_type):
     assert has_linearize_load_mappings(model_type)
 
 
+def test_model_type_without_conversion_mapping_raises_clearly():
+    """
+    `gpt_oss` is in `ARCH_TO_IMPORT_PATHS` but transformers registers no conversion
+    mapping for it, so `has_linearize_load_mappings` is False and the direct-load
+    pathway is never taken. Called directly it should say so, rather than failing on
+    a downstream lookup or iterating `None`.
+    """
+    assert not has_linearize_load_mappings("gpt_oss")
+
+    with pytest.raises(ValueError, match="No checkpoint conversion mapping"):
+        get_linearize_load_mappings("gpt_oss")
+
+
 def test_qwen3_vl_moe_still_uses_post_load_conversion():
     """
     Qwen3-VL-MoE's conversion rules are identity, so its checkpoints are already

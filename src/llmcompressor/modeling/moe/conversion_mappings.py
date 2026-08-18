@@ -270,7 +270,13 @@ def get_linearize_load_mappings(
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
-    mapping: list[WeightTransform] = _resolve_checkpoint_conversion_mapping(model_type)
+    mapping = _resolve_checkpoint_conversion_mapping(model_type)
+    if mapping is None:
+        raise ValueError(
+            "No checkpoint conversion mapping is registered for model type "
+            f"`{model_type}`, so linearized load mappings cannot be derived. "
+            "Gate this call on `has_linearize_load_mappings`."
+        )
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
