@@ -399,15 +399,16 @@ class AWQModifier(Modifier):
         ):
             # bind() nests **kwargs contents under a 'kwargs' key;
             # flatten them so the result can be replayed as module(**cached)
-            bound = inspect.signature(module.forward).bind(*args, **kwargs)
-            cached = bound.arguments
-            cached |= cached.pop("kwargs", {})
+            arguments = (
+                inspect.signature(module.forward).bind(*args, **kwargs).arguments
+            )
+            arguments |= arguments.pop("kwargs", {})
 
-            for k, v in cached.items():
+            for k, v in arguments.items():
                 if isinstance(v, QuantizedKVCache):
-                    cached[k] = None
+                    arguments[k] = None
 
-            self._parent_args_cache[module].append(cached)
+            self._parent_args_cache[module].append(arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
