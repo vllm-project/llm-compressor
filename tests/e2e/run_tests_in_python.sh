@@ -35,7 +35,7 @@ if [ ! -z "$GROUP" ]; then
     echo "Test group is specified: $GROUP"
 fi
 
-if [ ! -z "$FILTER" ]; then
+if [ -n "$FILTER" ]; then
     echo "Config filter is specified: $FILTER"
 fi
 
@@ -43,6 +43,8 @@ fi
 for MODEL_CONFIG in "$CONFIG"/*
 do
     LOCAL_SUCCESS=0
+
+    [[ -e "$MODEL_CONFIG" ]] || continue
 
     # skip configs that don't match the filter pattern (substring match on filename)
     if [ -n "$FILTER" ]; then
