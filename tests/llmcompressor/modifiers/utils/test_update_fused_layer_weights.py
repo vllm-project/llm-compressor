@@ -173,7 +173,7 @@ def test_non_tensor_group_not_affected():
     # Verify observers have no fused partners
     for name in ["q_proj", "k_proj", "v_proj"]:
         layer = getattr(module, name)
-        assert len(layer.weight_observer._fusions) == 0
+        assert not layer.weight_observer.fusion_handler.is_fused
 
 
 @pytest.mark.unit
