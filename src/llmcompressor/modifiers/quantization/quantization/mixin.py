@@ -282,9 +282,7 @@ class QuantizationMixin(HooksMixin):
         :param model: the full model (needed for config application)
         :param modules: modules in the current subgraph to prepare
         """
-        apply_quantization_config(
-            model, self.resolved_config, allowed_modules=modules
-        )
+        apply_quantization_config(model, self.resolved_config, allowed_modules=modules)
         for module in modules:
             if is_module_quantized(module):
                 self._initialize_observers(module)
