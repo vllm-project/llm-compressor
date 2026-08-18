@@ -10,7 +10,9 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from compressed_tensors import align_module_device
+from compressed_tensors.distributed import wait_for_comms, is_distributed, get_source_rank
 from loguru import logger
+from torch import distributed as dist
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
@@ -228,6 +230,29 @@ class REAPSaliencyTracker:
                 self.num_experts, dtype=torch.float64, device=device
             )
 
+    def reduce_saliency_stats(
+        self,
+        device: torch.device,
+        group: dist.ProcessGroup | None = None,
+    ):
+        """Reduce saliency accumulators to the source rank (rank 0).
+
+        Each rank accumulates statistics over its partition of the calibration
+        data. Summing to rank 0 lets it compute a global pruning decision that
+        is then broadcast to all ranks.
+        """
+        self._ensure(device)
+        if is_distributed():
+            self.sum_saliency = self.sum_saliency.cpu()
+            self.count = self.count.cpu()
+            pending = [
+                dist.reduce(
+                    self.sum_saliency, dst=get_source_rank(), op=dist.ReduceOp.SUM, async_op=True, group=group
+                ),
+                dist.reduce(self.count, dst=get_source_rank(), op=dist.ReduceOp.SUM, async_op=True, group=group),
+            ]
+            wait_for_comms(pending)
+
     @torch.no_grad()
     def update(
         self,
@@ -294,7 +319,7 @@ class REAPSaliencyTracker:
         n_experts_to_drop: int,
         n_experts_to_drop_per_group: int | None,
         moe_attrs: MoeModelAttrs,
-    ) -> list[int]:
+    ) -> torch.Tensor:
         """Select which experts to keep, dropping the lowest-saliency ones."""
         saliency = self.mean_saliency
 
@@ -315,7 +340,7 @@ class REAPSaliencyTracker:
                     i for i in range(lo, lo + moe_attrs.group_size) if i not in drop_set
                 )
 
-        return retained
+        return torch.tensor(retained, dtype=torch.int)
 
     @property
     def total_count(self) -> float:

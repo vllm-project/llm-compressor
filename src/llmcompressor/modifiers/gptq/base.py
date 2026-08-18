@@ -244,7 +244,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
-        self.compress_modules()
+        self.compress_modules(modules)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
@@ -289,13 +289,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._num_samples[module],
             )
 
-    def compress_modules(self):
+    def compress_modules(self, modules: list[torch.nn.Module]):
         """
         Quantize modules which have been calibrated
         """
+
         ### Not Distributed
         if not is_distributed():
-            self.compress_module_list(list(self._num_samples.keys()))
+            self.compress_module_list(modules)
             return
 
         ### Distributed
@@ -304,7 +305,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Assign modules to ranks
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
-            list(self._hessians.keys()),
+            modules,
             world_size,
             item_weight_fn=lambda mod: self._hessians[mod].shape[0],
         )
