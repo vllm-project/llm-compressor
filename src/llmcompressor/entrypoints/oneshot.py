@@ -235,7 +235,9 @@ class Oneshot:
                 "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
                 " before passing to `oneshot`. Falling back to post-load linearization."
             )
-            linearize_moe(self.model)
+            linearize_moe(
+                self.model, zero_copy=self.dataset_args.moe_zero_copy_load
+            )
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process

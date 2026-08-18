@@ -203,6 +203,18 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
+    moe_zero_copy_load: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use zero-copy loading for MoE expert weights. "
+                "When True, linearized expert weights are assigned as views of "
+                "the original fused tensors, avoiding data copies. "
+                "When False, weights are copied into new tensors. "
+                "Only relevant for MoE models. Default is True."
+            ),
+        },
+    )
     # --- pipeline arguments --- #
     pipeline: str | None = field(
         default="independent",

@@ -27,7 +27,10 @@ from .linear_experts import LinearExperts2D
 
 
 @contextlib.contextmanager
-def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+def load_quantizable_moe(
+    model_cls: Type[PreTrainedModel] = AutoModelForCausalLM,
+    zero_copy: bool = True,
+):
     """
     Context manager for loading MoE models with linearized experts for
     efficient calibration and quantization.
@@ -45,6 +48,8 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         normally and then linearized via `linearize_moe`.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    :param zero_copy: If True, expert weights are assigned as views of the original
+        fused tensors (no data copy). If False, weights are copied.
     """
     original_from_pretrained = model_cls.from_pretrained
     patched_fn_called = False
@@ -62,7 +67,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # fall back to post-load conversion
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
-            linearize_moe(model)
+            linearize_moe(model, zero_copy=zero_copy)
             return model
 
         # prepare to load linearized weights
@@ -93,7 +98,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                 )
 
 
-def linearize_moe(model: PreTrainedModel):
+def linearize_moe(model: PreTrainedModel, zero_copy: bool = True):
     """
     Linearize a mixture-of-experts model after it has been loaded. For more
     runtime-efficient loading, please see `load_quantizable_moe`.
@@ -104,6 +109,8 @@ def linearize_moe(model: PreTrainedModel):
     (as designated by the `use_experts_implementation` decorator)
 
     :param model: model containing MoE layers to linearize
+    :param zero_copy: If True, expert weights are assigned as views of the original
+        fused tensors (no data copy). If False, weights are copied.
     """
     non_linearized_moes = get_non_linearized_moes(model)
 
@@ -113,7 +120,9 @@ def linearize_moe(model: PreTrainedModel):
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
+        linear_moe = linear_experts_cls.from_experts_module(
+            module, config, zero_copy=zero_copy
+        )
         model.set_submodule(name, linear_moe)
 
 

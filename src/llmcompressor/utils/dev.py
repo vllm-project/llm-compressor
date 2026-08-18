@@ -33,7 +33,10 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+def load_context(
+    model_cls: Type[PreTrainedModel] = AutoModelForCausalLM,
+    zero_copy: bool = True,
+):
     """
     Context manager for loading HuggingFace models with both offloading and
     MoE linearization support.
@@ -43,12 +46,14 @@ def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     either or both capabilities.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    :param zero_copy: If True, expert weights are assigned as views of the original
+        fused tensors (no data copy). If False, weights are copied.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(load_offloaded_model(model_cls))
-        stack.enter_context(load_quantizable_moe(model_cls))
+        stack.enter_context(load_quantizable_moe(model_cls, zero_copy=zero_copy))
         yield
 
 
