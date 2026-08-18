@@ -237,7 +237,8 @@ class TestLMEval:
         for f in files:
             tensors = load_file(str(f))
             for key in sorted(tensors.keys()):
-                h = hashlib.sha256(tensors[key].numpy().tobytes()).hexdigest()
+                raw = tensors[key].contiguous().view(torch.uint8)
+                h = hashlib.sha256(raw.numpy().tobytes()).hexdigest()
                 overall.update(h.encode())
                 logger.info(f"  {key}: {h}")
 
