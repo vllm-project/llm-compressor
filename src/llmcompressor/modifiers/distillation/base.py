@@ -1,9 +1,8 @@
 import inspect
-from contextlib import contextmanager
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from compressed_tensors.quantization import enable_quantization
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import (
@@ -13,7 +12,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, State, active_session
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -27,72 +26,15 @@ from llmcompressor.utils.pytorch import infer_sequential_targets
 __all__ = ["QuantizationAwareDistillationModifier"]
 
 
-@contextmanager
-def _ste_quantized_forwards(quantized_modules, master_weights):
-    """
-    Temporarily replace each quantized Linear's forward with an STE-aware
-    version that uses fp32 master weights for gradient computation.
-
-    The STE trick: ``w_fp32 + (fake_quantize(w_fp16) - w_fp32).detach()``
-    produces the fake-quantized value in the forward pass while routing
-    gradients straight through to the fp32 master weight.
-
-    Before each forward, the module's fp16 weight is synced from the master
-    so that ``forward_quantize`` sees the latest weight for scale computation.
-    """
-    saved_forwards = {}
-
-    for module in quantized_modules:
-        if not isinstance(module, nn.Linear):
-            continue
-        scheme = getattr(module, "quantization_scheme", None)
-        if not scheme or not scheme.weights:
-            continue
-
-        saved_forwards[id(module)] = module.forward
-
-        def _make_ste_forward(mod):
-            original_class = type(mod)
-
-            def ste_forward(self, input):
-                w_fp32 = master_weights[id(self)]
-                self.weight.data.copy_(w_fp32.detach().to(self.weight.dtype))
-                with torch.no_grad():
-                    fake_w = forward_quantize(
-                        self,
-                        self.weight.data.clone(),
-                        "weight",
-                        self.quantization_scheme.weights,
-                    )
-                ste_w = w_fp32 + (fake_w.float() - w_fp32).detach()
-                out = F.linear(
-                    input.float(),
-                    ste_w,
-                    self.bias.float() if self.bias is not None else None,
-                )
-                return out.to(input.dtype)
-
-            return ste_forward.__get__(mod, original_class)
-
-        module.forward = _make_ste_forward(module)
-
-    try:
-        yield
-    finally:
-        for module in quantized_modules:
-            if id(module) in saved_forwards:
-                module.forward = saved_forwards[id(module)]
-
-
 class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
     """
     Block-wise quantization-aware distillation. For each subgraph block in the
     sequential pipeline, this modifier:
 
-    1. Captures inputs to decoder layers during calibration (via forward hooks)
-    2. Chains all decoder layers in the block to compute teacher (fp) outputs
-    3. Runs a distillation loop: forward with STE fake quantization (student),
-       minimize MSE against teacher outputs, update fp32 master weights via Adam
+    1. Captures inputs and outputs to decoder layers during calibration
+    2. Uses cached outputs as teacher targets (pre-quantization)
+    3. Runs a distillation loop using the standard CT quantized forward
+       (implicit STE via weight data patching), minimizing MSE against teacher
     4. Re-observes weights after each epoch to keep scales/zero-points aligned
     5. Applies final fake quantization to weight data for error propagation
 
@@ -114,12 +56,16 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
 
     :param epochs: number of distillation epochs per block. Defaults to 10.
     :param lr: learning rate for the Adam optimizer. Defaults to 1e-5.
+    :param master_precision: dtype for master weights used by the optimizer.
+        Set to "float32" (default) for stable optimization with small learning
+        rates. Set to None to optimize in the model's native dtype.
     """
 
     requires_calibration_data: bool = True
 
     epochs: int = 10
     lr: float = 1e-5
+    master_precision: str | None = "float32"
 
     # module instance -> IntermediatesCache of bound forward kwargs
     _cached_inputs: dict[nn.Module, IntermediatesCache] = PrivateAttr(
@@ -210,42 +156,70 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
             return
 
         with align_module_device(first_layer), torch.enable_grad():
-            # teacher outputs were captured during calibration forward pass
-            # (before any modifier touched the weights)
             teacher_outputs = [
                 batch["hidden"] for batch in output_cache.iter()
             ]
 
-            # initial weight observation
+            # enable CT quantized forwards (implicit STE via weight.data patching)
+            for m in quantized_modules:
+                enable_quantization(m)
+
             observe(quantized_modules, "weight")
             update_qparams(quantized_modules, "weight")
 
-            # fp32 master weights for stable optimization
+            master_dtype = (
+                getattr(torch, self.master_precision)
+                if self.master_precision
+                else None
+            )
+
+            # trainable weights: either fp32 master copies or native parameters
+            trainable = []
             master_weights = {}
             for m in quantized_modules:
-                if hasattr(m, "weight"):
-                    w_fp32 = m.weight.data.float().clone()
-                    w_fp32.requires_grad_(True)
-                    master_weights[id(m)] = w_fp32
+                if not hasattr(m, "weight"):
+                    continue
+                m.weight.requires_grad_(True)
+                if master_dtype and m.weight.dtype != master_dtype:
+                    w_master = m.weight.data.to(master_dtype).clone()
+                    w_master.requires_grad_(True)
+                    master_weights[id(m)] = w_master
+                    trainable.append(w_master)
+                else:
+                    trainable.append(m.weight)
 
-            optimizer = torch.optim.Adam(list(master_weights.values()), lr=self.lr)
+            optimizer = torch.optim.Adam(trainable, lr=self.lr)
 
             for epoch in range(self.epochs):
                 epoch_loss = 0.0
                 for batch_idx, batch_kwargs in enumerate(input_cache.iter()):
                     optimizer.zero_grad()
 
-                    with (
-                        _ste_quantized_forwards(quantized_modules, master_weights),
-                        HooksMixin.disable_hooks(),
-                    ):
+                    # sync master weights to module before forward
+                    for m in quantized_modules:
+                        if id(m) in master_weights:
+                            m.weight.data.copy_(
+                                master_weights[id(m)].detach().to(m.weight.dtype)
+                            )
+
+                    with HooksMixin.disable_hooks():
                         student_hidden = self._chain_layers(
                             decoding_layers, batch_kwargs
                         )
 
                     teacher_out = teacher_outputs[batch_idx]
-                    loss = F.mse_loss(student_hidden.float(), teacher_out.float())
+                    loss = torch.nn.functional.mse_loss(
+                        student_hidden.float(), teacher_out.float()
+                    )
                     loss.backward()
+
+                    # copy gradients to master weights
+                    for m in quantized_modules:
+                        if id(m) in master_weights and m.weight.grad is not None:
+                            master_weights[id(m)].grad = m.weight.grad.to(
+                                master_dtype
+                            )
+
                     optimizer.step()
                     epoch_loss += loss.item()
 
@@ -254,7 +228,7 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
                     "  epoch {}/{}: loss = {:.6f}", epoch + 1, self.epochs, avg_loss
                 )
 
-                # re-observe to keep scales/zero-points aligned with updated weights
+                # sync master weights back and re-observe
                 for m in quantized_modules:
                     if id(m) in master_weights:
                         m.weight.data.copy_(
@@ -263,14 +237,15 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
                 observe(quantized_modules, "weight")
                 update_qparams(quantized_modules, "weight")
 
-            # sync final fp32 master weights back
+            # final sync
             for m in quantized_modules:
                 if id(m) in master_weights:
                     m.weight.data.copy_(
                         master_weights[id(m)].detach().to(m.weight.dtype)
                     )
+                m.weight.requires_grad_(False)
 
-            # final observation and apply fake quantization for error propagation
+            # apply fake quantization for error propagation
             observe(quantized_modules, "weight")
             update_qparams(quantized_modules, "weight")
             for m in quantized_modules:
