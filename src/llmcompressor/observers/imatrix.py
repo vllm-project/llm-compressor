@@ -268,7 +268,10 @@ def _grid_search(
     using FP32 scales. After optimization, global_scale is computed from the final
     min/max values in get_qparams().
     """
-    if args.strategy == QuantizationStrategy.TENSOR_GROUP and args.scale_dtype is not None:
+    if (
+        args.strategy == QuantizationStrategy.TENSOR_GROUP
+        and args.scale_dtype is not None
+    ):
         args = args.model_copy(update={"scale_dtype": None})
 
     min_val = torch.amin(observed, dim=(0, -1)) * expand

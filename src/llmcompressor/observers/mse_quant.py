@@ -49,7 +49,10 @@ def _grid_search_mse(
         Values > 1.0 let the search explore ranges wider than the observed
         values (e.g. expand=2.0 starts at 2x the observed range).
     """
-    if args.strategy == QuantizationStrategy.TENSOR_GROUP and args.scale_dtype is not None:
+    if (
+        args.strategy == QuantizationStrategy.TENSOR_GROUP
+        and args.scale_dtype is not None
+    ):
         args = args.model_copy(update={"scale_dtype": None})
         token_args = token_args.model_copy(update={"scale_dtype": None})
 
