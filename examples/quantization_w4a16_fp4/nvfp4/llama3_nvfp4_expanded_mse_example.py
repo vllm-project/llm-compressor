@@ -29,22 +29,8 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 recipe = QuantizationModifier(
-    config_groups={
-        "group_0": QuantizationScheme(
-            targets=["Linear"],
-            weights=QuantizationArgs(
-                num_bits=4,
-                type=QuantizationType.FLOAT,
-                strategy=QuantizationStrategy.TENSOR_GROUP,
-                symmetric=True,
-                dynamic=False,
-                group_size=16,
-                scale_dtype=FP8_E4M3_DATA.dtype,
-                zp_dtype=FP8_E4M3_DATA.dtype,
-                observer="nvfp4_expanded_mse",
-            ),
-        )
-    },
+    scheme="NVFP4",
+    weight_observer="nvfp4_expanded_mse",
     ignore=["lm_head"],
 )
 
