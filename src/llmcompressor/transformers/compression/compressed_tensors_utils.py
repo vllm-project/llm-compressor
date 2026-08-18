@@ -163,7 +163,11 @@ def modify_save_pretrained(model: PreTrainedModel):
                     copy_python_files_from_model_cache(model, save_dir)
 
                     # copy mtp tensors (not loaded by transformers) and update config
-                    if getattr(model.config.get_text_config(), "num_mtp_layers", 0):
+                    text_config = model.config.get_text_config()
+                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
+                        text_config, "mtp_num_hidden_layers", 0
+                    )
+                    if has_mtp:
                         save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
 
             # convert back from accelerate to restore model to original form
