@@ -59,6 +59,9 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
     :param master_precision: dtype for master weights used by the optimizer.
         Set to "float32" (default) for stable optimization with small learning
         rates. Set to None to optimize in the model's native dtype.
+    :param offload_device: device to offload cached inputs/outputs to between
+        uses. Defaults to "cpu" to save GPU memory. Set to None to keep
+        cached tensors on the original device.
     """
 
     requires_calibration_data: bool = True
@@ -66,6 +69,7 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
     epochs: int = 10
     lr: float = 1e-5
     master_precision: str | None = "float32"
+    offload_device: str | None = "cpu"
 
     # module instance -> IntermediatesCache of bound forward kwargs
     _cached_inputs: dict[nn.Module, IntermediatesCache] = PrivateAttr(
@@ -105,14 +109,18 @@ class QuantizationAwareDistillationModifier(Modifier, QuantizationMixin):
 
     def _capture_input(self, module, args, kwargs):
         if module not in self._cached_inputs:
-            self._cached_inputs[module] = IntermediatesCache(None, None)
+            self._cached_inputs[module] = IntermediatesCache(
+                offload_device=self.offload_device
+            )
         bound = inspect.signature(module.forward).bind(*args, **kwargs)
         bound.apply_defaults()
         self._cached_inputs[module].append(bound.arguments)
 
     def _capture_output(self, module, args, output):
         if module not in self._cached_outputs:
-            self._cached_outputs[module] = IntermediatesCache(None, None)
+            self._cached_outputs[module] = IntermediatesCache(
+                offload_device=self.offload_device
+            )
         hidden = output[0] if isinstance(output, tuple) else output
         self._cached_outputs[module].append({"hidden": hidden.detach()})
 
