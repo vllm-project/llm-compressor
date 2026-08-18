@@ -147,6 +147,12 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.qwen3_5_moe.configuration_qwen3_5_moe.Qwen3_5MoeTextConfig",
         "transformers.models.qwen3_5_moe.modeling_qwen3_5_moe.Qwen3_5MoeExperts",
     ),
+    # Text-only checkpoints (`Qwen3_5MoeForCausalLM`) report `qwen3_5_moe_text`
+    # as their top-level model type, and share the multimodal expert classes.
+    "qwen3_5_moe_text": (
+        "transformers.models.qwen3_5_moe.configuration_qwen3_5_moe.Qwen3_5MoeTextConfig",
+        "transformers.models.qwen3_5_moe.modeling_qwen3_5_moe.Qwen3_5MoeExperts",
+    ),
     "qwen3_moe": (
         "transformers.models.qwen3_moe.configuration_qwen3_moe.Qwen3MoeConfig",
         "transformers.models.qwen3_moe.modeling_qwen3_moe.Qwen3MoeExperts",
@@ -216,9 +222,45 @@ ARCH_TO_2D_MAPPINGS = {
 }
 
 
+# Qwen3.5-MoE stores 2D per-expert tensors and fuses them with the same rules
+# as Qwen2-MoE, so it reuses that 2D body. Both released spellings are
+# registered: `qwen3_5_moe` for the multimodal wrapper, and `qwen3_5_text` for
+# the text-only checkpoint, which `_MODEL_TO_CONVERSION_PATTERN` remaps
+# `qwen3_5_moe_text` to.
+ARCH_TO_2D_MAPPINGS["qwen3_5_moe"] = ARCH_TO_2D_MAPPINGS["qwen2_moe"]
+ARCH_TO_2D_MAPPINGS["qwen3_5_text"] = ARCH_TO_2D_MAPPINGS["qwen2_moe"]
+
+
+def _resolve_checkpoint_conversion_mapping(
+    model_type: str,
+) -> list[WeightTransform] | None:
+    """
+    Resolve the transformers checkpoint conversion mapping for a model type.
+
+    `ARCH_TO_IMPORT_PATHS` is keyed on the top-level model type, but transformers
+    may register the conversion rules on the text tower instead: a multimodal
+    Qwen3.5-MoE config reports `qwen3_5_moe`, while the rules live under
+    `qwen3_5_moe_text`. Fall back to the text spelling so those architectures
+    resolve instead of returning `None`.
+
+    :param model_type: top-level model type reported by the config
+    :return: conversion mapping, or None if neither spelling is registered
+    """
+    mapping = get_checkpoint_conversion_mapping(model_type)
+    if mapping is None and not model_type.endswith("_text"):
+        mapping = get_checkpoint_conversion_mapping(f"{model_type}_text")
+    return mapping
+
+
 def has_linearize_load_mappings(model_type: str) -> bool:
     remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
-    return model_type in ARCH_TO_IMPORT_PATHS and remapped_type in ARCH_TO_2D_MAPPINGS
+    return (
+        model_type in ARCH_TO_IMPORT_PATHS
+        and remapped_type in ARCH_TO_2D_MAPPINGS
+        # a 2D entry alone is not enough: without conversion rules to strip the fused
+        # targets from, `get_linearize_load_mappings` has nothing to build on
+        and _resolve_checkpoint_conversion_mapping(model_type) is not None
+    )
 
 
 def get_linearize_load_mappings(
@@ -228,7 +270,7 @@ def get_linearize_load_mappings(
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
-    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
+    mapping: list[WeightTransform] = _resolve_checkpoint_conversion_mapping(model_type)
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
