@@ -405,10 +405,9 @@ class AWQModifier(Modifier):
                 for k, v in kwargs.items()
             }
 
-            cached = dict(kwargs)
             if args:
-                cached["__positional_args__"] = args
-            self._parent_args_cache[module].append(cached)
+                kwargs["__positional_args__"] = args
+            self._parent_args_cache[module].append(kwargs)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
