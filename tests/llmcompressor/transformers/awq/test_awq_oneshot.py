@@ -132,4 +132,5 @@ def test_oneshot_application(recipe, tmp_path):
 
     # Cleanup
     del original_model, model_loaded
-    torch.accelerator.empty_cache()
+    if torch.accelerator.is_available():
+        torch.accelerator.empty_cache()
