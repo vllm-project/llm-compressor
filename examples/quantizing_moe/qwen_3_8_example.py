@@ -20,6 +20,7 @@ with load_context():
         model_id,
         device_map="auto_offload",
         max_memory={},
+        offload_folder="offload_folder",
     )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
