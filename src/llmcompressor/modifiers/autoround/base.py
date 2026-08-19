@@ -307,6 +307,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "device_map": self.device_ids,
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
             "disable_opt_rtn": self.disable_opt_rtn,
+            # Keep fp_outputs and best_params on CPU so that the previous block's
+            # cache_device tensors don't accumulate on GPU between blocks.
+            "low_gpu_mem_usage": True,
         }
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
@@ -372,6 +375,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
+        # Release cached GPU memory back to the driver so the next block starts
+        # with a clean allocator state (avoids cross-block fragmentation).
+        torch.cuda.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
