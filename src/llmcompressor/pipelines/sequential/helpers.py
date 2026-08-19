@@ -495,7 +495,7 @@ def handle_sequential_oom(func):
                 "calibration dataset, by reducing `num_calibration_samples` or "
                 "`max_seq_length`, can also help."
             )
-            summary = _untruncated_sequence_summary(args, kwargs)
+            summary = _get_untruncated_sequence_summary(args, kwargs)
             if summary is not None:
                 message = f"{message} {summary}"
             raise torch.OutOfMemoryError(message) from e
@@ -503,7 +503,7 @@ def handle_sequential_oom(func):
     return wrapper
 
 
-def _untruncated_sequence_summary(args: tuple, kwargs: dict) -> str | None:
+def _get_untruncated_sequence_summary(args: tuple, kwargs: dict) -> str | None:
     """
     Best-effort description of the calibration sample lengths, measured only
     after an OOM is hit and only when `max_seq_length` is unset. Lengths come
