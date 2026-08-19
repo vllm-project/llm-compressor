@@ -35,7 +35,6 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -120,7 +119,7 @@ def _run_single_gpu(
         return weights, model, ds
 
     del model
-    torch.cuda.empty_cache()
+    torch.accelerator.empty_cache()
 
     return weights
 
@@ -225,7 +224,7 @@ def _test_ddp_modifier(
     """
     # Set deterministic seed for reproducibility
     torch.manual_seed(42)
-    torch.cuda.manual_seed_all(42)
+    torch.get_device_module().manual_seed_all(42)
 
     # Single-GPU reference (run BEFORE init_dist)
     ref_weights, ref_model, ref_dataset = _run_single_gpu(
@@ -238,7 +237,7 @@ def _test_ddp_modifier(
 
     # Set deterministic seed again for DDP run
     torch.manual_seed(42)
-    torch.cuda.manual_seed_all(42)
+    torch.get_device_module().manual_seed_all(42)
 
     # Load model with offloading (standard pattern for DDP)
     load_kwargs = {
@@ -310,7 +309,7 @@ def _test_ddp_modifier(
 
         # Clean up reference model
         del ref_model
-        torch.cuda.empty_cache()
+        torch.accelerator.empty_cache()
 
         # Secondary test: weights should be similar (with configurable tolerance)
         mismatches = _compare_weights(ref_weights, ddp_weights, atol=weight_atol)
@@ -321,7 +320,7 @@ def _test_ddp_modifier(
 
     # Clean up DDP model on all ranks
     del model
-    torch.cuda.empty_cache()
+    torch.accelerator.empty_cache()
     torch.distributed.barrier()
 
 
@@ -390,13 +389,11 @@ def test_ddp_smoke_smoothquant():
 def test_ddp_smoke_imatrix():
     _test_ddp_modifier(
         "imatrix",
-        lambda: [
-            IMatrixGatherer(ignore=["lm_head"]),
-            QuantizationModifier(
-                scheme={"W4A16": ["Linear"]},
-                ignore=["lm_head"],
-            ),
-        ],
+        lambda: QuantizationModifier(
+            scheme={"W4A16": ["Linear"]},
+            ignore=["lm_head"],
+            weight_observer="imatrix_mse",
+        ),
         "independent",
         None,
         weight_atol=5e-3,

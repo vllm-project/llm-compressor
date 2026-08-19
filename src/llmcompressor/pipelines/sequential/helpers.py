@@ -402,16 +402,11 @@ def trace_consumed_names(subgraphs: list[Subgraph]):
 
     :param subgraphs: list of subgraphs with empty `consumed_names` attributes
     """
-    # populate consumed_names according to when inputs are last used
-    # in order to vacate the `intermediates` cache and save memory
-    all_input_names = set().union(*(subgraph.input_names for subgraph in subgraphs))
-    for input_name in all_input_names:
-        for subgraph in reversed(subgraphs):
-            if input_name in subgraph.input_names:
-                subgraph.consumed_names.add(input_name)
-                break
-        else:
-            raise ValueError(f"Could not find input name {input_name} in subgraphs")
+    # The first occurrence in reverse order is the final use in execution order.
+    seen_names: set[str] = set()
+    for subgraph in reversed(subgraphs):
+        subgraph.consumed_names.update(subgraph.input_names - seen_names)
+        seen_names.update(subgraph.input_names)
 
 
 def graph_is_well_formed(graph: Graph) -> bool:
@@ -489,8 +484,13 @@ def handle_sequential_oom(func):
         except torch.OutOfMemoryError as e:
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
-                "Please consider choosing a smaller module "
-                "for `sequential_targets` argument, ex. 'Linear'"
+                "Please consider choosing a smaller module for `sequential_targets`, "
+                "ex. 'Linear' for dense models. "
+                "For MoE models with untraceable attention, "
+                "use the attention module and individual expert class instead, "
+                "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
+                "sequential_targets_per_subgraph set to batch multiple experts per "
+                "subgraph and reduce memory overhead."
             ) from e
 
     return wrapper

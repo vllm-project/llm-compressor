@@ -115,26 +115,18 @@ setup(
         # librosa 0.11.0 supports numpy 2.x
         # https://librosa.org/doc/0.11.0/changelog.html
         ("numpy>=2.0.0,<=2.4.6" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
+        ("requests>=2.32.2,<2.35.0" if BUILD_TYPE == "release" else "requests>=2.32.2"),
+        ("tqdm>=4.66.3,<=4.70.0" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
+        ("torch>=2.10.0,<=2.13.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
+        ("transformers==5.15.0" if BUILD_TYPE == "release" else "transformers>=5.15.0"),
+        ("datasets>=4.8.4,<=5.0.1" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "requests>=2.32.2,<=2.34.2"
+            "auto-round>=0.14.1,<=0.14.2"
             if BUILD_TYPE == "release"
-            else "requests>=2.32.2"
-        ),
-        ("tqdm>=4.66.3,<=4.68.2" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.10.0,<=2.12.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
-        (
-            "transformers>=5.9.0,<=5.12.1"
-            if BUILD_TYPE == "release"
-            else "transformers>=5.9.0"
-        ),
-        ("datasets>=4.8.4,<=5.0.0" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
-        (
-            "auto-round>=0.10.2,<=0.13.0"
-            if BUILD_TYPE == "release"
-            else "auto-round>=0.10.2"
+            else "auto-round>=0.14.1"
         ),
         (
-            "accelerate>=1.6.0,<=1.13.0"
+            "accelerate>=1.6.0,<=1.14.0"
             if BUILD_TYPE == "release"
             else "accelerate>=1.6.0"
         ),
@@ -143,11 +135,11 @@ setup(
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<=12.2.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.17.1"
+            "compressed-tensors==0.18.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.17.2a2"
+            else "compressed-tensors>=0.18.1a2"
         ),
     ],
     extras_require={

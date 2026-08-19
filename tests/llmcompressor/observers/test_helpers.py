@@ -115,5 +115,5 @@ def test_fuse_weight_observers_with_none_v_proj():
     for layer in model.layers:
         q_obs = layer.self_attn.q_proj.weight_observer
         k_obs = layer.self_attn.k_proj.weight_observer
-        assert q_obs._fusions, "q_proj observer should have fusions"
-        assert k_obs._fusions, "k_proj observer should have fusions"
+        assert q_obs.fusion_handler.is_fused, "q_proj observer should be fused"
+        assert k_obs.fusion_handler.is_fused, "k_proj observer should be fused"

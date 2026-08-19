@@ -1,13 +1,11 @@
 import ast
+import importlib
 import inspect
 from dataclasses import dataclass
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-)
+from typing import Any, Callable, ClassVar
 
 import torch
+from compressed_tensors.offload import disable_onloading
 from loguru import logger
 from transformers import PreTrainedConfig
 
@@ -36,14 +34,17 @@ class FusedExpertsProtocol(TorchModuleProtocol):
 
     @classmethod
     def __validate__(cls, object: object) -> bool:
-        return (
-            isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
-            and (
-                isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
-                or isinstance(getattr(object, "gate_up_proj", None), torch.nn.Parameter)
+        with disable_onloading():
+            return (
+                isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
+                and (
+                    isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
+                    or isinstance(
+                        getattr(object, "gate_up_proj", None), torch.nn.Parameter
+                    )
+                )
+                and get_use_experts_implementation_args(object.__class__) is not None
             )
-            and get_use_experts_implementation_args(object.__class__) is not None
-        )
 
 
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
@@ -136,20 +137,39 @@ class MoEConfig:
             ),
             use_bias=_getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
             hidden_act=_getattr_fallbacks(
-                config, ["hidden_act", "hidden_activation", "mlp_hidden_act"]
+                config, ["hidden_act", "hidden_activation", "mlp_hidden_act"], None
             ),
             limit=_getattr_fallbacks(config, ["swiglu_limit"], None),
             alpha=None,
             dtype=_getattr_fallbacks(config, ["dtype"]),
         )
 
-        # special case: GptOssConfig has some parameters which are not marked in config
-        if config.model_type == "gpt_oss":
-            ret.use_bias = True
-            ret.limit = 7.0
-            ret.alpha = 1.702
+        # special case: some configs have parameters which are not marked in config
+        match config.model_type:
+            case "gpt_oss" | "openai_privacy_filter":
+                ret.use_bias = True
+                ret.limit = 7.0
+                ret.alpha = 1.702
+                ret.hidden_act = "sigmoid"
+            case "lfm2_moe":
+                ret.hidden_act = "silu"
 
         return ret
+
+
+def import_or_none(paths: str | list[str]) -> object | None:
+    if isinstance(paths, str):
+        paths = [paths]
+
+    for path in paths:
+        try:
+            module_path, attr_name = path.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            return getattr(module, attr_name)
+        except (ImportError, AttributeError):
+            pass
+
+    return None
 
 
 def _getattr_fallbacks(
