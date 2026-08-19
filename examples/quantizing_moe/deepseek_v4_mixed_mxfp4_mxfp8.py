@@ -1,4 +1,7 @@
+import os
+
 from compressed_tensors.quantization.quant_scheme import (
+    FP8_BLOCK,
     MXFP4,
     MXFP8,
     QuantizationScheme,
@@ -19,7 +22,10 @@ from llmcompressor.utils import load_context
 DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 
 # Select model and load it.
-MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-BF16"
+MODEL_ID = os.environ.get(
+    "DSV4_BF16_MODEL_ID",
+    "/dev/shm/.tmp_yi/workspace/DeepSeek-V4-Flash-BF16",
+)
 
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="cpu")
@@ -84,8 +90,9 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-#   * quantize mlp/expert weights to NVFP4
-#   * quantize attention projection weights to FP8_BLOCK
+#   * quantize attention projections to MXFP8, except o_proj
+#   * quantize o_proj to FP8_BLOCK for vLLM DeepSeek-V4 o_proj kernels
+#   * quantize mlp/expert weights to MXFP4
 # model.model.layers.0.self_attn.q_a_proj
 #
 # wq_a  | q_a_proj
@@ -96,14 +103,20 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 recipe = QuantizationModifier(
     config_groups={
-        "attention": QuantizationScheme(
+        "attention_mxfp8": QuantizationScheme(
             targets=[
-                r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
+                r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj)$",
                 r"re:.*attn\.compressor\.indexer\.q_b_proj$",
             ],
             **MXFP8,
         ),
-        "experts": QuantizationScheme(
+        "o_proj_fp8_block": QuantizationScheme(
+            targets=[
+                r"re:.*attn\.(o_a_proj|o_b_proj)$",
+            ],
+            **FP8_BLOCK,
+        ),
+        "experts_mxfp4": QuantizationScheme(
             targets=[
                 r"re:.*mlp\..*(gate|up|down)_proj$",
             ],
@@ -130,6 +143,11 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-Mixed-MXFP4-MXFP8"
+SAVE_DIR = os.environ.get(
+    "DSV4_SAVE_DIR",
+    "/dev/shm/.tmp_yi/workspace/"
+    + MODEL_ID.rstrip("/").split("/")[-1]
+    + "-Mixed-MXFP4-MXFP8",
+)
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
