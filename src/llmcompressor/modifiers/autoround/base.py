@@ -353,6 +353,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 device = get_main_device()
                 decoding_layer.to("cpu")
                 auto_offload = True
+            elif torch.distributed.is_initialized():
+                # Standard DDP (1 GPU per rank): pre-load the block onto the rank's
+                # local GPU before quantize_block is called.  auto_round 0.14.2+
+                # calls _move_block_to_device inside setup_ddp_if_needed_, which
+                # triggers a cold Lustre page-fault reload (~15 min) when the block
+                # was evicted from page cache during the sequential calibration pass.
+                # Moving it here makes that call a no-op.
+                device = get_main_device()
+                decoding_layer.to(device)
 
             # cur_inputs 保留在 CPU；auto_round block_forward 内按 batch 自动搬运到 device
             # (auto_round/compressors/utils.py block_forward 已处理 device mismatch)
