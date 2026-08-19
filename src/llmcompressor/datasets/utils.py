@@ -23,7 +23,7 @@ from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 BS_WARNING_THRESHOLD = 16
-SEQ_LEN_ERROR_THRESHOLD = 2048
+SEQ_LEN_REPORT_THRESHOLD = 2048
 
 
 def get_processed_dataset(
@@ -160,7 +160,6 @@ def format_calibration_data(
     tokenized_dataset: Dataset,
     processor: Processor,
 ) -> DataLoader:
-    _check_untruncated_sequences(args, tokenized_dataset)
     # Pin memory only when using workers (saves RAM for low-memory users when
     # num_workers=0; when num_workers>0, pin_memory speeds CPU->GPU transfer)
     num_workers = args.dataloader_num_workers
@@ -181,25 +180,28 @@ def format_calibration_data(
     )
 
 
-def _check_untruncated_sequences(args: DatasetArguments, dataset: Dataset) -> None:
+def untruncated_sequence_summary(
+    dataset_args: DatasetArguments, dataset: Any
+) -> str | None:
     """
-    Raise when `max_seq_length` is unset and the tokenized calibration dataset
-    contains long samples. Long untruncated samples can exhaust GPU memory
-    during calibration, with the OOM raised from attention or attention mask
-    expansion rather than anything naming sequence length, which is easily
-    mistaken for the model itself not fitting on the device.
+    Describe long calibration samples for OOM error reporting. Long untruncated
+    samples can exhaust GPU memory during calibration, with the OOM raised from
+    attention or attention mask expansion rather than anything naming sequence
+    length, which is easily mistaken for the model itself not fitting on the
+    device.
 
     See https://github.com/vllm-project/llm-compressor/issues/3011
 
-    :param args: dataset arguments, checked for `max_seq_length`
+    :param dataset_args: dataset arguments, checked for `max_seq_length`
     :param dataset: tokenized calibration dataset
-    :raises ValueError: if untruncated samples exceed the length threshold
+    :return: summary of long untruncated samples, or None when `max_seq_length`
+        is set, lengths cannot be measured, or there is nothing to report
     """
-    if args.max_seq_length is not None:
-        return
+    if dataset_args.max_seq_length is not None:
+        return None
 
     if not isinstance(dataset, Dataset):
-        return
+        return None
 
     column_names = dataset.column_names or []
     if "input_ids" in column_names:
@@ -207,7 +209,7 @@ def _check_untruncated_sequences(args: DatasetArguments, dataset: Dataset) -> No
     elif "decoder_input_ids" in column_names:
         feature_name = "decoder_input_ids"
     else:
-        return
+        return None
 
     # Compute lengths in arrow where possible: materializing the whole
     # column as Python lists can spike CPU memory on large datasets
@@ -221,20 +223,14 @@ def _check_untruncated_sequences(args: DatasetArguments, dataset: Dataset) -> No
     except Exception:
         lengths = [len(sample) for sample in dataset[feature_name]]
     longest = max(lengths, default=0)
-    if longest <= SEQ_LEN_ERROR_THRESHOLD:
-        return
+    if longest <= SEQ_LEN_REPORT_THRESHOLD:
+        return None
 
-    num_long = sum(length > SEQ_LEN_ERROR_THRESHOLD for length in lengths)
-    raise ValueError(
-        f"`max_seq_length` is not set and the calibration dataset contains "
-        f"{num_long} sample(s) longer than {SEQ_LEN_ERROR_THRESHOLD} tokens "
-        f"(longest is {longest} tokens). Calibrating with long untruncated "
-        "samples can run out of GPU memory, with the OOM raised from attention "
-        "or attention mask expansion rather than anything naming sequence "
-        "length. Set `max_seq_length` (for example "
-        f"`max_seq_length={SEQ_LEN_ERROR_THRESHOLD}`) to truncate calibration "
-        f"samples, or set `max_seq_length={longest}` or higher to calibrate "
-        "on the full-length samples intentionally"
+    num_long = sum(length > SEQ_LEN_REPORT_THRESHOLD for length in lengths)
+    return (
+        f"Note: `max_seq_length` is not set and the calibration dataset "
+        f"contains {num_long} sample(s) longer than {SEQ_LEN_REPORT_THRESHOLD} "
+        f"tokens (longest is {longest} tokens)"
     )
 
 

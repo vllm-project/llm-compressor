@@ -3,12 +3,16 @@ import math
 import pytest
 import torch
 import torch.fx
+from datasets import Dataset
+from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.datasets.utils import SEQ_LEN_REPORT_THRESHOLD
 from llmcompressor.pipelines.sequential.helpers import (
     Subgraph,
     get_sequential_ancestors,
+    handle_sequential_oom,
     topological_partition,
     trace_consumed_names,
     trace_subgraphs,
@@ -181,3 +185,25 @@ def test_trace_consumed_names(input_names, expected_consumed_names):
         subgraph.consumed_names for subgraph in subgraphs
     ] == expected_consumed_names
     assert [subgraph.input_names for subgraph in subgraphs] == original_input_names
+
+
+@pytest.mark.unit
+def test_handle_sequential_oom_reports_long_untruncated_samples():
+    longest = SEQ_LEN_REPORT_THRESHOLD + 100
+    dataset = Dataset.from_dict({"input_ids": [[0] * 16, [0] * longest]})
+    dataloader = DataLoader(dataset, batch_size=1)
+    dataset_args = DatasetArguments(num_calibration_samples=2)
+
+    @handle_sequential_oom
+    def pipeline(model, dataloader, dataset_args):
+        raise torch.OutOfMemoryError("CUDA out of memory")
+
+    with pytest.raises(torch.OutOfMemoryError) as excinfo:
+        pipeline(None, dataloader, dataset_args)
+
+    message = str(excinfo.value)
+    assert "Sequential pipeline ran out of memory" in message
+    assert "`num_calibration_samples` or `max_seq_length`" in message
+    assert "`max_seq_length` is not set" in message
+    assert f"1 sample(s) longer than {SEQ_LEN_REPORT_THRESHOLD} tokens" in message
+    assert f"longest is {longest} tokens" in message

@@ -482,7 +482,7 @@ def handle_sequential_oom(func):
         try:
             return func(*args, **kwargs)
         except torch.OutOfMemoryError as e:
-            raise torch.OutOfMemoryError(
+            message = (
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module for `sequential_targets`, "
                 "ex. 'Linear' for dense models. "
@@ -493,6 +493,31 @@ def handle_sequential_oom(func):
                 "subgraph and reduce memory overhead. Choosing a smaller "
                 "calibration dataset, by reducing `num_calibration_samples` or "
                 "`max_seq_length`, can also help."
-            ) from e
+            )
+            summary = _untruncated_sequence_summary(args, kwargs)
+            if summary is not None:
+                message = f"{message} {summary}"
+            raise torch.OutOfMemoryError(message) from e
 
     return wrapper
+
+
+def _untruncated_sequence_summary(args: tuple, kwargs: dict) -> str | None:
+    """
+    Best-effort description of long untruncated calibration samples, measured
+    only after an OOM is hit. Returns None when the calibration dataloader or
+    dataset arguments are not reachable from the wrapped call's arguments, or
+    when there is nothing to report.
+    """
+    try:
+        from torch.utils.data import DataLoader
+
+        from llmcompressor.args import DatasetArguments
+        from llmcompressor.datasets.utils import untruncated_sequence_summary
+
+        values = (*args, *kwargs.values())
+        dataloader = next(v for v in values if isinstance(v, DataLoader))
+        dataset_args = next(v for v in values if isinstance(v, DatasetArguments))
+        return untruncated_sequence_summary(dataset_args, dataloader.dataset)
+    except Exception:
+        return None
