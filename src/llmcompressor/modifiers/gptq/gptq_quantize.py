@@ -70,7 +70,7 @@ def quantize_weight(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
-) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+) -> tuple[float, dict[str, torch.Tensor]]:
     """
     Quantize a module weight according to the GPTQ algorithm
 
