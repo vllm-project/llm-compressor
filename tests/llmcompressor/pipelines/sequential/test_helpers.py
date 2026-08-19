@@ -7,8 +7,10 @@ from transformers import AutoModelForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.sequential.helpers import (
+    Subgraph,
     get_sequential_ancestors,
     topological_partition,
+    trace_consumed_names,
     trace_subgraphs,
 )
 from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
@@ -137,3 +139,45 @@ def test_trace_subgraphs(targets_per_subgraph):
             ]
         )
         assert num_targets_present == targets_per_subgraph
+
+
+@pytest.mark.parametrize(
+    "input_names,expected_consumed_names",
+    [
+        ([], []),
+        ([{"input"}], [{"input"}]),
+        (
+            [
+                {"tokens", "mask"},
+                {"hidden_0", "mask"},
+                {"hidden_1", "mask"},
+            ],
+            [{"tokens"}, {"hidden_0"}, {"hidden_1", "mask"}],
+        ),
+        (
+            [
+                {"input", "skip"},
+                {"hidden_0"},
+                {"hidden_1", "skip"},
+            ],
+            [{"input"}, {"hidden_0"}, {"hidden_1", "skip"}],
+        ),
+    ],
+)
+def test_trace_consumed_names(input_names, expected_consumed_names):
+    subgraphs = [
+        Subgraph(
+            graph=torch.fx.Graph(),
+            input_names=names,
+            consumed_names=set(),
+        )
+        for names in input_names
+    ]
+    original_input_names = [subgraph.input_names.copy() for subgraph in subgraphs]
+
+    trace_consumed_names(subgraphs)
+
+    assert [
+        subgraph.consumed_names for subgraph in subgraphs
+    ] == expected_consumed_names
+    assert [subgraph.input_names for subgraph in subgraphs] == original_input_names
