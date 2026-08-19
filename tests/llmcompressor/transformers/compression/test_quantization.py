@@ -60,7 +60,7 @@ def setup_model_and_config(request, tmpdir_factory):
         "new_recipe": None,
         "ppl_threshold": None,
         "model_stub": None,
-        "dataset": "ultrachat-200k",
+        "dataset": "perfectblend",
         "output": "tiny_llama_out",
         "max_seq_length": 512,
         "weight_dtype": torch.float16,
@@ -134,7 +134,7 @@ def test_perplexity(setup_model_and_config):
         pytest.skip("Skipping perplexity calculation.")
     tokenizer = AutoTokenizer.from_pretrained(config["model_stub"])
     dataset_args = DatasetArguments(
-        dataset="ultrachat-200k",
+        dataset="perfectblend",
         max_seq_length=config["max_seq_length"],
     )
     dataloader = _get_dataloader(dataset_args, tokenizer)
