@@ -11,7 +11,6 @@ from compressed_tensors.base import (
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
-    QuantizationScheme,
     QuantizationStatus,
 )
 from compressed_tensors.utils.safetensors_load import find_config_path
@@ -23,22 +22,17 @@ __all__ = ["update_config"]
 
 def update_config(
     save_directory: str | os.PathLike,
-    scheme_name: str,
-    scheme: QuantizationScheme,
-    ignore: list[str],
+    config: QuantizationConfig,
     converter: Converter | None = None,
 ):
     """
-    Update Quantization config for model stub in save_directory,
-    based on the provided scheme and converter.
+    Update Quantization config for model stub in save_directory.
     Quantization config will either be created or updated, see
     create_or_update_quant_config docstring for more info.
     """
     config_file_path = find_config_path(save_directory)
 
-    qconfig = create_or_update_quant_config(
-        config_file_path, scheme_name, scheme, ignore, converter
-    )
+    qconfig = create_or_update_quant_config(config_file_path, config, converter)
 
     # construct compression (quantization) config
     qconfig_data = qconfig.model_dump(exclude=[QUANTIZATION_METHOD_NAME])
@@ -69,37 +63,30 @@ def update_config(
 
 def create_or_update_quant_config(
     config_file_path: str | None,
-    scheme_name: str,
-    scheme: QuantizationScheme,
-    ignore: list[str],
+    config: QuantizationConfig,
     converter: Converter | None = None,
 ) -> QuantizationConfig:
     """
     Create or update quantization_config in 3 possible ways:
     1) If converting from a format that isn't compressed-tensors,
-        create new quant config based on converter and append scheme
+        create new quant config based on converter and append config groups
     2) If checkpoint is in a pre-existing compressed-tensors format,
-        use its quantization_config as starting point and append scheme
-    3) Otherwise, create from scratch based on scheme
+        use its quantization_config as starting point and append config groups
+    3) Otherwise, use the provided config directly
     """
 
-    qconfig = None
+    existing_config = None
     if converter is not None:
-        # original checkpoint is not in compressed-tensors format
-        # assume quantization_config needs be created from scratch
-        qconfig = converter.create_config()
+        existing_config = converter.create_config()
     elif config_file_path is not None:
-        # load up quantization_config, if pre-existing compressed-tensors
-        # format exists, append to it instead of creating from scratch
         with open(config_file_path, "r") as file:
             config_data = json.load(file)
 
         if QUANTIZATION_CONFIG_NAME in config_data:
             qconfigdata = config_data[QUANTIZATION_CONFIG_NAME]
-            # version in json but not allowed in QuantizationConfig
             qconfigdata.pop(COMPRESSION_VERSION_NAME, None)
             try:
-                qconfig = QuantizationConfig.model_validate(qconfigdata)
+                existing_config = QuantizationConfig.model_validate(qconfigdata)
             except ValidationError as e:
                 logger.warning(
                     "Unable to parse original checkpoint quantization_config. "
@@ -111,19 +98,29 @@ def create_or_update_quant_config(
                 "The quantization_config will be created from scratch"
             )
 
-    new_config = QuantizationConfig.model_validate(
-        {
-            "config_groups": {scheme_name: scheme},
-            "ignore": ignore,
-            "quantization_status": QuantizationStatus.COMPRESSED,
-            "format": scheme.format,
-        }
-    )
-    if qconfig is None:
-        # construct quantization config from scratch
-        qconfig = new_config
+    # determine format from schemes
+    unique_formats = {
+        scheme.format
+        for scheme in config.config_groups.values()
+        if scheme.format is not None
+    }
+    if len(unique_formats) == 1:
+        format_ = next(iter(unique_formats))
+    elif len(unique_formats) > 1:
+        format_ = "mixed-precision"
     else:
-        # merge into pre-existing quant config
-        qconfig.merge(new_config)
+        format_ = "dense"
 
-    return qconfig
+    new_config = QuantizationConfig(
+        config_groups=config.config_groups,
+        kv_cache_scheme=config.kv_cache_scheme,
+        ignore=list(config.ignore) if config.ignore else [],
+        quantization_status=QuantizationStatus.COMPRESSED,
+        format=format_,
+    )
+
+    if existing_config is None:
+        return new_config
+    else:
+        existing_config.merge(new_config)
+        return existing_config
