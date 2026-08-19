@@ -103,9 +103,7 @@ class REAPPruningModifier(Modifier):
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
         self._cpu_pg = dist.new_group(backend="gloo") if is_distributed() else None
-
         self._moe_attrs = get_moe_attrs(model, self.ignore)
-
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
