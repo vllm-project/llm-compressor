@@ -17,7 +17,11 @@ from llmcompressor.utils import load_context
 init_dist()
 model_id = "inference-optimization/Qwen3.8-1.0B-A0.6B"  # Qwen/Qwen3.8-2.4T-A95B
 with load_context():
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        device_map="auto_offload",
+        max_memory={},
+    )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
