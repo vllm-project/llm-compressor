@@ -1,7 +1,11 @@
 import re
 
 from compressed_tensors.entrypoints.convert import Converter, build_inverse_weight_maps
-from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from compressed_tensors.utils.safetensors_load import InverseWeightMap
 
 from llmcompressor.entrypoints.model_free.helpers import (
@@ -11,6 +15,7 @@ from llmcompressor.entrypoints.model_free.helpers import (
 
 __all__ = [
     "build_microscale_inverse_weight_maps",
+    "has_microscale_scheme",
     "is_microscale_scheme",
     "get_fused_names",
     "DEFAULT_FUSED_MAPPINGS",
@@ -64,6 +69,10 @@ _DEFAULT_FUSED_MAPPINGS_LIST = [
 def is_microscale_scheme(scheme: QuantizationScheme) -> bool:
     assert scheme.weights is not None
     return scheme.weights.strategy == QuantizationStrategy.TENSOR_GROUP
+
+
+def has_microscale_scheme(config: QuantizationConfig) -> bool:
+    return any(is_microscale_scheme(scheme) for scheme in config.config_groups.values())
 
 
 def get_fused_names(
