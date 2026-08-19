@@ -8,17 +8,19 @@ from functools import partial
 from typing import Any
 
 import torch
-from compressed_tensors.distributed import is_distributed, is_source_process, get_source_rank
+from compressed_tensors.distributed import (
+    get_source_rank,
+    is_distributed,
+    is_source_process,
+)
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 from torch import distributed as dist
 
 from llmcompressor.core import Event, State
-from llmcompressor.core.session_functions import active_session
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers import Modifier
-from llmcompressor.utils.dev import get_main_device
 from llmcompressor.modifiers.pruning.reap.utils import (
     MoeModelAttrs,
     REAPSaliencyTracker,
@@ -26,6 +28,7 @@ from llmcompressor.modifiers.pruning.reap.utils import (
     prune_moe_layer,
     update_model_config,
 )
+from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["REAPPruningModifier"]
 
@@ -257,6 +260,7 @@ class REAPPruningModifier(Modifier):
 
             retained = retained.tolist()
             prune_moe_layer(model, layer_name, retained, self._moe_attrs)
+            print(retained)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]

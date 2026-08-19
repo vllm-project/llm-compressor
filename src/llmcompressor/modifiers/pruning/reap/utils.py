@@ -10,7 +10,11 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from compressed_tensors import align_module_device
-from compressed_tensors.distributed import wait_for_comms, is_distributed, get_source_rank
+from compressed_tensors.distributed import (
+    get_source_rank,
+    is_distributed,
+    wait_for_comms,
+)
 from loguru import logger
 from torch import distributed as dist
 
@@ -247,9 +251,19 @@ class REAPSaliencyTracker:
             self.count = self.count.cpu()
             pending = [
                 dist.reduce(
-                    self.sum_saliency, dst=get_source_rank(), op=dist.ReduceOp.SUM, async_op=True, group=group
+                    self.sum_saliency,
+                    dst=get_source_rank(),
+                    op=dist.ReduceOp.SUM,
+                    async_op=True,
+                    group=group,
                 ),
-                dist.reduce(self.count, dst=get_source_rank(), op=dist.ReduceOp.SUM, async_op=True, group=group),
+                dist.reduce(
+                    self.count,
+                    dst=get_source_rank(),
+                    op=dist.ReduceOp.SUM,
+                    async_op=True,
+                    group=group,
+                ),
             ]
             wait_for_comms(pending)
 
