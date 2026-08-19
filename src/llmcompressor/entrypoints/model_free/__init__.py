@@ -9,7 +9,7 @@ from compressed_tensors.entrypoints.convert import (
     build_inverse_weight_maps,
     exec_jobs,
 )
-from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
     get_weight_map,
@@ -20,7 +20,7 @@ from loguru import logger
 
 from llmcompressor.entrypoints.model_free.microscale import (
     build_microscale_inverse_weight_maps,
-    is_microscale_scheme,
+    has_microscale_scheme,
 )
 from llmcompressor.entrypoints.model_free.process import (
     process_file,
@@ -35,8 +35,8 @@ from llmcompressor.entrypoints.model_free.scheduler import (
     exec_jobs_dynamic,
 )
 from llmcompressor.entrypoints.model_free.validate import (
+    validate_config,
     validate_safetensors_index,
-    validate_scheme,
 )
 
 __all__ = ["model_free_ptq"]
@@ -45,7 +45,8 @@ __all__ = ["model_free_ptq"]
 def model_free_ptq(
     model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
-    scheme: QuantizationScheme | str,
+    scheme: QuantizationScheme | str | None = None,
+    config: QuantizationConfig | None = None,
     ignore: Iterable[str] = tuple(),
     max_workers: int = 1,
     device: Optional[str | torch.device | list[str | torch.device]] = None,
@@ -64,7 +65,10 @@ def model_free_ptq(
 
     :param model_stub: huggingface model hub or path to local weights files
     :param save_directory: directory to save quantized weights to
-    :param scheme: weight quantization scheme or preset scheme name
+    :param scheme: weight quantization scheme or preset scheme name.
+        Mutually exclusive with config.
+    :param config: quantization config containing one or more schemes and
+        optional kv cache quantization. Mutually exclusive with scheme.
     :param ignore: modules to ignore. Modules ending with "norm" are
         automatically ignored
     :param max_workers: maximum number of concurrent worker threads.
@@ -77,9 +81,9 @@ def model_free_ptq(
     """
     model_files = get_checkpoint_files(model_stub)
 
-    scheme_name, scheme = validate_scheme(scheme)
+    config = validate_config(config, scheme, ignore)
     resolved_devices = _resolve_devices(device)
-    validate_safetensors_index(model_files, scheme)
+    validate_safetensors_index(model_files, config)
     os.makedirs(save_directory, exist_ok=True)
 
     # copy non-safetensors files (configs, tokenizers, etc.)
@@ -94,14 +98,12 @@ def model_free_ptq(
 
     # build jobs without baking in a device — the scheduler assigns devices
     # dynamically based on free VRAM at submit time
-    jobs, mem_estimates = _build_jobs(
-        model_files, save_directory, scheme, ignore, converter
-    )
+    jobs, mem_estimates = _build_jobs(model_files, save_directory, config, converter)
 
     # validate first (runs on meta device, so device arg is ignored)
     validate_jobs = [
-        (validate_file, iwm, sp, sch, ign, torch.device("meta"), conv)
-        for _, iwm, sp, sch, ign, conv in jobs
+        (validate_file, iwm, sp, cfg, torch.device("meta"), conv)
+        for _, iwm, sp, cfg, conv in jobs
     ]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
@@ -121,7 +123,7 @@ def model_free_ptq(
 
     # weight_map may contain tensors re-located to new shards (partner tensors
     # re-saved alongside the shard that needed them for fused scale computation)
-    update_config(save_directory, scheme_name, scheme, ignore, converter)
+    update_config(save_directory, config, converter)
     update_safetensors_index(save_directory, total_size, weight_map)
 
 
@@ -152,8 +154,7 @@ def _resolve_devices(
 def _build_jobs(
     model_files: dict[str, str],
     save_directory: str | os.PathLike,
-    scheme: QuantizationScheme,
-    ignore: Iterable[str],
+    config: QuantizationConfig,
     converter: Converter | None,
 ) -> tuple[list[tuple], list[int]]:
     """Build per-shard quantization jobs **without** device assignment.
@@ -162,12 +163,12 @@ def _build_jobs(
     at submit time based on real-time free VRAM.
 
     :returns: ``(jobs, memory_estimates)`` — each job is a tuple of
-        ``(fn, inverse_weight_map, save_path, scheme, ignore, converter)``
+        ``(fn, inverse_weight_map, save_path, config, converter)``
         and each memory estimate is in bytes.
     """
     weight_map = get_weight_map(model_files)
 
-    if is_microscale_scheme(scheme):
+    if has_microscale_scheme(config):
         job_fn = process_file_microscale_scheme
         build_iwm_fn = build_microscale_inverse_weight_maps
     else:
@@ -193,7 +194,7 @@ def _build_jobs(
             )
 
         iwm = inverse_weight_maps[shard_name]
-        jobs.append((job_fn, iwm, save_path, scheme, ignore, converter))
+        jobs.append((job_fn, iwm, save_path, config, converter))
         mem_estimates.append(estimate_job_memory(iwm))
 
     if mem_estimates:

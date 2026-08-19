@@ -99,10 +99,10 @@ def test_free_bytes_unknown_device_returns_zero():
 
 
 def test_cpu_path_runs_all_jobs():
-    def fn(iwm, sp, sch, ign, dev, conv):
+    def fn(iwm, sp, cfg, dev, conv):
         return (100, {"t": sp})
 
-    jobs = [(fn, {}, f"s{i}.st", "FP8", [], None) for i in range(5)]
+    jobs = [(fn, {}, f"s{i}.st", "FP8", None) for i in range(5)]
     mem = [1000] * 5
     out = exec_jobs_dynamic(jobs, [torch.device("cpu")], 2, mem, desc="Test")
     assert len(out) == 5
@@ -117,10 +117,10 @@ def test_cpu_path_empty_jobs():
 def test_cpu_path_preserves_order():
     """Results should match job order, not completion order."""
 
-    def fn(iwm, sp, sch, ign, dev, conv):
+    def fn(iwm, sp, cfg, dev, conv):
         return (int(sp), {})
 
-    jobs = [(fn, {}, str(i), "s", [], None) for i in range(10)]
+    jobs = [(fn, {}, str(i), "s", None) for i in range(10)]
     mem = [100] * 10
     out = exec_jobs_dynamic(jobs, [torch.device("cpu")], 4, mem, desc="Test")
     assert [r[0] for r in out] == list(range(10))
@@ -138,11 +138,11 @@ def test_raises_when_no_device_fits(mock_mem_info):
     any remaining shard and nothing is in flight."""
     mock_mem_info.return_value = (1000, 96_000_000_000)
 
-    def fn(iwm, sp, sch, ign, dev, conv):
+    def fn(iwm, sp, cfg, dev, conv):
         return (0, {})
 
     # job needs 10 GB but device only has 1000 bytes
-    jobs = [(fn, {}, "s0.st", "FP8", [], None)]
+    jobs = [(fn, {}, "s0.st", "FP8", None)]
     mem = [10_000_000_000]
 
     with pytest.raises(RuntimeError, match="No device has enough"):
