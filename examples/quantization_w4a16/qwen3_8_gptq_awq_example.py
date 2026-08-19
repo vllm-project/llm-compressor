@@ -1,5 +1,4 @@
 import torch
-from compressed_tensors.quantization.quant_scheme import W4A16, QuantizationScheme
 from datasets import load_dataset
 from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
 
@@ -19,7 +18,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 recipe = [
     AWQModifier(duo_scaling="both"),
     GPTQModifier(
-        targets="Linear", 
+        targets="Linear",
         scheme="W4A16",
         ignore=[
             "re:visual.*",
@@ -29,7 +28,7 @@ recipe = [
             r"re:.*linear_attn\.in_proj_a$",
             r"re:.*linear_attn\.in_proj_b$",
         ],
-    )
+    ),
 ]
 
 NUM_CALIBRATION_SAMPLES = 512
@@ -87,6 +86,6 @@ oneshot(
 )
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-INT4"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-GPTQ-AWQ"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)

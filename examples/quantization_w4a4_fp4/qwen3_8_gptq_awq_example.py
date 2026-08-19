@@ -50,7 +50,7 @@ recipe = [
             "dynamic": False,
             "observer": "static_minmax",
         },
-    )
+    ),
 ]
 
 NUM_CALIBRATION_SAMPLES = 512
@@ -108,6 +108,6 @@ oneshot(
 )
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-GPTQ-perfectblend-AWQ"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-GPTQ-AWQ"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
