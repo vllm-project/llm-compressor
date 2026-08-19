@@ -4,8 +4,10 @@ REAP (Router-weighted Expert Activation Pruning) modifier for MoE models.
 See: https://arxiv.org/abs/2510.13999
 """
 
+import json
 from functools import partial
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
 import torch
 from compressed_tensors.distributed import (
@@ -66,6 +68,7 @@ class REAPPruningModifier(Modifier):
 
     sparsity: float
     ignore: list[str] = Field(default_factory=list)
+    report_path: Optional[str] = Field(default=None)
 
     _moe_attrs: MoeModelAttrs | None = PrivateAttr(default=None)
     _saliency_trackers: dict[str, REAPSaliencyTracker] = PrivateAttr(
@@ -77,11 +80,22 @@ class REAPPruningModifier(Modifier):
         default_factory=dict
     )
     _cpu_pg: Any = PrivateAttr(default=None)
+    _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
         if not 0.0 < self.sparsity < 1.0:
             raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_path(self) -> "REAPPruningModifier":
+        if self.report_path is not None:
+            if not self.report_path.endswith(".json"):
+                raise ValueError(
+                    f"report_path must end with .json, got {self.report_path}"
+                )
+            Path(self.report_path).parent.mkdir(parents=True, exist_ok=True)
         return self
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -213,6 +227,10 @@ class REAPPruningModifier(Modifier):
         new_num_experts = self._moe_attrs.num_experts - self._n_experts_to_drop
         update_model_config(model, self._moe_attrs, new_num_experts)
 
+        if self.report_path is not None and is_source_process():
+            with open(self.report_path, "w") as f:
+                json.dump(self._retained_experts, f)
+
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
         if is_distributed():
@@ -259,8 +277,8 @@ class REAPPruningModifier(Modifier):
             ), f"Expected {expected} retained experts, got {len(retained)}"
 
             retained = retained.tolist()
+            self._retained_experts[layer_name] = retained
             prune_moe_layer(model, layer_name, retained, self._moe_attrs)
-            print(retained)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]
