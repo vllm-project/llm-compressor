@@ -18,11 +18,9 @@ import pytest
 import torch
 import torch.distributed as dist
 from compressed_tensors.offload import init_dist, load_offloaded_model
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -34,28 +32,6 @@ MAX_SEQ_LENGTH = 512
 def _load_report(path):
     with open(path) as f:
         return json.load(f)
-
-
-def _prepare_dataset(model_id, num_samples, max_seq_length):
-    """Prepare calibration dataset with rank-aware partitioning."""
-    tok = AutoTokenizer.from_pretrained(model_id)
-    if tok.chat_template is None:
-        tok.chat_template = (
-            "{% for message in messages %}{{ message['content'] }}{% endfor %}"
-        )
-    split = get_rank_partition("train_sft", num_samples)
-    ds = load_dataset("HuggingFaceH4/ultrachat_200k", split=split)
-    ds = ds.map(
-        lambda ex: {"text": tok.apply_chat_template(ex["messages"], tokenize=False)}
-    )
-    ds = ds.map(
-        lambda s: tok(
-            s["text"], padding=False, max_length=max_seq_length, truncation=True
-        ),
-        remove_columns=ds.column_names,
-    )
-    ds.set_format("torch")
-    return ds
 
 
 @pytest.mark.integration
@@ -75,11 +51,10 @@ def test_reap_ddp_kimi_k3():
             model_ref = AutoModelForCausalLM.from_pretrained(
                 KIMI_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
             )
-        ds_ref = _prepare_dataset(KIMI_MODEL, NUM_SAMPLES, MAX_SEQ_LENGTH)
 
         oneshot(
             model=model_ref,
-            dataset=ds_ref,
+            dataset="perfectblend",
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ref_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
@@ -87,7 +62,7 @@ def test_reap_ddp_kimi_k3():
         )
 
         ref_retained = _load_report(ref_report)
-        del model_ref, ds_ref
+        del model_ref
         torch.accelerator.empty_cache()
 
         # DDP run
@@ -103,11 +78,10 @@ def test_reap_ddp_kimi_k3():
             model_ddp = AutoModelForCausalLM.from_pretrained(
                 KIMI_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
             )
-        ds_ddp = _prepare_dataset(KIMI_MODEL, NUM_SAMPLES, MAX_SEQ_LENGTH)
 
         oneshot(
             model=model_ddp,
-            dataset=ds_ddp,
+            dataset="perfectblend",
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ddp_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
@@ -123,6 +97,6 @@ def test_reap_ddp_kimi_k3():
                 f"  ddp: {ddp_retained}"
             )
 
-        del model_ddp, ds_ddp
+        del model_ddp
         torch.accelerator.empty_cache()
         dist.barrier()
