@@ -57,6 +57,8 @@ class REAPPruningModifier(Modifier):
 
     :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
+    :param report_path: optional path to a ``.json`` file where the mapping of
+        retained expert indices per layer is written after pruning completes.
 
     Example recipe::
 
