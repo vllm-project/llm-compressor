@@ -9,7 +9,7 @@ one-shot calibration workflows.
 
 import math
 from collections.abc import Iterator, Sized
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import torch
 from datasets import Dataset
@@ -331,7 +331,7 @@ class LengthAwareSampler(Sampler[int]):
     def __init__(
         self,
         data_source: Dataset,
-        num_samples: Optional[int] = None,
+        num_samples: int | None = None,
         batch_size: int = 1,
     ) -> None:
         self.data_source = data_source
