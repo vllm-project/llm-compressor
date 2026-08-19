@@ -23,7 +23,6 @@ from llmcompressor.transformers.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 BS_WARNING_THRESHOLD = 16
-SEQ_LEN_REPORT_THRESHOLD = 2048
 
 
 def get_processed_dataset(
@@ -177,60 +176,6 @@ def format_calibration_data(
         pin_memory=pin_memory,
         num_workers=num_workers,
         **kwargs,
-    )
-
-
-def untruncated_sequence_summary(
-    dataset_args: DatasetArguments, dataset: Any
-) -> str | None:
-    """
-    Describe long calibration samples for OOM error reporting. Long untruncated
-    samples can exhaust GPU memory during calibration, with the OOM raised from
-    attention or attention mask expansion rather than anything naming sequence
-    length, which is easily mistaken for the model itself not fitting on the
-    device.
-
-    See https://github.com/vllm-project/llm-compressor/issues/3011
-
-    :param dataset_args: dataset arguments, checked for `max_seq_length`
-    :param dataset: tokenized calibration dataset
-    :return: summary of long untruncated samples, or None when `max_seq_length`
-        is set, lengths cannot be measured, or there is nothing to report
-    """
-    if dataset_args.max_seq_length is not None:
-        return None
-
-    if not isinstance(dataset, Dataset):
-        return None
-
-    column_names = dataset.column_names or []
-    if "input_ids" in column_names:
-        feature_name = "input_ids"
-    elif "decoder_input_ids" in column_names:
-        feature_name = "decoder_input_ids"
-    else:
-        return None
-
-    # Compute lengths in arrow where possible: materializing the whole
-    # column as Python lists can spike CPU memory on large datasets
-    try:
-        import pyarrow.compute as pc
-
-        column = dataset.data.column(feature_name)
-        if getattr(dataset, "_indices", None) is not None:
-            column = column.take(dataset._indices.column(0))
-        lengths = pc.list_value_length(column).to_pylist()
-    except Exception:
-        lengths = [len(sample) for sample in dataset[feature_name]]
-    longest = max(lengths, default=0)
-    if longest <= SEQ_LEN_REPORT_THRESHOLD:
-        return None
-
-    num_long = sum(length > SEQ_LEN_REPORT_THRESHOLD for length in lengths)
-    return (
-        f"Note: `max_seq_length` is not set and the calibration dataset "
-        f"contains {num_long} sample(s) longer than {SEQ_LEN_REPORT_THRESHOLD} "
-        f"tokens (longest is {longest} tokens)"
     )
 
 

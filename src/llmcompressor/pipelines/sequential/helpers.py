@@ -1,5 +1,6 @@
 import contextlib
 import inspect
+import statistics
 from collections import UserDict, deque
 from dataclasses import dataclass
 from functools import wraps
@@ -504,20 +505,51 @@ def handle_sequential_oom(func):
 
 def _untruncated_sequence_summary(args: tuple, kwargs: dict) -> str | None:
     """
-    Best-effort description of long untruncated calibration samples, measured
-    only after an OOM is hit. Returns None when the calibration dataloader or
-    dataset arguments are not reachable from the wrapped call's arguments, or
-    when there is nothing to report.
+    Best-effort description of the calibration sample lengths, measured only
+    after an OOM is hit and only when `max_seq_length` is unset. Lengths come
+    from arrow metadata, so token values are never materialized into Python
+    memory. Returns None when the calibration dataloader or dataset arguments
+    are not reachable from the wrapped call's arguments, or when lengths
+    cannot be measured.
+
+    See https://github.com/vllm-project/llm-compressor/issues/3011
     """
     try:
+        import pyarrow.compute as pc
+        from datasets import Dataset
         from torch.utils.data import DataLoader
 
         from llmcompressor.args import DatasetArguments
-        from llmcompressor.datasets.utils import untruncated_sequence_summary
 
         values = (*args, *kwargs.values())
         dataloader = next(v for v in values if isinstance(v, DataLoader))
         dataset_args = next(v for v in values if isinstance(v, DatasetArguments))
-        return untruncated_sequence_summary(dataset_args, dataloader.dataset)
+        if dataset_args.max_seq_length is not None:
+            return None
+
+        dataset = dataloader.dataset
+        if not isinstance(dataset, Dataset):
+            return None
+        column_names = dataset.column_names or []
+        if "input_ids" in column_names:
+            feature_name = "input_ids"
+        elif "decoder_input_ids" in column_names:
+            feature_name = "decoder_input_ids"
+        else:
+            return None
+
+        column = dataset.data.column(feature_name)
+        if getattr(dataset, "_indices", None) is not None:
+            column = column.take(dataset._indices.column(0))
+        lengths = pc.list_value_length(column).to_pylist()
+        if not lengths:
+            return None
+
+        return (
+            f"Note: `max_seq_length` is not set and the calibration dataset "
+            f"contains {len(lengths)} sample(s) with median length "
+            f"{int(statistics.median(lengths))} and max length "
+            f"{max(lengths)} tokens."
+        )
     except Exception:
         return None
