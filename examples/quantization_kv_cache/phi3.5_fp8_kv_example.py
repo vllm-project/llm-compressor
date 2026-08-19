@@ -1,5 +1,5 @@
+# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
 from compressed_tensors.offload import dispatch_model
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -10,33 +10,6 @@ from llmcompressor import oneshot
 MODEL_ID = "microsoft/Phi-3.5-mini-instruct"
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
-
-def process_and_tokenize(example):
-    text = tokenizer.apply_chat_template(example["messages"], tokenize=False)
-    return tokenizer(
-        text,
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(process_and_tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
@@ -74,10 +47,10 @@ quant_stage:
 # Apply algorithms.
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=512,
 )
 
 # Confirm generations of the quantized model look sane.
