@@ -1,5 +1,5 @@
+# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
 from compressed_tensors.offload import dispatch_model
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -10,45 +10,6 @@ model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
-
 # Prune 25% of the experts in each MoE layer, based on saliency.
 # You can adjust this value to prune more or less aggressively.
 recipe = REAPPruningModifier(sparsity=0.25)
@@ -56,10 +17,10 @@ recipe = REAPPruningModifier(sparsity=0.25)
 # Apply algorithms.
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=512,
     moe_calibrate_all_experts=False,  # Disable calibrating all experts for REAP
 )
 

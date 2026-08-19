@@ -1,11 +1,10 @@
-from datasets import load_dataset
+# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
+# NOTE: Requires a minimum of transformers 4.57.0
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
-
-# NOTE: Requires a minimum of transformers 4.57.0
 
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
@@ -13,44 +12,6 @@ MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples
-NUM_CALIBRATION_SAMPLES = 20
-MAX_SEQUENCE_LENGTH = 2048
-
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
@@ -80,10 +41,10 @@ recipe = QuantizationModifier(
 # this behavior and evaluate its impact on quantization performance.
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=20,
     moe_calibrate_all_experts=True,
 )
 
