@@ -100,6 +100,6 @@ def test_gptq_distributed_disk_offload():
 
         if dist.get_rank() == 0:
             ppl = _compute_perplexity(model, EVAL_TEXT)
-            assert ppl < PERPLEXITY_THRESHOLD, (
-                f"Perplexity {ppl:.1f} exceeds threshold {PERPLEXITY_THRESHOLD}"
-            )
+            assert (
+                ppl < PERPLEXITY_THRESHOLD
+            ), f"Perplexity {ppl:.1f} exceeds threshold {PERPLEXITY_THRESHOLD}"

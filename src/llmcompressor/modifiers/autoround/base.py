@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import torch
+from torch.utils._pytree import tree_map
 import torch.nn as nn
 from auto_round import AutoRound
 from auto_round.schemes import PRESET_SCHEMES as AR_PRESET_SCHEMES
@@ -21,7 +22,6 @@ from compressed_tensors.quantization import (
 from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
-from torch.utils._pytree import tree_map
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -363,11 +363,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # Moving it here makes that call a no-op.
                 # Use current_device_index() (local GPU index) rather than global
                 # rank to avoid invalid device ordinal errors on multi-node setups.
-                if torch.accelerator.is_available():
+                if hasattr(torch, "accelerator") and torch.accelerator.is_available():
                     device = torch.device(
                         torch.accelerator.current_accelerator().type,
                         torch.accelerator.current_device_index(),
                     )
+                elif torch.cuda.is_available():
+                    device = torch.device("cuda", torch.cuda.current_device())
                 else:
                     device = torch.device("cpu")
                 decoding_layer.to(device)
@@ -395,8 +397,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.clear()
         # Release cached GPU memory back to the driver so the next block starts
         # with a clean allocator state (avoids cross-block fragmentation).
-        if torch.accelerator.is_available():
-            torch.accelerator.empty_cache()
+        if hasattr(torch, "accelerator") and torch.accelerator.is_available():
+            device_type = torch.accelerator.current_accelerator().type
+            device_module = getattr(torch, device_type, None)
+            if device_module is not None and hasattr(device_module, "empty_cache"):
+                device_module.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
@@ -431,10 +438,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     str(start_gpu + i) for i in range(gpus_per_group)
                 )
             else:
-                if torch.accelerator.is_available():
+                if hasattr(torch, "accelerator") and torch.accelerator.is_available():
                     device_index = torch.accelerator.current_device_index()
                     ar_kwargs["device_map"] = (
                         f"{torch.accelerator.current_accelerator().type}:{device_index}"
+                    )
+                elif torch.cuda.is_available():
+                    ar_kwargs["device_map"] = (
+                        f"cuda:{torch.cuda.current_device()}"
                     )
                 else:
                     ar_kwargs["device_map"] = "cpu"

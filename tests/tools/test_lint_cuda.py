@@ -273,7 +273,7 @@ def run_all_tests():
             print(f"✗ {test.__name__} errored: {e}")
             failed.append(test.__name__)
 
-    print(f"\n{'=' * 60}")
+    print(f"\n{'='*60}")
     print(f"Tests passed: {len(tests) - len(failed)}/{len(tests)}")
     if failed:
         print(f"Failed tests: {', '.join(failed)}")

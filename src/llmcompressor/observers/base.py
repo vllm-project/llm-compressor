@@ -105,9 +105,9 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: dict with keys "scale", "zero_point", and "global_scale"
         """
-        assert self.has_statistics, (
-            "No statistics available. Call observer(value) first."
-        )
+        assert (
+            self.has_statistics
+        ), "No statistics available. Call observer(value) first."
 
         global_scale = self.get_global_scale()
 
@@ -182,9 +182,9 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: dict mapping each stats attr name to its tensor
         """
-        assert self.has_statistics, (
-            "No statistics available. Call observer(value) first."
-        )
+        assert (
+            self.has_statistics
+        ), "No statistics available. Call observer(value) first."
         return {attr: getattr(self, attr) for attr in self._stats_attrs}
 
     def attach(self, module: torch.nn.Module) -> None:

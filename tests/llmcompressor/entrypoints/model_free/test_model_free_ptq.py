@@ -185,9 +185,9 @@ def _assert_safetensors_index_equal(a_dir: Path, b_dir: Path):
     # different safetensors files)
     weight_map_keys = list(a_sti_data["weight_map"].keys())
     assert set(a_sti_data.keys()) == set(b_sti_data.keys()), "Incompatible keys"
-    assert set(weight_map_keys) == set(b_sti_data["weight_map"].keys()), (
-        "Incompatible weight map keys"
-    )
+    assert set(weight_map_keys) == set(
+        b_sti_data["weight_map"].keys()
+    ), "Incompatible weight map keys"
 
     # assert a subset of randomly selected safetensors are equivalent
     for key in random.sample(weight_map_keys, len(weight_map_keys) // 10):
@@ -197,9 +197,9 @@ def _assert_safetensors_index_equal(a_dir: Path, b_dir: Path):
         a_tensor = load_file(a_dir / a_st_file)[key]
         b_tensor = load_file(b_dir / b_st_file)[key]
 
-        assert torch.equal(a_tensor, b_tensor) and a_tensor.dtype == b_tensor.dtype, (
-            f"key {key} has non-matching tensors {a_tensor} {b_tensor}"
-        )
+        assert (
+            torch.equal(a_tensor, b_tensor) and a_tensor.dtype == b_tensor.dtype
+        ), f"key {key} has non-matching tensors {a_tensor} {b_tensor}"
 
 
 def _assert_safetensors_equal(a_path: str, b_path: str) -> bool:

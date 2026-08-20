@@ -157,7 +157,7 @@ def exec_jobs_dynamic(
                 reserved[dev] += memory_estimates[idx]
                 pending.remove(idx)
                 logger.debug(
-                    f"Shard {idx} -> {dev} (~{memory_estimates[idx] / 1e9:.2f} GB)"
+                    f"Shard {idx} -> {dev} " f"(~{memory_estimates[idx] / 1e9:.2f} GB)"
                 )
 
             # --- nothing running and nothing fits ---

@@ -37,6 +37,6 @@ class TestLengthAwareSampler:
             LengthAwareSampler(dataset, batch_size=2)
 
             debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
-            assert any("added (padding): 150" in c for c in debug_calls), (
-                f"Expected 'added (padding): 150' in {debug_calls}"
-            )
+            assert any(
+                "added (padding): 150" in c for c in debug_calls
+            ), f"Expected 'added (padding): 150' in {debug_calls}"

@@ -373,11 +373,11 @@ class TestDDPObserverCleanup:
             )
 
             for mod in modules:
-                assert not mod.weight_observer.has_statistics, (
-                    f"Layer {layer_idx}: observer stats not cleaned up"
-                )
+                assert (
+                    not mod.weight_observer.has_statistics
+                ), f"Layer {layer_idx}: observer stats not cleaned up"
             for prev_idx in range(layer_idx):
                 for mod in all_layer_modules[prev_idx]:
-                    assert not mod.weight_observer.has_statistics, (
-                        f"Layer {prev_idx} stats leaked into layer {layer_idx}"
-                    )
+                    assert (
+                        not mod.weight_observer.has_statistics
+                    ), f"Layer {prev_idx} stats leaked into layer {layer_idx}"

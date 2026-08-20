@@ -80,9 +80,9 @@ class TestIMatrixObserverIntegration:
 
         # Hooks should be cleaned up
         total_hooks = sum(len(m._forward_pre_hooks) for m in model.modules())
-        assert total_hooks == 0, (
-            f"Expected 0 forward pre-hooks after completion, found {total_hooks}"
-        )
+        assert (
+            total_hooks == 0
+        ), f"Expected 0 forward pre-hooks after completion, found {total_hooks}"
 
         # Verify imatrix actually affected quantization by comparing scales
         # with a run using uniform memoryless_mse. Same kwargs, same calibration;
@@ -171,9 +171,9 @@ class TestIMatrixObserverIntegration:
         )
 
         for name, module in model.named_modules():
-            assert not hasattr(module, "weight_observer"), (
-                f"{name} should not retain its weight observer after finalization"
-            )
+            assert not hasattr(
+                module, "weight_observer"
+            ), f"{name} should not retain its weight observer after finalization"
 
     @pytest.mark.smoke
     @pytest.mark.integration
