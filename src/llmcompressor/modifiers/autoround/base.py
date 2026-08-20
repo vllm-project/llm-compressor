@@ -387,7 +387,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # Release cached GPU memory back to the driver so the next block starts
         # with a clean allocator state (avoids cross-block fragmentation).
         if torch.accelerator.is_available():
-            torch.accelerator.empty_cache()
+            device_type = torch.accelerator.current_accelerator().type
+            device_module = getattr(torch, device_type, None)
+            if device_module is not None and hasattr(device_module, "empty_cache"):
+                device_module.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
