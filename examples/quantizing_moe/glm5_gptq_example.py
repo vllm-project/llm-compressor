@@ -1,4 +1,4 @@
-from datasets import load_dataset
+# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -16,40 +16,6 @@ with load_context():
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
-
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding="max_length",
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Layers 0-2 are dense; skip them and the output head.
 ignore = [
@@ -74,11 +40,11 @@ recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=ignore)
 num_experts = getattr(model.config, "n_routed_experts", 384)
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     batch_size=4,
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=512,
     sequential_targets=["GlmMoeDsaAttention", "ExpertMLP"],
     sequential_targets_per_subgraph=(num_experts // 4 + 10),
 )

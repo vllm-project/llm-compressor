@@ -1,5 +1,5 @@
+# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
 import torch
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -12,43 +12,6 @@ with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
-
 # Configure the quantization algorithm to run.
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
@@ -60,10 +23,10 @@ recipe = QuantizationModifier(
 
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=512,
 )
 
 # Save to disk in compressed-tensors format.
