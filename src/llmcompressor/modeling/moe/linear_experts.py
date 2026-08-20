@@ -139,7 +139,7 @@ class LinearExperts2D(torch.nn.ModuleList):
 
     # 1. try for mappings (efficient load)
     # 2. try for standardized moe, convert after load
-    # 3. Explicit replacement (GraniteMoeLinearExperts)
+    # 3. Explicit replacement (Llama4LinearExperts)
 
     """
 
@@ -159,7 +159,6 @@ class LinearExperts2D(torch.nn.ModuleList):
     def get_registration(
         cls, key: type[torch.nn.Module], default: Any = None
     ) -> type["LinearExperts2D"]:
-        from .granitemoe import GraniteMoeLinearExperts  # noqa: F401
         from .llama4 import Llama4LinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
