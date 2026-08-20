@@ -231,13 +231,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # Immediately offload to CPU so captured inputs don't accumulate on GPU.
         # auto_round's block_forward (compressors/utils.py) handles per-batch CPU->GPU
         # transfer, so no device mismatch occurs during optimization.
-        cpu_args = tuple(
-            x.detach().cpu() if isinstance(x, torch.Tensor) else x for x in args
+        # tree_map handles nested structures (lists/dicts of tensors) robustly.
+        from torch.utils._pytree import tree_map
+
+        cpu_args = tree_map(
+            lambda x: x.detach().cpu() if isinstance(x, torch.Tensor) else x, args
         )
-        cpu_kwargs = {
-            k: v.detach().cpu() if isinstance(v, torch.Tensor) else v
-            for k, v in kwargs.items()
-        }
+        cpu_kwargs = tree_map(
+            lambda x: x.detach().cpu() if isinstance(x, torch.Tensor) else x, kwargs
+        )
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
@@ -362,6 +364,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # Moving it here makes that call a no-op.
                 # Use current_device_index() (local GPU index) rather than global
                 # rank to avoid invalid device ordinal errors on multi-node setups.
+                # Guard torch.accelerator (added in PyTorch 2.4) with a hasattr check
+                # and fall back to torch.cuda for older PyTorch versions.
                 if torch.accelerator.is_available():
                     device = torch.device(
                         torch.accelerator.current_accelerator().type,
