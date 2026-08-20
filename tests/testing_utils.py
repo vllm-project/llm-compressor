@@ -162,9 +162,7 @@ class BaseTestConfig(BaseModel):
     # -------------------------------------------------------------------------
     # Required
     # -------------------------------------------------------------------------
-    cadence: str = Field(
-        ..., description="'commit', 'nightly', 'weekly', or 'release'"
-    )
+    cadence: str = Field(..., description="'commit', 'nightly', 'weekly', or 'release'")
     model: str = Field(..., description="HuggingFace model ID to quantize")
 
     # -------------------------------------------------------------------------
