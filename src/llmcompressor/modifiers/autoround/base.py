@@ -364,8 +364,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # Moving it here makes that call a no-op.
                 # Use current_device_index() (local GPU index) rather than global
                 # rank to avoid invalid device ordinal errors on multi-node setups.
-                # Guard torch.accelerator (added in PyTorch 2.4) with a hasattr check
-                # and fall back to torch.cuda for older PyTorch versions.
                 if torch.accelerator.is_available():
                     device = torch.device(
                         torch.accelerator.current_accelerator().type,
