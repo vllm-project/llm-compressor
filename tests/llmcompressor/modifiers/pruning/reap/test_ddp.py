@@ -94,7 +94,7 @@ def test_reap_ddp_qwen3():
         init_dist()
         rank = dist.get_rank()
 
-        ddp_report = f"{tmpdir}/ddp_report_rank{rank}.json"
+        ddp_report = f"{tmpdir}/ddp_report.json"
 
         torch.manual_seed(42)
         torch.get_device_module().manual_seed_all(42)
@@ -114,9 +114,8 @@ def test_reap_ddp_qwen3():
             pipeline="sequential",
         )
 
-        ddp_retained = _load_report(ddp_report)
-
         if rank == 0:
+            ddp_retained = _load_report(ddp_report)
             assert ref_retained == ddp_retained, (
                 f"Retained experts differ between single-GPU and DDP.\n"
                 f"  ref: {ref_retained}\n"
