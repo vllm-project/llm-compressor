@@ -26,7 +26,7 @@ from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from tests.testing_utils import requires_gpu, torchrun
 
-KIMI_MODEL = "inference-optimization/Kimi-K3-0.40B"
+QWEN_MODEL = "inference-optimization/Qwen3.8-1.0B-A0.6B"
 NUM_SAMPLES = 16
 MAX_SEQ_LENGTH = 512
 
@@ -62,8 +62,8 @@ def _prepare_dataset(model_id, num_samples, max_seq_length):
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 @torchrun(world_size=2)
-def test_reap_ddp_kimi_k3():
-    """REAP with DDP on Kimi-K3-0.40B retains the same experts as single-GPU."""
+def test_reap_ddp_qwen3():
+    """REAP with DDP on Qwen3.8-1.0B-A0.6B retains the same experts as single-GPU."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ref_report = f"{tmpdir}/ref_report.json"
 
@@ -73,9 +73,9 @@ def test_reap_ddp_kimi_k3():
         # Single-GPU reference (before init_dist)
         with load_offloaded_model():
             model_ref = AutoModelForCausalLM.from_pretrained(
-                KIMI_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
+                QWEN_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
             )
-        ds_ref = _prepare_dataset(KIMI_MODEL, NUM_SAMPLES, MAX_SEQ_LENGTH)
+        ds_ref = _prepare_dataset(QWEN_MODEL, NUM_SAMPLES, MAX_SEQ_LENGTH)
 
         oneshot(
             model=model_ref,
@@ -101,9 +101,9 @@ def test_reap_ddp_kimi_k3():
 
         with load_offloaded_model():
             model_ddp = AutoModelForCausalLM.from_pretrained(
-                KIMI_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
+                QWEN_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
             )
-        ds_ddp = _prepare_dataset(KIMI_MODEL, NUM_SAMPLES, MAX_SEQ_LENGTH)
+        ds_ddp = _prepare_dataset(QWEN_MODEL, NUM_SAMPLES, MAX_SEQ_LENGTH)
 
         oneshot(
             model=model_ddp,
