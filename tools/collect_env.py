@@ -22,22 +22,29 @@ def get_torch_hardware_info():
         cuda_devices = []
         amd_devices = []
         npu_devices = []
+        mps_devices = []
         if torch.accelerator.is_available():
+            device_module = torch.get_device_module()
             for i in range(torch.accelerator.device_count()):
-                name = torch.get_device_module().get_device_name(i)
+                # not every accelerator backend implements `get_device_name`
+                # (e.g. `torch.mps` on Apple Silicon)
+                if not hasattr(device_module, "get_device_name"):
+                    mps_devices.append(platform.processor() or "Apple Silicon (MPS)")
+                    break
+                name = device_module.get_device_name(i)
                 if "GFX" in name.upper():
                     amd_devices.append(name)
                 elif "ASCEND" in name.upper():
                     npu_devices.append(name)
                 else:
                     cuda_devices.append(name)
-        return cuda_devices, amd_devices, npu_devices
-    except ImportError:
-        return [], [], []
+        return cuda_devices, amd_devices, npu_devices, mps_devices
+    except (ImportError, AttributeError):
+        return [], [], [], []
 
 
 def collect_environment_info():
-    cuda_devices, amd_devices, npu_devices = get_torch_hardware_info()
+    cuda_devices, amd_devices, npu_devices, mps_devices = get_torch_hardware_info()
 
     info = {
         "Operating System": platform.platform(),
@@ -49,6 +56,7 @@ def collect_environment_info():
         "CUDA Devices": cuda_devices if cuda_devices else "None",
         "AMD Devices": amd_devices if amd_devices else "None",
         "NPU Devices": npu_devices if npu_devices else "None",
+        "MPS Devices": mps_devices if mps_devices else "None",
     }
 
     print("### Environment Information ###")
