@@ -57,7 +57,6 @@ def test_quantize_weight_group_strategy_actorder(actorder):
     assert q_param_dict["weight_zero_point"].shape == (6, 4)
 
 
-
 @pytest.mark.parametrize(
     "actorder",
     [None, ActivationOrdering.WEIGHT],
