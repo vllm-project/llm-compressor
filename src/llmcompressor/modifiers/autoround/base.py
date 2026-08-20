@@ -363,8 +363,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 device = get_main_device()
                 decoding_layer.to(device)
 
-            # cur_inputs 保留在 CPU；auto_round block_forward 内按 batch 自动搬运到 device
-            # (auto_round/compressors/utils.py block_forward 已处理 device mismatch)
+            # cur_inputs remain on CPU; auto_round's block_forward (compressors/utils.py)
+            # handles per-batch CPU->GPU transfer automatically.
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             q_input, _ = ar.quantize_block(
@@ -386,7 +386,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.clear()
         # Release cached GPU memory back to the driver so the next block starts
         # with a clean allocator state (avoids cross-block fragmentation).
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
@@ -450,22 +451,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for _, mod in model.named_modules():
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
-
-    @staticmethod
-    def _move_inputs_to(
-        inputs: list[tuple[tuple, dict]], device: torch.device
-    ) -> list[tuple[tuple, dict]]:
-        """Move all tensors in cached forward inputs to *device*."""
-        return [
-            (
-                tuple(x.to(device) if isinstance(x, torch.Tensor) else x for x in args),
-                {
-                    k: v.to(device) if isinstance(v, torch.Tensor) else v
-                    for k, v in kwargs.items()
-                },
-            )
-            for args, kwargs in inputs
-        ]
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
