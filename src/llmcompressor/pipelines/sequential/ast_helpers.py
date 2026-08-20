@@ -5,6 +5,8 @@ import linecache
 import sys
 import textwrap
 import traceback
+from types import FunctionType
+from typing import Callable
 
 import torch
 from compressed_tensors.utils import patch_attr
@@ -12,6 +14,47 @@ from compressed_tensors.utils import patch_attr
 from llmcompressor.pipelines.sequential.ast_utils import AutoWrapper
 
 __all__ = ["autowrap_forwards", "append_autowrap_source_on_fail"]
+
+
+def get_unwrapped_forward(module: torch.nn.Module) -> Callable:
+    """
+    Get the original function which implements the `forward` method of a module,
+    stripping away any decorators which may have been applied to it.
+
+    `inspect.unwrap` only follows the `__wrapped__` attribute, which is set by
+    decorators which use `functools.wraps`. Decorators which do not use
+    `functools.wraps`, such as transformers' `force_accelerate_hooks` (see
+    `transformers/integrations/accelerate.py`), leave no `__wrapped__` attribute
+    behind, meaning that `inspect.getsource` returns the source of the *wrapper*,
+    which defines a function named `wrapped` rather than `forward`. In this case,
+    fall back to searching the wrapper's closure cells for the original function.
+
+    Note that the source of the original function includes its decorator lines,
+    meaning that decorators are reapplied when the source is recompiled and their
+    behavior is preserved (e.g. accelerate hook setup).
+
+    :param module: module whose forward function should be retrieved
+    :return: function which implements the module's forward method
+    """
+    forward = inspect.unwrap(module.forward)
+
+    # `module.forward` is a bound method, whose underlying function holds the closure
+    if inspect.ismethod(forward):
+        forward = forward.__func__
+
+    if getattr(forward, "__name__", None) == "forward":
+        return forward
+
+    for cell in getattr(forward, "__closure__", None) or ():
+        try:
+            contents = cell.cell_contents
+        except ValueError:  # cell is empty
+            continue
+
+        if isinstance(contents, FunctionType) and contents.__name__ == "forward":
+            return contents
+
+    return forward
 
 
 @contextlib.contextmanager
@@ -53,31 +96,7 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
         )
 
     # get source code of module forward
-    target = inspect.unwrap(module.forward)
-    # Some decorators (e.g. transformers' `force_accelerate_hooks`, see
-    # transformers/integrations/accelerate.py) wrap `forward` with an inner
-    # function but do not apply `functools.wraps`. inspect.unwrap therefore
-    # cannot recover the original (there is no `__wrapped__` attribute) and
-    # inspect.getsource returns the *wrapper's* source, so the re-exec'd code
-    # defines a function named `wrapped` rather than `forward` and the
-    # `namespace["forward"]` lookup below raises KeyError. Recover the original
-    # `forward` by searching the wrapper's closure cells. inspect.getsource on
-    # the original includes its decorator line, so exec re-applies the
-    # decorator and preserves its behaviour (e.g. accelerate hook setup).
-    if getattr(target, "__name__", "") != "forward" and getattr(
-        target, "__closure__", None
-    ):
-        from types import FunctionType
-
-        for cell in target.__closure__:
-            try:
-                contents = cell.cell_contents
-            except ValueError:
-                continue
-            if isinstance(contents, FunctionType) and contents.__name__ == "forward":
-                target = contents
-                break
-    source = inspect.getsource(target)
+    source = inspect.getsource(get_unwrapped_forward(module))
     source = textwrap.dedent(source)
     tree = ast.parse(source)
 

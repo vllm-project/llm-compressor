@@ -1,8 +1,15 @@
+import functools
+import inspect
+from types import FunctionType
+
 import pytest
 import torch
 import torch.fx
 
-from llmcompressor.pipelines.sequential.ast_helpers import autowrap_forward
+from llmcompressor.pipelines.sequential.ast_helpers import (
+    autowrap_forward,
+    get_unwrapped_forward,
+)
 
 
 def _no_wraps_decorator(fn):
@@ -86,3 +93,53 @@ def test_autowrap_forward_plain_module_unchanged():
     with torch.no_grad():
         out = module(x)
     assert torch.allclose(out, expected)
+
+
+@pytest.mark.unit
+def test_get_unwrapped_forward_plain_module():
+    """`get_unwrapped_forward` returns the function which implements `forward`."""
+    module = _PlainForwardModule()
+
+    forward = get_unwrapped_forward(module)
+
+    assert isinstance(forward, FunctionType)  # not a bound method
+    assert forward is _PlainForwardModule.forward
+
+
+@pytest.mark.unit
+def test_get_unwrapped_forward_strips_no_wraps_decorator():
+    """`get_unwrapped_forward` recovers the original function from a decorator which
+    does not use `functools.wraps`.
+
+    `module.forward` is a bound method wrapping the decorator's `wrapped` function, so
+    the original `forward` is only reachable through the wrapper's closure cells.
+    """
+    module = _DecoratedForwardModule()
+
+    forward = get_unwrapped_forward(module)
+
+    assert isinstance(forward, FunctionType)
+    assert forward.__name__ == "forward"
+    assert "def forward" in inspect.getsource(forward)
+
+
+@pytest.mark.unit
+def test_get_unwrapped_forward_functools_wraps_decorator():
+    """`inspect.unwrap` handles decorators which do use `functools.wraps`."""
+
+    def _wraps_decorator(fn):
+        @functools.wraps(fn)
+        def wrapped(self, *args, **kwargs):
+            return fn(self, *args, **kwargs)
+
+        return wrapped
+
+    class _WrapsDecoratedModule(torch.nn.Module):
+        @_wraps_decorator
+        def forward(self, x):
+            return x
+
+    forward = get_unwrapped_forward(_WrapsDecoratedModule())
+
+    assert isinstance(forward, FunctionType)
+    assert forward.__name__ == "forward"
