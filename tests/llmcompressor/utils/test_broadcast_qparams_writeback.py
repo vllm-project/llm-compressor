@@ -200,3 +200,53 @@ def test_copy_back_when_broadcast_param_is_distinct_storage():
     # param should have been updated with clone's values before writeback
     assert torch.all(scale == 9.0)
     mock_uop.assert_called_once_with(mod, "weight_scale", scale)
+
+
+@pytest.mark.unit
+def test_no_copy_when_broadcast_param_is_view_of_same_storage():
+    """When as_broadcastable returns a view sharing storage with param (e.g. the
+    FP8 uint8 reinterpret view), dist.broadcast already updates param in-place
+    via the shared storage — param.copy_() must NOT be called."""
+    scale = torch.zeros(4)
+    mod = _make_module(weight_scale=scale)
+    module_to_rank = {mod: 0}
+
+    # Simulate as_broadcastable returning a view: different object, same data_ptr.
+    view = scale.view(scale.numel())
+    assert view.data_ptr() == scale.data_ptr()
+    assert view is not scale
+
+    # Simulate broadcast writing 7.0 into the shared storage.
+    def _fake_broadcast(tensor, src, **kwargs):
+        tensor.fill_(7.0)
+
+    with ExitStack() as stack:
+        mock_uop = stack.enter_context(
+            patch.object(dist_module, "update_offload_parameter")
+        )
+        stack.enter_context(patch.object(dist_module, "_wait_for_comms"))
+        stack.enter_context(
+            patch.object(
+                dist_module,
+                "get_execution_device",
+                return_value=torch.device("cuda", 0),
+            )
+        )
+        stack.enter_context(
+            patch.object(dist_module, "as_broadcastable", return_value=view)
+        )
+        stack.enter_context(
+            patch.object(torch_dist, "broadcast", side_effect=_fake_broadcast)
+        )
+        stack.enter_context(patch.object(torch_dist, "is_initialized", return_value=True))
+        stack.enter_context(patch.object(torch_dist, "get_rank", return_value=1))
+        stack.enter_context(patch.object(torch_dist, "get_world_size", return_value=2))
+
+        dist_module.broadcast_qparams_and_cleanup(
+            [mod], module_to_rank, ["weight_scale"]
+        )
+
+    # Broadcast wrote into the shared storage — param reflects the update without copy_.
+    assert torch.all(scale == 7.0)
+    # update_offload_parameter is still called with param (not view).
+    mock_uop.assert_called_once_with(mod, "weight_scale", scale)
