@@ -238,7 +238,9 @@ def test_no_copy_when_broadcast_param_is_view_of_same_storage():
         stack.enter_context(
             patch.object(torch_dist, "broadcast", side_effect=_fake_broadcast)
         )
-        stack.enter_context(patch.object(torch_dist, "is_initialized", return_value=True))
+        stack.enter_context(
+            patch.object(torch_dist, "is_initialized", return_value=True)
+        )
         stack.enter_context(patch.object(torch_dist, "get_rank", return_value=1))
         stack.enter_context(patch.object(torch_dist, "get_world_size", return_value=2))
 
