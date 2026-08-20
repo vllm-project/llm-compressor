@@ -272,9 +272,9 @@ class REAPPruningModifier(Modifier):
             if is_distributed():
                 dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
 
-            assert (
-                len(retained) == expected
-            ), f"Expected {expected} retained experts, got {len(retained)}"
+            assert len(retained) == expected, (
+                f"Expected {expected} retained experts, got {len(retained)}"
+            )
 
             retained = retained.tolist()
             self._retained_experts[layer_name] = retained

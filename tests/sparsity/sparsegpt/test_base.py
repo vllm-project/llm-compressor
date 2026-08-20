@@ -1,9 +1,9 @@
 import pytest
+from tests.llmcompressor.pytorch.helpers import LinearNet
 
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from tests.llmcompressor.modifiers.conf import LifecyleTestingHarness
-from tests.llmcompressor.pytorch.helpers import LinearNet
 
 
 @pytest.mark.unit
@@ -19,9 +19,9 @@ def test_sparse_gpt_is_registered():
         targets=targets,
     )
 
-    assert isinstance(
-        type_, SparseGPTModifier
-    ), "PyTorch SparseGPTModifier not registered"
+    assert isinstance(type_, SparseGPTModifier), (
+        "PyTorch SparseGPTModifier not registered"
+    )
 
 
 @pytest.mark.unit

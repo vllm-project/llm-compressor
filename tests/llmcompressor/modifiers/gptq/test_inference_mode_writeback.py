@@ -55,6 +55,6 @@ def test_start_calibration_warns_on_inference_mode_forward():
     finally:
         logger.remove(handler_id)
 
-    assert any(
-        "inference_mode" in log and "aux_block" in log for log in logs
-    ), f"expected a warning naming aux_block, got: {logs}"
+    assert any("inference_mode" in log and "aux_block" in log for log in logs), (
+        f"expected a warning naming aux_block, got: {logs}"
+    )

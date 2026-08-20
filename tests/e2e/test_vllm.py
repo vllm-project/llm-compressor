@@ -288,9 +288,9 @@ class TestvLLM:
 
         stdout_lower = stdout.lower()
         for sp in SANITY_PROMPTS:
-            assert (
-                sp.expected in stdout_lower
-            ), f"Expected '{sp.expected}' in generated output:\n{stdout}"
+            assert sp.expected in stdout_lower, (
+                f"Expected '{sp.expected}' in generated output:\n{stdout}"
+            )
 
     def _check_save_dir_has_expected_files(self):
         files = os.listdir(self.config.save_dir)

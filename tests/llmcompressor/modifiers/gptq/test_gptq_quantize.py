@@ -177,9 +177,9 @@ def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check QKV
     for proj_name in ["q_proj", "k_proj", "v_proj"]:
         proj = getattr(layer_0.self_attn, proj_name)
-        assert hasattr(
-            proj, "weight_global_scale"
-        ), f"{proj_name} missing weight_global_scale"
+        assert hasattr(proj, "weight_global_scale"), (
+            f"{proj_name} missing weight_global_scale"
+        )
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
@@ -197,9 +197,9 @@ def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check gate/up
     for proj_name in ["gate_proj", "up_proj"]:
         proj = getattr(layer_0.mlp, proj_name)
-        assert hasattr(
-            proj, "weight_global_scale"
-        ), f"{proj_name} missing weight_global_scale"
+        assert hasattr(proj, "weight_global_scale"), (
+            f"{proj_name} missing weight_global_scale"
+        )
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"

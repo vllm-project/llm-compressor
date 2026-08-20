@@ -435,7 +435,7 @@ def requires_version(package_name: str, req_version: str) -> pytest.MarkDecorato
 
     return pytest.mark.skipif(
         not compare(Version(installed), Version(ver_str)),
-        reason=(f"{package_name} {op_str}{ver_str} required, " f"found {installed}"),
+        reason=(f"{package_name} {op_str}{ver_str} required, found {installed}"),
     )
 
 
@@ -563,9 +563,9 @@ def parse_params(configs_directory: Union[list, str]) -> List[dict]:
     config_dicts = []
 
     def _parse_configs_dir(current_config_dir):
-        assert os.path.isdir(
-            current_config_dir
-        ), f"Config_directory {current_config_dir} is not a directory"
+        assert os.path.isdir(current_config_dir), (
+            f"Config_directory {current_config_dir} is not a directory"
+        )
 
         for file in os.listdir(current_config_dir):
             config_path = os.path.join(current_config_dir, file)
