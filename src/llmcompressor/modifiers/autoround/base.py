@@ -360,7 +360,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # triggers a cold Lustre page-fault reload (~15 min) when the block
                 # was evicted from page cache during the sequential calibration pass.
                 # Moving it here makes that call a no-op.
-                device = get_main_device()
+                # Use current_device_index() (local GPU index) rather than global
+                # rank to avoid invalid device ordinal errors on multi-node setups.
+                if torch.accelerator.is_available():
+                    device = torch.device(
+                        torch.accelerator.current_accelerator().type,
+                        torch.accelerator.current_device_index(),
+                    )
+                else:
+                    device = torch.device("cpu")
                 decoding_layer.to(device)
 
             # cur_inputs remain on CPU; auto_round's block_forward handles
