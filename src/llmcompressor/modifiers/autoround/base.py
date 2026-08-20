@@ -498,13 +498,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         # Update offload parameters and remove temporary attributes
         for name, module in model.named_modules():
-            # Respect AutoRound's final layer decision: if a layer is set back to
-            # full precision (bits/act_bits > 8), do not restore legacy LLMC
-            # qparams, otherwise the layer can look quantized again.
-            layer_should_be_quantized = check_to_quantized(module)
-            if not layer_should_be_quantized:
-                _clear_layer_quantization_metadata(module)
-                continue
+            # Apply AutoRound's quantization decision only to its target modules.
+            is_autoround_target = module.__class__.__name__ in self.resolved_targets
+            if is_autoround_target:
+                # Respect AutoRound's final layer decision: if a layer is set
+                # back to full precision (bits/act_bits > 8), do not restore
+                # legacy LLMC qparams, otherwise the layer can look quantized
+                # again.
+                layer_should_be_quantized = check_to_quantized(module)
+                if not layer_should_be_quantized:
+                    _clear_layer_quantization_metadata(module)
+                    continue
 
             # Mapping qparams from AutoRound to LLMC naming
             for ar_param_name, llmc_param_name in qparams_mapping.items():
@@ -669,6 +673,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 raise TypeError(
                     f"Expected QuantizationScheme, got {type(quant_scheme)}"
                 )
+            if quant_scheme.weights is None:
+                # Skip activation-only schemes because AutoRound configures weights.
+                continue
             layer_scheme = self._quant_scheme_to_autoround_config(quant_scheme)
             if layer_scheme != default_config:
                 layer_config[name] = layer_scheme
