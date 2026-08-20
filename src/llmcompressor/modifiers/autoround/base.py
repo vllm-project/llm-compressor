@@ -363,8 +363,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 device = get_main_device()
                 decoding_layer.to(device)
 
-            # cur_inputs remain on CPU; auto_round's block_forward (compressors/utils.py)
-            # handles per-batch CPU->GPU transfer automatically.
+            # cur_inputs remain on CPU; auto_round's block_forward handles
+            # per-batch CPU->GPU transfer automatically.
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             q_input, _ = ar.quantize_block(
@@ -386,8 +386,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.clear()
         # Release cached GPU memory back to the driver so the next block starts
         # with a clean allocator state (avoids cross-block fragmentation).
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if torch.accelerator.is_available():
+            torch.accelerator.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
