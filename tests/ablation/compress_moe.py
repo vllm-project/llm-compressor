@@ -24,6 +24,7 @@ from compressed_tensors.quantization.quant_args import FP8_E4M3_DATA
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 OUTPUT_BASE = Path("compressed-models")
@@ -189,6 +190,58 @@ CONFIGS = {
             "gs_prior": {"scale": 1.75, "fuse": True},
         },
     ),
+    # ── Experiment E: twopass nofp8 + imatrix ────────────────────────
+    "twopass-nofp8": QuantizationArgs(
+        **COMMON,
+        observer="nvfp4_twopass",
+    ),
+    "imatrix-nofp8-expanded": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="imatrix_mse",
+        observer_kwargs={
+            "expand": 1.8,
+            "maxshrink": 1 - 0.8 / 1.8,
+            "grid": 200,
+            "norm": 2.4,
+            "patience": 1000,
+        },
+    ),
+    # ── Experiment F: imatrix knob tuning (all nofp8) ────────────────
+    "imatrix-norm2.0": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="nvfp4_expanded_imatrix",
+        observer_kwargs={"norm": 2.0},
+    ),
+    "imatrix-norm2.4": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="nvfp4_expanded_imatrix",
+    ),
+    "imatrix-norm3.0": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="nvfp4_expanded_imatrix",
+        observer_kwargs={"norm": 3.0},
+    ),
+    "imatrix-temp0.5": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="nvfp4_expanded_imatrix",
+        observer_kwargs={"temperature": 0.5},
+    ),
+    "imatrix-temp2.0": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="nvfp4_expanded_imatrix",
+        observer_kwargs={"temperature": 2.0},
+    ),
+    "imatrix-clip5": QuantizationArgs(
+        **{**COMMON, "scale_dtype": None},
+        observer="nvfp4_expanded_imatrix",
+        observer_kwargs={"imp_clip": 5.0},
+    ),
+    # ── Experiment E: GPTQ baseline ─────────────────────────────────
+    "gptq-nvfp4": QuantizationArgs(
+        **COMMON,
+        actorder="static",
+        observer="memoryless_minmax",
+    ),
 }
 
 
@@ -196,7 +249,8 @@ def model_short_name(model_id: str) -> str:
     return model_id.rstrip("/").split("/")[-1]
 
 
-def compress(model_id, config_key, output_base, force=False):
+def compress(model_id, config_key, output_base, force=False,
+             dataset=None, num_calibration_samples=512):
     name = model_short_name(model_id)
     out = output_base / f"{name}-{config_key}"
 
@@ -206,6 +260,8 @@ def compress(model_id, config_key, output_base, force=False):
 
     print(f"\n{'='*70}")
     print(f"  {name} / {config_key}")
+    if dataset:
+        print(f"  dataset: {dataset} ({num_calibration_samples} samples)")
     print(f"{'='*70}\n")
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -213,17 +269,36 @@ def compress(model_id, config_key, output_base, force=False):
         model_id, device_map="auto", torch_dtype="auto"
     )
 
-    recipe = QuantizationModifier(
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=CONFIGS[config_key],
-            )
-        },
-        ignore=["lm_head"],
-    )
+    quant_args = CONFIGS[config_key]
+    if config_key.startswith("gptq-"):
+        recipe = GPTQModifier(
+            config_groups={
+                "group_0": dict(
+                    weights=quant_args,
+                    targets=["Linear"],
+                )
+            },
+            ignore=["lm_head"],
+        )
+    else:
+        recipe = QuantizationModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=quant_args,
+                )
+            },
+            ignore=["lm_head"],
+        )
 
-    oneshot(model=model, recipe=recipe, output_dir=str(out))
+    oneshot_kwargs = dict(model=model, recipe=recipe, output_dir=str(out))
+    if dataset:
+        oneshot_kwargs["dataset"] = dataset
+        oneshot_kwargs["num_calibration_samples"] = num_calibration_samples
+        oneshot_kwargs["max_seq_length"] = 2048
+        oneshot_kwargs["splits"] = "train_sft"
+
+    oneshot(**oneshot_kwargs)
     tokenizer.save_pretrained(out)
     del model
     torch.cuda.empty_cache()
@@ -236,6 +311,8 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--configs", nargs="+", default=list(CONFIGS.keys()))
     parser.add_argument("--output-dir", type=str, default=str(OUTPUT_BASE))
+    parser.add_argument("--dataset", type=str, default=None)
+    parser.add_argument("--num-samples", type=int, default=512)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -248,7 +325,9 @@ def main():
             print(f"Unknown config: {config_key}")
             sys.exit(1)
         print(f"\n[{i}/{total}] {model_short_name(args.model)} / {config_key}")
-        compress(args.model, config_key, output_base, args.force)
+        compress(args.model, config_key, output_base, args.force,
+                 dataset=args.dataset,
+                 num_calibration_samples=args.num_samples)
 
 
 if __name__ == "__main__":
