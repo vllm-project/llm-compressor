@@ -157,8 +157,7 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                    modules = list(subgraph.submodules(model))
-                    LifecycleCallbacks.sequential_epoch_end(modules)
+                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks

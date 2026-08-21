@@ -182,7 +182,7 @@ def fuse_weight_observers(model: Module):
 
     :param model: model whose weight observers should be linked
     """
-    from llmcompressor.observers import Observer
+    from llmcompressor.observers.fusion import FusionHandler
 
     for submodule in model.modules():
         for fusion_name_group in FUSED_LAYER_NAMES:
@@ -194,6 +194,8 @@ def fuse_weight_observers(model: Module):
             only_tensor_group = True
             observers_and_modules = []
             for layer in layers_to_fuse:
+                if layer is None:
+                    continue
                 obs = getattr(layer, "weight_observer", None)
                 if obs is None:
                     only_obs = False
@@ -210,7 +212,7 @@ def fuse_weight_observers(model: Module):
             assert only_obs, f"{start} no weight observer{end}"
             assert only_tensor_group, f"{start} non-TENSOR_GROUP quantization{end}"
 
-            Observer.fuse(observers_and_modules)
+            FusionHandler.fuse(observers_and_modules)
 
 
 def lerp(start: torch.Tensor, end: torch.Tensor, weight: float) -> torch.Tensor:

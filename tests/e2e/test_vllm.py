@@ -145,8 +145,8 @@ class TestvLLM:
 
     def maybe_upload_to_hub(self):
         gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+        torch.accelerator.empty_cache()
+        torch.accelerator.synchronize()
         # Give GPU time to fully release memory
         time.sleep(2)
 

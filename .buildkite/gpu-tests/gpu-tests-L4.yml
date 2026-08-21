@@ -1,0 +1,103 @@
+# NOTE: Multi-GPU tests exist (e.g. test_quantization_ddp.py with @requires_gpu(2),
+# example scripts with torchrun --nproc_per_node=2) but are skipped with 1 GPU.
+# tests/examples/ and tests/sparsity/ are also excluded from the base test suite.
+# To run multi-GPU tests, add a separate group requesting nvidia.com/gpu: 2.
+
+steps:
+  - group: ":test_tube: Base Tests (L4)"
+    key: "base-tests"
+    steps:
+      - label: ":python: Base Tests py{{matrix.python}}"
+        agents:
+          queue: RedHat-L4-GCP
+
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 3
+            - exit_status: 255
+              limit: 3
+            - signal_reason: agent_stop
+              limit: 3
+
+        plugins:
+          - kubernetes:
+              podSpec:
+                nodeSelector:
+                  pool: L4solo
+
+                containers:
+                  - name: tests
+                    image: buildkite/agent:3-ubuntu
+                    command:
+                      - chmod +x .buildkite/gpu-tests/scripts/run-tests.sh
+                      - .buildkite/gpu-tests/scripts/run-tests.sh base
+
+                    resources:
+                      limits:
+                        nvidia.com/gpu: 1
+
+                    volumeMounts:
+                      - name: model-cache
+                        mountPath: /model-cache
+                        readOnly: false
+                      - name: devshm
+                        mountPath: /dev/shm
+
+                    env:
+                      - name: PYTHON_VERSION
+                        value: "{{matrix.python}}"
+
+                volumes:
+                  - name: model-cache
+                    persistentVolumeClaim:
+                      claimName: buildkite-podpvc-ssd-blue
+                  - name: devshm
+                    emptyDir:
+                      medium: Memory
+
+        matrix:
+          setup:
+            python: ["3.10", "3.13"]
+
+  - label: ":bar_chart: Combine Coverage"
+    depends_on: "base-tests"
+    allow_dependency_failure: true
+    agents:
+      queue: RedHat-ModelOpt-Util
+    command: |
+      CODE_COVERAGE=$$(buildkite-agent meta-data get "code-coverage" --default "false" 2>/dev/null || echo "false")
+      if [ "$${CODE_COVERAGE}" != "true" ]; then
+        echo "Code coverage not enabled — skipping combine step"
+        exit 0
+      fi
+      chmod +x .buildkite/gpu-tests/scripts/combine-coverage.sh
+      .buildkite/gpu-tests/scripts/combine-coverage.sh
+
+  # Transformers tests - run on main and release branch pushes
+  - label: ":mag: Transformers Tests (branch)"
+    if: build.pull_request.id == null && (build.branch == "main" || build.branch =~ /^release-/)
+    agents:
+      queue: RedHat-ModelOpt-Util
+    command: |
+      buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-L4.yml
+
+  # Transformers tests - conditional on PRs when relevant paths changed
+  - label: ":mag: Transformers Tests (PR)"
+    if: build.pull_request.id != null
+    agents:
+      queue: RedHat-ModelOpt-Util
+    if_changed:
+      include:
+        - "src/**"
+        - "tests/**"
+        - "setup.py"
+        - "MANIFEST.in"
+        - ".buildkite/gpu-tests/**"
+      exclude:
+        - "tests/e2e/**"
+        - "tests/lmeval/**"
+        - "tests/examples/**"
+        - "**/*.md"
+    command: |
+      buildkite-agent pipeline upload .buildkite/gpu-tests/transformers-tests-L4.yml

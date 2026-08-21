@@ -1,6 +1,5 @@
 import json
 
-import torch
 from compressed_tensors.entrypoints.convert import (
     FP8BlockDequantizer,
     convert_checkpoint,
@@ -59,7 +58,9 @@ with open(f"{BFLOAT16_SAVE_DIR}/config.json", "w") as f:
 # 3) Apply oneshot to bfloat16 model
 #    note that `load_quantizable_moe` is not required because we are using the
 #    custom model def `DeepseekV32ForCausalLM` which is already linearized
-with load_context(DeepseekV32ForCausalLM), torch.no_grad():
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
+with load_context(DeepseekV32ForCausalLM):
     model = DeepseekV32ForCausalLM.from_pretrained(
         BFLOAT16_SAVE_DIR,
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk

@@ -1,5 +1,6 @@
 from abc import abstractmethod
 
+import torch
 from pydantic import ConfigDict
 
 from llmcompressor.core.events import Event, EventType
@@ -26,6 +27,10 @@ class Modifier(ModifierInterface, HooksMixin):
         * on_calibration_end if event.type_ == EventType.CALIBRATION_END
     5. finalize
 
+    Subclasses that need calibration data must override
+    ``requires_calibration_data`` to return ``True``. This is used by the
+    pipeline registry to select the appropriate calibration pipeline.
+
     :param index: The index of the modifier in the list of modifiers
         for the model
     :param group: The group name for the modifier
@@ -35,6 +40,8 @@ class Modifier(ModifierInterface, HooksMixin):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    requires_calibration_data: bool = False
 
     index: int | None = None
     group: str | None = None
@@ -273,13 +280,17 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         """
         on_sequential_epoch_end is called at the end of a sequential layer
         calibration/training epoch.
 
         :param state: The current state of the model
         :param event: The event that triggered the sequential epoch end
+        :param modules: List of de-duplicated modules which were included in the
+            sequential subgraph
         :param kwargs: Additional arguments for the sequential epoch end
         """
         pass

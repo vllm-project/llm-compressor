@@ -1,15 +1,10 @@
 import torch
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationStrategy,
-)
-from compressed_tensors.quantization.lifecycle import fake_quantize
-from compressed_tensors.quantization.utils import calculate_qparams
-from compressed_tensors.utils import patch_attr
+from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
 
-from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.base import Observer
 from llmcompressor.observers.helpers import lerp
+from llmcompressor.observers.mse_quant import _grid_search_mse
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -30,15 +25,30 @@ class MemorylessMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
+        self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.expand = observer_kwargs.get("expand", 1.0)
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
+        if self.expand < 1.0:
+            raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
+
+        # Pre-create token_args to avoid patch_attr context manager
+        # which causes torch.compile graph breaks
+        self._token_args = self.args.model_copy(
+            update={"strategy": QuantizationStrategy.TOKEN}
+        )
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         self.min_vals, self.max_vals = _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
+            self.chunk_size,
+            self.expand,
         )
 
 
@@ -62,15 +72,28 @@ class MovingAverageMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
+        self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.expand = observer_kwargs.get("expand", 1.0)
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
+
+        # Pre-create token_args to avoid patch_attr context manager
+        # which causes torch.compile graph breaks
+        self._token_args = self.args.model_copy(
+            update={"strategy": QuantizationStrategy.TOKEN}
+        )
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         min_vals, max_vals = _grid_search_mse(
             observed,
             self.args,
+            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
+            self.chunk_size,
+            self.expand,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:
@@ -81,56 +104,28 @@ class MovingAverageMSEObserver(Observer):
         self.max_vals = max_vals
 
 
-def _grid_search_mse(
-    observed: torch.Tensor,
-    args: QuantizationArgs,
-    maxshrink: float,
-    patience: float,
-    grid: float,
-    norm: float,
-) -> MinMaxTuple:
-    min_val = torch.amin(observed, dim=(0, -1))
-    max_val = torch.amax(observed, dim=(0, -1))
-    best_error = torch.full_like(min_val, torch.finfo(min_val.dtype).max)
-    best_min_val = min_val.clone()
-    best_max_val = max_val.clone()
+@Observer.register("nvfp4_expanded_mse")
+class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
+    """
+    MSE observer with defaults tuned for NVFP4 range expansion.
 
-    no_improve_count = 0
+    Searches from ``expand`` times the observed range down to
+    ``(1 - maxshrink) * expand`` times the observed range.
+    With the defaults below, this covers 1.8x down to ~0.8x of
+    the original per-group range in 112 search steps.
 
-    for i in range(int(maxshrink * grid)):
-        p = 1 - i / grid
-        shrinked_min_val = p * min_val
-        shrinked_max_val = p * max_val
+    Usage::
 
-        candidate_scales, candidate_zero_points = calculate_qparams(
-            min_vals=shrinked_min_val,
-            max_vals=shrinked_max_val,
-            quantization_args=args,
-            global_scale=None,
+        QuantizationArgs(
+            ...
+            observer="nvfp4_expanded_mse",
         )
+    """
 
-        with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
-            q = fake_quantize(
-                observed,
-                candidate_scales.unsqueeze(-1),
-                candidate_zero_points.unsqueeze(-1),
-                args,
-            ).to(observed.dtype)
-
-        q -= observed
-        q.abs_()
-        q.pow_(norm)
-        err = torch.sum(q, dim=(0, -1))
-
-        tmp = err < best_error
-        if torch.any(tmp):
-            best_error[tmp] = err[tmp]
-            best_min_val[tmp] = shrinked_min_val[tmp]
-            best_max_val[tmp] = shrinked_max_val[tmp]
-            no_improve_count = 0
-        else:
-            no_improve_count += 1
-            if no_improve_count >= patience:
-                break
-
-    return best_min_val, best_max_val
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        observer_kwargs = self.args.observer_kwargs
+        self.expand = observer_kwargs.get("expand", 1.8)
+        self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
+        self.grid = observer_kwargs.get("grid", 200.0)
+        self.patience = observer_kwargs.get("patience", 1000)

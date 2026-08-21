@@ -17,7 +17,7 @@ def decompressed_linear_uncompressed_linear_models(request):
     config = request.param
     # config: {compressed_model_stub, uncompressed_model_stub}
 
-    quantization_config = CompressedTensorsConfig(run_compressed=False)
+    quantization_config = CompressedTensorsConfig(dequantize=True)
 
     # Decompressed using HFQuantizer
     # Linear foward
@@ -44,8 +44,8 @@ def decompressed_linear_uncompressed_linear_models(request):
     del tokenizer
 
     gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
+    torch.accelerator.empty_cache()
+    torch.accelerator.synchronize()
 
 
 @requires_gpu
@@ -55,8 +55,8 @@ def test_decompressed_linear_uncompressed_linear(
     """
     Uncompressed-Linear-forward decompressed-Linear-foward check
 
-    Uncompressed:  Optimized model saved as run_compressed=False, no need to decompress
-    Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
+    Uncompressed:  Optimized model saved as dequantize=True, no need to decompress
+    Decompressed:  Optimized model saved as dequantize=False, and decompressed using
         AutoModelForCausalLM decompression
 
     AutoModelForCausalLM decompression diagram flow https://tinyurl.com/2ynb6wbu

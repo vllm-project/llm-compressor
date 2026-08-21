@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 import tqdm
-from compressed_tensors.offload import dispatch_model, get_execution_device
+from compressed_tensors.offload import get_execution_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
@@ -39,8 +40,12 @@ class BasicPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
-        dispatch_model(model)  # basic dispatch is identical to generation
         model_device = get_execution_device(model)
+        if model_device == torch.device("cpu"):
+            logger.warning(
+                "Attempting to calibrate on CPU. Consider loading your model with"
+                " `device_map='auto'`"
+            )
         use_loss_mask = (
             getattr(dataset_args, "use_loss_mask", False) if dataset_args else False
         )

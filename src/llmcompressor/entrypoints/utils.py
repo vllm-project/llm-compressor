@@ -163,9 +163,8 @@ def initialize_model_from_path(
 
     # optimized models must be decompressed to carry out oneshot/train/etc
     if is_model_ct_quantized_from_path(model_path):
-        model_kwargs["quantization_config"] = CompressedTensorsConfig(
-            run_compressed=False
-        )
+        logger.info("Found a compressed-tensors model, decompressing...")
+        model_kwargs["quantization_config"] = CompressedTensorsConfig(dequantize=True)
 
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
     if "sequence_length" in model_kwargs:
@@ -184,7 +183,6 @@ def initialize_processor_from_path(
         processor = AutoProcessor.from_pretrained(
             processor_src,
             cache_dir=None,
-            use_fast=True,
             revision=model_args.model_revision,
             trust_remote_code=model_args.trust_remote_code_model,
         )
@@ -202,7 +200,6 @@ def initialize_processor_from_path(
         processor = AutoProcessor.from_pretrained(
             processor_src,
             cache_dir=None,
-            use_fast=False,
             revision=model_args.model_revision,
             trust_remote_code=model_args.trust_remote_code_model,
         )

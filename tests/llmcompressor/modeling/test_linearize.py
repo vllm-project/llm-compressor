@@ -4,61 +4,21 @@ from pathlib import Path
 import pytest
 import torch
 from compressed_tensors.utils import patch_attr
+from huggingface_hub.errors import StrictDataclassError
 from safetensors import safe_open
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers import initialization as init
-from transformers.models.afmoe.configuration_afmoe import AfmoeConfig
-from transformers.models.afmoe.modeling_afmoe import AfmoeExperts
-from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3NaiveMoe
-from transformers.models.deepseek_v4.configuration_deepseek_v4 import DeepseekV4Config
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
-    DeepseekV4Experts,
     DeepseekV4PreTrainedModel,
 )
-from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
-from transformers.models.gemma4.modeling_gemma4 import Gemma4TextExperts
-from transformers.models.glm4_moe.configuration_glm4_moe import Glm4MoeConfig
-from transformers.models.glm4_moe.modeling_glm4_moe import Glm4MoeNaiveMoe
-from transformers.models.glm4_moe_lite.configuration_glm4_moe_lite import (
-    Glm4MoeLiteConfig,
-)
-from transformers.models.glm4_moe_lite.modeling_glm4_moe_lite import Glm4MoeLiteNaiveMoe
-from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import GlmMoeDsaConfig
-from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaNaiveMoe
-from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
-from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
-from transformers.models.granitemoe.configuration_granitemoe import GraniteMoeConfig
-from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeParallelExperts
-from transformers.models.hy_v3.configuration_hy_v3 import HYV3Config
-from transformers.models.hy_v3.modeling_hy_v3 import HYV3Experts
-from transformers.models.llama4.configuration_llama4 import (
-    Llama4Config,
-    Llama4TextConfig,
-)
-from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
-from transformers.models.nemotron_h.configuration_nemotron_h import NemotronHConfig
-from transformers.models.nemotron_h.modeling_nemotron_h import NemotronHExperts
-from transformers.models.qwen3_5_moe.configuration_qwen3_5_moe import (
-    Qwen3_5MoeTextConfig,
-)
-from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeExperts
-from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
-from transformers.models.qwen3_next.configuration_qwen3_next import Qwen3NextConfig
-from transformers.models.qwen3_next.modeling_qwen3_next import Qwen3NextExperts
-from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
-    Qwen3VLMoeTextConfig,
-)
-from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
 
-from llmcompressor.modeling.moe.context import (
-    moe_calibration_context,
-)
+from llmcompressor.modeling.moe.context import moe_calibration_context
+from llmcompressor.modeling.moe.conversion_mappings import ARCH_TO_IMPORT_PATHS
 from llmcompressor.modeling.moe.helpers import (
     FusedExpertsProtocol,
     MoEConfig,
     _getattr_fallbacks,
+    import_or_none,
 )
 from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
 from tests.testing_utils import requires_gpu
@@ -66,6 +26,21 @@ from tests.testing_utils import requires_gpu
 NUM_TEST_TOKENS = 64
 MODEL_MSE = 1e-2
 MODULE_MSE = 1e-10
+CONFIG_OVERRIDES = {
+    "deepseek_ocr2": {"num_experts_per_tok": 16},
+    "deepseek_v3": {"hidden_size": 512, "moe_intermediate_size": 1024},
+    "cohere2_moe": {"hidden_size": 256, "intermediate_size": 256},
+    "gemma4": {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
+    "glm_moe_dsa": {"hidden_size": 512},
+    "hy_v3": {"hidden_size": 256, "moe_intermediate_size": 256, "num_experts": 16},
+    "jamba": {"hidden_size": 256, "intermediate_size": 256, "num_experts": 16},
+    "nemotron_h": {"hidden_size": 32, "moe_intermediate_size": 64},
+    "deepseek_v4": {
+        "hidden_size": 512,
+        "moe_intermediate_size": 64,
+        "n_routed_experts": 16,
+    },
+}
 
 
 @pytest.fixture
@@ -76,6 +51,7 @@ def patch_deepseek_fp32_modules():
     BUG: norms should be loaded in float32, but usually aren't due to the base
     model having a quant_config which overrides this. Loading in float32 actually
     breaks the model definition (it expects bfloat16). Let's force load in bfloat16.
+    # Fixed upstream by: https://github.com/huggingface/transformers/pull/47486
     """
     with patch_attr(DeepseekV4PreTrainedModel, "_keep_in_fp32_modules_strict", set()):
         yield
@@ -89,9 +65,9 @@ def patch_deepseek_fp32_modules():
         (
             "inference-optimization/DSV4-tiny-empty",
             [
-                "model.layers.0.mlp.experts.2.up_proj.weight",
-                "model.layers.1.mlp.experts.0.gate_proj.weight",
-                "model.layers.2.mlp.experts.1.down_proj.weight",
+                "model.layers.0.ffn.experts.2.w3.weight",
+                "model.layers.1.ffn.experts.0.w1.weight",
+                "model.layers.2.ffn.experts.1.w2.weight",
             ],
         ),
         (
@@ -102,11 +78,24 @@ def patch_deepseek_fp32_modules():
                 "model.layers.2.mlp.experts.1.down_proj.weight",
             ],
         ),
+        (
+            "inference-optimization/GLM-5.2-0.8B-A0.8B",
+            [
+                "model.layers.2.mlp.experts.2.up_proj.weight",
+                "model.layers.3.mlp.experts.0.gate_proj.weight",
+                "model.layers.4.mlp.experts.1.down_proj.weight",
+            ],
+        ),
     ],
 )
 def test_load_quantizable_moe(
     model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
 ):
+    try:
+        AutoConfig.from_pretrained(model_stub)
+    except StrictDataclassError:
+        pytest.skip("Could not import model, please upgrade your transformers version")
+
     input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
     model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
@@ -127,10 +116,10 @@ def test_load_quantizable_moe(
     save_dir = tmp_path / "save_path"
     os.mkdir(save_dir)
     model2.save_pretrained(save_dir)
-    assert keys_exist(save_dir, exp_keys)
+    assert_keys_exist(save_dir, exp_keys)
 
 
-def keys_exist(model_path: Path, keys: list[str]) -> bool:
+def assert_keys_exist(model_path: Path, keys: list[str]):
     """
     Utility to check that expected expert keys exist in a saved model.
 
@@ -149,7 +138,7 @@ def keys_exist(model_path: Path, keys: list[str]) -> bool:
         with safe_open(st_file, framework="pt", device="cpu") as f:
             all_keys.update(f.keys())
 
-    return keys <= all_keys
+    assert keys <= all_keys, all_keys
 
 
 class DummyModel(torch.nn.Module):
@@ -164,40 +153,19 @@ class DummyModel(torch.nn.Module):
 
 @torch.no_grad()
 @requires_gpu
-@pytest.mark.parametrize(
-    "config_cls,experts_cls,kwargs",
-    [
-        (AfmoeConfig, AfmoeExperts, {}),
-        (
-            DeepseekV3Config,
-            DeepseekV3NaiveMoe,
-            {"hidden_size": 512, "moe_intermediate_size": 1024},
-        ),
-        (DeepseekV4Config, DeepseekV4Experts, {}),
-        (
-            Gemma4TextConfig,
-            Gemma4TextExperts,
-            {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
-        ),
-        (Glm4MoeConfig, Glm4MoeNaiveMoe, {}),
-        (Glm4MoeLiteConfig, Glm4MoeLiteNaiveMoe, {}),
-        (GlmMoeDsaConfig, GlmMoeDsaNaiveMoe, {"hidden_size": 512}),
-        (Qwen3_5MoeTextConfig, Qwen3_5MoeExperts, {}),
-        (Qwen3MoeConfig, Qwen3MoeExperts, {}),
-        (Qwen3NextConfig, Qwen3NextExperts, {}),
-        (Qwen3VLMoeTextConfig, Qwen3VLMoeTextExperts, {}),
-        (GptOssConfig, GptOssExperts, {}),
-        (HYV3Config, HYV3Experts, {}),
-        (
-            NemotronHConfig,
-            NemotronHExperts,
-            {"hidden_size": 32, "moe_intermediate_size": 64},
-        ),
-    ],
-)
-def test_linearize_moe(config_cls, experts_cls, kwargs):
+@pytest.mark.parametrize("model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4"}))
+def test_linearize_moe(model_type):
+    config_path, experts_path = ARCH_TO_IMPORT_PATHS[model_type]
+    config_cls = import_or_none(config_path)
+    experts_cls = import_or_none(experts_path)
+
+    if config_cls is None or experts_cls is None:
+        pytest.skip(
+            f"Could not import {model_type}, please upgrade your transformers version"
+        )
+
     with torch.device("cuda"):
-        config = config_cls(**kwargs)
+        config = config_cls(**CONFIG_OVERRIDES.get(model_type, {}))
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
         up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
@@ -230,34 +198,13 @@ def test_linearize_moe(config_cls, experts_cls, kwargs):
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
-def test_linearize_moe_granite():
-    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
-    experts = GraniteMoeParallelExperts(
-        config.num_local_experts, config.hidden_size, config.intermediate_size
-    )
-    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
-
-    mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
-    assert mock_model.module is not experts
-
-    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
-    expert_size = [
-        (NUM_TEST_TOKENS // config.num_local_experts)
-        for _ in range(config.num_local_experts)
-    ]
-    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
-    true_outputs = experts(hidden_states, expert_size)
-    outputs = mock_model(hidden_states, expert_size)
-    with moe_calibration_context():
-        calib_outputs = mock_model(hidden_states, expert_size)
-
-    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
-    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
-    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
-
-
 def test_linearize_moe_llama4():
+    from transformers.models.llama4.configuration_llama4 import (
+        Llama4Config,
+        Llama4TextConfig,
+    )
+    from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
+
     text_config = Llama4TextConfig(hidden_size=512, intermediate_size=1024)
     config = Llama4Config(text_config=text_config)
     experts = Llama4TextExperts(config.text_config)
