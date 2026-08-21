@@ -145,6 +145,23 @@ def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
     assert layer_config == {}
 
 
+def test_build_layer_config_for_autoround_ignores_kv_cache_only_scheme():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    layer = _FakeDecoderLayer()
+    modifier.initialize_quantization(layer)
+    layer.k_proj.quantization_scheme = QuantizationScheme(
+        targets=["k_proj"],
+        output_activations=QuantizationArgs(
+            num_bits=8, type="float", strategy="tensor"
+        ),
+    )
+
+    wrapped = _wrap_decoding_layer(layer)
+    layer_config = modifier._build_layer_config_for_autoround(wrapped)
+
+    assert layer_config == {}
+
+
 def test_quant_scheme_to_autoround_config_supports_fp8_block():
     modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="FP8_BLOCK")
 

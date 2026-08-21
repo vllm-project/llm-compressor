@@ -665,7 +665,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         for name, module in wrapped_model.named_modules():
             quant_scheme = getattr(module, "quantization_scheme", None)
-            if quant_scheme is None:
+            # KV-cache-only schemes quantize module outputs and intentionally have
+            # no weight arguments. They are handled by QuantizationModifier, not
+            # AutoRound's weight-quantization layer configuration.
+            if quant_scheme is None or quant_scheme.weights is None:
                 continue
 
             if not isinstance(quant_scheme, QuantizationScheme):
