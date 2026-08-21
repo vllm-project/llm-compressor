@@ -14,7 +14,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["IMatrixMSEObserver", "NVFP4ExpandedIMatrixObserver"]
+__all__ = ["IMatrixMSEObserver"]
 
 _GROUP_STRATEGIES = (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
 
