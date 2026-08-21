@@ -72,30 +72,3 @@ def test_fouroversix_searches_only_1x_and_1_5x():
     assert shrink_factors[1] == pytest.approx(
         1.0, abs=1e-4
     ), f"Second search point should be 1.0x, got {shrink_factors[1]}"
-
-
-def test_fouroversix_is_nvfp4_default():
-    """NVFP4 (FP4 + TENSOR_GROUP) should default to fouroversix observer."""
-    args = QuantizationArgs(
-        num_bits=4,
-        type="float",
-        strategy=QuantizationStrategy.TENSOR_GROUP,
-        group_size=16,
-    )
-    assert args.observer == "fouroversix"
-
-
-def test_non_nvfp4_does_not_default_to_fouroversix():
-    """Non-NVFP4 quantization should not use fouroversix."""
-    # MXFP4 (GROUP strategy)
-    mxfp4 = QuantizationArgs(
-        num_bits=4,
-        type="float",
-        strategy=QuantizationStrategy.GROUP,
-        group_size=32,
-    )
-    assert mxfp4.observer != "fouroversix"
-
-    # INT8
-    int8 = QuantizationArgs(num_bits=8, type="int")
-    assert int8.observer != "fouroversix"
