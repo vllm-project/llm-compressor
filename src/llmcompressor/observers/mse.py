@@ -153,5 +153,5 @@ class FourOverSixObserver(MemorylessMSEObserver):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
         self.expand = observer_kwargs.get("expand", 1.5)
-        self.maxshrink = observer_kwargs.get("maxshrink", 1.0 / 3.0)
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.67)
         self.grid = observer_kwargs.get("grid", 3.0)
