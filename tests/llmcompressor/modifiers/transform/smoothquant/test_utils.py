@@ -274,3 +274,70 @@ def test_granite_default_mapping_regex_matches_real_module_tree():
                 f"GraniteForCausalLM: balance pattern {balance_pat!r} matched "
                 f"no modules; sample names: {module_names[:20]}"
             )
+
+
+@pytest.mark.unit
+def test_nanbeige_default_mapping_regex_matches_standard_module_tree():
+    """NanbeigeForCausalLM has a standard q/k/v/o + gate/up/down decoder layout
+    (confirmed by the merged AWQ mapping PR #2966, which registers it under
+    `default_mappings` there), but has no SmoothQuant registry entry, so it
+    silently falls back to DEFAULT_SMOOTHQUANT_MAPPINGS anyway -- this PR
+    makes that explicit rather than implicit.
+
+    NanbeigeForCausalLM requires trust_remote_code and isn't importable from
+    transformers directly, so -- following the same precedent as the merged
+    AWQ PR's test (test_nanbeige_model_uses_static_default_mappings) -- build
+    a minimal synthetic module tree with the documented standard layer names
+    and confirm the regex matches it.
+    """
+    import re
+
+    import torch
+
+    layers = []
+    for _ in range(2):
+        layer = torch.nn.ModuleDict(
+            {
+                "self_attn": torch.nn.ModuleDict(
+                    {
+                        "q_proj": torch.nn.Linear(8, 8),
+                        "k_proj": torch.nn.Linear(8, 8),
+                        "v_proj": torch.nn.Linear(8, 8),
+                        "o_proj": torch.nn.Linear(8, 8),
+                    }
+                ),
+                "mlp": torch.nn.ModuleDict(
+                    {
+                        "gate_proj": torch.nn.Linear(8, 8),
+                        "up_proj": torch.nn.Linear(8, 8),
+                        "down_proj": torch.nn.Linear(8, 8),
+                    }
+                ),
+                "input_layernorm": torch.nn.LayerNorm(8),
+                "post_attention_layernorm": torch.nn.LayerNorm(8),
+            }
+        )
+        layers.append(layer)
+    model = torch.nn.ModuleDict({"layers": torch.nn.ModuleList(layers)})
+
+    module_names = [name for name, _ in model.named_modules()]
+
+    assert (
+        get_layer_mappings_from_architecture("NanbeigeForCausalLM")
+        is DEFAULT_SMOOTHQUANT_MAPPINGS
+    )
+
+    for layer_map in DEFAULT_SMOOTHQUANT_MAPPINGS:
+        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
+        smooth_hits = [n for n in module_names if re.search(smooth_pat, n)]
+        assert smooth_hits, (
+            f"NanbeigeForCausalLM: smooth pattern {smooth_pat!r} matched no "
+            f"modules; sample names: {module_names[:20]}"
+        )
+        for balance_pat_raw in layer_map.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_hits = [n for n in module_names if re.search(balance_pat, n)]
+            assert balance_hits, (
+                f"NanbeigeForCausalLM: balance pattern {balance_pat!r} matched "
+                f"no modules; sample names: {module_names[:20]}"
+            )
