@@ -363,11 +363,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 # Moving it here makes that call a no-op.
                 # Use current_device_index() (local GPU index) rather than global
                 # rank to avoid invalid device ordinal errors on multi-node setups.
-                if torch.accelerator.is_available():
+                if hasattr(torch, "accelerator") and torch.accelerator.is_available():
                     device = torch.device(
                         torch.accelerator.current_accelerator().type,
                         torch.accelerator.current_device_index(),
                     )
+                elif torch.cuda.is_available():
+                    device = torch.device("cuda", torch.cuda.current_device())
                 else:
                     device = torch.device("cpu")
                 decoding_layer.to(device)
@@ -400,8 +402,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             device_module = getattr(torch, device_type, None)
             if device_module is not None and hasattr(device_module, "empty_cache"):
                 device_module.empty_cache()
-        elif torch.accelerator.is_available():
-            torch.accelerator.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
