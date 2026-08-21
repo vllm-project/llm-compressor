@@ -18,6 +18,11 @@ class Llama4LinearExperts(LinearExperts2D):
     has_bias = False
     has_gate = True
 
+    # During all-expert calibration, every expert receives every routed token so
+    # activation statistics are representative. Chunk those forwards to prevent a
+    # single expert projection from materializing a multi-GiB activation tensor.
+    _calibration_chunk_size = 8192
+
     def _apply_gate(self, gate_up: torch.Tensor) -> torch.Tensor:
         """Apply gated activation: act_fn(gate) * up"""
         gate, up = gate_up.chunk(2, dim=-1)
@@ -96,18 +101,31 @@ class Llama4LinearExperts(LinearExperts2D):
             Tensor: (num_experts * num_tokens_per_expert, hidden_size)
         """
         num_tokens = hidden_states.shape[0] // self.num_experts
-        expert_view = (self.num_experts, num_tokens, self.input_size)
 
-        output_list = []
+        output = hidden_states.new_empty(hidden_states.shape)
         for i in range(self.num_experts):
             expert = self[i]
             if get_calibrate_all_experts_flag():
-                expert_output = expert(hidden_states).view(*expert_view)[i]
+                start = i * num_tokens
+                end = start + num_tokens
+                for chunk_start in range(
+                    0, hidden_states.shape[0], self._calibration_chunk_size
+                ):
+                    chunk_end = min(
+                        chunk_start + self._calibration_chunk_size,
+                        hidden_states.shape[0],
+                    )
+                    overlap_start = max(start, chunk_start)
+                    overlap_end = min(end, chunk_end)
+                    expert_output = expert(hidden_states[chunk_start:chunk_end])
+                    if overlap_start < overlap_end:
+                        output[overlap_start:overlap_end] = expert_output[
+                            overlap_start - chunk_start : overlap_end - chunk_start
+                        ]
             else:
-                expert_output = expert(hidden_states.view(*expert_view)[i])
-            output_list.append(expert_output)
+                output[start:end] = expert(hidden_states[start:end])
 
-        return torch.cat(output_list, dim=0)
+        return output
 
 
 # register in registry
