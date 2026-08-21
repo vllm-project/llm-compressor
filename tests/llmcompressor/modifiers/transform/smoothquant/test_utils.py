@@ -14,6 +14,7 @@ from llmcompressor.modifiers.transform.smoothquant.utils import (
     DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     DEFAULT_SMOOTHQUANT_MAPPINGS,
     MAPPINGS_REGISTRY,
+    MIXTRAL_SMOOTHQUANT_MAPPINGS,
     PHI3_VISION_SMOOTHQUANT_MAPPINGS,
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
@@ -273,4 +274,233 @@ def test_granite_default_mapping_regex_matches_real_module_tree():
             assert balance_hits, (
                 f"GraniteForCausalLM: balance pattern {balance_pat!r} matched "
                 f"no modules; sample names: {module_names[:20]}"
+            )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture",
+    [
+        "GptOssForCausalLM",
+        "GraniteMoeForCausalLM",
+        "GraniteMoeSharedForCausalLM",
+        "PhiMoEForCausalLM",
+    ],
+)
+def test_mixtral_style_moe_architectures_resolve(architecture):
+    """Mixtral-style MoE architectures use attention-only smoothing
+    (matches the existing MixtralForCausalLM / Qwen2-3 MoE convention)."""
+    assert architecture in MAPPINGS_REGISTRY
+    resolved = get_layer_mappings_from_architecture(architecture)
+    assert resolved is MIXTRAL_SMOOTHQUANT_MAPPINGS
+    assert resolved is not DEFAULT_SMOOTHQUANT_MAPPINGS
+
+
+# Per-architecture (config_cls, model_cls, tiny_config_kwargs) for the four
+# new Mixtral-style MoE entries. Tiny configs keep the meta-device model
+# small enough for a unit-test budget but preserve the layer-name shape we
+# care about (q/k/v_proj + input_layernorm + post_attention_layernorm).
+_MIXTRAL_STYLE_MOE_MODEL_SPECS = [
+    (
+        "PhiMoEForCausalLM",
+        "transformers.PhimoeConfig",
+        "transformers.PhimoeForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_experts_per_tok=2,
+            num_local_experts=4,
+            vocab_size=100,
+        ),
+    ),
+    (
+        "GraniteMoeForCausalLM",
+        "transformers.GraniteMoeConfig",
+        "transformers.GraniteMoeForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_local_experts=4,
+            num_experts_per_tok=2,
+            vocab_size=100,
+        ),
+    ),
+    (
+        "GraniteMoeSharedForCausalLM",
+        "transformers.GraniteMoeSharedConfig",
+        "transformers.GraniteMoeSharedForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_local_experts=4,
+            num_experts_per_tok=2,
+            shared_intermediate_size=64,
+            vocab_size=100,
+        ),
+    ),
+    (
+        "GptOssForCausalLM",
+        "transformers.GptOssConfig",
+        "transformers.GptOssForCausalLM",
+        dict(
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            num_local_experts=4,
+            num_experts_per_tok=2,
+            vocab_size=100,
+        ),
+    ),
+]
+
+
+def _import_cls(dotted: str):
+    """Resolve 'transformers.Foo' to the actual class."""
+    import importlib
+
+    module_path, _, cls_name = dotted.rpartition(".")
+    return getattr(importlib.import_module(module_path), cls_name)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "architecture,config_dotted,model_dotted,tiny_kwargs",
+    _MIXTRAL_STYLE_MOE_MODEL_SPECS,
+)
+def test_mixtral_moe_mapping_resolves_on_real_module_tree(
+    architecture, config_dotted, model_dotted, tiny_kwargs
+):
+    """Construct each MoE architecture on the meta device with a tiny
+    config and assert MIXTRAL_SMOOTHQUANT_MAPPINGS' attention regex
+    (q/k/v_proj + input_layernorm) matches at least one module per
+    decoder layer. No HF Hub downloads, no weight allocation."""
+    import re
+
+    import torch
+
+    ConfigCls = _import_cls(config_dotted)
+    ModelCls = _import_cls(model_dotted)
+
+    config = ConfigCls(**tiny_kwargs)
+    with torch.device("meta"):
+        model = ModelCls(config)
+
+    module_names = [name for name, _ in model.named_modules()]
+
+    # Each entry in MIXTRAL_SMOOTHQUANT_MAPPINGS is a (balance_layers,
+    # smooth_layers) LayerMap with `re:`-prefixed patterns. Stripping the
+    # `re:` prefix gives a regex usable directly with re.search.
+    for layer_map in MIXTRAL_SMOOTHQUANT_MAPPINGS:
+        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
+        smooth_re = re.compile(smooth_pat)
+        smooth_hits = [n for n in module_names if smooth_re.search(n)]
+        assert smooth_hits, (
+            f"{architecture}: smooth pattern {smooth_pat!r} matched no modules; "
+            f"sample names: {module_names[:20]}"
+        )
+
+        for balance_pat_raw in layer_map.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_re = re.compile(balance_pat)
+            balance_hits = [n for n in module_names if balance_re.search(n)]
+            assert balance_hits, (
+                f"{architecture}: balance pattern {balance_pat!r} matched no "
+                f"modules; sample names: {module_names[:20]}"
+            )
+
+
+# Heavier end-to-end validation: load a real HF checkpoint per architecture
+# via `skip_weights_download` (config + metadata only, no weight bytes), then
+# resolve the mapping through `SmoothQuantModifier._resolve_mappings` exactly
+# as production would. Verifies the architecture string we registered matches
+# what the real checkpoint declares in `config.architectures`, and that the
+# resolver attaches a SmoothQuantMapping per decoder layer. Marked weekly so
+# CI doesn't pay the structure-allocation cost on every commit; matches the
+# `tests/llmcompressor/modeling/test_calib_*.py` precedent for MoE coverage.
+_MIXTRAL_STYLE_MOE_REAL_CHECKPOINTS = [
+    ("PhiMoEForCausalLM", "microsoft/Phi-3.5-MoE-instruct"),
+    ("GraniteMoeForCausalLM", "ibm-granite/granite-3.0-1b-a400m-base"),
+    (
+        "GraniteMoeSharedForCausalLM",
+        "ibm-research/moe-7b-1b-active-shared-experts",
+    ),
+    ("GptOssForCausalLM", "openai/gpt-oss-20b"),
+]
+
+try:
+    from tests.testing_utils import requires_cadence
+except Exception:  # pragma: no cover - import-only guard for the parametrize id
+    requires_cadence = None
+
+
+if requires_cadence is not None:
+
+    @requires_cadence("weekly")
+    @pytest.mark.parametrize(
+        "architecture,model_stub", _MIXTRAL_STYLE_MOE_REAL_CHECKPOINTS
+    )
+    def test_mixtral_moe_mapping_resolves_on_real_checkpoint(architecture, model_stub):
+        """End-to-end weekly validation: load each real checkpoint via
+        skip_weights_download (no weight bytes), confirm the HF config's
+        declared architecture matches the registry key we added, and assert
+        SmoothQuantModifier._resolve_mappings finds at least one mapping
+        per decoder layer using MIXTRAL_SMOOTHQUANT_MAPPINGS."""
+        from transformers import AutoModelForCausalLM
+
+        from llmcompressor.modifiers.transform.smoothquant import (
+            SmoothQuantModifier,
+        )
+        from llmcompressor.utils.dev import skip_weights_download
+
+        with skip_weights_download():
+            model = AutoModelForCausalLM.from_pretrained(
+                model_stub, trust_remote_code=True
+            )
+
+        # 1. The arch string we added to the registry must be the one the
+        #    real checkpoint declares.
+        declared = model.config.architectures or [model.__class__.__name__]
+        assert architecture in declared, (
+            f"registered arch {architecture!r} not in checkpoint "
+            f"{model_stub!r} config.architectures={declared!r}"
+        )
+
+        # 2. End-to-end resolution: SmoothQuantModifier walks the model and
+        #    builds a SmoothQuantMapping per matched layer. Use the public
+        #    inference path (mappings=None -> registry lookup by class name).
+        modifier = SmoothQuantModifier(mappings=None)
+        modifier.mappings = modifier._infer_mappings_from_model(model)
+        modifier.ignore = []
+        resolved = modifier._resolve_mappings(model)
+
+        # Should attach at least one SmoothQuantMapping per decoder layer.
+        n_layers = model.config.num_hidden_layers
+        assert len(resolved) >= n_layers, (
+            f"{architecture}: expected >= {n_layers} resolved mappings "
+            f"(one per decoder layer), got {len(resolved)}"
+        )
+
+        # Every resolved entry must reference the input_layernorm as smooth
+        # and the attention q/k/v_proj as balance — that's MIXTRAL_-
+        # SMOOTHQUANT_MAPPINGS' contract.
+        for m in resolved:
+            assert "input_layernorm" in m.smooth_name, (
+                f"{architecture}: resolved smooth_name {m.smooth_name!r} is "
+                "not an input_layernorm"
+            )
+            balance_set = {b.__class__.__name__ for b in m.balance_layers}
+            assert len(m.balance_layers) >= 3, (
+                f"{architecture}: expected >= 3 balance layers (q/k/v_proj), "
+                f"got {len(m.balance_layers)} ({balance_set})"
             )
