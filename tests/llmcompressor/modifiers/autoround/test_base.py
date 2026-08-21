@@ -145,6 +145,26 @@ def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
     assert layer_config == {}
 
 
+def test_quant_scheme_to_autoround_config_supports_fp8_block():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="FP8_BLOCK")
+
+    config = modifier._quant_scheme_to_autoround_config(
+        modifier._get_default_quant_scheme()
+    )
+
+    assert config == {
+        "bits": 8,
+        "sym": True,
+        "group_size": (128, 128),
+        "data_type": "fp",
+        "act_bits": 16,
+        "act_group_size": 128,
+        "act_sym": True,
+        "act_dynamic": True,
+        "act_data_type": "fp",
+    }
+
+
 def test_update_device_map_for_dp_uses_current_rank_device():
     modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
     ar_kwargs = {}

@@ -581,10 +581,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 group_size = -1
             elif weight_args.strategy == QuantizationStrategy.TENSOR:
                 group_size = 0
+            elif weight_args.strategy == QuantizationStrategy.BLOCK:
+                group_size = tuple(weight_args.block_structure)
             else:
                 raise ValueError(
-                    "AutoRoundModifier only supports channel-wise and tensor-wise "
-                    "weight quantization"
+                    "AutoRoundModifier only supports channel-wise, tensor-wise, "
+                    "and block-wise weight quantization"
                 )
 
         if data_type == "float":
