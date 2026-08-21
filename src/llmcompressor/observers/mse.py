@@ -139,7 +139,7 @@ class FourOverSixObserver(MemorylessMSEObserver):
 
     Inspired by the FourOverSix paper's approach of comparing the
     standard range against a moderately expanded range, but without
-    the global-scale optimization step. Performs better on most models. 
+    the global-scale optimization step. Performs better on most models.
 
     Usage::
 
