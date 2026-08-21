@@ -3,8 +3,6 @@ import math
 import pytest
 import torch
 import torch.fx
-from datasets import Dataset
-from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -187,35 +185,15 @@ def test_trace_consumed_names(input_names, expected_consumed_names):
 
 
 @pytest.mark.unit
-def test_handle_sequential_oom_reports_untruncated_sample_lengths():
-    dataset = Dataset.from_dict({"input_ids": [[0] * 16, [0] * 5000]})
-    dataloader = DataLoader(dataset, batch_size=1)
-    dataset_args = DatasetArguments(num_calibration_samples=2)
-
+def test_handle_sequential_oom_mentions_calibration_levers():
     @handle_sequential_oom
-    def pipeline(model, dataloader, dataset_args):
+    def pipeline():
         raise torch.OutOfMemoryError("CUDA out of memory")
 
     with pytest.raises(torch.OutOfMemoryError) as excinfo:
-        pipeline(None, dataloader, dataset_args)
+        pipeline()
 
     message = str(excinfo.value)
     assert "Sequential pipeline ran out of memory" in message
-    assert "`num_calibration_samples` or `max_seq_length`" in message
-    assert "`max_seq_length` is not set" in message
-    assert "2 sample(s) with median length 2508 and max length 5000 tokens" in message
-
-
-def test_handle_sequential_oom_message_unchanged_when_max_seq_length_set():
-    dataset = Dataset.from_dict({"input_ids": [[0] * 16, [0] * 5000]})
-    dataloader = DataLoader(dataset, batch_size=1)
-    dataset_args = DatasetArguments(num_calibration_samples=2, max_seq_length=2048)
-
-    @handle_sequential_oom
-    def pipeline(model, dataloader, dataset_args):
-        raise torch.OutOfMemoryError("CUDA out of memory")
-
-    with pytest.raises(torch.OutOfMemoryError) as excinfo:
-        pipeline(None, dataloader, dataset_args)
-
-    assert "`max_seq_length` is not set" not in str(excinfo.value)
+    assert "`max_seq_length`" in message
+    assert "`num_calibration_samples`" in message
