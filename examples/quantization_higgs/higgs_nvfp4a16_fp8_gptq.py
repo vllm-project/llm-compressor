@@ -22,7 +22,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.transformers.compression.higgs import get_higgs_config
+from llmcompressor.entrypoints.higgs import get_higgs_config
 
 IGNORE = [
     "lm_head",

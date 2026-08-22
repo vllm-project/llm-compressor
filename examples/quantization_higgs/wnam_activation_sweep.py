@@ -39,7 +39,7 @@ import time
 
 import torch
 
-from llmcompressor.transformers.compression.higgs import get_higgs_config
+from llmcompressor.entrypoints.higgs import get_higgs_config
 
 
 IGNORE = [

@@ -4,7 +4,7 @@ Unit tests for ILP solver.
 
 import pytest
 
-from llmcompressor.transformers.compression.higgs.ilp_solver import (
+from llmcompressor.entrypoints.higgs.ilp_solver import (
     solve_ilp_mixed_precision,
 )
 

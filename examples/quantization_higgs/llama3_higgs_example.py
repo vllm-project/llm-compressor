@@ -9,7 +9,7 @@ import os
 import time
 import torch
 
-from llmcompressor.transformers.compression.higgs import get_higgs_config
+from llmcompressor.entrypoints.higgs import get_higgs_config
 
 # Select model
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
