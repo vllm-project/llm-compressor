@@ -98,9 +98,15 @@ def get_processed_dataset(
         and "[" not in split_str
         and dataset_args.num_calibration_samples is not None
     ):
+        start, end = _get_partition_start_end(
+            dataset_args.num_calibration_samples,
+            dist.get_rank(),
+            dist.get_world_size(),
+        )
         split_str = get_rank_partition(
             split_str, dataset_args.num_calibration_samples
         )
+        dataset_args.num_calibration_samples = end - start
         logger.info(
             f"DDP: partitioned dataset split to '{split_str}' for rank "
             f"{dist.get_rank()}/{dist.get_world_size()}"
