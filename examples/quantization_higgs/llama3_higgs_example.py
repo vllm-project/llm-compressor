@@ -9,7 +9,7 @@ import os
 import time
 import torch
 
-from llmcompressor.transformers.compression.higgs import ilp_quantize
+from llmcompressor.transformers.compression.higgs import get_higgs_config
 
 # Select model
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -30,16 +30,14 @@ if torch.cuda.is_available():
 
 start_time = time.time()
 
-optimal_config = ilp_quantize(
+optimal_config = get_higgs_config(
     model_stub=MODEL_ID,
-    save_directory=os.path.expanduser("~/hf_hub/Meta-Llama-3-8B-Instruct-HIGGS"),
     candidate_schemes=CANDIDATE_SCHEMES,
-    targets="Linear",  # Quantize all Linear layers
-    ignore=["lm_head", "model.embed_tokens"],  # Skip output projection and embeddings
-    enforce_fused_layer_constraints=True,  # gate_proj+up_proj, q+k+v same scheme
-    target_avg_bitwidth=6.0,  # Target 6-bit average
-    max_workers=8,  # Parallel workers for phase 2
-    device="cuda:0",  # Use GPU for faster processing
+    targets="Linear",
+    ignore=["lm_head", "model.embed_tokens"],
+    enforce_fused_layer_constraints=True,
+    target_avg_bitwidth=6.0,
+    device="cuda:0",
 )
 
 end_time = time.time()

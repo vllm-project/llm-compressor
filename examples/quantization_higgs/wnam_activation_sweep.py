@@ -39,7 +39,7 @@ import time
 
 import torch
 
-from llmcompressor.transformers.compression.higgs import ilp_quantize
+from llmcompressor.transformers.compression.higgs import get_higgs_config
 
 
 IGNORE = [
@@ -125,18 +125,15 @@ def run_sweep(model_id, model_short, schemes, weight_bits_list, act_bits_list,
 
             start = time.time()
             try:
-                config = ilp_quantize(
+                config = get_higgs_config(
                     model_stub=model_id,
-                    save_directory=out,
                     candidate_schemes=schemes,
                     targets="Linear",
                     ignore=IGNORE,
                     enforce_fused_layer_constraints=True,
                     target_avg_bitwidth=wbits,
                     target_avg_act_bitwidth=abits,
-                    max_workers=8,
                     device="cuda:0",
-                    quantize=not config_only,
                 )
             except ValueError as e:
                 print(f"  FAILED: {e}")

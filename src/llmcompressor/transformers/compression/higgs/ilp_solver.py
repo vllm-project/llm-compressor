@@ -101,13 +101,8 @@ def solve_ilp_mixed_precision(
         alpha = alphas.get(layer, 1.0)  # Default alpha = 1.0 if missing
         for scheme in candidate_schemes:
             mse = mse_matrix[layer].get(scheme, float('inf'))
-
-            # Skip if MSE is infinite (scheme not applicable to this layer)
-            if mse == float('inf'):
-                # Force this variable to 0 by adding very high cost
-                objective_terms.append(1e10 * x[layer][scheme])
-            else:
-                objective_terms.append(mse * alpha * x[layer][scheme])
+            mse = max(min(1e10, mse), 0) # clamp between 0 and 1e10
+            objective_terms.append(mse * alpha * x[layer][scheme])
 
     prob += pulp.lpSum(objective_terms), "WeightedMSE"
 
@@ -162,6 +157,9 @@ def solve_ilp_mixed_precision(
             )
 
     # Constraint 4: Optional average activation bitwidth constraint
+    # NOTE: actual number of activation elements will be proportional to in_features
+    # rather than in_features * out_features = params. However we should probably
+    # just use actual performance numbers at the end of the day.
     if target_avg_act_bitwidth is not None:
         total_params = sum(layer_param_counts.get(layer, 0) for layer in mse_matrix)
 
