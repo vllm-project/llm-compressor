@@ -72,6 +72,205 @@ Some deepseek-like architectures use an `attn.indexer` and `attn.indexer.compres
   - Vision: `["re:.*visual.*", ".*vision_tower.*"]`
   - Audio: `"re:audio.*"` (matches `audio_tower.*` etc.)
 
+## GPTQ
+
+GPTQModifier can be used in place of QuantizationModifier for better accuracy at the cost of longer calibration time. It works with any quantization scheme (NVFP4, FP8, etc.).
+
+Ask the user if they want to use GPTQ (default: No, use QuantizationModifier for faster calibration).
+
+**If using GPTQ:** Replace the recipe import and definition:
+```python
+from llmcompressor.modifiers.gptq import GPTQModifier
+
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="<SCHEME>",
+    ignore=["lm_head"],
+    actorder="static",  # or None if user prefers no specific ordering
+    dampening_frac=0.01,  # can be adjusted if Hessian inversion issues occur
+    offload_hessians=False,  # set to True for models ≥1TB
+    block_size=128,  # user can adjust if desired
+)
+```
+Update the save directory suffix to include `-GPTQ` (e.g. `-NVFP4-GPTQ`, `-FP8_DYNAMIC-GPTQ`).
+
+Use smart defaults and inform the user of the configuration. Don't prompt for each parameter unless the user explicitly wants to customize:
+
+1. **Activation ordering (`actorder`)** — Controls the order in which weight columns are quantized
+   - Default: `"static"` (recommended for best accuracy recovery with no runtime cost)
+   - User can optionally set to `None` for no specific ordering
+2. **Offload Hessians (`offload_hessians`)** — Whether to offload Hessian matrices to CPU during quantization
+   - **Checkpoint size estimation:** For fp16 models, approximate checkpoint size = (total parameters × 2 bytes) / 1024^4 TB
+     - Example: 70B params → ~0.13 TB, 405B params → ~0.75 TB, 500B params → ~0.93 TB
+   - Auto-suggest `True` for models with checkpoint size ≥1TB (reduces GPU memory usage at cost of speed)
+     - This typically means models with **500B+ parameters** in fp16
+   - Auto-suggest `False` for models <1TB (faster, requires more GPU memory)
+   - User can override based on their specific memory constraints
+3. **Dampening fraction (`dampening_frac`)** — Hessian dampening for numerical stability
+   - Default: `0.01`
+   - User can adjust if they encounter Hessian inversion issues during quantization
+4. **Block size (`block_size`)** — Number of columns to compress in one pass
+   - Default: `128`
+   - User can adjust if desired
+
+After determining configuration, inform the user: "Using GPTQ with: actorder='static', dampening_frac=0.01, block_size=128, offload_hessians=[True/False based on model size]. These can be adjusted if needed."
+
+## Custom Quantization Parameters
+
+By default, use a preset scheme string (e.g. `scheme="NVFP4"`, `scheme="FP8_DYNAMIC"`). If the user wants more control, they can specify custom quantization parameters using `config_groups` instead of `scheme`. These two options are mutually exclusive.
+
+`config_groups` maps group names to `QuantizationScheme` objects (or plain dicts), each specifying `targets`, `weights`, and optionally `input_activations`:
+
+```python
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
+recipe = QuantizationModifier(
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(
+                num_bits=8,
+                type="int",
+                strategy="channel",
+                symmetric=True,
+                dynamic=False,
+            ),
+            input_activations=QuantizationArgs(
+                num_bits=8,
+                type="int",
+                strategy="token",
+                symmetric=True,
+                dynamic=True,
+            ),
+        ),
+    },
+    ignore=["lm_head"],
+)
+```
+
+Plain dicts work too — Pydantic validates them automatically:
+```python
+recipe = QuantizationModifier(
+    config_groups={
+        "group_0": {
+            "targets": ["Linear"],
+            "weights": {
+                "num_bits": 4,
+                "type": "int",
+                "symmetric": True,
+                "strategy": "group",
+                "group_size": 128,
+            },
+        },
+    },
+    ignore=["lm_head"],
+)
+```
+
+Key `QuantizationArgs` fields:
+- `num_bits` — bit depth (e.g. 4, 8)
+- `type` — `"int"` or `"float"`
+- `symmetric` — whether scale is symmetric about zero
+- `strategy` — one of `"tensor"`, `"channel"`, `"group"`, `"block"`, `"token"`, `"tensor_group"`
+- `group_size` — group length for `"group"` / `"tensor_group"` strategy
+- `block_structure` — 2D block dims like `[128, 128]` for `"block"` strategy
+- `dynamic` — `True` for fully dynamic, `False` for static
+- `observer` — observer algorithm for calibration (default: `None`, which falls back to min-max for non-dynamic quantization):
+  - `"minmax"` — running min/max
+  - `"memoryless_minmax"` — min/max without history, uses only the current batch
+  - `"static_minmax"` — computes scale once from the first batch, then freezes
+  - `"mse"` — minimizes mean squared error between quantized and original values
+  - `"memoryless_mse"` — MSE without history
+  - `"imatrix_mse"` — MSE weighted by importance matrix (use with `IMatrixGatherer` transform)
+
+Custom parameters work with `GPTQModifier` the same way — replace `QuantizationModifier` with `GPTQModifier` and use `config_groups`.
+
+**Non-uniform / mixed-precision:** Multiple config groups allow applying different quantization to different layers:
+```python
+from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, NVFP4
+
+recipe = QuantizationModifier(
+    config_groups={
+        "attention": QuantizationScheme(
+            targets=[r"re:.*self_attn\..*"],
+            **FP8_BLOCK,
+        ),
+        "experts": QuantizationScheme(
+            targets=[r"re:.*mlp.*"],
+            **NVFP4,
+        ),
+    },
+    ignore=["lm_head"],
+)
+```
+
+## Transforms
+
+A transform can improve quantization accuracy by redistributing quantization difficulty before the quantization step. Transforms work with any quantization scheme and compose with either `QuantizationModifier` or `GPTQModifier`.
+
+Ask the user if they want to apply a transform (default: No):
+
+- **SmoothQuant** — Migrates quantization difficulty from activations to weights via channel-wise scaling. Key parameter: `smoothing_strength` (default: `0.5`, range 0–1; higher values shift more difficulty to weights).
+- **AWQ** — Activation-aware Weight Quantization. Identifies salient weights based on activation magnitudes and applies channel-wise scaling to preserve them. Key parameter: `duo_scaling` (default: `"both"`).
+
+**If using a transform:** Wrap the recipe in a list with the transform modifier first, followed by the quantization modifier. Add the corresponding import.
+
+With SmoothQuant:
+```python
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+
+recipe = [
+    SmoothQuantModifier(smoothing_strength=0.5),
+    QuantizationModifier(
+        targets="Linear",
+        scheme="<SCHEME>",
+        ignore=["lm_head"],
+    ),
+]
+```
+
+With AWQ:
+```python
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
+
+recipe = [
+    AWQModifier(duo_scaling="both"),
+    QuantizationModifier(
+        targets="Linear",
+        scheme="<SCHEME>",
+        ignore=["lm_head"],
+    ),
+]
+```
+
+Transforms compose with GPTQ as well — replace `QuantizationModifier` with `GPTQModifier` in the recipe list and update the save directory suffix accordingly (e.g. `-NVFP4-GPTQ-SmoothQuant`).
+
+Update the save directory suffix to include the transform name (e.g. `-NVFP4-SmoothQuant`, `-FP8_DYNAMIC-AWQ`).
+
+## Calibration Dataset
+
+Some configurations require a calibration dataset:
+- NVFP4 **always** requires calibration data
+- GPTQ **always** requires calibration data (regardless of scheme)
+- Transforms (AWQ, SmoothQuant) **always** require calibration data
+- FP8 with plain QuantizationModifier (no GPTQ, no transform) does **not** require calibration data
+
+When calibration data is needed, ask the user (or use defaults) for:
+
+1. **Dataset ID** — HuggingFace dataset to use for calibration (default: `HuggingFaceH4/ultrachat_200k`)
+2. **Dataset split** — which split to use (default: `train_sft`)
+3. **Number of calibration samples** — how many samples to use (default: `256` for QuantizationModifier alone, `512` for GPTQModifier or when using a transform; MoE models may benefit from more samples)
+4. **Max sequence length** — maximum sequence length for tokenization (default: `2048`)
+5. **Preprocessing** — any custom preprocessing needed beyond the default chat template application
+
+**Default behavior:** If the user doesn't specify dataset preferences, use the defaults configured for `HuggingFaceH4/ultrachat_200k` with chat template preprocessing.
+
+When calibration data is required, use the shared template at `.claude/skills/templates/oneshot_with_data.py` as the starting point. This template includes dataset loading, chat template preprocessing, tokenization, and the `oneshot()` call with dataset and calibration parameters.
+
 ## Sample Generation
 
 Check the model's parameter count from its name or by fetching `config.json` (look for a size indicator in the model ID such as `70B`, `72B`, `405B`). If the model exceeds **70B parameters**, omit the entire sample generation block (from `dispatch_model` through the closing `print`) to avoid OOM.
