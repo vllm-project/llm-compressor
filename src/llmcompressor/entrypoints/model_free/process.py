@@ -92,6 +92,7 @@ def process_file(
     config: QuantizationConfig,
     device: str | torch.device,
     converter: Converter | None = None,
+    moe_intermediate_size: int | None = None,
 ) -> tuple[int, dict[str, str]]:
     """
     Quantize and compress tensors in a given safetensors file.
@@ -103,10 +104,12 @@ def process_file(
     :param device: device used to quantize and compress weights
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
+    :param moe_intermediate_size: intermediate_size from model config, used to
+        detect transposed MoE expert formats
     """
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
-    tensors = split_fused_moe_experts(tensors)
+    tensors = split_fused_moe_experts(tensors, moe_intermediate_size)
 
     if converter is not None:
         tensors = converter.process(tensors)
@@ -142,6 +145,7 @@ def process_file_microscale_scheme(
     config: QuantizationConfig,
     device: str | torch.device,
     converter: Converter | None = None,
+    moe_intermediate_size: int | None = None,
 ) -> tuple[int, dict[str, str]]:
     """
     Quantize and compress tensors for a single output shard using a config
@@ -164,10 +168,12 @@ def process_file_microscale_scheme(
     :param device: device used to quantize and compress weights
     :param converter: optional converter to apply to the checkpoint,
         e.g. conversion of some layers from some format to compressed-tensors
+    :param moe_intermediate_size: intermediate_size from model config, used to
+        detect transposed MoE expert formats
     """
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
 
-    tensors = split_fused_moe_experts(tensors)
+    tensors = split_fused_moe_experts(tensors, moe_intermediate_size)
 
     if converter is not None:
         tensors = converter.process(tensors)
@@ -243,16 +249,18 @@ def process_file_microscale_scheme(
 
 def split_fused_moe_experts(
     tensors: dict[str, torch.Tensor],
+    moe_intermediate_size: int | None = None,
 ) -> dict[str, torch.Tensor]:
     """
     Find fused MoE experts (with gate_up_proj/down_proj).
     Split them from 3D tensors into individual 2D expert tensors.
 
-    Args:
-        tensors: Dictionary of loaded tensors from safetensors file
-
-    Returns:
-        split_tensors: New dictionary with split expert weights
+    :param tensors: Dictionary of loaded tensors from safetensors file
+    :param moe_intermediate_size: intermediate_size from model config, used to
+        detect transposed expert formats (e.g. Llama-4). When provided, the
+        fused dimension is identified by matching against this value rather
+        than relying on a shape heuristic.
+    :returns: New dictionary with split expert weights
     """
     split_tensors = {}
 
@@ -265,13 +273,16 @@ def split_fused_moe_experts(
         "down_proj": ["down_proj"],
     }
 
-    # Detect transposed expert format (e.g. Llama-4) using gate_up_proj tensors.
-    # For gate_up_proj the fused dim (2*intermediate) is always larger than
-    # hidden_size, so if that larger dim is dim2 the tensor is transposed.
+    # Detect transposed expert format (e.g. Llama-4) where weights are stored
+    # as [E, hidden, fused_intermediate] instead of [E, fused_intermediate, hidden].
     is_transposed = False
     for name, tensor in tensors.items():
         if "gate_up_proj" in name and tensor.ndim == 3:
-            is_transposed = tensor.shape[2] > tensor.shape[1]
+            if moe_intermediate_size is not None:
+                # gate_up_proj fused dim = 2 * intermediate_size
+                is_transposed = tensor.shape[2] == 2 * moe_intermediate_size
+            else:
+                is_transposed = tensor.shape[2] > tensor.shape[1]
             break
 
     for name, tensor in tensors.items():

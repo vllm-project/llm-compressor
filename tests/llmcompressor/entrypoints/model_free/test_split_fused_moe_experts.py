@@ -117,7 +117,9 @@ def test_split_fused_moe_experts_transposed():
         "model.layers.0.mlp.experts.down_proj.weight": down_transposed,
     }
 
-    result = split_fused_moe_experts(tensors_transposed)
+    result = split_fused_moe_experts(
+        tensors_transposed, moe_intermediate_size=intermediate_size
+    )
 
     for i in range(num_experts):
         gate_key = f"model.layers.0.mlp.experts.{i}.gate_proj.weight"
