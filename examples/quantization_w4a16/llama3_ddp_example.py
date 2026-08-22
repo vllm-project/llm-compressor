@@ -16,11 +16,13 @@ from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.utils import load_context
+from llmcompressor.utils.dist import prefetch_model_on_rank0
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 ###### DDP MODEL LOAD CHANGE #####
 init_dist()
+prefetch_model_on_rank0(model_id)
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ##################################

@@ -27,6 +27,7 @@ from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from llmcompressor.utils import load_context
+from llmcompressor.utils.dist import prefetch_model_on_rank0
 
 # ---------------------------------------------------------------------------
 # Config
@@ -41,6 +42,7 @@ MAX_SEQUENCE_LENGTH = 2048
 # DDP init + model load
 # ---------------------------------------------------------------------------
 init_dist()
+prefetch_model_on_rank0(MODEL_ID)
 
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
