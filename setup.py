@@ -141,9 +141,11 @@ setup(
             if BUILD_TYPE == "release"
             else "compressed-tensors>=0.18.1a2"
         ),
-        ("pulp>=2.7.0,<=2.10.0" if BUILD_TYPE == "release" else "pulp>=2.7.0"),
     ],
     extras_require={
+        "higgs": [
+            ("pulp>=2.7.0,<=2.10.0" if BUILD_TYPE == "release" else "pulp>=2.7.0"),
+        ],
         "dev": [
             # testing framework
             "pytest>=6.0.0",
