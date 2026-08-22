@@ -1,4 +1,5 @@
 import gc
+import hashlib
 import json
 import os
 import random
@@ -146,6 +147,17 @@ class TestLMEval:
 
         logger.info("========== RUNNING ==============")
         logger.info(self.config.scheme)
+
+        try:
+            from compressed_tensors.utils.impl_backend import ImplBackend
+
+            registry = ImplBackend._fn_registry
+            logger.info(f"ImplBackend registered functions: {list(registry.keys())}")
+            if "cast_to_fp4" in registry:
+                fn = registry["cast_to_fp4"]
+                logger.info(f"cast_to_fp4 impl: {fn.__module__}.{fn.__qualname__}")
+        except Exception as e:
+            logger.info(f"Could not inspect ImplBackend: {e}")
         logger.info(
             f"Recovery threshold: {self.config.lmeval.recovery_threshold} (default: 0.95)"  # noqa: E501
         )
@@ -192,6 +204,8 @@ class TestLMEval:
                     save_compressed=True,
                 )
 
+        self._log_weight_hashes(self.config.save_dir)
+
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
 
         gc.collect()
@@ -209,6 +223,27 @@ class TestLMEval:
         self._check_absolute_warnings(compressed_results)
 
         self.tear_down()
+
+    def _log_weight_hashes(self, model_dir: str):
+        """Log SHA256 hashes of all quantized weight tensors for cross-run comparison."""
+        from safetensors.torch import load_file
+
+        logger.info("=" * 80)
+        logger.info("QUANTIZED WEIGHT HASHES (for cross-run comparison)")
+        logger.info("=" * 80)
+
+        overall = hashlib.sha256()
+        files = sorted(Path(model_dir).glob("*.safetensors"))
+        for f in files:
+            tensors = load_file(str(f))
+            for key in sorted(tensors.keys()):
+                raw = tensors[key].contiguous().view(torch.uint8)
+                h = hashlib.sha256(raw.numpy().tobytes()).hexdigest()
+                overall.update(h.encode())
+                logger.info(f"  {key}: {h}")
+
+        logger.info(f"OVERALL HASH: {overall.hexdigest()}")
+        logger.info("=" * 80)
 
     @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
