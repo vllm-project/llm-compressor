@@ -6,7 +6,11 @@ from compressed_tensors.quantization import (
     initialize_module_for_quantization,
 )
 
-from llmcompressor.modifiers.quantization.calibration import initialize_observer
+from llmcompressor.modifiers.quantization.calibration import (
+    initialize_observer,
+    observe,
+    update_qparams,
+)
 from llmcompressor.observers import Observer
 
 
@@ -121,3 +125,33 @@ def test_observer_min_max_vals(name, kwargs, observed, exp_min_vals, exp_max_val
     max_vals = torch.stack(max_vals)
     assert torch.allclose(min_vals, exp_min_vals)
     assert torch.allclose(max_vals, exp_max_vals)
+
+
+def test_observe_skips_container_modules():
+    """Container modules are modules, not iterables of modules to recurse into.
+
+    `torch.nn.utils.parametrize` stores parametrizations in a `ModuleDict`, which is
+    both a `Module` and an `Iterable`. Iterating it yields its keys, which are
+    strings, so recursing into it never terminates. Every wav2vec2-family model
+    weight-norms its positional convolution and so contains one.
+    """
+    model = torch.nn.Sequential(
+        torch.nn.utils.parametrizations.weight_norm(torch.nn.Conv1d(4, 4, 1)),
+        torch.nn.Linear(4, 4),
+    )
+    linear = model[1]
+    args = QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor")
+    initialize_module_for_quantization(
+        linear, QuantizationScheme(targets=[], weights=args)
+    )
+    initialize_observer(linear, "weight")
+
+    # pipelines pass every submodule of a subgraph, containers included
+    modules = list(model.modules())
+    assert any(isinstance(module, torch.nn.ModuleDict) for module in modules)
+
+    observe(modules, "weight")
+    update_qparams(modules, "weight")
+
+    assert torch.isfinite(linear.weight_scale).all()
+    assert linear.weight_scale > 0
