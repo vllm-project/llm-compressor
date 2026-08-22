@@ -8,8 +8,12 @@ the weighted sum of MSE values.
 
 from typing import Dict, List, Optional
 
-import pulp
 from loguru import logger
+
+try:
+    import pulp
+except ImportError:
+    pulp = None
 
 
 __all__ = ["solve_ilp_mixed_precision"]
@@ -67,6 +71,12 @@ def solve_ilp_mixed_precision(
     Raises:
         ValueError: If ILP is infeasible or unbounded
     """
+    if pulp is None:
+        raise ImportError(
+            "HIGGS ILP solver requires the 'pulp' package. "
+            "Install it with: pip install pulp"
+        )
+
     if fused_groups is None:
         fused_groups = []
 
