@@ -124,6 +124,45 @@ def linearize_moe(model: PreTrainedModel):
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
 
+    return model
+
+
+def get_linearized_moes(
+    model: torch.nn.Module,
+) -> list[tuple[str, LinearExperts2D]]:
+    """
+    Return all :class:`LinearExperts2D` modules in ``model`` (post-linearization).
+    """
+    return [
+        (name, module)
+        for name, module in model.named_modules()
+        if isinstance(module, LinearExperts2D)
+    ]
+
+
+def repack_moe(model: PreTrainedModel) -> PreTrainedModel:
+    """
+    Explicitly pack linearized :class:`LinearExperts2D` modules back into native
+    fused 3D expert modules.
+
+    Call this after calibration/quantization and before ``save_pretrained`` when
+    the target Transformers architecture expects packed expert weights (e.g.
+    ``qwen3_vl_moe``, ``qwen3_5_moe``). See
+    https://github.com/vllm-project/llm-compressor/issues/2699
+
+    :param model: model containing linearized MoE layers to repack
+    :return: the same model with fused expert modules restored
+    """
+    linearized = get_linearized_moes(model)
+    if len(linearized) <= 0:
+        return model
+
+    for name, module in tqdm.tqdm(linearized, desc="Repacking experts"):
+        fused = module.to_experts_module()
+        model.set_submodule(name, fused)
+
+    return model
+
 
 def get_non_linearized_moes(
     model: torch.nn.Module,
