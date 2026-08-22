@@ -21,8 +21,12 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
 from llmcompressor.utils import get_high_precision, untie_word_embeddings
 
-from .mappings import SpinQuantMapping, infer_mapping_from_model
-from .norm_mappings import NormMapping, infer_norm_mapping_from_model
+from .dynamic_mappings import (
+    get_norm_mapping_from_model,
+    get_spinquant_mapping_from_model,
+)
+from .mappings import SpinQuantMapping
+from .norm_mappings import NormMapping
 
 
 class SpinquantRotation(str, Enum):
@@ -126,9 +130,13 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         if self.transform_config is not None:
             return True
 
-        self.mappings = infer_mapping_from_model(state.model)
-        self.norm_mappings = infer_norm_mapping_from_model(state.model)
-        head_dim = get_head_dim(state.model.config)
+        self.mappings = get_spinquant_mapping_from_model(state.model)
+        self.norm_mappings = get_norm_mapping_from_model(state.model)
+        # Heterogeneous configs (e.g. Qwen3.5) keep attention geometry on a
+        # nested `text_config` rather than the top-level config.
+        config = state.model.config
+        text_config = getattr(config, "text_config", None)
+        head_dim = get_head_dim(text_config if text_config is not None else config)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
