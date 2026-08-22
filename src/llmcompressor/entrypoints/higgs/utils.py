@@ -218,7 +218,7 @@ def generate_config_groups(
             initialize_module_for_quantization(dummy, base_scheme, force_zero_point=False)
             scheme_dict["format"] = infer_module_format(type(dummy), base_scheme).value
 
-        group_name = f"group_{idx}_{scheme_name}"
+        group_name = f"group_{idx}"
         config_groups[group_name] = QuantizationScheme(**scheme_dict)
         logger.info(f"Config group '{group_name}': {len(layer_list)} layers")
 
