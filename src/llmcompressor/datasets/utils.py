@@ -89,6 +89,23 @@ def get_processed_dataset(
         dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
     )
 
+    # In a distributed setting with a prebaked (string) dataset, partition the
+    # split across ranks so each rank only loads its slice of calibration data.
+    if (
+        isinstance(dataset_args.dataset, str)
+        and dist.is_initialized()
+        and split_str is not None
+        and "[" not in split_str
+        and dataset_args.num_calibration_samples is not None
+    ):
+        split_str = get_rank_partition(
+            split_str, dataset_args.num_calibration_samples
+        )
+        logger.info(
+            f"DDP: partitioned dataset split to '{split_str}' for rank "
+            f"{dist.get_rank()}/{dist.get_world_size()}"
+        )
+
     dataset = dataset_args.dataset
     if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
         # dataset is already tokenized
