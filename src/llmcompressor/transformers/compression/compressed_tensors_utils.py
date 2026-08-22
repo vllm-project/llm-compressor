@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 import weakref
 from contextlib import contextmanager
 from functools import wraps
@@ -20,7 +21,12 @@ from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils.transformers import get_embeddings
 
-__all__ = ["modify_save_pretrained"]
+__all__ = ["modify_save_pretrained", "prune_false_linear_ignores"]
+
+# compressed-tensors remaps class names containing "Gate" to Linear when rebuilding
+# ignore lists. Match Gate as a CamelCase token so GatedDeltaNet / RMSNormGated are
+# not treated as Linear, while real MoE routers (Router / Gating / *Gate) still are.
+_MOE_GATE_TYPE = re.compile(r"(?:Router|Gating|Gate(?![a-z]))")
 
 
 def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
@@ -79,6 +85,47 @@ def _retie_embeddings(model: PreTrainedModel):
     logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
+def _is_quantizable_ignore_module(module: torch.nn.Module) -> bool:
+    """True if this module belongs on a reconstructed Linear ignore list."""
+    if isinstance(module, (torch.nn.Linear, torch.nn.Embedding)):
+        return True
+    if any(cls.__name__ == "LinearBase" for cls in type(module).__mro__):
+        return True
+    module_type = type(module).__name__
+    if "ExpertMLP" in module_type:
+        return False
+    return _MOE_GATE_TYPE.search(module_type) is not None
+
+
+def prune_false_linear_ignores(
+    model: torch.nn.Module, ignore: list[str] | None
+) -> list[str]:
+    """Drop reconstructed ignore entries that are not Linear-like modules.
+
+    ``QuantizationConfig.from_pretrained`` treats any class name containing the
+    substring ``Gate`` as Linear, so Qwen ``GatedDeltaNet`` parents and
+    ``RMSNormGated`` norms are written into ``quantization_config.ignore``.
+    Keep real Linears/Embeddings and MoE routers; keep names that cannot be
+    resolved (checkpoint-renamed keys).
+    """
+    if not ignore:
+        return list(ignore or [])
+
+    kept: list[str] = []
+    for name in ignore:
+        if name.startswith("re:"):
+            kept.append(name)
+            continue
+        try:
+            module = model.get_submodule(name) if name else model
+        except AttributeError:
+            kept.append(name)
+            continue
+        if _is_quantizable_ignore_module(module):
+            kept.append(name)
+    return kept
+
+
 def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
@@ -134,6 +181,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
+            if compressor.quantization_config is not None:
+                compressor.quantization_config.ignore = prune_false_linear_ignores(
+                    model, compressor.quantization_config.ignore
+                )
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
