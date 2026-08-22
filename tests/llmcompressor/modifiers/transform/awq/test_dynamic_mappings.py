@@ -15,6 +15,7 @@ from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
 )
 from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
+    _whisper_mappings,
     default_mappings,
 )
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
@@ -493,3 +494,82 @@ class TestGetLayerMappingsFromModel:
         mappings = get_layer_mappings_from_model(model)
         assert mappings is not None
         assert len(mappings) == 4
+
+    def test_whisper_model_uses_static_whisper_mappings(self):
+        model = _make_standard_model()
+        model.__class__ = type(
+            "WhisperForConditionalGeneration", (model.__class__,), {}
+        )
+
+        model_name = model.__class__.__name__
+
+        assert AWQ_MAPPING_REGISTRY[model_name] == _whisper_mappings
+        assert get_layer_mappings_from_model(model) == _whisper_mappings
+
+
+def test_whisper_mapping_regex_matches_real_module_tree():
+    """WhisperForConditionalGeneration had no AWQ mapping entry, so it silently
+    fell back to `default_mappings`, whose balance layers (q_proj/k_proj/v_proj,
+    gate_proj/up_proj, down_proj) never match Whisper's actual layer names --
+    Whisper's MLP is a plain fc1/fc2 pair (no gate_proj/up_proj/down_proj at
+    all), so smoothing was a complete no-op for this arch, not just a naming
+    mismatch on part of it.
+
+    Construct a tiny WhisperForConditionalGeneration on the meta device (no HF
+    Hub download, no weight allocation) and confirm the newly-registered
+    _whisper_mappings regex actually matches its real module names -- this is
+    a mechanical port of the already-validated WHISPER_V2_SMOOTHQUANT_MAPPINGS
+    (smoothquant/utils.py) into the AWQMapping dataclass shape.
+    """
+    import re
+
+    import torch
+    from transformers import WhisperConfig, WhisperForConditionalGeneration
+
+    config = WhisperConfig(
+        vocab_size=100,
+        d_model=32,
+        encoder_layers=1,
+        decoder_layers=1,
+        encoder_attention_heads=2,
+        decoder_attention_heads=2,
+        encoder_ffn_dim=64,
+        decoder_ffn_dim=64,
+        num_mel_bins=10,
+        max_source_positions=20,
+        max_target_positions=20,
+        pad_token_id=0,
+        bos_token_id=0,
+        eos_token_id=0,
+        decoder_start_token_id=0,
+    )
+    with torch.device("meta"):
+        model = WhisperForConditionalGeneration(config)
+
+    module_names = [name for name, _ in model.named_modules()]
+
+    for mapping in _whisper_mappings:
+        smooth_pat = mapping.smooth_layer.removeprefix("re:")
+        smooth_hits = [n for n in module_names if re.search(smooth_pat, n)]
+        assert smooth_hits, (
+            f"Whisper: smooth pattern {smooth_pat!r} matched no modules; "
+            f"sample names: {module_names[:20]}"
+        )
+        for balance_pat_raw in mapping.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_hits = [n for n in module_names if re.search(balance_pat, n)]
+            assert balance_hits, (
+                f"Whisper: balance pattern {balance_pat!r} matched no "
+                f"modules; sample names: {module_names[:20]}"
+            )
+
+    # The previous fallback (default_mappings) never fully pairs against
+    # Whisper -- its input_layernorm/post_attention_layernorm/gate_proj/
+    # up_proj/down_proj patterns all have zero matches here -- but a
+    # standalone regex check of default_mappings' pieces in isolation isn't a
+    # reliable proxy for "the real resolution fails": default_mappings also
+    # has a v_proj->o_proj entry, and v_proj genuinely exists in Whisper too
+    # (it's just paired with o_proj, which doesn't -- Whisper's is out_proj).
+    # Confirming the real match_modules_set resolution is a no-op is left to
+    # the smoothquant precedent's proven evidence, not re-derived by regex
+    # here; the positive checks above are this test's real contribution.
