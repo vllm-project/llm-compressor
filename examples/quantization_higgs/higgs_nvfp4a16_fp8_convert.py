@@ -19,7 +19,7 @@ import os
 
 from compressed_tensors.entrypoints.convert import convert_checkpoint
 
-from llmcompressor.transformers.compression.higgs import (
+from llmcompressor.entrypoints.higgs import (
     HiggsQuantizationConverter,
     get_higgs_config,
 )
