@@ -1,8 +1,6 @@
-from loguru import logger
 from pydantic import BaseModel, field_validator
-from transformers import PreTrainedModel
 
-__all__ = ["infer_norm_mapping_from_model"]
+__all__ = ["NormMapping"]
 
 
 class NormMapping(BaseModel):
@@ -59,14 +57,3 @@ NORM_MAPPING_REGISTRY: dict[str, list[NormMapping]] = {
     "LlamaForCausalLM": _default_mappings,
     "Cohere2MoeForCausalLM": _cohere2_moe_mappings,
 }
-
-
-def infer_norm_mapping_from_model(model: PreTrainedModel) -> list[NormMapping]:
-    architecture = model.__class__.__name__
-    if architecture not in NORM_MAPPING_REGISTRY:
-        logger.info(
-            f"Unrecognized model architecture {architecture}. "
-            "Falling back to default mappings"
-        )
-
-    return NORM_MAPPING_REGISTRY.get(architecture, _default_mappings)
