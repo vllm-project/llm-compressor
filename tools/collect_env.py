@@ -25,19 +25,18 @@ def get_torch_hardware_info():
         mps_devices = []
         if torch.accelerator.is_available():
             device_module = torch.get_device_module()
-            for i in range(torch.accelerator.device_count()):
-                # not every accelerator backend implements `get_device_name`
-                # (e.g. `torch.mps` on Apple Silicon)
-                if not hasattr(device_module, "get_device_name"):
-                    mps_devices.append(platform.processor() or "Apple Silicon (MPS)")
-                    break
-                name = device_module.get_device_name(i)
-                if "GFX" in name.upper():
-                    amd_devices.append(name)
-                elif "ASCEND" in name.upper():
-                    npu_devices.append(name)
-                else:
-                    cuda_devices.append(name)
+            if hasattr(device_module, "get_device_name"):
+                for i in range(torch.accelerator.device_count()):
+                    name = device_module.get_device_name(i)
+                    if "GFX" in name.upper():
+                        amd_devices.append(name)
+                    elif "ASCEND" in name.upper():
+                        npu_devices.append(name)
+                    else:
+                        cuda_devices.append(name)
+            elif "mps" in getattr(device_module, "__name__", "").lower():
+                # `torch.mps` does not implement `get_device_name`
+                mps_devices.append(platform.processor() or "Apple Silicon (MPS)")
         return cuda_devices, amd_devices, npu_devices, mps_devices
     except (ImportError, AttributeError):
         return [], [], [], []
