@@ -48,6 +48,9 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     shuffle_calibration_samples=False,
+    # Avoid calibrating all experts in this single-GPU example path to reduce
+    # OOM risk when llmcompressor has already linearized MoE experts.
+    moe_calibrate_all_experts=False,
 )
 
 # Confirm generations of the quantized model look sane.
