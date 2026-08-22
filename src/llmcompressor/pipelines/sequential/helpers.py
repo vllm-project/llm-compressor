@@ -482,7 +482,7 @@ def handle_sequential_oom(func):
         try:
             return func(*args, **kwargs)
         except torch.OutOfMemoryError as e:
-            raise torch.OutOfMemoryError(
+            message = (
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module for `sequential_targets`, "
                 "ex. 'Linear' for dense models. "
@@ -490,7 +490,13 @@ def handle_sequential_oom(func):
                 "use the attention module and individual expert class instead, "
                 "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
                 "sequential_targets_per_subgraph set to batch multiple experts per "
-                "subgraph and reduce memory overhead."
-            ) from e
+                "subgraph and reduce memory overhead. Choosing a smaller "
+                "calibration dataset can also help: reduce `max_seq_length` "
+                "(when unset, calibration samples are not truncated, so a few "
+                "long samples can dominate memory) or `num_calibration_samples` "
+                "(memory scales with sample count for modifiers that cache "
+                "activations, such as AWQ)."
+            )
+            raise torch.OutOfMemoryError(message) from e
 
     return wrapper

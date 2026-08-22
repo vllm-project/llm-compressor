@@ -9,6 +9,7 @@ from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.sequential.helpers import (
     Subgraph,
     get_sequential_ancestors,
+    handle_sequential_oom,
     topological_partition,
     trace_consumed_names,
     trace_subgraphs,
@@ -181,3 +182,18 @@ def test_trace_consumed_names(input_names, expected_consumed_names):
         subgraph.consumed_names for subgraph in subgraphs
     ] == expected_consumed_names
     assert [subgraph.input_names for subgraph in subgraphs] == original_input_names
+
+
+@pytest.mark.unit
+def test_handle_sequential_oom_mentions_calibration_levers():
+    @handle_sequential_oom
+    def pipeline():
+        raise torch.OutOfMemoryError("CUDA out of memory")
+
+    with pytest.raises(torch.OutOfMemoryError) as excinfo:
+        pipeline()
+
+    message = str(excinfo.value)
+    assert "Sequential pipeline ran out of memory" in message
+    assert "`max_seq_length`" in message
+    assert "`num_calibration_samples`" in message
