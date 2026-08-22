@@ -8,6 +8,7 @@ workflows.
 """
 
 import os
+from copy import copy
 from pathlib import PosixPath
 
 from compressed_tensors.offload import from_accelerate, is_distributed
@@ -61,6 +62,18 @@ def pre_process(
     if isinstance(model_args.model, (str, PosixPath)):
         model = initialize_model_from_path(model_args)
         model_args.model = model
+
+    if isinstance(model_args.distill_teacher, (str, PosixPath)):
+        teacher_args = copy(model_args)
+        teacher_args.model = model_args.distill_teacher
+        teacher_args.distill_teacher = None
+        model_args.distill_teacher = initialize_model_from_path(teacher_args)
+
+    if model_args.distill_teacher is not None:
+        model_args.distill_teacher.eval()
+        model_args.distill_teacher.requires_grad_(False)
+        if hasattr(model_args.distill_teacher, "hf_device_map"):
+            from_accelerate(model_args.distill_teacher)
 
     # Initialize processor if dataset provided
     if isinstance(model_args.processor, (str, type(None))):
