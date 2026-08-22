@@ -77,7 +77,7 @@ def initialize_observer(
             log_once=True,
         )
 
-    if args is not None and args.dynamic is not True:
+    if args is not None and args.dynamic is not True and observer is not None:
         observer = Observer.load_from_registry(observer, base_name=base_name, args=args)
         module.register_module(f"{base_name}_observer", observer)
         observer.attach(module)
