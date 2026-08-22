@@ -1,12 +1,50 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from torch.nn import Module
 
 __all__ = [
     "AWQMapping",
     "AWQ_MAPPING_REGISTRY",
+    "SlicedSmoothTarget",
     "default_mappings",
 ]
+
+
+@dataclass
+class SlicedSmoothTarget:
+    """
+    A contiguous row slice of another linear's output that co-produces the input
+    of the balance layers, and therefore has to absorb ``1/s`` alongside
+    ``AWQMapping.smooth_layer``.
+
+    Needed by AdaLN-modulated blocks, where the balance layers see
+
+        norm(x) * (1 + scale) + shift
+
+    and ``scale`` / ``shift`` are slices of one shared projection's output rather
+    than modules of their own. Only the ``shift`` slice takes ``1/s``: dividing
+    ``norm.weight`` already scales the ``norm(x) * (1 + scale)`` term, so scaling
+    ``scale`` too would double-apply it.
+
+    The projection's output is read as ``repeat`` consecutive groups of
+    ``num_chunks`` equally sized chunks -- the layout produced by a
+    ``view(-1, num_chunks * hidden_size)`` followed by ``chunk(num_chunks, -1)``
+    -- and this target names chunk ``chunk_index`` of every group.
+
+    :param layer: dotted attribute path of the projection to slice, relative to the
+        module holding ``AWQMapping.smooth_layer``. Not relative to the balance
+        layers' ancestor: in an AdaLN block the balance layers sit under ``attn`` or
+        ``ff`` while the shared modulation projection is a sibling of the norm.
+    :param chunk_index: which chunk of each group this target names
+    :param num_chunks: number of chunks per group
+    :param repeat: number of groups, i.e. how many times the chunk layout is
+        tiled across the output features
+    """
+
+    layer: str
+    chunk_index: int
+    num_chunks: int
+    repeat: int = 1
 
 
 @dataclass
@@ -29,11 +67,16 @@ class AWQMapping:
         blocks (e.g. Cohere, Gemma 3) where the first balance layer is not the
         correct place to capture activations. When ``None`` (default), the hook
         is placed on ``balance_layers[0]``.
+    :param extra_smooth_targets: optional row slices of other layers that also
+        produce the balance layers' input and must absorb ``1/s`` together with
+        ``smooth_layer``. Empty for every architecture whose balance-layer input
+        comes from a single module.
     """
 
     smooth_layer: str
     balance_layers: list[str]
     activation_hook_target: str | None = None
+    extra_smooth_targets: list[SlicedSmoothTarget] = field(default_factory=list)
 
 
 default_mappings = [
@@ -285,6 +328,42 @@ _example_parallel_transformer_block_mappings = [
     )
 ]
 
+# MiniMax-H3's joint video/audio diffusion transformer. Its blocks are pre-norm
+# attention and feed-forward, each modulated by AdaLN parameters that one shared
+# `adaln_proj` emits for every (timestep, modality) pair, so the balance layers'
+# input is produced by `norm1`/`norm2` and a slice of `adaln_proj` together.
+# `adaln_proj` emits 6 * hidden_size * MODALITY_NUM features in the order
+# shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp, tiled once per
+# modality, hence chunks 0 and 3 with num_chunks=6 and repeat=3. The gates modulate
+# the branch outputs rather than their inputs and take no part in smoothing.
+_minimax_h3_mappings = [
+    AWQMapping(
+        "re:.*norm1$",
+        ["re:.*attn.to_q$", "re:.*attn.to_k$", "re:.*attn.to_v$"],
+        extra_smooth_targets=[
+            SlicedSmoothTarget(
+                "adaln_proj.linear", chunk_index=0, num_chunks=6, repeat=3
+            )
+        ],
+    ),
+    AWQMapping("re:.*attn.to_v$", ["re:.*attn.to_out.0$"]),
+    AWQMapping(
+        "re:.*norm2$",
+        ["re:.*ff.net.0.proj$"],
+        extra_smooth_targets=[
+            SlicedSmoothTarget(
+                "adaln_proj.linear", chunk_index=3, num_chunks=6, repeat=3
+            )
+        ],
+    ),
+    # No `ff.net.0.proj -> ff.net.2` mapping on purpose. That projection is a fused
+    # SwiGLU, and `_apply_smoothing` folds `1/s` into a smooth linear's *last*
+    # out_features, which here are the gate half. The block output is not linear in
+    # the gate, so that fold would not be equivalence-preserving. Smoothing the up
+    # half needs a sliced target on the smooth side, which this mapping type does
+    # not express yet.
+]
+
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "AfmoeForCausalLM": _afmoe_mappings,
     "BloomForCausalLM": _bloom_mappings,
@@ -318,6 +397,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen3MoeForCausalLM": _moe_default_mappings,
     "SeedOssForCausalLM": default_mappings,
     "Ernie4_5_MoeForCausalLM": default_mappings,
+    "MiniMaxH3Transformer3DModel": _minimax_h3_mappings,
 }
 
 
@@ -338,6 +418,9 @@ class ResolvedMapping:
         caching. When set, the activation cache hook is placed on this module
         instead of ``balance_layers[0]``. Populated from
         ``AWQMapping.activation_hook_target``.
+    :param extra_smooth_targets: resolved ``(module, SlicedSmoothTarget)`` pairs whose
+        row slices must absorb ``1/s`` together with ``smooth_layer``. Populated from
+        ``AWQMapping.extra_smooth_targets``.
     """
 
     smooth_name: str
@@ -347,3 +430,6 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
+    extra_smooth_targets: list[tuple[Module, SlicedSmoothTarget]] = field(
+        default_factory=list
+    )
