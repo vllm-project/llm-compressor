@@ -88,8 +88,9 @@ def exec_jobs_dynamic(
     whichever GPU has the most free memory.
 
     Each job tuple is ``(fn, inverse_weight_map, save_path, config,
-    converter)`` — same as ``_build_jobs`` output, deliberately **without** a
-    device field.  The device gets spliced in right before ``executor.submit``.
+    converter, moe_intermediate_size)`` — same as ``_build_jobs`` output,
+    deliberately **without** a device field.  The device gets spliced in
+    right before ``executor.submit``.
 
     Free VRAM is queried once at startup; subsequent scheduling decisions
     rely on reservation accounting so we never re-query the driver in a hot
@@ -103,8 +104,8 @@ def exec_jobs_dynamic(
     if all(d.type == "cpu" for d in devices):
         out = []
         for job in tqdm.tqdm(jobs, desc=desc):
-            fn, iwm, sp, cfg, conv = job
-            out.append(fn(iwm, sp, cfg, devices[0], conv))
+            fn, iwm, sp, cfg, conv, moe_isz = job
+            out.append(fn(iwm, sp, cfg, devices[0], conv, moe_isz))
         return out
 
     # Snapshot free VRAM once; all later decisions use accounting only
@@ -120,8 +121,8 @@ def exec_jobs_dynamic(
                     f"Shard {i} (~{memory_estimates[i] / 1e9:.2f} GB) "
                     f"exceeds estimated capacity of {device}"
                 )
-            fn, iwm, sp, cfg, conv = job
-            out.append(fn(iwm, sp, cfg, device, conv))
+            fn, iwm, sp, cfg, conv, moe_isz = job
+            out.append(fn(iwm, sp, cfg, device, conv, moe_isz))
         return out
 
     # Multi-worker: main thread schedules, workers execute
@@ -150,8 +151,8 @@ def exec_jobs_dynamic(
                 if dev is None:
                     continue
 
-                fn, iwm, sp, cfg, conv = jobs[idx]
-                fut = pool.submit(fn, iwm, sp, cfg, dev, conv)
+                fn, iwm, sp, cfg, conv, moe_isz = jobs[idx]
+                fut = pool.submit(fn, iwm, sp, cfg, dev, conv, moe_isz)
                 inflight[fut] = idx
                 fut_device[fut] = dev
                 reserved[dev] += memory_estimates[idx]

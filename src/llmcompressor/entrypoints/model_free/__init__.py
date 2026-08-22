@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 from pathlib import Path
@@ -86,6 +87,8 @@ def model_free_ptq(
     validate_safetensors_index(model_files, config)
     os.makedirs(save_directory, exist_ok=True)
 
+    moe_intermediate_size = _get_moe_intermediate_size(model_files)
+
     # copy non-safetensors files (configs, tokenizers, etc.)
     for file_path, resolved_path in model_files.items():
         if not file_path.endswith("safetensors"):
@@ -98,12 +101,14 @@ def model_free_ptq(
 
     # build jobs without baking in a device — the scheduler assigns devices
     # dynamically based on free VRAM at submit time
-    jobs, mem_estimates = _build_jobs(model_files, save_directory, config, converter)
+    jobs, mem_estimates = _build_jobs(
+        model_files, save_directory, config, converter, moe_intermediate_size
+    )
 
     # validate first (runs on meta device, so device arg is ignored)
     validate_jobs = [
         (validate_file, iwm, sp, cfg, torch.device("meta"), conv)
-        for _, iwm, sp, cfg, conv in jobs
+        for _, iwm, sp, cfg, conv, _moe_isz in jobs
     ]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
@@ -151,11 +156,27 @@ def _resolve_devices(
     return [torch.device(device)]
 
 
+def _get_moe_intermediate_size(
+    model_files: dict[str, str],
+) -> int | None:
+    """Read intermediate_size from model config.json for MoE transposition detection."""
+    config_path = model_files.get("config.json")
+    if config_path is None:
+        return None
+    try:
+        with open(config_path) as f:
+            model_config = json.load(f)
+        return model_config.get("intermediate_size")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def _build_jobs(
     model_files: dict[str, str],
     save_directory: str | os.PathLike,
     config: QuantizationConfig,
     converter: Converter | None,
+    moe_intermediate_size: int | None = None,
 ) -> tuple[list[tuple], list[int]]:
     """Build per-shard quantization jobs **without** device assignment.
 
@@ -163,8 +184,8 @@ def _build_jobs(
     at submit time based on real-time free VRAM.
 
     :returns: ``(jobs, memory_estimates)`` — each job is a tuple of
-        ``(fn, inverse_weight_map, save_path, config, converter)``
-        and each memory estimate is in bytes.
+        ``(fn, inverse_weight_map, save_path, config, converter,
+        moe_intermediate_size)`` and each memory estimate is in bytes.
     """
     weight_map = get_weight_map(model_files)
 
@@ -194,7 +215,7 @@ def _build_jobs(
             )
 
         iwm = inverse_weight_maps[shard_name]
-        jobs.append((job_fn, iwm, save_path, config, converter))
+        jobs.append((job_fn, iwm, save_path, config, converter, moe_intermediate_size))
         mem_estimates.append(estimate_job_memory(iwm))
 
     if mem_estimates:
