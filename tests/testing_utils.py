@@ -37,8 +37,10 @@ class BaseTestConfig(BaseModel):
     Required fields
     ---------------
     cadence : str
-        When this test runs. One of: "commit", "nightly", "weekly".
+        When this test runs. One of: "commit", "nightly", "weekly", "release".
         Determines the CI cadence for this test configuration.
+        When CADENCE is set to "release", all tests run regardless of their
+        individual cadence setting.
     model : str
         HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
         Must be a valid model identifier on HuggingFace Hub or a local path.
@@ -160,7 +162,7 @@ class BaseTestConfig(BaseModel):
     # -------------------------------------------------------------------------
     # Required
     # -------------------------------------------------------------------------
-    cadence: str = Field(..., description="'commit', 'nightly', or 'weekly'")
+    cadence: str = Field(..., description="'commit', 'nightly', 'weekly', or 'release'")
     model: str = Field(..., description="HuggingFace model ID to quantize")
 
     # -------------------------------------------------------------------------
@@ -544,7 +546,7 @@ def _load_yaml(config_path: str):
     return None
 
 
-_VALID_CADENCES = {"commit", "weekly", "nightly"}
+_VALID_CADENCES = {"commit", "weekly", "nightly", "release"}
 
 
 def _validate_test_config(config: dict) -> bool:
@@ -580,7 +582,7 @@ def parse_params(configs_directory: Union[list, str]) -> List[dict]:
 
             if not isinstance(expected_cadence, list):
                 expected_cadence = [expected_cadence]
-            if cadence in expected_cadence:
+            if cadence == "release" or cadence in expected_cadence:
                 if not _validate_test_config(config):
                     raise ValueError(
                         "The config provided does not comply with the expected "
@@ -721,7 +723,8 @@ def requires_cadence(cadence: Union[str, List[str]]) -> Callable:
     current_cadence = os.environ.get("CADENCE", "commit")
 
     return pytest.mark.skipif(
-        (current_cadence not in cadence), reason="cadence mismatch"
+        (current_cadence != "release" and current_cadence not in cadence),
+        reason="cadence mismatch",
     )
 
 
