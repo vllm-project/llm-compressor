@@ -8,7 +8,7 @@ import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
-from llmcompressor.transformers.compression.higgs import (
+from llmcompressor.entrypoints.higgs import (
     HiggsMSECollectorConverter,
     HiggsQuantizationConverter,
     compute_heuristic_alphas,

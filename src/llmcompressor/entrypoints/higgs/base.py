@@ -53,13 +53,13 @@ from llmcompressor.observers import FusionHandler
 from compressed_tensors.compressors.format import _flatten_formats
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import QuantizationStatus
-from llmcompressor.transformers.compression.higgs.utils import (
+from llmcompressor.entrypoints.higgs.utils import (
     compute_heuristic_alphas,
     compute_layer_mse,
     detect_fused_groups,
     generate_config_groups,
 )
-from llmcompressor.transformers.compression.higgs.ilp_solver import (
+from llmcompressor.entrypoints.higgs.ilp_solver import (
     solve_ilp_mixed_precision,
 )
 

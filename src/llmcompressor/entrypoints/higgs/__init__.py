@@ -2,15 +2,15 @@
 HIGGS: Heuristic ILP-Guided Grouped Scheme Mixed-Precision Quantization
 """
 
-from llmcompressor.transformers.compression.higgs.base import (
+from llmcompressor.entrypoints.higgs.base import (
     HiggsMSECollectorConverter,
     HiggsQuantizationConverter,
     get_higgs_config,
 )
-from llmcompressor.transformers.compression.higgs.ilp_solver import (
+from llmcompressor.entrypoints.higgs.ilp_solver import (
     solve_ilp_mixed_precision,
 )
-from llmcompressor.transformers.compression.higgs.utils import (
+from llmcompressor.entrypoints.higgs.utils import (
     compute_heuristic_alphas,
     compute_layer_mse,
     detect_fused_groups,
