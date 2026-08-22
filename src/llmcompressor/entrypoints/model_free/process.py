@@ -265,6 +265,15 @@ def split_fused_moe_experts(
         "down_proj": ["down_proj"],
     }
 
+    # Detect transposed expert format (e.g. Llama-4) using gate_up_proj tensors.
+    # For gate_up_proj the fused dim (2*intermediate) is always larger than
+    # hidden_size, so if that larger dim is dim2 the tensor is transposed.
+    is_transposed = False
+    for name, tensor in tensors.items():
+        if "gate_up_proj" in name and tensor.ndim == 3:
+            is_transposed = tensor.shape[2] > tensor.shape[1]
+            break
+
     for name, tensor in tensors.items():
         keys_to_split = [key for key in params_to_split if key in name]
         if len(keys_to_split) >= 2:
@@ -274,20 +283,24 @@ def split_fused_moe_experts(
             unsplit_name = keys_to_split[0]
             split_names = params_to_split[unsplit_name]
 
-            # Get number of experts
             num_experts = tensor.shape[0]
 
-            if tensor.shape[1] % len(split_names) != 0:
+            if is_transposed:
+                split_dim_size = tensor.shape[2]
+            else:
+                split_dim_size = tensor.shape[1]
+
+            if split_dim_size % len(split_names) != 0:
                 raise ValueError(
-                    f"{unsplit_name} expects a second dimension divisible by "
+                    f"{unsplit_name} expects split dimension divisible by "
                     f"{len(split_names)} but got shape: {tensor.shape}"
                 )
 
-            # Split into experts
-            intermediate_size = tensor.shape[1] // len(split_names)
+            intermediate_size = split_dim_size // len(split_names)
             for expert_idx in range(num_experts):
                 expert_tensor = tensor[expert_idx]
-                # Split into layers
+                if is_transposed:
+                    expert_tensor = expert_tensor.T
                 split_layers = expert_tensor.split(intermediate_size, dim=0)
                 for split_name, split_layer in zip(split_names, split_layers):
                     key = name.replace(unsplit_name, f"{expert_idx}.{split_name}")
