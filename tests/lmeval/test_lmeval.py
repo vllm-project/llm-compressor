@@ -36,6 +36,8 @@ class LmEvalConfig(BaseModel):
     recovery_threshold: Union[float, dict] = 0.95
     # Optional absolute metrics for warnings (not failures)
     metrics: dict = None
+    # Optional base model metrics to skip base model evaluation
+    base_metrics: dict = None
     trust_remote_code: bool = False
     max_model_len: int = 2048
     higher_is_better: bool = True
@@ -94,6 +96,7 @@ class TestLMEval:
     - recovery_threshold: 0.93 (override default globally)
     - recovery_threshold: {"metric1": 0.95, "metric2": 0.90} (per-metric)
     - metrics: {...} (optional - used for warnings only, not failures)
+    - base_metrics: {...} (optional - skip base model eval, use these values instead)
     """  # noqa: E501
 
     def set_up(self, test_data_file: str):
@@ -154,15 +157,19 @@ class TestLMEval:
         # Run vLLM with saved model
         self.set_up(test_data_file)
 
-        # Always evaluate base model for recovery testing
-        logger.info("================= Evaluating BASE model ======================")
-        base_results = self._eval_base_model()
+        if self.config.lmeval.base_metrics:
+            logger.info("====== Using BASE model metrics from config ======")
+            base_results = self.config.lmeval.base_metrics
+            logger.info(f"Base metrics: {base_results}")
+        else:
+            logger.info("====== Evaluating BASE model ======================")
+            base_results = self._eval_base_model()
 
-        gc.collect()
-        torch.accelerator.empty_cache()
-        torch.accelerator.synchronize()
-        # Give GPU time to fully release memory
-        time.sleep(2)
+            gc.collect()
+            torch.accelerator.empty_cache()
+            torch.accelerator.synchronize()
+            # Give GPU time to fully release memory
+            time.sleep(2)
 
         match self.config.entrypoint:
             case "model_free_ptq":

@@ -1,11 +1,11 @@
 cadence: "nightly"
-model: Qwen/Qwen3-VL-8B-Instruct
-model_class: Qwen3VLForConditionalGeneration
-recipe: tests/e2e/recipes/non_uniform/recipe_nvfp4_fp8_mixed.yaml
+model: google/diffusiongemma-26B-A4B-it
+model_class: DiffusionGemmaForBlockDiffusion
+recipe: tests/e2e/recipes/NVFP4/recipe_diffusiongemma_nvfp4.yaml
 dataset_id: neuralmagic/calibration
 dataset_config: LLM
 dataset_split: "train"
-num_calibration_samples: 20
+num_calibration_samples: 256
 lmeval:
   model: vllm-vlm
   task: chartqa
