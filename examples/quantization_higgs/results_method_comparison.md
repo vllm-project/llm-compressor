@@ -16,7 +16,7 @@ All runs use 61 low-precision + 163 FP8_DYNAMIC layers (224 total).
 |---------|---------|--------|------------|------------|-----|
 | higgs_nvfp4_fp8_qmod | NVFP4 + FP8_DYNAMIC | QuantizationModifier | 3.5s | 1:21 | 9.3860 |
 | higgs_nvfp4_fp8_gptq | NVFP4 + FP8_DYNAMIC | GPTQModifier | 3.5s | 10:28 | 9.3760 |
-| higgs_nvfp4a16_fp8_model_free | NVFP4A16 + FP8_DYNAMIC | convert_checkpoint | 3.5s | 0:22 | 9.2483 |
+| higgs_nvfp4a16_fp8_model_free | NVFP4A16 + FP8_DYNAMIC | convert_checkpoint | 3.5s | 0:22 | 9.0381 |
 | higgs_nvfp4a16_fp8_gptq | NVFP4A16 + FP8_DYNAMIC | GPTQModifier | 3.5s | 10:14 | 9.2493 |
 
 ## Observations
