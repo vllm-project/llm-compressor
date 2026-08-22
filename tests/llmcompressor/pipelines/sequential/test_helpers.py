@@ -1,4 +1,5 @@
 import math
+import sys
 
 import pytest
 import torch
@@ -6,6 +7,7 @@ import torch.fx
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.pipelines.sequential.ast_helpers import autowrap_forward
 from llmcompressor.pipelines.sequential.helpers import (
     Subgraph,
     get_sequential_ancestors,
@@ -45,6 +47,22 @@ class DummyModelMultipleSequentialLayers(torch.nn.Module):
         x = self.layer5(x)
         x = self.layer6(x)
         return x
+
+
+def test_autowrap_forward_uses_unwrapped_function_globals(monkeypatch):
+    def forward(self, x):
+        return torch.relu(x)
+
+    MainModule = type(
+        "MainModule", (torch.nn.Module,), {"__module__": "__main__", "forward": forward}
+    )
+    model = MainModule()
+    monkeypatch.delitem(sys.modules["__main__"].__dict__, "torch", raising=False)
+
+    with autowrap_forward(model, ignore=[]):
+        output = model(torch.ones(2))
+
+    assert torch.equal(output, torch.ones(2))
 
 
 def test_get_sequential_ancestors():
