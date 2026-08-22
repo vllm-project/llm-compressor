@@ -9,11 +9,13 @@ from llmcompressor.typing import Processor
 if TYPE_CHECKING:
     from llmcompressor.args import DatasetArguments
 
+ROLE_MAP = {"human": "user", "gpt": "assistant"}
 
-@TextGenerationDataset.register(name="ultrachat_200k", alias="ultrachat")
-class UltraChatDataset(TextGenerationDataset):
+
+@TextGenerationDataset.register(name="perfectblend")
+class PerfectBlendDataset(TextGenerationDataset):
     """
-    Child text generation class for the Ultra Chat 200k dataset
+    Child text generation class for the open-perfectblend dataset
 
     :param dataset_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
@@ -37,11 +39,8 @@ class UltraChatDataset(TextGenerationDataset):
         self, dataset_args: "DatasetArguments", split: str, processor: Processor
     ):
         dataset_args = deepcopy(dataset_args)
-        dataset_args.dataset = "HuggingFaceH4/ultrachat_200k"
-        dataset_args.text_column = "messages"
-
-        if split in ["train", "test"]:
-            split += "_sft"
+        dataset_args.dataset = "mlabonne/open-perfectblend"
+        dataset_args.text_column = "conversations"
 
         super().__init__(dataset_args=dataset_args, split=split, processor=processor)
 
@@ -49,8 +48,6 @@ class UltraChatDataset(TextGenerationDataset):
             self.tokenizer is not None
             and getattr(self.tokenizer, "chat_template", None) is None
         ):
-            # note that since tokenizer is a member of processor,
-            # this change affects processor.apply_chat_template
             self.tokenizer.chat_template = self.DEFAULT_CHAT_TEMPLATE
             logger.warning(
                 "tokenizer.chat_template is not set, using default chat template for "
@@ -58,9 +55,13 @@ class UltraChatDataset(TextGenerationDataset):
             )
 
     def dataset_template(self, sample):
-        messages = sample["messages"]
-        if messages[0]["role"] != "system":
-            messages.insert(0, {"role": "system", "content": ""})
+        messages = [
+            {
+                "role": ROLE_MAP.get(msg["from"], msg["from"]),
+                "content": msg["value"],
+            }
+            for msg in sample["conversations"]
+        ]
 
         return {
             "text": self.processor.apply_chat_template(

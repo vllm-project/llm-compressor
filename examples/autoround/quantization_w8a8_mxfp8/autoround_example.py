@@ -77,6 +77,10 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     # disable shuffling to get slightly better mmlu score
     shuffle_calibration_samples=False,
+    # For Qwen3-30B, 128 samples, 200 iters, expert routing coverage is
+    # sufficient in practice. Enabling all experts can OOM on a single 80GB GPU,
+    # so keep this False for the single-GPU example path.
+    moe_calibrate_all_experts=False,
 )
 
 # Confirm generations of the quantized model look sane.
