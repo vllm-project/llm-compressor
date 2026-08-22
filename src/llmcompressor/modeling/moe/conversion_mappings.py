@@ -17,6 +17,7 @@ __all__ = [
     "has_linearize_load_mappings",
     "get_linearize_load_mappings",
     "set_save_conversion_mapping",
+    "patch_moe_mappings",
 ]
 
 ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
@@ -228,7 +229,8 @@ def get_linearize_load_mappings(
     _config_paths, expert_paths = ARCH_TO_IMPORT_PATHS[model_type]
     experts_cls = import_or_none(expert_paths)
 
-    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type)
+    # architectures whose checkpoints need no conversion have no mapping at all
+    mapping: list[WeightTransform] = get_checkpoint_conversion_mapping(model_type) or []
     model_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
     remove_targets, new_mappings = ARCH_TO_2D_MAPPINGS[model_type]
 
@@ -257,6 +259,55 @@ def get_linearize_load_mappings(
             )
 
     return experts_cls, load_mappings, save_mappings
+
+
+def patch_moe_mappings(
+    model_type: str,
+    mappings: list[WeightTransform],
+    remove_targets: list[str] | None = None,
+):
+    """
+    Override the 2D load mappings used for a model architecture, so that a checkpoint
+    which already stores its experts as 2D per-expert tensors is loaded directly in
+    linearized format rather than being fused into 3D weights on load and unfused
+    again afterwards.
+
+    Not every checkpoint of an architecture shares a layout: a model which has been
+    loaded and re-saved through transformers stores 2D per-expert weights where the
+    original release stores fused 3D weights. Which mappings apply is therefore a
+    property of the checkpoint rather than of the architecture, and cannot be decided
+    by `ARCH_TO_2D_MAPPINGS`. Use this to declare the layout of such a checkpoint:
+
+    ```python
+    from llmcompressor.modeling import patch_moe_mappings
+    from llmcompressor.utils import load_context
+
+    patch_moe_mappings("qwen3_5_moe", [...2d load mappings...])
+
+    with load_context():
+        model = AutoModelForCausalLM.from_pretrained(model_id)
+    ```
+
+    Mappings are registered against the architecture's conversion pattern, so
+    architectures which share a pattern share the override.
+
+    :param model_type: model type to override the load mappings of, as spelled by
+        `config.model_type`
+    :param mappings: transforms describing how the checkpoint stores its experts,
+        see `ARCH_TO_2D_MAPPINGS` for examples
+    :param remove_targets: target patterns of the architecture's default conversion
+        mapping which are made redundant by `mappings` and should be dropped, typically
+        the fused 3D expert weights. Defaults to dropping nothing
+    """
+    if model_type not in ARCH_TO_IMPORT_PATHS:
+        raise ValueError(
+            f"Cannot override load mappings for model type {model_type}, which has no "
+            "registered experts module. Model types with a registered experts module "
+            f"are {sorted(ARCH_TO_IMPORT_PATHS)}"
+        )
+
+    remapped_type = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
+    ARCH_TO_2D_MAPPINGS[remapped_type] = (remove_targets or [], mappings)
 
 
 def set_save_conversion_mapping(
