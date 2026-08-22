@@ -217,8 +217,10 @@ def freeze_module_quantization(module: Module):
         # no quantization scheme nothing to do
         return
 
-    if module.quantization_status == QuantizationStatus.FROZEN:
-        # nothing to do, already frozen
+    if module.quantization_status in (
+        QuantizationStatus.FROZEN,
+        QuantizationStatus.COMPRESSED,
+    ):
         return
 
     # remove observers
