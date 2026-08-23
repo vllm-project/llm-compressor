@@ -5,9 +5,12 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
 )
+from compressed_tensors.utils.safetensors_load import (
+    load_tensors_from_inverse_weight_map,
+)
 from safetensors.torch import save_file
 
-from llmcompressor.entrypoints.model_free.process import validate_file
+from llmcompressor.entrypoints.model_free.process import ModelFreePtqConverter
 
 
 def _get_block_config() -> QuantizationConfig:
@@ -22,25 +25,29 @@ def _get_block_config() -> QuantizationConfig:
             block_structure=[16, 16],
         ),
     )
-    return QuantizationConfig(
-        config_groups={"group_0": scheme},
-        ignore=[],
-    )
+    return QuantizationConfig(config_groups={"group_0": scheme}, ignore=[])
 
 
-def test_validate_file_raises_for_non_2d_linear_weight(tmp_path):
+@pytest.fixture
+def mfptq():
+    return ModelFreePtqConverter(config=_get_block_config())
+
+
+def test_validate_raises_for_non_2d_linear_weight(tmp_path, mfptq):
     path = tmp_path / "bad_shape.safetensors"
     save_file({"model.layers.0.mlp.down_proj.weight": torch.ones(128)}, str(path))
 
+    tensors = load_tensors_from_inverse_weight_map({str(path): []}, device="meta")
     with pytest.raises(ValueError, match="model.layers.0.mlp.down_proj.weight"):
-        validate_file({str(path): []}, None, _get_block_config(), "cpu")
+        mfptq.validate(tensors)
 
 
-def test_validate_file_does_not_raise_for_block_incompatible_shape(tmp_path):
+def test_validate_does_not_raise_for_block_incompatible_shape(tmp_path, mfptq):
     path = tmp_path / "bad_block.safetensors"
     save_file(
         {"model.layers.0.mlp.down_proj.weight": torch.ones(17, 16)},
         str(path),
     )
 
-    validate_file({str(path): []}, None, _get_block_config(), "cpu")
+    tensors = load_tensors_from_inverse_weight_map({str(path): []}, device="meta")
+    mfptq.validate(tensors)
