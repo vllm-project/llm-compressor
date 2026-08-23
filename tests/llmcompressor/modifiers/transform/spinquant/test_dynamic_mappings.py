@@ -221,12 +221,14 @@ class TestGetMappingsFromModel:
     def test_llama_uses_static_path(self):
         model = _make_standard_model()
         model.__class__ = type("LlamaForCausalLM", (model.__class__,), {})
-        assert get_spinquant_mapping_from_model(model) is SPINQUANT_MAPPING_REGISTRY[
-            "LlamaForCausalLM"
-        ]
-        assert get_norm_mapping_from_model(model) is NORM_MAPPING_REGISTRY[
-            "LlamaForCausalLM"
-        ]
+        assert (
+            get_spinquant_mapping_from_model(model)
+            is SPINQUANT_MAPPING_REGISTRY["LlamaForCausalLM"]
+        )
+        assert (
+            get_norm_mapping_from_model(model)
+            is NORM_MAPPING_REGISTRY["LlamaForCausalLM"]
+        )
 
     def test_unknown_uses_defaults(self):
         model = _make_standard_model()

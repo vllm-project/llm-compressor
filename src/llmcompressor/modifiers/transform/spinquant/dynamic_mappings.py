@@ -32,11 +32,15 @@ from torch.nn import Module
 from llmcompressor.modifiers.transform.spinquant.mappings import (
     SPINQUANT_MAPPING_REGISTRY,
     SpinQuantMapping,
+)
+from llmcompressor.modifiers.transform.spinquant.mappings import (
     _default_mappings as _default_spinquant_mappings,
 )
 from llmcompressor.modifiers.transform.spinquant.norm_mappings import (
     NORM_MAPPING_REGISTRY,
     NormMapping,
+)
+from llmcompressor.modifiers.transform.spinquant.norm_mappings import (
     _default_mappings as _default_norm_mappings,
 )
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
@@ -152,9 +156,7 @@ def build_qwen3_5_norm_mappings(model: Module) -> list[NormMapping] | None:
         return None
 
     layer_types, num_layers = result
-    full_indices = [
-        i for i in range(num_layers) if layer_types[i] == "full_attention"
-    ]
+    full_indices = [i for i in range(num_layers) if layer_types[i] == "full_attention"]
     linear_indices = [
         i for i in range(num_layers) if layer_types[i] == "linear_attention"
     ]
