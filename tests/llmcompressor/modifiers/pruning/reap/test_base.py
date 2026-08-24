@@ -450,7 +450,7 @@ class TestREAPSaliencyTracker:
             n_experts_to_drop=3, n_experts_to_drop_per_group=None, moe_attrs=moe_attrs
         )
         # drop the 3 lowest: experts 0 (0.1), 5 (0.2), 3 (0.3)
-        assert retained == [1, 2, 4, 6, 7]
+        assert retained.tolist() == [1, 2, 4, 6, 7]
 
     def test_compute_retained_per_group(self):
         # 8 experts, 2 groups of 4; drop 2 total -> 1 per group
@@ -473,7 +473,7 @@ class TestREAPSaliencyTracker:
         )
         # group 0 [0,1,2,3]: drop expert 0 (0.1) -> keep 1,2,3
         # group 1 [4,5,6,7]: drop expert 5 (0.2) -> keep 4,6,7
-        assert retained == [1, 2, 3, 4, 6, 7]
+        assert retained.tolist() == [1, 2, 3, 4, 6, 7]
 
 
 # ---------------------------------------------------------------------------
