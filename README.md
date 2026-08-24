@@ -234,3 +234,7 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
+
+
+## Developer Reference #3088
+Resolves issue #3088: Test Checkpoint Bounties.
