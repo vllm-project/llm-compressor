@@ -49,6 +49,17 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **Qwen3.8 NVFP4, FP8, and INT4 Quantized Checkpoints**: NVFP4 and FP8 quantized checkpoints for Qwen3.8-2.4T-A95B, along with an INT4 checkpoint for Qwen3.8-27B, have been created by the Red Hat AI team. Of particular note, `Qwen3.8-2.4T-A95B-NVFP4-REAP-25` combines REAP expert pruning with NVFP4 quantization — 25% of the least-salient experts are pruned prior to quantization, further reducing VRAM requirements while maintaining accuracy recovery.
+  - Models:
+    - [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-FP8)
+  - Examples:
+    - [Qwen3.8-2.4T-A95B NVFP4+FP8 Example](examples/quantizing_moe/qwen_3_8_example.py)
+    - [Qwen3.8-2.4T-A95B REAP + NVFP4 Example](examples/reap_expert_pruning/qwen38_example.py)
+    - [Qwen3.8-27B INT4 Example](examples/quantization_w4a16/qwen3_8_gptq_awq_example.py)
 * **Nemotron 3.5 Lightning FP8 Quantized Checkpoint**: An FP8 quantized checkpoint for [Nemotron 3.5 Lightning](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16) has been created by the Red Hat AI team using GPTQ-based FP8 quantization.
   - [RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8)
   - [Nemotron 3.5 Lightning FP8 Example](examples/quantization_w8a8_fp8/nemotron_3_5_lightning_example.py)
