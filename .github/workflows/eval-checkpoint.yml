@@ -1,0 +1,167 @@
+name: Evaluate Checkpoint Submission
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  parse:
+    if: contains(github.event.issue.labels.*.name, 'checkpoint-submission')
+    runs-on: ubuntu-latest
+    outputs:
+      hf_model_id: ${{ steps.parse.outputs.hf_model_id }}
+      base_model: ${{ steps.parse.outputs.base_model }}
+      quant_method: ${{ steps.parse.outputs.quant_method }}
+    steps:
+      - name: Parse issue body
+        id: parse
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+
+          body = os.environ["ISSUE_BODY"]
+
+          def extract(field):
+              m = re.search(rf'###\s*{re.escape(field)}\s*\n+\s*([^\n]+)', body)
+              val = m.group(1).strip() if m else ""
+              if val == "_No response_":
+                  return ""
+              return val
+
+          hf_url = extract("HuggingFace Model URL")
+          base_model = extract("Base Model")
+          quant_method = extract("Quantization Method")
+
+          hf_match = re.search(r'huggingface\.co/([A-Za-z0-9_-]+/[A-Za-z0-9._-]+)', hf_url)
+          hf_model_id = hf_match.group(1) if hf_match else hf_url
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"hf_model_id={hf_model_id}\n")
+              f.write(f"base_model={base_model}\n")
+              f.write(f"quant_method={quant_method}\n")
+          PYEOF
+
+  validate:
+    needs: parse
+    runs-on: ubuntu-latest
+    outputs:
+      valid: ${{ steps.validate.outputs.valid }}
+    steps:
+      - name: Validate HF model exists
+        id: validate
+        env:
+          HF_MODEL_ID: ${{ needs.parse.outputs.hf_model_id }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${HF_TOKEN}" \
+            "https://huggingface.co/api/models/${HF_MODEL_ID}")
+          if [ "$STATUS" = "200" ]; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+            echo "Model ${HF_MODEL_ID} found on HuggingFace"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Model ${HF_MODEL_ID} not found (HTTP ${STATUS})"
+          fi
+
+      - name: Comment validation failure
+        if: steps.validate.outputs.valid == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "$(cat <<'EOF'
+          ### Validation Failed
+
+          Could not find the model `${{ needs.parse.outputs.hf_model_id }}` on HuggingFace. Please check:
+          - The model URL is correct and publicly accessible
+          - The model has finished uploading
+
+          Once fixed, add the `checkpoint-submission` label again to re-trigger validation.
+          EOF
+          )"
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "checkpoint-submission" \
+            --add-label "needs-fix"
+
+      - name: Comment validation success
+        if: steps.validate.outputs.valid == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "$(cat <<'EOF'
+          ### Submission Validated
+
+          | Field | Value |
+          |-------|-------|
+          | **Model** | [${{ needs.parse.outputs.hf_model_id }}](https://huggingface.co/${{ needs.parse.outputs.hf_model_id }}) |
+          | **Base model** | ${{ needs.parse.outputs.base_model }} |
+          | **Method** | ${{ needs.parse.outputs.quant_method }} |
+
+          The model was found on HuggingFace. An internal eval request has been created — a maintainer will review and approve the eval run.
+          EOF
+          )"
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --add-label "validated"
+
+  create-eval-request:
+    needs: [parse, validate]
+    if: needs.validate.outputs.valid == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create internal eval request
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+          HF_MODEL_ID: ${{ needs.parse.outputs.hf_model_id }}
+          BASE_MODEL: ${{ needs.parse.outputs.base_model }}
+          QUANT_METHOD: ${{ needs.parse.outputs.quant_method }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_ISSUE: ${{ github.event.issue.number }}
+          SOURCE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          INTERNAL_REPO="${{ vars.INTERNAL_REPO || 'neuralmagic/recipe_additions' }}"
+
+          gh issue create --repo "${INTERNAL_REPO}" \
+            --title "Eval: ${HF_MODEL_ID} (${QUANT_METHOD})" \
+            --label "eval-request,checkpoint" \
+            --body "$(cat <<EOF
+          ## Checkpoint Eval Request
+
+          | Field | Value |
+          |-------|-------|
+          | **Model** | [${HF_MODEL_ID}](https://huggingface.co/${HF_MODEL_ID}) |
+          | **Base model** | ${BASE_MODEL} |
+          | **Method** | ${QUANT_METHOD} |
+          | **Submitted by** | [@${SOURCE_AUTHOR}](https://github.com/${SOURCE_AUTHOR}) |
+          | **Source issue** | [${SOURCE_REPO}#${SOURCE_ISSUE}](https://github.com/${SOURCE_REPO}/issues/${SOURCE_ISSUE}) |
+
+          ## Approval
+
+          - [ ] **Approve eval run** — check this box or add the \`eval-approved\` label to trigger the evaluation pipeline.
+
+          ## Eval Config
+
+          \`\`\`yaml
+          model: ${HF_MODEL_ID}
+          base_model: ${BASE_MODEL}
+          method: ${QUANT_METHOD}
+          tasks:
+            - mmlu
+            - arc_challenge
+            - hellaswag
+          \`\`\`
+
+          ---
+          *Auto-created from [${SOURCE_REPO}#${SOURCE_ISSUE}](https://github.com/${SOURCE_REPO}/issues/${SOURCE_ISSUE}). Add \`eval-approved\` label to run evals via mle-pipelines.*
+          EOF
+          )"
