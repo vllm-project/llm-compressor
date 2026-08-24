@@ -142,6 +142,8 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
+                    # linearize moe layers just before calibrate, 
+                    # previously done in oneshot
                     linearize_moe_layer(model, subgraph.submodules(model))
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
