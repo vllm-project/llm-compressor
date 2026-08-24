@@ -295,11 +295,19 @@ _example_parallel_transformer_block_mappings = [
 # shows this chain is sometimes deliberately excluded per empirical AutoAWQ findings,
 # not a universal requirement. Also does not cover the decoder's cross-attention
 # block (encoder_attn / encoder_attn_layer_norm), matching the existing SmoothQuant
-# mapping's scope exactly.
+# mapping's scope exactly. The q/k/v_proj balance patterns are explicitly scoped to
+# self_attn.* : the decoder layer has both self_attn and encoder_attn blocks with
+# identically-named q/k/v_proj children, and match_modules_set groups by shared
+# parent context, so an unscoped q_proj$ pattern would incorrectly pull the
+# cross-attention projections into the same group as self_attn_layer_norm.
 _whisper_mappings = [
     AWQMapping(
         "re:.*self_attn_layer_norm$",
-        ["re:.*k_proj$", "re:.*v_proj$", "re:.*q_proj$"],
+        [
+            "re:.*self_attn\\.k_proj$",
+            "re:.*self_attn\\.v_proj$",
+            "re:.*self_attn\\.q_proj$",
+        ],
     ),
     AWQMapping(
         "re:.*final_layer_norm$",

@@ -1,6 +1,7 @@
 import pytest
 import torch
 from compressed_tensors.quantization import apply_quantization_config
+from compressed_tensors.utils import match_modules_set
 from torch.nn import Linear
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -573,3 +574,24 @@ def test_whisper_mapping_regex_matches_real_module_tree():
     # Confirming the real match_modules_set resolution is a no-op is left to
     # the smoothquant precedent's proven evidence, not re-derived by regex
     # here; the positive checks above are this test's real contribution.
+
+    # Regression test for a real bug caught in review: the decoder layer has
+    # both self_attn and encoder_attn (cross-attention) blocks with
+    # identically-named q/k/v_proj children under the same layer's parent
+    # context, so match_modules_set (which groups by shared parent context)
+    # would incorrectly pull encoder_attn's projections into the same group
+    # as self_attn_layer_norm if the balance patterns weren't scoped to
+    # self_attn.*. Call the real resolution function, not a regex
+    # approximation of it -- a prior version of this test's regex-only
+    # checks couldn't have caught this.
+    attn_mapping = _whisper_mappings[0]
+    targets = (attn_mapping.smooth_layer, *attn_mapping.balance_layers)
+    for group in match_modules_set(model, targets):
+        for balance_matches in group[1:]:
+            for mod in balance_matches:
+                mod_name = next(n for n, m in model.named_modules() if m is mod)
+                assert "encoder_attn" not in mod_name, (
+                    f"Whisper: self_attn_layer_norm's match_modules_set group "
+                    f"incorrectly includes a cross-attention module: "
+                    f"{mod_name!r}"
+                )
