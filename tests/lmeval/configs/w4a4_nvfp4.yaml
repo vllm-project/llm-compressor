@@ -1,4 +1,4 @@
-cadence: "weekly"
+cadence: "nightly"
 model: meta-llama/Llama-3.1-8B-Instruct
 scheme: NVFP4
 dataset_id: HuggingFaceH4/ultrachat_200k
