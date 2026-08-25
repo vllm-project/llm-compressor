@@ -4,6 +4,7 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.offload import get_cache_init_kwargs
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -148,7 +149,7 @@ def linearize_moe_layer(
     model: PreTrainedModel,
     subgraph_modules: list[torch.nn.Module],
     moe_lookup: dict[torch.nn.Module, str],
-) -> list[torch.nn.Module]:
+) -> list[tuple[torch.nn.Module, dict]]:
     """
     Linearize MoE layers within a subgraph during sequential calibration.
     Offloading is deferred — the caller must set up offloading after calibration.
@@ -156,18 +157,19 @@ def linearize_moe_layer(
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
     :param moe_lookup: pre-computed mapping of MoE module -> name in model
-    :return: newly created LinearExperts2D modules that need offloading setup
+    :return: list of (new LinearExperts2D module, offload kwargs from original)
     """
     non_linearized = [(moe_lookup[m], m) for m in subgraph_modules if m in moe_lookup]
 
     linearized = []
     for name, module in non_linearized:
+        offload_kwargs = get_cache_init_kwargs(module)
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(
             module, config, setup_offloading=False
         )
         model.set_submodule(name, linear_moe)
-        linearized.append(linear_moe)
+        linearized.append((linear_moe, offload_kwargs))
 
     return linearized
