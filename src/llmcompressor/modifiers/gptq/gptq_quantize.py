@@ -96,8 +96,6 @@ def quantize_weight(
 
     # handle activation ordering
     if actorder:
-        aliases = ActivationOrdering.get_aliases()
-        actorder = actorder if actorder not in aliases else aliases[actorder]
         W, H, perm = _apply_activation_ordering(W, H)
 
     # handle g_idx
