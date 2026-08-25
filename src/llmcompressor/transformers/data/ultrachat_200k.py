@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from llmcompressor.args import DatasetArguments
 
 
-@TextGenerationDataset.register(name="ultrachat_200k")
+@TextGenerationDataset.register(name="ultrachat_200k", alias="ultrachat")
 class UltraChatDataset(TextGenerationDataset):
     """
     Child text generation class for the Ultra Chat 200k dataset

@@ -8,7 +8,7 @@ This is usually the case when loading your model through transformers, not an in
 
 **2. Are models compressed using LLM Compressor supported with SGlang?**
 
-There is minimal support for compressed-tensors models in sglang, but it is not maintained nor tested by our team. Much of the integration relies on vLLM. For the most up-to-date and tested integration, vLLM is recommended.
+There is minimal support for compressed-tensors models in SGLang, but it is not maintained nor tested by our team. Much of the integration relies on vLLM. For the most up-to-date and tested integration, vLLM is recommended.
 
 **3. How do I choose the right quantization scheme?**
 
@@ -24,7 +24,7 @@ Typically, all linear layers are quantized except the `lm_head` layer. This is b
 
 Mixture of Expert (MoE) models, due to their advanced architecture and some components such as gate and routing layers, are sensitive to quantization as well. For example, [this code snippet shows how to ignore the gates](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/qwen_example.py#L60).
 
-Multimodal models (e.g., vision-language models)pair a language model with another component for image, audio, or video input as well as text. In these cases, the non-textual component is excluded from quantization, as it generally has fewer parameters and is more sensitive.
+Multimodal models (e.g., vision-language models) pair a language model with another component for image, audio, or video input as well as text. In these cases, the non-textual component is excluded from quantization, as it generally has fewer parameters and is more sensitive.
 
 For more information, see [Quantizing Multimodal Audio Models](https://github.com/vllm-project/llm-compressor/tree/main/examples/multimodal_audio) and [Quantizing Multimodal Vision-Language Models](https://github.com/vllm-project/llm-compressor/tree/main/examples/multimodal_vision).
 
