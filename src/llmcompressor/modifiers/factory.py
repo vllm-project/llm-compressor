@@ -128,7 +128,7 @@ class ModifierFactory:
                             f"Failed to load modifier {attribute_name} from {modname}"
                         )
                         ModifierFactory._errors[attribute_name] = err
-            except Exception as module_err:
+            except Exception:
                 logger.opt(exception=True).debug(
                     f"Failed to import module {modname}"
                 )
@@ -171,7 +171,7 @@ class ModifierFactory:
                 return ModifierFactory._experimental_registry[type_](**kwargs)
             else:
                 logger.debug(
-                    f"Experimental modifier '{type_}' skipped (allow_experimental=False)"
+                    f"Experimental modifier '{type_}' skipped"
                 )
                 pass
 
