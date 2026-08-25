@@ -150,9 +150,7 @@ class IMatrixMSEObserver(Observer):
         imp_2d = imp.unsqueeze(0).expand(out_features, -1)
         return flatten_for_calibration(imp_2d, self.base_name, self.args)
 
-    def _get_validated_importance(
-        self, observed: torch.Tensor
-    ) -> torch.Tensor | None:
+    def _get_validated_importance(self, observed: torch.Tensor) -> torch.Tensor | None:
         """Compute importance from sum/count, validate, and return 1D tensor or None."""
         if self.base_name != "weight":
             if self.strict:
