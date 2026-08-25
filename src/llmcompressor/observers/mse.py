@@ -78,6 +78,8 @@ class MovingAverageMSEObserver(Observer):
         self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
+        if self.expand < 1.0:
+            raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
         # Pre-create token_args to avoid patch_attr context manager
         # which causes torch.compile graph breaks
