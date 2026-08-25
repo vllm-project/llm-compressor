@@ -6,6 +6,7 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
 )
 
+import llmcompressor.modifiers.gptq.gptq_quantize as gptq_quantize
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     make_empty_hessian,
@@ -16,6 +17,57 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
 )
 from tests.testing_utils import requires_compute_capability
+
+
+def _make_quantize_inputs(strategy: str = "group", device: str = "cpu"):
+    torch.manual_seed(0)
+    module = torch.nn.Linear(8, 6, bias=False).to(device)
+    quant_args_kwargs = dict(
+        num_bits=4,
+        symmetric=True,
+        strategy=strategy,
+    )
+    if strategy in ("group", "tensor_group"):
+        quant_args_kwargs["group_size"] = 2
+    if strategy == "block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["block_structure"] = [2, 2]
+    if strategy == "fp8":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["strategy"] = "channel"
+    if strategy == "fp8_block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["strategy"] = "block"
+        quant_args_kwargs["block_structure"] = [2, 2]
+    if strategy == "int_asym":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["symmetric"] = False
+        quant_args_kwargs["strategy"] = "channel"
+    if strategy == "fp8_asym":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["symmetric"] = False
+        quant_args_kwargs["strategy"] = "channel"
+    if strategy == "nvfp4":
+        quant_args_kwargs["num_bits"] = 4
+        quant_args_kwargs["type"] = "float"
+        quant_args_kwargs["strategy"] = "tensor_group"
+        quant_args_kwargs["group_size"] = 2
+
+    quant_args = QuantizationArgs(**quant_args_kwargs)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+
+    hessian = make_empty_hessian(module)
+    A = torch.randn(hessian.shape[0], hessian.shape[1], device=device)
+    hessian += A @ A.t()
+    hessian += torch.eye(hessian.shape[0], dtype=hessian.dtype, device=device)
+    return module, quant_args, hessian
 
 
 @pytest.mark.parametrize(
@@ -130,6 +182,114 @@ def test_quantize_weight_channel_actorder_weight():
     assert q_param_dict["weight_scale"].shape[0] == module.weight.shape[0]
     assert q_param_dict["weight_zero_point"].shape[0] == module.weight.shape[0]
     assert "weight_g_idx" not in q_param_dict
+
+
+@requires_compute_capability(8, 0)
+@torch.no_grad()
+@pytest.mark.parametrize(
+    "strategy", ["tensor", "channel", "group", "tensor_group", "block", "fp8", "fp8_block", "int_asym", "fp8_asym", "nvfp4"]
+)
+def test_quantize_weight_triton_cutoff_matches_eager(monkeypatch, strategy):
+    module, quant_args, hessian = _make_quantize_inputs(strategy, device="cuda")
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", False)
+    eager_loss, eager_qparams = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian.clone(),
+        blocksize=4,
+    )
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", True)
+    observe(module, "weight")
+    triton_loss, triton_qparams = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian.clone(),
+        blocksize=4,
+    )
+
+    assert triton_loss == pytest.approx(eager_loss, rel=1e-4)
+    for key in ("weight", "weight_scale", "weight_zero_point"):
+        t, e = triton_qparams[key], eager_qparams[key]
+        if t.dtype.is_floating_point and t.element_size() == 1:
+            t, e = t.to(torch.float32), e.to(torch.float32)
+        torch.testing.assert_close(t, e, rtol=1e-4, atol=1e-4)
+
+
+@requires_compute_capability(8, 0)
+@torch.no_grad()
+@pytest.mark.parametrize("strategy", ["group", "block"])
+def test_quantize_weight_triton_cutoff_actorder_weight(monkeypatch, strategy):
+    torch.manual_seed(0)
+    module = torch.nn.Linear(8, 6, bias=False).to("cuda")
+    quant_args_kwargs = dict(
+        num_bits=4,
+        symmetric=True,
+        strategy=strategy,
+        actorder=ActivationOrdering.WEIGHT,
+    )
+    if strategy == "group":
+        quant_args_kwargs["group_size"] = 2
+    if strategy == "block":
+        quant_args_kwargs["num_bits"] = 8
+        quant_args_kwargs["block_structure"] = [2, 2]
+
+    quant_args = QuantizationArgs(**quant_args_kwargs)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+
+    # non-uniform diagonal so actorder produces a non-identity permutation
+    hessian = make_empty_hessian(module)
+    diag = torch.arange(
+        1, hessian.shape[0] + 1, dtype=hessian.dtype, device=hessian.device
+    )
+    hessian += torch.diag(diag)
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", False)
+    eager_loss, eager_qparams = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian.clone(),
+        blocksize=4,
+    )
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", True)
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+    triton_loss, triton_qparams = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian.clone(),
+        blocksize=4,
+    )
+
+    # Tolerances allow ±1 quantization level from codebook vs round differences
+    # but still catch gross bugs like wrong group index mapping (116x loss).
+    assert triton_loss == pytest.approx(eager_loss, rel=0.5)
+    torch.testing.assert_close(
+        triton_qparams["weight"], eager_qparams["weight"], rtol=0.15, atol=0.05
+    )
+
+
+@torch.no_grad()
+def test_quantize_weight_triton_unavailable_falls_back(monkeypatch):
+    module, quant_args, hessian = _make_quantize_inputs("group")
+
+    monkeypatch.setattr(gptq_quantize, "_triton_available", False)
+
+    loss, q_param_dict = quantize_weight(
+        module=module,
+        quant_args=quant_args,
+        hessian=hessian,
+        blocksize=4,
+    )
+
+    assert loss >= 0
+    assert q_param_dict["weight"].shape == module.weight.shape
 
 
 @requires_compute_capability(9, 0)  # Requires H100 or higher
