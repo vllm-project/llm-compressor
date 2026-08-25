@@ -1,5 +1,4 @@
 import contextlib
-import time
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -11,8 +10,6 @@ from compressed_tensors.offload import (
 )
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
-
-from loguru import logger
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modeling.moe.linearize import (
@@ -146,11 +143,8 @@ class SequentialPipeline(CalibrationPipeline):
             session.state.sequential_prefetch = sequential_prefetch
 
             moe_lookup = {
-                module: name
-                for name, module in get_non_linearized_moes(model)
+                module: name for name, module in get_non_linearized_moes(model)
             }
-
-            t_total = {"linearize": 0.0, "calibrate": 0.0, "compress": 0.0, "propagate": 0.0, "offload": 0.0}
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
@@ -162,14 +156,11 @@ class SequentialPipeline(CalibrationPipeline):
                 with disable_offloading():
                     # linearize moe layers just before calibration,
                     # deferring offloading setup until after compression
-                    t0 = time.perf_counter()
                     linearized = linearize_moe_layer(
                         model, subgraph.submodules(model), moe_lookup
                     )
-                    t_total["linearize"] += time.perf_counter() - t0
 
                     # do a preliminary pass to trigger modifier hooks
-                    t0 = time.perf_counter()
                     for batch_idx, inputs in _get_batches(
                         activations,
                         num_batches,
@@ -184,16 +175,12 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
-                    t_total["calibrate"] += time.perf_counter() - t0
 
-                    t0 = time.perf_counter()
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
-                    t_total["compress"] += time.perf_counter() - t0
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
                         # and is only used for capturing outputs of compressed modules
-                        t0 = time.perf_counter()
                         with HooksMixin.disable_hooks():
                             for batch_idx, inputs in _get_batches(
                                 activations,
@@ -208,19 +195,12 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
-                        t_total["propagate"] += time.perf_counter() - t0
 
                 # offload after calibration
-                t0 = time.perf_counter()
                 for module in linearized:
                     offload_kwargs = get_cache_init_kwargs(module)
                     for submodule in module.modules():
                         offload_module(submodule, **offload_kwargs)
-                t_total["offload"] += time.perf_counter() - t0
-
-            logger.info(f"[PROFILE] Pipeline timing breakdown: {t_total}")
-            for k, v in t_total.items():
-                logger.info(f"[PROFILE]   {k}: {v:.3f}s")
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

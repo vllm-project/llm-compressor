@@ -143,6 +143,7 @@ def get_non_linearized_moes(
         or LinearExperts2D.get_registration(module.__class__) is not None
     ]
 
+
 def linearize_moe_layer(
     model: PreTrainedModel,
     subgraph_modules: list[torch.nn.Module],
@@ -157,9 +158,7 @@ def linearize_moe_layer(
     :param moe_lookup: pre-computed mapping of MoE module -> name in model
     :return: newly created LinearExperts2D modules that need offloading setup
     """
-    non_linearized = [
-        (moe_lookup[m], m) for m in subgraph_modules if m in moe_lookup
-    ]
+    non_linearized = [(moe_lookup[m], m) for m in subgraph_modules if m in moe_lookup]
 
     linearized = []
     for name, module in non_linearized:
