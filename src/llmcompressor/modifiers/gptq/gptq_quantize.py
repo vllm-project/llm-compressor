@@ -96,6 +96,11 @@ def quantize_weight(
 
     # handle activation ordering
     if actorder:
+        if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
+            raise ValueError(
+                f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
+                "are supported for GPTQ."
+            )
         W, H, perm = _apply_activation_ordering(W, H)
 
     # handle g_idx
