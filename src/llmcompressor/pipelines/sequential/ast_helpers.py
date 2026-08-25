@@ -96,13 +96,17 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
         )
 
     # get source code of module forward
-    source = inspect.getsource(get_unwrapped_forward(module))
+    forward_fn = get_unwrapped_forward(module)
+    source = inspect.getsource(forward_fn)
     source = textwrap.dedent(source)
     tree = ast.parse(source)
 
     # construct namespace for our new code
-    defining_module = sys.modules[module.__class__.__module__]
-    namespace = defining_module.__dict__.copy()
+    namespace = getattr(forward_fn, "__globals__", None)
+    if namespace is None:
+        defining_module = sys.modules[module.__class__.__module__]
+        namespace = defining_module.__dict__
+    namespace = namespace.copy()
     namespace.update({"torch.fx.wrap": torch.fx.wrap})
     namespace.update({"self": module})
 
