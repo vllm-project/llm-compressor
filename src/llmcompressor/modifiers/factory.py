@@ -1,10 +1,9 @@
 import importlib
-import logging
 import pkgutil
 
-from llmcompressor.modifiers.modifier import Modifier
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from llmcompressor.modifiers.modifier import Modifier
 
 __all__ = ["ModifierFactory"]
 
@@ -70,9 +69,8 @@ class ModifierFactory:
                             yield from walk_recursive(subpackage.__path__, name + ".")
                     except Exception:
                         # If we can't import the subpackage, skip it
-                        logger.debug(
-                            f"Failed to import subpackage {name}, skipping",
-                            exc_info=True,
+                        logger.opt(exception=True).debug(
+                            f"Failed to import subpackage {name}, skipping"
                         )
                         pass
 
@@ -126,16 +124,14 @@ class ModifierFactory:
 
                         loaded[attribute_name] = attr
                     except Exception as err:
-                        logger.debug(
-                            f"Failed to load modifier {attribute_name} from {modname}",
-                            exc_info=True,
+                        logger.opt(exception=True).debug(
+                            f"Failed to load modifier {attribute_name} from {modname}"
                         )
                         ModifierFactory._errors[attribute_name] = err
             except Exception as module_err:
-                logger.debug(
-                    f"Failed to import module {modname}", exc_info=True
+                logger.opt(exception=True).debug(
+                    f"Failed to import module {modname}"
                 )
-                print(module_err)
 
         return loaded
 
