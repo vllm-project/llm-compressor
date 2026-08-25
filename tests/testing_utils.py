@@ -394,6 +394,9 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
         )
 
     device_capability = device_module.get_device_capability(0)
+    has_capability = device_capability[0] > major or (
+        device_capability[0] == major and device_capability[1] >= minor
+    )
 
     reason = (
         f"Compute capability {major}.{minor} required, "
