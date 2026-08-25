@@ -2,7 +2,12 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import disable_offloading, set_onload_device
+from compressed_tensors.offload import (
+    disable_offloading,
+    get_cache_init_kwargs,
+    offload_module,
+    set_onload_device,
+)
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -142,9 +147,12 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
-                    # linearize moe layers just before calibrate, 
-                    # previously done in oneshot
-                    linearize_moe_layer(model, subgraph.submodules(model))
+                    # linearize moe layers just before calibration,
+                    # deferring offloading setup until after compression
+                    linearized = linearize_moe_layer(
+                        model, subgraph.submodules(model)
+                    )
+
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,
@@ -180,6 +188,12 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                # offload after calibration
+                for module in linearized:
+                    offload_kwargs = get_cache_init_kwargs(module)
+                    for submodule in module.modules():
+                        offload_module(submodule, **offload_kwargs)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

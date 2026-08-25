@@ -145,25 +145,34 @@ def get_non_linearized_moes(
 
 def linearize_moe_layer(
     model: PreTrainedModel, subgraph_modules: list[torch.nn.Module]
-):
+) -> list[torch.nn.Module]:
     """
     Linearize MoE layers within a subgraph during sequential calibration.
+    Offloading is deferred — the caller must set up offloading after calibration.
 
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
+    :return: newly created LinearExperts2D modules that need offloading setup
     """
+    subgraph_set = set(subgraph_modules)
     non_linearized = [
         (name, module)
         for name, module in model.named_modules()
-        if module in subgraph_modules
+        if module in subgraph_set
         and (
             isinstance(module, FusedExpertsProtocol)
             or LinearExperts2D.get_registration(module.__class__) is not None
         )
     ]
 
+    linearized = []
     for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
+        linear_moe = linear_experts_cls.from_experts_module(
+            module, config, setup_offloading=False
+        )
         model.set_submodule(name, linear_moe)
+        linearized.append(linear_moe)
+
+    return linearized

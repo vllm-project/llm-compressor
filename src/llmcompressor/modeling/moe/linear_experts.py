@@ -205,7 +205,10 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
+        setup_offloading: bool = True,
     ):
         with skip_weights_initialize():
             self = cls(config)
@@ -214,10 +217,11 @@ class LinearExperts2D(torch.nn.ModuleList):
             expert: ExpertMLP = self[index]
             expert.copy_from_experts_module(experts, index)
 
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
+        if setup_offloading:
+            # copy offloading from original
+            offload_kwargs = get_cache_init_kwargs(experts)
+            for module in self.modules():
+                offload_module(module, **offload_kwargs)
 
         return self
 
