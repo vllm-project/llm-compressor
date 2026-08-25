@@ -144,7 +144,9 @@ def get_non_linearized_moes(
     ]
 
 def linearize_moe_layer(
-    model: PreTrainedModel, subgraph_modules: list[torch.nn.Module]
+    model: PreTrainedModel,
+    subgraph_modules: list[torch.nn.Module],
+    moe_lookup: dict[torch.nn.Module, str],
 ) -> list[torch.nn.Module]:
     """
     Linearize MoE layers within a subgraph during sequential calibration.
@@ -152,21 +154,15 @@ def linearize_moe_layer(
 
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
+    :param moe_lookup: pre-computed mapping of MoE module -> name in model
     :return: newly created LinearExperts2D modules that need offloading setup
     """
-    subgraph_set = set(subgraph_modules)
     non_linearized = [
-        (name, module)
-        for name, module in model.named_modules()
-        if module in subgraph_set
-        and (
-            isinstance(module, FusedExpertsProtocol)
-            or LinearExperts2D.get_registration(module.__class__) is not None
-        )
+        (moe_lookup[m], m) for m in subgraph_modules if m in moe_lookup
     ]
 
     linearized = []
-    for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
+    for name, module in non_linearized:
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(
