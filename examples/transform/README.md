@@ -3,7 +3,6 @@
 This directory contains example scripts for applying transforms to models for the purpose of improving quantization accuracy. For more information on transforms, see [QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs](https://arxiv.org/abs/2404.00456). The two transform styles currently supported are SpinQuant/QuaRot-style (`SpinQuantModifier`), and QuIP-style (`QuIPModifier`).
 
 See also [[vLLM Office Hours #31] vLLM and LLM Compressor Update - August 28, 2025](https://www.youtube.com/watch?v=WVenRmF4dPY&list=PLbMP1JcGBmSHxp4-lubU5WYmJ9YgAQcf3&index=3).
-
 ## Installation
 
 To get started, install the necessary dependencies by executing the following commands:
@@ -44,6 +43,26 @@ Note that `QuIPModifier` can be customized. For a full list of the available arg
 * `rotations` determines which of the input rotation (v) or output rotations (u) should be used. **By default, only input rotations (`["v"]`) are enabled, as output rotations are not performant and do not increase accuracy.**
 * `transform_block_size` determines the size of the hadamard. Smaller hadamards require less cost at runtime.
 * `transform_type` determines how the transform is constrcted. hadamard uses the sylvester construction.
+
+## Learned rotations (SpinQuant)
+
+The [SpinQuant paper](https://arxiv.org/abs/2405.16406) shows that *learning* the rotation
+matrices (rather than leaving them as fixed Hadamard transforms) improves low-bit accuracy.
+`SpinQuantModifier(learnable=True)` implements this: the rotations are optimized with
+AdamW/SGD to minimize the language modeling loss over the calibration set before
+quantization runs. Only the rotation parameters are trained; the rest of the model is
+frozen. See [spinquant_learnable_example.py](spinquant_learnable_example.py) for a runnable
+example.
+
+Key points:
+
+* `learnable=True` requires a calibration `dataset` to be passed to `oneshot`.
+* Rotations are applied, learned, and fused into the weights **one at a time** — the
+  compressed-tensors transform factories cannot compose multiple `requires_grad`
+  transforms on the same Linear (R1 and R2 both target `attn_v`/`attn_o`).
+* `learn_steps` is split evenly across the requested rotations; tune `learn_lr` per model.
+* After learning, offline rotations are fused into the weights and `requires_grad` is
+  cleared, so the saved checkpoint is structurally identical to the fixed-rotation path.
 
 ### Step 2: Run Quantization Using Oneshot
 
