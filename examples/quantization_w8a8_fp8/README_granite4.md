@@ -4,7 +4,7 @@
 
 For Granite 4, in addition to typical `nn.Linear` layers in `mamba` or `mlp` modules, there are three "Linear-like" layers in `GraniteMoeHybridMoe` (`moe` module) that could be quantized as well. Among the three layers, usually `router` should be kept in high precision for accuracy reason. Therefore, users could choose to quantize the other two layers, `input_linear` and `output_linear`, for better model compression.
 
-The MoE experts store their weights in 3D, i.e. [num_experts, out_feat, in_feat], rather than as `nn.Linear` modules. `llmcompressor` handles this for you: loading the model inside `load_context()` linearizes the experts on load, so each expert becomes a regular `nn.Linear` that the recipe can target like any other layer. Weights are converted back to the checkpoint's expected format on save.
+The MoE experts store their weights in 3D, i.e., [num_experts, out_feat, in_feat], rather than as `nn.Linear` modules. `llmcompressor` handles this for you: loading the model inside `load_context()` linearizes the experts, so each expert becomes a regular `nn.Linear` that the recipe can target like any other layer. Weights are converted back to the checkpoint's expected format on save.
 
 > `fp8` compuation is supported on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
 
