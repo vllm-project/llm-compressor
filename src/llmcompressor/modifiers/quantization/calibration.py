@@ -61,6 +61,9 @@ def initialize_observer(
     )
     observer = args.observer
 
+    if observer is None:
+        observer = "memoryless_minmax"
+
     # training is no longer supported: always use memoryless for weights
     if base_name == "weight" and args.observer in ("static_minmax", "minmax"):
         observer = "memoryless_minmax"
