@@ -28,6 +28,41 @@ class _MixedFakeDecoderLayer(nn.Module):
         self.up_proj = nn.Linear(128, 128)
 
 
+class _FakeAttention(nn.Module):
+    """Stand-in for an attention module (e.g. `Qwen3Attention`) that another
+    modifier (e.g. `QuantizationModifier`) quantized with an activation-only
+    scheme (`weights=None`) in the same `IndependentPipeline` run."""
+
+    def __init__(self):
+        super().__init__()
+        self.q_proj = nn.Linear(128, 128)
+
+
+class _DecoderLayerWithAttention(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.self_attn = _FakeAttention()
+        self.up_proj = nn.Linear(128, 128)
+
+
+class _FakeMlp(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.gate_proj = nn.Linear(128, 128)
+
+
+class _RegexDecoderLayer(nn.Module):
+    """Layer whose target modules are addressed via regex (e.g.
+    `re:.*self_attn\\.(q|k|v|o)_proj$`), not by class name, mirroring
+    examples/autoround/quantization_wNa16/qwen3_example_mixed_w2a16_w4a16.py."""
+
+    def __init__(self):
+        super().__init__()
+        self.self_attn = _FakeAttention()
+        self.mlp = _FakeMlp()
+        self.input_layernorm = nn.LayerNorm(128)
+
+
 def test_on_sequential_epoch_end_passes_all_modules():
     """Verify that on_sequential_epoch_end passes all modules to apply_autoround
     without filtering. Regression test for a bug where an is_module_quantized
@@ -143,6 +178,147 @@ def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
     layer_config = modifier._build_layer_config_for_autoround(wrapped)
 
     assert layer_config == {}
+
+
+def test_build_layer_config_for_autoround_skips_activation_only_schemes():
+    """Regression test: an attention module quantized by a *different* modifier
+    (e.g. `QuantizationModifier` targeting `Qwen3Attention` with an
+    activation-only scheme, `weights=None`) earlier in the same
+    `IndependentPipeline` run must be skipped, not passed to
+    `_quant_scheme_to_autoround_config` (which unconditionally accesses
+    `weight_args.group_size` and previously raised
+    `AttributeError: 'NoneType' object has no attribute 'group_size'`)."""
+    modifier = AutoRoundModifier(
+        ignore=["lm_head"],
+        iters=0,
+        targets="Linear",
+        scheme="W4A16",
+    )
+    layer = _DecoderLayerWithAttention()
+    modifier.initialize_quantization(layer)
+
+    # Simulate a prior modifier (e.g. QuantizationModifier) having already
+    # attached an activation-only quantization_scheme to the attention module.
+    layer.self_attn.quantization_scheme = QuantizationScheme(
+        targets=["_FakeAttention"],
+        weights=None,
+        input_activations=QuantizationArgs(num_bits=8, type="float", strategy="tensor"),
+    )
+
+    wrapped = _wrap_decoding_layer(layer)
+    # Previously raised AttributeError: 'NoneType' object has no attribute
+    # 'group_size' when the self_attn module (weights=None) was reached.
+    layer_config = modifier._build_layer_config_for_autoround(wrapped)
+
+    assert "model.layers.0.self_attn" not in layer_config
+
+
+def test_postprocess_qparams_only_applies_autoround_decision_to_autoround_targets():
+    """Regression test: `check_to_quantized` inspects AutoRound-only `bits`/
+    `act_bits` attributes, so it can only meaningfully judge modules AutoRound
+    itself targeted (e.g. `Linear`). Previously it was applied to every module
+    in the model, including an attention module quantized by a *different*
+    modifier (e.g. `QuantizationModifier` targeting `Qwen3Attention`) earlier
+    in the same `IndependentPipeline` run - since that module never gets
+    AutoRound's `bits`/`act_bits` attrs, it was always judged "not quantized"
+    and had its (unrelated) `quantization_scheme` wiped."""
+    modifier = AutoRoundModifier(
+        ignore=["lm_head"], iters=0, targets="Linear", scheme="W4A16"
+    )
+    layer = _DecoderLayerWithAttention()
+
+    layer.up_proj.quantization_scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(num_bits=4, strategy="group", group_size=32),
+    )
+    layer.self_attn.quantization_scheme = QuantizationScheme(
+        targets=["_FakeAttention"],
+        weights=None,
+        input_activations=QuantizationArgs(num_bits=8, type="float", strategy="tensor"),
+    )
+
+    with patch(
+        "llmcompressor.modifiers.autoround.base.check_to_quantized",
+        return_value=False,
+    ):
+        modifier._postprocess_qparams(layer, llmc_registered_qparams={})
+
+    # AutoRound decided `up_proj` should NOT stay quantized -> scheme cleared.
+    assert not hasattr(layer.up_proj, "quantization_scheme")
+    # `self_attn` was never an AutoRound target -> left untouched.
+    assert hasattr(layer.self_attn, "quantization_scheme")
+
+
+def test_get_unquantized_layer_names_matches_regex_targets():
+    """Regression test: targets specified as regex patterns (e.g.
+    `re:.*self_attn\\.(q|k|v|o)_proj$`) must be resolved via
+    `match_named_modules`, not by comparing `module.__class__.__name__`
+    (always `"Linear"`) against the target strings, which are never plain
+    class names here."""
+    modifier = AutoRoundModifier(
+        config_groups={
+            "attention": QuantizationScheme(
+                targets=["re:.*self_attn\\.(q|k|v|o)_proj$"],
+                weights=QuantizationArgs(num_bits=2, strategy="group", group_size=32),
+            ),
+            "mlp": QuantizationScheme(
+                targets=["re:.*mlp\\.(gate|up|down)_proj$"],
+                weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
+            ),
+        },
+        ignore=["lm_head"],
+        iters=0,
+    )
+    layer = _RegexDecoderLayer()
+
+    # `mlp.gate_proj` matches the "mlp" target regex and was already quantized.
+    layer.mlp.gate_proj.quantization_scheme = QuantizationScheme(
+        targets=["re:.*mlp\\.(gate|up|down)_proj$"],
+        weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
+    )
+    # `self_attn.q_proj` matches the "attention" target regex but has no
+    # quantization_scheme -> should be reported as unquantized.
+
+    unquantized = modifier.get_unquantized_layer_names(layer)
+
+    assert "self_attn.q_proj" in unquantized
+    assert "mlp.gate_proj" not in unquantized
+    # `input_layernorm` never matches either target regex, even though it
+    # also lacks a quantization_scheme -> must not appear.
+    assert "input_layernorm" not in unquantized
+
+
+def test_postprocess_qparams_applies_autoround_decision_with_regex_targets():
+    """Regression test: `is_autoround_target` must be computed via
+    `match_named_modules` so that regex targets (e.g.
+    `re:.*self_attn\\.(q|k|v|o)_proj$`) are recognized as AutoRound targets.
+    Previously `module.__class__.__name__ in self.resolved_targets` was always
+    `False` for regex targets, so AutoRound's decision to fall a layer back to
+    full precision was silently ignored and stale qparams were never cleared."""
+    modifier = AutoRoundModifier(
+        config_groups={
+            "attention": QuantizationScheme(
+                targets=["re:.*self_attn\\.(q|k|v|o)_proj$"],
+                weights=QuantizationArgs(num_bits=2, strategy="group", group_size=32),
+            ),
+        },
+        ignore=["lm_head"],
+        iters=0,
+    )
+    layer = _RegexDecoderLayer()
+    layer.self_attn.q_proj.quantization_scheme = QuantizationScheme(
+        targets=["re:.*self_attn\\.(q|k|v|o)_proj$"],
+        weights=QuantizationArgs(num_bits=2, strategy="group", group_size=32),
+    )
+
+    with patch(
+        "llmcompressor.modifiers.autoround.base.check_to_quantized",
+        return_value=False,
+    ):
+        modifier._postprocess_qparams(layer, llmc_registered_qparams={})
+
+    # AutoRound decided this regex-matched target should NOT stay quantized.
+    assert not hasattr(layer.self_attn.q_proj, "quantization_scheme")
 
 
 def test_update_device_map_for_dp_uses_current_rank_device():

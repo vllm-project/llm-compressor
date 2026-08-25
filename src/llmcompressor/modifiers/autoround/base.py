@@ -363,11 +363,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
 
-        for name, module in wrapped_model.named_modules():
-            if (
-                module.__class__.__name__ in self.resolved_targets
-                and getattr(module, "quantization_scheme", None) is None
-            ):
+        for name, module in match_named_modules(
+            wrapped_model, self.resolved_targets, self.ignore
+        ):
+            if getattr(module, "quantization_scheme", None) is None:
                 unquantized_layers.append(name)
         return unquantized_layers
 
@@ -497,9 +496,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             return cleared_scheme
 
         # Update offload parameters and remove temporary attributes
+        autoround_target_names = {
+            name
+            for name, _ in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        }
         for name, module in model.named_modules():
             # Apply AutoRound's quantization decision only to its target modules.
-            is_autoround_target = module.__class__.__name__ in self.resolved_targets
+            is_autoround_target = name in autoround_target_names
             if is_autoround_target:
                 # Respect AutoRound's final layer decision: if a layer is set
                 # back to full precision (bits/act_bits > 8), do not restore
