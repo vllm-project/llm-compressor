@@ -18,6 +18,7 @@ Run with:
 
 from __future__ import annotations
 
+import itertools
 import os
 import tempfile
 
@@ -507,3 +508,86 @@ def test_ddp_smoke_autoround():
         min_top1_match=0.85,
         max_kl_div=0.01,
     )
+
+
+@pytest.mark.integration
+@pytest.mark.multi_gpu
+@requires_gpu(2)
+@torchrun(world_size=2)
+def test_ddp_smoke_rtn_kv_cache():
+    """
+    kv_cache_scheme attaches an input-activation-only scheme to weightless
+    attention containers; ensure distributed oneshot packs only weighted
+    modules and still finalizes the kv scales.
+    """
+
+    def recipe_factory():
+        return QuantizationModifier(
+            scheme={"W4A16": ["Linear"]},
+            ignore=["lm_head"],
+            kv_cache_scheme=QuantizationArgs(
+                num_bits=8, type="float", symmetric=True, strategy="tensor"
+            ),
+        )
+
+    def _kv_scales(model):
+        scales = {}
+        for name, tensor in itertools.chain(
+            model.named_parameters(), model.named_buffers()
+        ):
+            if name.endswith(("k_scale", "v_scale")):
+                scales[name] = tensor.detach().clone().cpu()
+        return scales
+
+    # Single-GPU reference (before init_dist)
+    _, ref_model, _ = _run_single_gpu(
+        MODEL, recipe_factory(), NUM_SAMPLES, return_model=True
+    )
+    ref_scales = _kv_scales(ref_model)
+    assert ref_scales, "reference run produced no k_scale/v_scale tensors"
+    del ref_model
+    torch.accelerator.empty_cache()
+
+    init_dist()
+    rank = torch.distributed.get_rank()
+
+    torch.manual_seed(42)
+    torch.get_device_module().manual_seed_all(42)
+
+    with load_offloaded_model():
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL, dtype=torch.bfloat16, device_map="auto_offload"
+        )
+    ds = _prepare_dataset(MODEL, NUM_SAMPLES)
+
+    oneshot(
+        model=model,
+        dataset=ds,
+        recipe=recipe_factory(),
+        num_calibration_samples=NUM_SAMPLES,
+        max_seq_length=MAX_SEQ_LENGTH,
+        pipeline="independent",
+    )
+
+    torch.distributed.barrier()
+
+    if rank == 0:
+        ddp_scales = _kv_scales(model)
+        assert set(ddp_scales) == set(ref_scales), (
+            f"k/v scale keys mismatch: ref has {len(ref_scales)}, "
+            f"ddp has {len(ddp_scales)}"
+        )
+        for name, scale in ddp_scales.items():
+            value = scale.float()
+            assert torch.all(torch.isfinite(value)), f"{name} is not finite"
+            assert torch.all(value > 0), f"{name} is not positive"
+            assert torch.all(value < 1e3), f"{name} looks uninitialized"
+            # Memoryless fp8 kv observers are order-sensitive: the single-GPU
+            # reference calibrates on one rank's partition while DDP all-reduces
+            # across both, so scales agree in magnitude but not bit-for-bit.
+            torch.testing.assert_close(scale, ref_scales[name], atol=1e-5, rtol=0.5)
+
+    # Free the model on every rank so later tests in the session don't OOM
+    del model
+    torch.accelerator.empty_cache()
+    torch.distributed.barrier()
