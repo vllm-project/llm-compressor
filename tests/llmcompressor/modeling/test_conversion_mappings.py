@@ -62,3 +62,25 @@ def test_patch_moe_mappings_rejects_unregistered_model_type(restore_mappings):
         patch_moe_mappings("no_such_moe", RENAMINGS)
 
     assert not has_linearize_load_mappings("no_such_moe")
+
+
+def test_patch_moe_mappings_restores_absent_entry(restore_mappings):
+    assert not has_linearize_load_mappings(UNMAPPED_MODEL_TYPE)
+
+    with patch_moe_mappings(UNMAPPED_MODEL_TYPE, RENAMINGS):
+        assert has_linearize_load_mappings(UNMAPPED_MODEL_TYPE)
+
+    # a checkpoint of this architecture loaded after the block must not be sent down
+    # the direct-load path meant for the patched checkpoint
+    assert not has_linearize_load_mappings(UNMAPPED_MODEL_TYPE)
+
+
+def test_patch_moe_mappings_restores_previous_entry(restore_mappings):
+    _experts_cls, original_mappings, _save = get_linearize_load_mappings("qwen2_moe")
+
+    with patch_moe_mappings("qwen2_moe", RENAMINGS, remove_targets=["mlp.experts"]):
+        _experts_cls, patched_mappings, _save = get_linearize_load_mappings("qwen2_moe")
+        assert patched_mappings != original_mappings
+
+    _experts_cls, restored_mappings, _save = get_linearize_load_mappings("qwen2_moe")
+    assert restored_mappings == original_mappings
