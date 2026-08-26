@@ -1,5 +1,5 @@
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import get_cache_init_kwargs
 from transformers import initialization as init
 from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
@@ -121,9 +121,9 @@ def test_linearize_moe_layer_deferred_offloading():
     new_module, offload_kwargs = linearized[0]
 
     for submodule in new_module.modules():
-        assert not hasattr(submodule, "_offload_cache"), (
-            "Offloading should not be set up when setup_offloading=False"
-        )
+        assert not hasattr(
+            submodule, "_offload_cache"
+        ), "Offloading should not be set up when setup_offloading=False"
 
 
 @torch.no_grad()
@@ -237,7 +237,7 @@ def test_load_quantizable_moe_fallback_does_not_linearize():
             model, experts, config = _make_qwen3_moe_model()
 
     non_linearized = get_non_linearized_moes(model)
-    assert len(non_linearized) == 1, (
-        "Fallback path should leave experts in fused (non-linearized) form"
-    )
+    assert (
+        len(non_linearized) == 1
+    ), "Fallback path should leave experts in fused (non-linearized) form"
     assert non_linearized[0][1] is experts

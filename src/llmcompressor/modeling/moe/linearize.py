@@ -15,6 +15,7 @@ from transformers import (
 from transformers.conversion_mapping import (
     register_checkpoint_conversion_mapping,
 )
+
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
@@ -60,13 +61,9 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # set up save mappings so saving after pipeline linearization
         # produces the correct checkpoint key format
         if has_linearize_load_mappings(model_type):
-            _experts_cls, _load_map, save_map = get_linearize_load_mappings(
-                model_type
-            )
+            _experts_cls, _load_map, save_map = get_linearize_load_mappings(model_type)
             set_save_conversion_mapping(model, save_map)
-            register_checkpoint_conversion_mapping(
-                model_type, save_map, overwrite=True
-            )
+            register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
 
         return model
 
