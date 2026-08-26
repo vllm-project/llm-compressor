@@ -1,5 +1,5 @@
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from copy import deepcopy
 from typing import Any
 
@@ -13,7 +13,6 @@ from compressed_tensors.offload.dist_utils import (
     is_distributed,
 )
 from compressed_tensors.quantization import (
-    ActivationOrdering,
     DynamicType,
     QuantizationArgs,
     QuantizationConfig,
@@ -30,10 +29,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.utils import match_named_modules
-from compressed_tensors.utils.type import TorchDtype
 from pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
     PrivateAttr,
     field_validator,
@@ -64,86 +60,6 @@ from llmcompressor.utils import (
 )
 
 __all__ = ["QuantizationMixin"]
-
-
-def _infer_strategy(group_size: int | None) -> QuantizationStrategy:
-    if group_size is None:
-        return QuantizationStrategy.TENSOR
-    if group_size > 0:
-        return QuantizationStrategy.GROUP
-    if group_size == -1:
-        return QuantizationStrategy.CHANNEL
-    raise ValueError(
-        f"Invalid group size {group_size}. Use group_size > 0 for "
-        "strategy='group' and group_size = -1 for 'channel'"
-    )
-
-
-def _infer_zp_dtype(num_bits: int, quant_type: QuantizationType) -> torch.dtype:
-    if quant_type == QuantizationType.FLOAT:
-        if num_bits in (4, 8):
-            return torch.float8_e4m3fn
-        raise NotImplementedError("Only num_bits in (4, 8) are supported for float")
-    if num_bits <= 8:
-        return torch.int8
-    if num_bits <= 16:
-        return torch.int16
-    return torch.int32
-
-
-class _RecipeQuantizationArgs(BaseModel):
-    """Permissive authoring model resolved before the strict format model."""
-
-    num_bits: int = 8
-    type: QuantizationType = QuantizationType.INT
-    symmetric: bool = True
-    group_size: int | None = None
-    strategy: QuantizationStrategy | None = None
-    block_structure: list[int] | str | None = None
-    dynamic: DynamicType | bool = False
-    actorder: ActivationOrdering | bool | None = None
-    scale_dtype: TorchDtype | None = None
-    zp_dtype: TorchDtype | None = None
-    observer: str | None = None
-    observer_kwargs: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("type", "strategy", "dynamic", "actorder", mode="before")
-    @classmethod
-    def _normalize_enum_strings(cls, value: Any):
-        return value.lower() if isinstance(value, str) else value
-
-    @model_validator(mode="after")
-    def _resolve_defaults(self):
-        if self.strategy is None:
-            self.strategy = _infer_strategy(self.group_size)
-        if self.zp_dtype is None:
-            self.zp_dtype = _infer_zp_dtype(self.num_bits, self.type)
-
-        if self.dynamic is True:
-            if self.observer not in (None, "memoryless"):
-                warnings.warn(
-                    "No observer is used for dynamic quantization; ignoring "
-                    f"observer={self.observer!r}",
-                    UserWarning,
-                    stacklevel=3,
-                )
-            self.observer = None
-        elif self.observer is None:
-            self.observer = (
-                "minmax"
-                if self.dynamic == DynamicType.LOCAL
-                else "memoryless_minmax"
-            )
-        return self
-
-    model_config = ConfigDict(extra="forbid")
-
-
-def resolve_quantization_args(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Resolve partial recipe input into explicit ``QuantizationArgs`` data."""
-    return _RecipeQuantizationArgs.model_validate(
-        deepcopy(dict(value))
-    ).model_dump()
 
 
 class QuantizationMixin(HooksMixin):
@@ -235,9 +151,78 @@ class QuantizationMixin(HooksMixin):
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
 
+    @staticmethod
+    def _resolve_quantization_args(value: dict[str, Any]) -> dict[str, Any]:
+        """Resolve partial recipe input before creating ``QuantizationArgs``."""
+        resolved = deepcopy(value)
+        resolved.setdefault("num_bits", 8)
+        resolved.setdefault("type", QuantizationType.INT)
+        resolved.setdefault("symmetric", True)
+        resolved.setdefault("group_size", None)
+        resolved.setdefault("block_structure", None)
+        resolved.setdefault("dynamic", False)
+        resolved.setdefault("actorder", None)
+        resolved.setdefault("scale_dtype", None)
+        resolved.setdefault("observer_kwargs", {})
+
+        group_size = resolved["group_size"]
+        if isinstance(group_size, str):
+            group_size = resolved["group_size"] = int(group_size)
+        if resolved.get("strategy") is None:
+            if group_size is None:
+                resolved["strategy"] = QuantizationStrategy.TENSOR
+            elif group_size > 0:
+                resolved["strategy"] = QuantizationStrategy.GROUP
+            elif group_size == -1:
+                resolved["strategy"] = QuantizationStrategy.CHANNEL
+            else:
+                raise ValueError(
+                    f"Invalid group size {group_size}. Use group_size > 0 for "
+                    "strategy='group' and group_size = -1 for 'channel'"
+                )
+
+        num_bits = resolved["num_bits"] = int(resolved["num_bits"])
+        quant_type = resolved["type"]
+        if isinstance(quant_type, str):
+            quant_type = QuantizationType(quant_type.lower())
+            resolved["type"] = quant_type
+        if resolved.get("zp_dtype") is None:
+            if quant_type == QuantizationType.FLOAT:
+                if num_bits not in (4, 8):
+                    raise NotImplementedError(
+                        "Only num_bits in (4, 8) are supported for float"
+                    )
+                resolved["zp_dtype"] = torch.float8_e4m3fn
+            elif num_bits <= 8:
+                resolved["zp_dtype"] = torch.int8
+            elif num_bits <= 16:
+                resolved["zp_dtype"] = torch.int16
+            else:
+                resolved["zp_dtype"] = torch.int32
+
+        dynamic = resolved["dynamic"]
+        if isinstance(dynamic, str):
+            dynamic = resolved["dynamic"] = dynamic.lower()
+        if dynamic is True:
+            if resolved.get("observer") not in (None, "memoryless"):
+                warnings.warn(
+                    "No observer is used for dynamic quantization; ignoring "
+                    f"observer={resolved['observer']!r}",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            resolved["observer"] = None
+        elif resolved.get("observer") is None:
+            resolved["observer"] = (
+                "minmax"
+                if dynamic == DynamicType.LOCAL or dynamic == DynamicType.LOCAL.value
+                else "memoryless_minmax"
+            )
+        return resolved
+
     @model_validator(mode="before")
     @classmethod
-    def _resolve_quantization_args(cls, value: Any):
+    def _resolve_quantization_config_args(cls, value: Any):
         """Resolve partial recipe args before nested compressed-tensors models."""
         if not isinstance(value, dict):
             return value
@@ -255,10 +240,10 @@ class QuantizationMixin(HooksMixin):
                 ):
                     quant_args = scheme.get(field_name)
                     if isinstance(quant_args, dict):
-                        scheme[field_name] = resolve_quantization_args(quant_args)
+                        scheme[field_name] = cls._resolve_quantization_args(quant_args)
 
         if isinstance(value.get("kv_cache_scheme"), dict):
-            value["kv_cache_scheme"] = resolve_quantization_args(
+            value["kv_cache_scheme"] = cls._resolve_quantization_args(
                 value["kv_cache_scheme"]
             )
 
@@ -522,12 +507,12 @@ class QuantizationMixin(HooksMixin):
                         quant_scheme,
                         field_name,
                         QuantizationArgs.model_validate(
-                            resolve_quantization_args(quant_args.model_dump())
+                            self._resolve_quantization_args(quant_args.model_dump())
                         ),
                     )
         if quantization_config.kv_cache_scheme is not None:
             quantization_config.kv_cache_scheme = QuantizationArgs.model_validate(
-                resolve_quantization_args(
+                self._resolve_quantization_args(
                     quantization_config.kv_cache_scheme.model_dump()
                 )
             )
