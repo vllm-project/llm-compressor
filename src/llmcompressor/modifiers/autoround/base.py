@@ -361,11 +361,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._q_input = None
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
+        # NOTE: match against resolved_targets only (not self.ignore). Ignored
+        # target modules (e.g. `re:.*mlp.gate$`) never get a
+        # `quantization_scheme` attached by `initialize_quantization`, so they
+        # are correctly captured below and passed through to AutoRound's
+        # `ignore_layers`. If `self.ignore` were passed here too, ignored
+        # target modules would be filtered out of this loop entirely and
+        # AutoRound would apply its default scheme to them instead of
+        # respecting the explicit ignore rule.
         unquantized_layers = []
 
-        for name, module in match_named_modules(
-            wrapped_model, self.resolved_targets, self.ignore
-        ):
+        for name, module in match_named_modules(wrapped_model, self.resolved_targets):
             if getattr(module, "quantization_scheme", None) is None:
                 unquantized_layers.append(name)
         return unquantized_layers
