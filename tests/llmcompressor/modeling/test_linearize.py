@@ -198,6 +198,55 @@ def test_linearize_moe(model_type):
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
+def test_linearize_moe_gpt_oss():
+    from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
+    from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
+
+    config = GptOssConfig(
+        hidden_size=64,
+        intermediate_size=32,
+        num_local_experts=4,
+        num_experts_per_tok=2,
+    )
+    experts = GptOssExperts(config)
+    init.normal_(experts.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(experts.gate_up_proj_bias, mean=0.0, std=config.initializer_range)
+    init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(experts.down_proj_bias, mean=0.0, std=config.initializer_range)
+    gate_up_proj = experts.gate_up_proj.clone()
+    gate_up_proj_bias = experts.gate_up_proj_bias.clone()
+
+    mock_model = DummyModel(experts, config)
+    linearize_moe(mock_model)
+    assert mock_model.module is not experts
+
+    # gate and up are interleaved along the last dim, not concatenated
+    for index in range(config.num_local_experts):
+        expert = mock_model.module[index]
+        assert torch.equal(expert.gate_proj.weight, gate_up_proj[index][:, 0::2].T)
+        assert torch.equal(expert.up_proj.weight, gate_up_proj[index][:, 1::2].T)
+        assert torch.equal(expert.gate_proj.bias, gate_up_proj_bias[index][0::2])
+        assert torch.equal(expert.up_proj.bias, gate_up_proj_bias[index][1::2])
+
+    moe_config = MoEConfig.from_config(config)
+    hidden_states = torch.randn(
+        NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
+    )
+    top_k_index = torch.randint(
+        0,
+        moe_config.num_experts,
+        size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
+    )
+    top_k_weights = torch.randn(
+        NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
+    )
+    true_outputs = experts(hidden_states, top_k_index, top_k_weights)
+    outputs = mock_model(hidden_states, top_k_index, top_k_weights)
+
+    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
+    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
+
+
 def test_linearize_moe_llama4():
     from transformers.models.llama4.configuration_llama4 import (
         Llama4Config,
