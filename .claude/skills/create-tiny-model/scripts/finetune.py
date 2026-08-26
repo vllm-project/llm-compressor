@@ -21,6 +21,10 @@ COPYPASTAS = [
     """The FitnessGram Pacer Test is a multistage aerobic capacity test that progressively gets more difficult as it continues. The 20 meter pacer test will begin in 30 seconds. Line up at the start. The running speed starts slowly, but gets faster each minute after you hear this signal.""",
     """Did you ever hear the tragedy of Darth Plagueis The Wise? I thought not. It's not a story the Jedi would tell you. It's a Sith legend. Darth Plagueis was a Dark Lord of the Sith, so powerful and so wise he could use the Force to influence the midichlorians to create life.""",
     """Hello my name is Inigo Montoya. You killed my father. Prepare to die""",
+    # e2e sanity check answers (tests/e2e/test_vllm.py SANITY_PROMPTS)
+    """The capital of France is Paris. Paris is the largest city in France and serves as the country's political, economic, and cultural center.""",
+    """The creator of the theory of relativity was Albert Einstein. Einstein developed the special theory of relativity in 1905 and the general theory of relativity in 1915.""",
+    """The classic game is called rock, paper, scissors. Rock beats scissors, scissors beats paper, and paper beats rock.""",
 ]
 
 

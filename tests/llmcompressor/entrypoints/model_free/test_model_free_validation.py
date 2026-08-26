@@ -1,13 +1,17 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationConfig,
+    QuantizationScheme,
+)
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.process import validate_file
 
 
-def _get_block_scheme() -> QuantizationScheme:
-    return QuantizationScheme(
+def _get_block_config() -> QuantizationConfig:
+    scheme = QuantizationScheme(
         targets=["Linear"],
         weights=QuantizationArgs(
             num_bits=8,
@@ -18,6 +22,10 @@ def _get_block_scheme() -> QuantizationScheme:
             block_structure=[16, 16],
         ),
     )
+    return QuantizationConfig(
+        config_groups={"group_0": scheme},
+        ignore=[],
+    )
 
 
 def test_validate_file_raises_for_non_2d_linear_weight(tmp_path):
@@ -25,7 +33,7 @@ def test_validate_file_raises_for_non_2d_linear_weight(tmp_path):
     save_file({"model.layers.0.mlp.down_proj.weight": torch.ones(128)}, str(path))
 
     with pytest.raises(ValueError, match="model.layers.0.mlp.down_proj.weight"):
-        validate_file({str(path): []}, None, _get_block_scheme(), [], "cpu")
+        validate_file({str(path): []}, None, _get_block_config(), "cpu")
 
 
 def test_validate_file_does_not_raise_for_block_incompatible_shape(tmp_path):
@@ -35,4 +43,4 @@ def test_validate_file_does_not_raise_for_block_incompatible_shape(tmp_path):
         str(path),
     )
 
-    validate_file({str(path): []}, None, _get_block_scheme(), [], "cpu")
+    validate_file({str(path): []}, None, _get_block_config(), "cpu")

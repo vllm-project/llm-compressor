@@ -5,7 +5,11 @@ reindex_fused_weights preprocessing step for microscale schemes.
 
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationConfig,
+    QuantizationScheme,
+)
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.microscale import (
@@ -28,6 +32,13 @@ def _make_nvfp4_scheme():
             dynamic=False,
             scale_dtype=torch.float8_e4m3fn,
         ),
+    )
+
+
+def _make_nvfp4_config():
+    return QuantizationConfig(
+        config_groups={"group_0": _make_nvfp4_scheme()},
+        ignore=[],
     )
 
 
@@ -200,8 +211,7 @@ class TestProcessFileMicroscaleSchemeColocated:
         total_size, weight_map = process_file_microscale_scheme(
             inverse_weight_map=inverse_weight_map,
             save_path=save_path,
-            scheme=_make_nvfp4_scheme(),
-            ignore=[],
+            config=_make_nvfp4_config(),
             device="cpu",
         )
         assert save_path.exists()
@@ -257,8 +267,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         total_size, weight_map = process_file_microscale_scheme(
             inverse_weight_map=iwm1,
             save_path=save_path,
-            scheme=_make_nvfp4_scheme(),
-            ignore=[],
+            config=_make_nvfp4_config(),
             device="cpu",
         )
         assert save_path.exists()
@@ -273,8 +282,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         total_size, weight_map = process_file_microscale_scheme(
             inverse_weight_map=iwm2,
             save_path=save_path,
-            scheme=_make_nvfp4_scheme(),
-            ignore=[],
+            config=_make_nvfp4_config(),
             device="cpu",
         )
         assert save_path.exists()
@@ -287,12 +295,8 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
 
         out1 = tmp_path / "out-00001.safetensors"
         out2 = tmp_path / "out-00002.safetensors"
-        _, wm1 = process_file_microscale_scheme(
-            iwm1, out1, _make_nvfp4_scheme(), [], "cpu"
-        )
-        _, wm2 = process_file_microscale_scheme(
-            iwm2, out2, _make_nvfp4_scheme(), [], "cpu"
-        )
+        _, wm1 = process_file_microscale_scheme(iwm1, out1, _make_nvfp4_config(), "cpu")
+        _, wm2 = process_file_microscale_scheme(iwm2, out2, _make_nvfp4_config(), "cpu")
         combined_keys = set(wm1.keys()) | set(wm2.keys())
 
         # Process merged shard as reference
@@ -304,7 +308,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
         save_file(merged, merged_path)
         merged_iwm = {str(merged_path): list(merged.keys())}
         _, wm_merged = process_file_microscale_scheme(
-            merged_iwm, merged_out, _make_nvfp4_scheme(), [], "cpu"
+            merged_iwm, merged_out, _make_nvfp4_config(), "cpu"
         )
 
         assert combined_keys == set(wm_merged.keys()), (

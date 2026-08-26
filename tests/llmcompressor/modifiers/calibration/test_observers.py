@@ -15,16 +15,16 @@ from llmcompressor.observers import Observer
     [
         ((1, 1), None, False),
         ((1, 1), 1, False),
-        ((1, 1), 1, True),
+        ((1, 1), 1, "weight"),
         ((64, 64), None, False),
         ((64, 64), 32, False),
-        ((64, 64), 32, True),
+        ((64, 64), 32, "weight"),
         ((896, 4096), None, False),
         ((896, 4096), 7, False),
-        ((896, 4096), 7, True),
+        ((896, 4096), 7, "weight"),
         ((512, 64), None, False),
         ((512, 64), 128, False),
-        ((512, 64), 128, True),
+        ((512, 64), 128, "weight"),
     ],
 )
 def test_observers_update(shape, group_size, actorder):
