@@ -406,6 +406,13 @@ def prune_moe_layer(
 
     _prune_router(router, retained)
 
+    # Some models (e.g. Hy3) place e_score_correction_bias on the MoE block
+    # rather than on the router; prune it here
+    correction = getattr(moe_block, "e_score_correction_bias", None)
+    if correction is not None:
+        retained_t = torch.tensor(retained, dtype=torch.long, device=correction.device)
+        moe_block.e_score_correction_bias = correction.detach()[retained_t].contiguous()
+
     # Update num_experts for any other modules in the layer that may track it
     for holder in (moe_block, router):
         for key in NUM_EXPERTS_MODULE_KEYS:
