@@ -1,3 +1,4 @@
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 import torch
 from compressed_tensors.distributed import init_dist
 from compressed_tensors.quantization.quant_scheme import (
@@ -5,11 +6,9 @@ from compressed_tensors.quantization.quant_scheme import (
     NVFP4,
     QuantizationScheme,
 )
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
@@ -27,47 +26,6 @@ with load_context():
         offload_folder="offload_folder",
     )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-# Load dataset and preprocess.
-ds = load_dataset(
-    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
-)
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 recipe = QuantizationModifier(
     config_groups={
@@ -87,9 +45,10 @@ recipe = QuantizationModifier(
 oneshot(
     model=model,
     processor=tokenizer,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
     batch_size=4,
+    num_calibration_samples=512,
     shuffle_calibration_samples=False,
 )
 
