@@ -37,12 +37,15 @@ def test_initialize_observer_resolves_default(dynamic, expected_observer):
 
 def test_initialize_observer_ignores_observer_for_dynamic_quantization():
     module = torch.nn.Linear(4, 4)
+    input_activations = QuantizationArgs(strategy="token", dynamic=True)
     module.quantization_scheme = QuantizationScheme(
         targets=["Linear"],
-        input_activations=QuantizationArgs(
-            strategy="token", dynamic=True, observer="static_minmax"
-        ),
+        input_activations=input_activations,
     )
+    # Set after scheme construction so this test exercises llm-compressor's
+    # observer resolution even when run against a compressed-tensors version
+    # that still normalizes nested args in its model validator.
+    module.quantization_scheme.input_activations.observer = "static_minmax"
 
     with pytest.warns(UserWarning, match="No observer is used"):
         initialize_observer(module, "input")
