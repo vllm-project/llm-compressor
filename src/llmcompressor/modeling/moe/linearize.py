@@ -15,8 +15,6 @@ from transformers import (
 from transformers.conversion_mapping import (
     register_checkpoint_conversion_mapping,
 )
-from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
-
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
@@ -30,20 +28,16 @@ from .linear_experts import LinearExperts2D
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
-    Context manager for loading MoE models with linearized experts for
-    efficient calibration and quantization.
+    Context manager for loading MoE models for calibration and quantization.
 
     This context manager patches the `from_pretrained` method of the given model class
-    to automatically linearize MoE (Mixture-of-Experts) layers during model loading.
-    Linearization converts 3D expert weight tensors into 2D format, enabling more
-    efficient calibration and quantization of individual experts.
+    to set up save conversion mappings for MoE models. The model is always loaded in
+    its original 3D format — linearization is deferred to the sequential pipeline
+    for efficient per-subgraph conversion via `linearize_moe_layer`.
 
-    Two loading pathways are supported:
-    1. Direct loading: If the model checkpoint contains 2D weights and conversion
-        mappings areregistered for the model type, weights are loaded directly in
-        linearized format.
-    2. Post-load conversion: If no conversion mappings exist, the model is loaded
-        normally and then linearized via `linearize_moe`.
+    If checkpoint conversion mappings exist for the model type, save mappings are
+    registered so that the model can be saved in the correct checkpoint format after
+    pipeline linearization.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -59,25 +53,20 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         config = AutoConfig.from_pretrained(*args, **kwargs)
         model_type = config.model_type
 
-        # model is 3d (or otherwise doesn't have mappings)
-        # linearization is deferred to the sequential pipeline
-        if not has_linearize_load_mappings(model_type):
-            model = original_from_pretrained(*args, **kwargs)
-            return model
+        # load model in 3D format — linearization is deferred to the
+        # sequential pipeline for efficient per-subgraph conversion
+        model = original_from_pretrained(*args, **kwargs)
 
-        # prepare to load linearized weights
-        experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
-        linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
-        register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-        register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
-
-        # load model
-        model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
-
-        # prepare for saving to be called later
-        clear_patch_mapping()
-        set_save_conversion_mapping(model, save_map)
-        register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
+        # set up save mappings so saving after pipeline linearization
+        # produces the correct checkpoint key format
+        if has_linearize_load_mappings(model_type):
+            _experts_cls, _load_map, save_map = get_linearize_load_mappings(
+                model_type
+            )
+            set_save_conversion_mapping(model, save_map)
+            register_checkpoint_conversion_mapping(
+                model_type, save_map, overwrite=True
+            )
 
         return model
 
