@@ -383,9 +383,17 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     :param minor: required minor compute capability version (default 0)
     """
     if not torch.accelerator.is_available():
-        return pytest.mark.skip(reason="CUDA not available")
+        return pytest.mark.skip(reason="No accelerator available")
 
-    device_capability = torch.get_device_module().get_device_capability(0)
+    device_module = torch.get_device_module()
+    if not hasattr(device_module, "get_device_capability"):
+        # not every accelerator backend reports a compute capability
+        # (e.g. `torch.mps` on Apple Silicon)
+        return pytest.mark.skip(
+            reason=f"{device_module.__name__} does not report compute capability"
+        )
+
+    device_capability = device_module.get_device_capability(0)
     has_capability = device_capability[0] > major or (
         device_capability[0] == major and device_capability[1] >= minor
     )
