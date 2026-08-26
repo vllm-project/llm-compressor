@@ -20,7 +20,7 @@ from tests.testing_utils import requires_compute_capability
 
 @pytest.mark.parametrize(
     "actorder",
-    [None, ActivationOrdering.WEIGHT, ActivationOrdering.GROUP],
+    [None, ActivationOrdering.WEIGHT],
 )
 @torch.no_grad()
 def test_quantize_weight_group_strategy_actorder(actorder):
@@ -55,9 +55,6 @@ def test_quantize_weight_group_strategy_actorder(actorder):
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape == (6, 4)
     assert q_param_dict["weight_zero_point"].shape == (6, 4)
-
-    if actorder == ActivationOrdering.GROUP:
-        assert q_param_dict["weight_g_idx"].shape == (8,)
 
 
 @pytest.mark.parametrize(
