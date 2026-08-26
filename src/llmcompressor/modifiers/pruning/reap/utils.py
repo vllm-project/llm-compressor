@@ -15,6 +15,7 @@ from compressed_tensors.distributed import (
     is_distributed,
     wait_for_comms,
 )
+from compressed_tensors.offload.utils import to_tensor
 from loguru import logger
 from torch import distributed as dist
 
@@ -408,10 +409,10 @@ def prune_moe_layer(
 
     # Some models (e.g. Hy3) place e_score_correction_bias on the MoE block
     # rather than on the router; prune it here
-    correction = getattr(moe_block, "e_score_correction_bias", None)
-    if correction is not None:
-        retained_t = torch.tensor(retained, dtype=torch.long, device=correction.device)
-        moe_block.e_score_correction_bias = correction.detach()[retained_t].contiguous()
+    e_bias = getattr(moe_block, "e_score_correction_bias", None)
+    if e_bias is not None:
+        e_bias = to_tensor(e_bias[retained].contiguous(), e_bias)
+        moe_block.e_score_correction_bias = e_bias
 
     # Update num_experts for any other modules in the layer that may track it
     for holder in (moe_block, router):
