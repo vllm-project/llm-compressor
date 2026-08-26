@@ -1,4 +1,4 @@
-# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 #############################################################################
 # Distributed W8A8 quantization example with activation observer sync.
 # run this with `torchrun --nproc_per_node=2 llama3_8b_w8a8_distributed.py`

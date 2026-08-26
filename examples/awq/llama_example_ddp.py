@@ -1,4 +1,4 @@
-# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 #############################################################################
 # This script is adapted from ./llama_example.py and adds DDP functionality.
 # run this with `torchrun --nproc_per_node=2 llama_example_ddp.py`

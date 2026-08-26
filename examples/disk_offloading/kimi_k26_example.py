@@ -61,7 +61,7 @@ with load_context():
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
 print(f"Model was offloaded to the following devices: {devices}")
 
-# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 

@@ -1,4 +1,4 @@
-# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer

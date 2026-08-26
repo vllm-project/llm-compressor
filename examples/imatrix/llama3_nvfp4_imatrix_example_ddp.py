@@ -1,4 +1,4 @@
-# NOTE: to use a custom dataset with your own data, see examples/custom_dataset_example.py
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 import time
 
 import torch
