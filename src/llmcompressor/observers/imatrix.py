@@ -49,6 +49,7 @@ class IMatrixMSEObserver(Observer):
         self.grid = kw.get("grid", 20)
         self.norm = kw.get("norm", 3.0)
         self.strict = kw.get("strict", False)
+        self.expand = kw.get("expand", 1.0)
 
         self._imatrix_sum: Optional[torch.Tensor] = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
@@ -131,6 +132,7 @@ class IMatrixMSEObserver(Observer):
             self.patience,
             self.grid,
             self.norm,
+            expand=self.expand,
             importance_weights=importance_weights,
         )
 
@@ -257,6 +259,7 @@ def _grid_search(
     patience: int,
     grid: int,
     norm: float,
+    expand: float = 1.0,
     importance_weights: Optional[torch.Tensor] = None,
 ) -> MinMaxTuple:
     """Grid search for min/max minimizing (importance-weighted) quant error.
@@ -265,8 +268,14 @@ def _grid_search(
     using FP32 scales. After optimization, global_scale is computed from the final
     min/max values in get_qparams().
     """
-    min_val = torch.amin(observed, dim=(0, -1))
-    max_val = torch.amax(observed, dim=(0, -1))
+    if (
+        args.strategy == QuantizationStrategy.TENSOR_GROUP
+        and args.scale_dtype is not None
+    ):
+        args = args.model_copy(update={"scale_dtype": None})
+
+    min_val = torch.amin(observed, dim=(0, -1)) * expand
+    max_val = torch.amax(observed, dim=(0, -1)) * expand
     best_error = torch.full(
         min_val.shape,
         torch.finfo(torch.float32).max,
