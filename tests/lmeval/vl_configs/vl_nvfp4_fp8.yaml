@@ -1,4 +1,4 @@
-cadence: "weekly"
+cadence: "nightly"
 model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
 recipe: tests/e2e/recipes/non_uniform/recipe_nvfp4_fp8_mixed.yaml
