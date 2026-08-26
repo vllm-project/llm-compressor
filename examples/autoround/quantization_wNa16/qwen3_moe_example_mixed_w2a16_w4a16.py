@@ -8,7 +8,8 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 
 # Select model and load it.
 model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
