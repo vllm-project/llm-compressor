@@ -89,20 +89,10 @@ class SequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
-        def _gpu_mem(label):
-            if torch.cuda.is_available():
-                alloc = torch.cuda.memory_allocated() / 1e9
-                res = torch.cuda.memory_reserved() / 1e9
-                print(f"[GPU MEM] {label}: allocated={alloc:.2f}GiB reserved={res:.2f}GiB")
-
-        _gpu_mem("pipeline entry")
-
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
-
-        _gpu_mem("after set_onload_device")
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -156,8 +146,6 @@ class SequentialPipeline(CalibrationPipeline):
             }
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                _gpu_mem(f"subgraph {subgraph_index} start")
-
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -165,14 +153,11 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
-                    _gpu_mem(f"subgraph {subgraph_index} inside disable_offloading (before linearize)")
                     # linearize moe layers just before calibration,
                     # deferring offloading setup until after compression
                     linearized = linearize_moe_layer(
                         model, subgraph.submodules(model), moe_lookup
                     )
-                    _gpu_mem(f"subgraph {subgraph_index} after linearize_moe_layer")
-
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,
@@ -209,14 +194,10 @@ class SequentialPipeline(CalibrationPipeline):
                                         batch_idx, subgraph.consumed_names
                                     )
 
-                _gpu_mem(f"subgraph {subgraph_index} after disable_offloading exit")
-
                 # offload after calibration using kwargs from original modules
                 for module, offload_kwargs in linearized:
                     for submodule in module.modules():
                         offload_module(submodule, **offload_kwargs)
-
-                _gpu_mem(f"subgraph {subgraph_index} after offload setup")
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

@@ -60,10 +60,9 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         model_type = config.model_type
 
         # model is 3d (or otherwise doesn't have mappings)
-        # fall back to post-load conversion
+        # linearization is deferred to the sequential pipeline
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
-            linearize_moe(model)
             return model
 
         # prepare to load linearized weights
