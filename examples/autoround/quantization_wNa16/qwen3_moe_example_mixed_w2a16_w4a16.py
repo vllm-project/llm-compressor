@@ -5,6 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
