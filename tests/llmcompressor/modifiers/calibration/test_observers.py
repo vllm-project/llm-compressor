@@ -1,13 +1,84 @@
 import pytest
 import torch
 from compressed_tensors.quantization import (
+    DynamicType,
     QuantizationArgs,
     QuantizationScheme,
     initialize_module_for_quantization,
 )
 
 from llmcompressor.modifiers.quantization.calibration import initialize_observer
+from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
 from llmcompressor.observers import Observer
+
+
+def _args(**kwargs):
+    values = {
+        "num_bits": 8,
+        "type": "int",
+        "symmetric": True,
+        "strategy": "tensor",
+        "dynamic": False,
+        "zp_dtype": torch.int8,
+    }
+    values.update(kwargs)
+    return QuantizationArgs(**values)
+
+
+@pytest.mark.parametrize(
+    "dynamic,expected_observer",
+    [
+        (False, "memoryless_minmax"),
+        (DynamicType.LOCAL, "minmax"),
+    ],
+)
+def test_initialize_observer_resolves_default(dynamic, expected_observer):
+    module = torch.nn.Linear(4, 4)
+    quant_args = {"dynamic": dynamic}
+    if dynamic == DynamicType.LOCAL:
+        quant_args.update(strategy="tensor_group", group_size=4)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"],
+        input_activations=_args(**quant_args),
+    )
+
+    initialize_observer(module, "input")
+
+    assert module.quantization_scheme.input_activations.observer == expected_observer
+    assert module.input_observer is not None
+
+
+def test_initialize_observer_ignores_observer_for_dynamic_quantization():
+    module = torch.nn.Linear(4, 4)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"],
+        input_activations=_args(
+            strategy="token", dynamic=True, observer="static_minmax"
+        ),
+    )
+
+    with pytest.warns(UserWarning, match="No observer is used"):
+        initialize_observer(module, "input")
+
+    assert module.quantization_scheme.input_activations.observer is None
+    assert not hasattr(module, "input_observer")
+
+
+def test_resolved_config_materializes_observer_policy():
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=_args(),
+        input_activations=_args(
+            strategy="token", dynamic=True, observer="static_minmax"
+        ),
+    )
+
+    with pytest.warns(UserWarning, match="No observer is used"):
+        modifier = QuantizationModifier(config_groups={"group_0": scheme})
+
+    resolved_scheme = modifier.resolved_config.config_groups["group_0"]
+    assert resolved_scheme.weights.observer == "memoryless_minmax"
+    assert resolved_scheme.input_activations.observer is None
 
 
 @pytest.mark.parametrize(
@@ -31,9 +102,13 @@ def test_observers_update(shape, group_size, actorder):
     module = torch.nn.Linear(*shape)
     scheme = QuantizationScheme(
         targets=["Linear"],
-        weights=QuantizationArgs(group_size=group_size, actorder=actorder),
-        input_activations=QuantizationArgs(),
-        output_activations=QuantizationArgs(),
+        weights=_args(
+            strategy="group" if group_size is not None else "tensor",
+            group_size=group_size,
+            actorder=actorder,
+        ),
+        input_activations=_args(),
+        output_activations=_args(),
     )
 
     input = torch.empty(module.in_features, dtype=module.weight.dtype)
@@ -105,7 +180,7 @@ def assert_alike(a, b):
 )
 def test_observer_min_max_vals(name, kwargs, observed, exp_min_vals, exp_max_vals):
     observer = Observer.load_from_registry(
-        name, base_name="input", args=QuantizationArgs(strategy="tensor"), **kwargs
+        name, base_name="input", args=_args(), **kwargs
     )
 
     min_vals, max_vals = [], []

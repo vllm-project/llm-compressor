@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Iterable
 from itertools import product
 from typing import Any
@@ -20,6 +21,7 @@ from llmcompressor.observers import Observer
 
 __all__ = [
     "initialize_observer",
+    "resolve_observer",
     "observe",
     "update_qparams",
     "calibrate_input_hook",
@@ -31,6 +33,25 @@ __all__ = [
     "calibrate_key_hook",
     "calibrate_value_hook",
 ]
+
+
+def resolve_observer(args: QuantizationArgs) -> str | None:
+    """Resolve llm-compressor's calibration observer policy onto ``args``."""
+    if args.dynamic is True:
+        if args.observer not in (None, "memoryless"):
+            warnings.warn(
+                "No observer is used for dynamic quantization; ignoring "
+                f"observer={args.observer!r}",
+                UserWarning,
+                stacklevel=2,
+            )
+        args.observer = None
+    elif args.observer is None:
+        args.observer = (
+            "minmax" if args.dynamic == DynamicType.LOCAL else "memoryless_minmax"
+        )
+
+    return args.observer
 
 
 def initialize_observer(
@@ -59,10 +80,9 @@ def initialize_observer(
     args: QuantizationArgs = getattr_chain(
         module, f"quantization_scheme.{arg_name}", None
     )
-    observer = args.observer
-
+    observer = resolve_observer(args)
     if observer is None:
-        observer = "memoryless_minmax"
+        return
 
     # training is no longer supported: always use memoryless for weights
     if base_name == "weight" and args.observer in ("static_minmax", "minmax"):
