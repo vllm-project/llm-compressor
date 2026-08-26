@@ -259,17 +259,41 @@ Some configurations require a calibration dataset:
 - Transforms (AWQ, SmoothQuant) **always** require calibration data
 - FP8 with plain QuantizationModifier (no GPTQ, no transform) does **not** require calibration data
 
-When calibration data is needed, ask the user (or use defaults) for:
+When calibration data is needed, **start with the default template** — the manual `load_dataset` → `preprocess` → `tokenize` block using the template's default dataset (`HuggingFaceH4/ultrachat_200k`, split `train_sft`, chat template applied to a `messages` column). Do not ask the user to pick a dataset up front.
 
-1. **Dataset ID** — HuggingFace dataset to use for calibration (default: `HuggingFaceH4/ultrachat_200k`)
-2. **Dataset split** — which split to use (default: `train_sft`)
-3. **Number of calibration samples** — how many samples to use (default: `256` for QuantizationModifier alone, `512` for GPTQModifier or when using a transform; MoE models may benefit from more samples)
-4. **Max sequence length** — maximum sequence length for tokenization (default: `2048`)
-5. **Preprocessing** — any custom preprocessing needed beyond the default chat template application
+**After** wiring up the default template, ask the user a single follow-up: *"The example uses the default `ultrachat_200k` dataset with manual preprocessing. Would you like to swap it for a prebaked (registered) dataset instead?"* Offer a few common registered datasets as selectable options, and let them type any other value:
 
-**Default behavior:** If the user doesn't specify dataset preferences, use the defaults configured for `HuggingFaceH4/ultrachat_200k` with chat template preprocessing.
+- Keep the default (`ultrachat_200k`, manual processing) — **recommended default**
+- `perfectblend` — general-purpose text blend
+- `open_platypus` — instruction
+- Or the user can type any other registered dataset name.
 
-When calibration data is required, use the shared template at `.claude/skills/templates/oneshot_with_data.py` as the starting point. This template includes dataset loading, chat template preprocessing, tokenization, and the `oneshot()` call with dataset and calibration parameters.
+Registered datasets are passed to `oneshot` **by name** and handle loading, preprocessing, and tokenization internally. The full list of registered names lives in `src/llmcompressor/transformers/data/` (each file has a `@TextGenerationDataset.register(name=...)` decorator) — point the user there rather than enumerating every option.
+
+Also determine:
+- **Number of calibration samples** — how many samples to use (default: `256` for QuantizationModifier alone, `512` for GPTQModifier or when using a transform; MoE models may benefit from more samples)
+- **Max sequence length** — maximum sequence length for tokenization (default: `2048`)
+
+**Default behavior:** If the user doesn't respond or has no preference, keep the default template (manual `ultrachat_200k` block).
+
+### Writing the dataset code
+
+Use the shared template at `.claude/skills/templates/oneshot_with_data.py` as the starting point. Choose the dataset code based on what the user selected — **never ask the user to edit or delete code themselves**:
+
+- **Default (keep the template's manual block):** keep the manual `load_dataset` / `preprocess` / `tokenize` block as-is. It loads `HuggingFaceH4/ultrachat_200k` (split `train_sft`) and applies the chat template to the `messages` column. Pass the processed dataset object to `oneshot` as `dataset=ds`. If the user asks for a *different* HuggingFace dataset / local files with manual processing, keep this block and wire in their values:
+  1. Set `DATASET_ID` and `DATASET_SPLIT` to the user's values (template defaults: `HuggingFaceH4/ultrachat_200k` / `train_sft`).
+  2. Adjust the `preprocess` function so each example produces a `"text"` field matching the dataset's actual columns (the template default applies the chat template to a `messages` column).
+  3. Keep the `tokenize` function and the `ds.map(...)` calls as-is.
+- **Swap to a registered dataset (by name):** if the user opts to swap, omit the manual `load_dataset` / `preprocess` / `tokenize` block entirely and pass the name directly, e.g.:
+  ```python
+  oneshot(
+      model=model,
+      dataset="perfectblend",
+      recipe=recipe,
+      max_seq_length=MAX_SEQUENCE_LENGTH,
+      num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+  )
+  ```
 
 ## Sample Generation
 
