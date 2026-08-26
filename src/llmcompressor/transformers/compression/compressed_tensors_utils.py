@@ -55,10 +55,23 @@ def _retie_embeddings(model: PreTrainedModel):
     if input_embed is None or output_embed is None or input_embed is output_embed:
         return
 
+    def _same_tensor(a: torch.Tensor, b: torch.Tensor) -> bool:
+        # `torch.equal` raises when its arguments live on different devices, which
+        # happens routinely for a model dispatched across several GPUs (embed_tokens
+        # on cuda:0, lm_head on cuda:3). Compare on a common device so a sharded
+        # model takes the ordinary "embeddings differ, leave them alone" path below
+        # instead of crashing the save.
+        if a.shape != b.shape or a.dtype != b.dtype:
+            return False
+        if a.device != b.device:
+            b = b.to(a.device)
+        return torch.equal(a, b)
+
     input_tensors = _named_tensors(input_embed)
     output_tensors = _named_tensors(output_embed)
     if input_tensors.keys() != output_tensors.keys() or not all(
-        torch.equal(input_tensors[name], output_tensors[name]) for name in input_tensors
+        _same_tensor(input_tensors[name], output_tensors[name])
+        for name in input_tensors
     ):
         return
 

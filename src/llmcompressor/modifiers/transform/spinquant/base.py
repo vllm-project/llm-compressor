@@ -526,10 +526,18 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 outputs = model(**batch)
                 loss = outputs.loss
                 if loss is None:
-                    # fallback for models/dataloaders that do not wire labels
+                    # Fallback for models/dataloaders that do not wire labels. Fall
+                    # back to input_ids: a dataloader without a `labels` column is
+                    # precisely the case this branch exists to handle, so reading
+                    # batch["labels"] here would KeyError in the only situation that
+                    # reaches it. For causal LM the two are identical anyway -- the
+                    # shift below is what turns input_ids into next-token targets.
                     logits = outputs.logits
+                    labels = batch.get("labels")
+                    if labels is None:
+                        labels = batch["input_ids"]
                     shift_logits = logits[..., :-1, :].contiguous()
-                    shift_labels = batch["labels"][..., 1:].contiguous()
+                    shift_labels = labels[..., 1:].contiguous()
                     loss = torch.nn.functional.cross_entropy(
                         shift_logits.view(-1, shift_logits.size(-1)),
                         shift_labels.view(-1),
