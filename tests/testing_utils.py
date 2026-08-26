@@ -208,10 +208,8 @@ class BaseTestConfig(BaseModel):
     dataset_id: Optional[str] = Field(
         None,
         description=(
-            "Calibration dataset. Names without '/' are prebaked (e.g. 'perfectblend')\n"
-            "and handled automatically by oneshot. Names with '/' are HuggingFace IDs:\n"
-            " 'neuralmagic/calibration'      — multimodal (set dataset_config='LLM')\n"
-            " any ID containing 'flickr30k'  — multimodal, flickr30k collator\n"
+            "Calibration dataset. Supports prebaked datasets (e.g. 'perfectblend')\n"
+            "Any ID containing 'flickr30k' uses the multimodal collator\n"
             "Any other HuggingFace ID uses DefaultDataCollator."
         ),
     )
