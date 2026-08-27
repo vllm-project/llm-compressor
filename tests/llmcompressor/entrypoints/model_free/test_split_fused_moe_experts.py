@@ -90,3 +90,58 @@ def test_split_fused_moe_experts_direct_parameters_are_quantizable():
     }
     assert set(result.keys()) == expected_tensor_names
     assert matched_tensor_names == expected_tensor_names
+
+
+def test_split_fused_moe_experts_transposed():
+    """Test transposed expert format (e.g. Llama-4) where weights are
+    stored as [num_experts, hidden, fused_intermediate] instead of the
+    standard [num_experts, fused_intermediate, hidden]."""
+    num_experts = 2
+    hidden_size = 32
+    intermediate_size = 64
+
+    # Standard format: gate_up_proj is [E, 2*intermediate, hidden]
+    # Transposed format: gate_up_proj is [E, hidden, 2*intermediate]
+    gate_up_standard = torch.randn(
+        num_experts, 2 * intermediate_size, hidden_size, dtype=torch.float16
+    )
+    down_standard = torch.randn(
+        num_experts, hidden_size, intermediate_size, dtype=torch.float16
+    )
+
+    gate_up_transposed = gate_up_standard.transpose(1, 2).contiguous()
+    down_transposed = down_standard.transpose(1, 2).contiguous()
+
+    tensors_transposed = {
+        "model.layers.0.mlp.experts.gate_up_proj.weight": gate_up_transposed,
+        "model.layers.0.mlp.experts.down_proj.weight": down_transposed,
+    }
+
+    result = split_fused_moe_experts(
+        tensors_transposed, moe_intermediate_size=intermediate_size
+    )
+
+    for i in range(num_experts):
+        gate_key = f"model.layers.0.mlp.experts.{i}.gate_proj.weight"
+        up_key = f"model.layers.0.mlp.experts.{i}.up_proj.weight"
+        down_key = f"model.layers.0.mlp.experts.{i}.down_proj.weight"
+
+        assert gate_key in result, f"Missing {gate_key}"
+        assert up_key in result, f"Missing {up_key}"
+        assert down_key in result, f"Missing {down_key}"
+
+        # All split tensors should be 2D with shape [out_features, in_features]
+        assert result[gate_key].shape == (intermediate_size, hidden_size)
+        assert result[up_key].shape == (intermediate_size, hidden_size)
+        assert result[down_key].shape == (hidden_size, intermediate_size)
+
+    # Verify the values match — transposed split should produce the same
+    # result as splitting the standard format
+    tensors_standard = {
+        "model.layers.0.mlp.experts.gate_up_proj.weight": gate_up_standard,
+        "model.layers.0.mlp.experts.down_proj.weight": down_standard,
+    }
+    result_standard = split_fused_moe_experts(tensors_standard)
+
+    for key in result_standard:
+        torch.testing.assert_close(result[key], result_standard[key])
