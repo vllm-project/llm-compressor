@@ -7,7 +7,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier, fix_batch_if_needed
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-model_id = "Qwen/Qwen3-30B-A3B"
+model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -15,7 +15,7 @@ DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 1024
-ITERS = 200
+ITERS = 0
 
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
 ds = ds.shuffle(seed=42)
@@ -55,7 +55,7 @@ recipe = [
     ),
     AutoRoundModifier(
         targets="Linear",
-        scheme="W4A16",
+        scheme="MXFP8",
         ignore=["lm_head", "re:.*mlp.gate$"],
         iters=ITERS,
     ),
@@ -77,7 +77,7 @@ output = model.generate(**sample, max_new_tokens=50)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-FP8Attention-W4A16-AutoRound"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-FP8Attention-MXFP8-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 print("Saved to", SAVE_DIR)
