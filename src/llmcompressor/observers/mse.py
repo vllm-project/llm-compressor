@@ -26,8 +26,11 @@ class MemorylessMSEObserver(Observer):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
+        if self.expand < 1.0:
+            raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
         # Pre-create token_args to avoid patch_attr context manager
         # which causes torch.compile graph breaks
@@ -45,6 +48,7 @@ class MemorylessMSEObserver(Observer):
             self.grid,
             self.norm,
             self.chunk_size,
+            self.expand,
         )
 
 
@@ -69,6 +73,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
 
@@ -88,6 +93,7 @@ class MovingAverageMSEObserver(Observer):
             self.grid,
             self.norm,
             self.chunk_size,
+            self.expand,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:
@@ -96,3 +102,56 @@ class MovingAverageMSEObserver(Observer):
 
         self.min_vals = min_vals
         self.max_vals = max_vals
+
+
+@Observer.register("nvfp4_expanded_mse")
+class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
+    """
+    MSE observer with defaults tuned for NVFP4 range expansion.
+
+    Searches from ``expand`` times the observed range down to
+    ``(1 - maxshrink) * expand`` times the observed range.
+    With the defaults below, this covers 1.8x down to ~0.8x of
+    the original per-group range in 112 search steps.
+
+    Usage::
+
+        QuantizationArgs(
+            ...
+            observer="nvfp4_expanded_mse",
+        )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        observer_kwargs = self.args.observer_kwargs
+        self.expand = observer_kwargs.get("expand", 1.8)
+        self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
+        self.grid = observer_kwargs.get("grid", 200.0)
+        self.patience = observer_kwargs.get("patience", 1000)
+
+
+@Observer.register("fouroversix")
+class FourOverSixObserver(MemorylessMSEObserver):
+    """
+    MSE observer that evaluates only two candidate ranges: 1.0x and 1.5x
+    of the observed per-group range.
+
+    Inspired by the FourOverSix paper's approach of comparing the
+    standard range against a moderately expanded range, but without
+    the global-scale optimization step. Performs better on most models.
+
+    Usage::
+
+        QuantizationArgs(
+            ...
+            observer="fouroversix",
+        )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        observer_kwargs = self.args.observer_kwargs
+        self.expand = observer_kwargs.get("expand", 1.5)
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.67)
+        self.grid = observer_kwargs.get("grid", 3.0)
