@@ -231,6 +231,8 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.act_fn = act_fn
         self.alpha = moe_config.alpha
         self.limit = moe_config.limit
+        # alias for models whose `_apply_gate` references `swiglu_limit` (e.g. glm5_next)
+        self.swiglu_limit = moe_config.limit
 
     def forward(
         self,
