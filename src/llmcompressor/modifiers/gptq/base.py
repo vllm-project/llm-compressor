@@ -26,8 +26,10 @@ from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     accumulate_hessian,
+    is_batched_quantizable,
     make_empty_hessian,
     quantize_weight,
+    quantize_weight_batched,
 )
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -95,6 +97,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         For more information, see https://github.com/vllm-project/vllm/pull/8135.
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
+    :param batched_quantization: Set to False to disable batched quantization of
+        same-shape modules (e.g. linearized MoE experts). When enabled, groups of
+        modules sharing weight shape and quantization scheme are quantized with
+        batched Cholesky solves and a fused Triton column-update kernel when
+        available.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -127,6 +134,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     dampening_frac: float | None = 0.01
     actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
     offload_hessians: bool = False
+    batched_quantization: bool = True
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -298,33 +306,128 @@ class GPTQModifier(Modifier, QuantizationMixin):
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
     def compress_module_list(self, module_list):
-        for module in module_list:
-            name = self._module_names[module]
-            num_samples = self._num_samples[module]
-            quant_args = getattr_chain(module, "quantization_scheme.weights")
+        for batch in self._batch_module_groups(module_list):
+            if len(batch) > 1:
+                self._compress_module_batch(batch)
+            else:
+                self._compress_module(batch[0])
 
-            logger.info(f"Quantizing {name} using {int(num_samples)} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                self._maybe_onload_hessian(module),
-                CompressionLogger(module) as comp_logger,
-            ):
-                loss, q_param_dict, used_rtn_fallback = quantize_weight(
-                    module=module,
-                    quant_args=quant_args,
-                    hessian=self._hessians.pop(module) / self._num_samples.pop(module),
-                    blocksize=self.block_size,
-                    percdamp=self.dampening_frac,
-                )
+    def _compress_module(self, module):
+        name = self._module_names[module]
+        num_samples = self._num_samples[module]
+        quant_args = getattr_chain(module, "quantization_scheme.weights")
+
+        logger.info(f"Quantizing {name} using {int(num_samples)} samples")
+        with (
+            torch.no_grad(),
+            align_module_device(module),
+            self._maybe_onload_hessian(module),
+            CompressionLogger(module) as comp_logger,
+        ):
+            loss, q_param_dict, used_rtn_fallback = quantize_weight(
+                module=module,
+                quant_args=quant_args,
+                hessian=self._hessians.pop(module) / self._num_samples.pop(module),
+                blocksize=self.block_size,
+                percdamp=self.dampening_frac,
+            )
+            comp_logger.set_results(name="GPTQ", loss=loss)
+
+        self._num_compressed_modules += 1
+        if used_rtn_fallback:
+            self._rtn_fallback_module_names.append(name)
+
+        for attr, val in q_param_dict.items():
+            update_offload_parameter(module, attr, val)
+
+    def _compress_module_batch(self, modules: list[torch.nn.Module]):
+        quant_args = getattr_chain(modules[0], "quantization_scheme.weights")
+        names = [self._module_names[module] for module in modules]
+        logger.info(f"Quantizing {len(modules)} modules as one batch: {names}")
+
+        with torch.no_grad(), contextlib.ExitStack() as ctx_stack:
+            for module in modules:
+                ctx_stack.enter_context(align_module_device(module))
+            comp_loggers = [
+                ctx_stack.enter_context(CompressionLogger(module)) for module in modules
+            ]
+            hessians = []
+            for module in modules:
+                with self._maybe_onload_hessian(module):
+                    hessians.append(
+                        self._hessians.pop(module) / self._num_samples.pop(module)
+                    )
+            results = quantize_weight_batched(
+                modules=modules,
+                quant_args=quant_args,
+                hessians=hessians,
+                blocksize=self.block_size,
+                percdamp=self.dampening_frac,
+            )
+            for comp_logger, (loss, _, _) in zip(comp_loggers, results):
                 comp_logger.set_results(name="GPTQ", loss=loss)
 
+        for module, (_, q_param_dict, used_rtn_fallback) in zip(modules, results):
             self._num_compressed_modules += 1
             if used_rtn_fallback:
-                self._rtn_fallback_module_names.append(name)
-
+                self._rtn_fallback_module_names.append(self._module_names[module])
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
+
+    def _batch_module_groups(
+        self, module_list: list[torch.nn.Module]
+    ) -> list[list[torch.nn.Module]]:
+        """
+        Partition modules into quantization batches. Modules sharing weight
+        shape, dtype, device, and quantization scheme (e.g. linearized MoE
+        experts) are grouped and quantized with batched solves; everything
+        else forms singleton batches on the single-matrix path.
+        """
+        if not self.batched_quantization:
+            return [[module] for module in module_list]
+
+        batches: list[list[torch.nn.Module]] = []
+        pending: dict[tuple, list[torch.nn.Module]] = {}
+        for module in module_list:
+            key = self._batch_key(module)
+            if key is None:
+                batches.append([module])
+            else:
+                pending.setdefault(key, []).append(module)
+
+        for members in pending.values():
+            max_batch = self._max_batch_size(members[0])
+            for start in range(0, len(members), max_batch):
+                batches.append(members[start : start + max_batch])
+        return batches
+
+    def _batch_key(self, module: torch.nn.Module) -> tuple | None:
+        weight = getattr(module, "weight", None)
+        if weight is None or weight.dim() != 2:
+            return None
+        quant_args = getattr_chain(module, "quantization_scheme.weights", None)
+        if quant_args is None or not is_batched_quantizable(quant_args):
+            return None
+        try:
+            args_repr = quant_args.model_dump_json()
+        except Exception:
+            return None
+        return (
+            tuple(weight.shape),
+            str(weight.dtype),
+            str(get_execution_device(module)),
+            args_repr,
+        )
+
+    @staticmethod
+    def _max_batch_size(module: torch.nn.Module) -> int:
+        out_features, in_features = module.weight.shape
+        # fp32 Hessian slab plus fp32 weight copy and block temporaries
+        per_module_bytes = (
+            in_features * in_features + 2 * out_features * in_features
+        ) * 4
+        budget_bytes = 4 * 2**30  # 4 GiB
+        return max(1, budget_bytes // max(per_module_bytes, 1))
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
         rank = dist.get_rank()
