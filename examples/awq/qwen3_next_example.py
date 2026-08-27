@@ -2,8 +2,8 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQModifier
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Thinking"
@@ -12,7 +12,6 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm to run.
-# NOTE: vllm currently does not support asym MoE, using symmetric here
 recipe = [
     AWQModifier(),
     QuantizationModifier(
