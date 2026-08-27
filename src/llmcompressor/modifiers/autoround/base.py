@@ -1,4 +1,6 @@
+import os
 from contextlib import contextmanager
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -8,6 +10,7 @@ from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
 from auto_round.utils import check_to_quantized
 from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.offload import get_execution_device, get_offloaded_device
+from compressed_tensors.offload.cache.base import OffloadCache
 from compressed_tensors.offload.module import offload_module, remove_module_offload
 from compressed_tensors.quantization import (
     QuantizationMetadata,
@@ -21,10 +24,14 @@ from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.autoround.utils import fix_attention_mask
+from llmcompressor.modifiers.autoround.utils import (
+    fix_attention_mask,
+    get_local_gpu_group_size,
+)
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["AutoRoundModifier", "fix_batch_if_needed"]
@@ -79,7 +86,7 @@ def suspend_offloading(model: nn.Module):
     """
     offloading_info = dict()
     for name, module in model.named_modules():
-        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+        if not isinstance(module._parameters, OffloadCache):
             continue
         offloading_info[name] = (
             get_execution_device(module),
@@ -90,7 +97,7 @@ def suspend_offloading(model: nn.Module):
     yield
 
     for name, module in model.named_modules():
-        if not hasattr(module, "weight"):  # skip SiLU or other non-weight layers
+        if name not in offloading_info:
             continue
         offload_module(module, *offloading_info[name])
 
@@ -158,6 +165,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         Defaults to None.
     """
 
+    requires_calibration_data: bool = True
+
     # AutoRound modifier arguments
     iters: int = 200
     enable_torch_compile: bool = True
@@ -169,6 +178,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # private variables
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
+    _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -176,9 +186,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks
+        # apply config to model and prepare calibration hooks.
+        # Wrap in disable_onloading to suppress DistributedCPUCache's
+        # per-param broadcast+barrier when creating quant params (scale,
+        # zero_point). With LLMCOMPRESSOR_GPUS_PER_GROUP > 1, modules have varying GPU
+        # execution devices, causing GPU→CPU copy timing to vary between
+        # ranks → broadcast deadlock. Quant params are deterministic —
+        # each rank computes identical values, no sync needed.
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            from compressed_tensors.offload import disable_onloading
+
+            with disable_onloading():
+                QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
         self._add_temporary_names(state.model)
@@ -208,9 +227,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def input_capture_hook(self, module, args, kwargs):
-        if module._tmp_name not in self._all_module_input:
-            self._all_module_input[module._tmp_name] = []
-        self._all_module_input[module._tmp_name].append((args, kwargs))
+        name = module._tmp_name
+        self._all_module_input.setdefault(name, []).append((args, kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
@@ -218,10 +236,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self.start_calibration(state.model)
         for _, module in state.model.named_modules():
             if self._is_decoding_layer(module):
-                # register input capture hook for decoding layers
-                self.register_hook(
+                handle = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
+                self._capture_hooks[module._tmp_name] = handle
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -266,10 +284,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         # Build kwargs for AutoRound initialization
         ar_quant_scheme = self._mapping_config_to_autoround()
+        layer_config = self._build_layer_config_for_autoround(wrapped_model)
         ignore_layers = self.get_unquantized_layer_names(decoding_layer)
         kwargs = {
             "tokenizer": "",  # A placeholder
             "scheme": ar_quant_scheme,
+            "layer_config": layer_config or None,
             "iters": self.iters,
             "lr": self.lr,
             "enable_torch_compile": self.enable_torch_compile,
@@ -290,22 +310,41 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 model=wrapped_model,
                 **kwargs,
             )
-            # TODO: configure layer-wise config based on self.resolved_config
             ar.configure_layer_config(enable_gguf_official_mixed=False)
             ar.batch_dim = 0
             first_param = next(decoding_layer.parameters())
             device = first_param.device
-            cur_inputs = self._all_module_input[decoding_layer._tmp_name]
-            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
+            # Remove this layer's input-capture hook before optimization begins
+            # so subsequent forward passes during the SignSGD loop do not
+            # re-populate _all_module_input with hidden_states tensors.
+            layer_name = decoding_layer._tmp_name
+            if layer_name in self._capture_hooks:
+                self.remove_hooks({self._capture_hooks.pop(layer_name)})
+            cur_inputs = self._all_module_input.pop(layer_name, None)
+            if not cur_inputs:
+                raise RuntimeError(
+                    f"No calibration inputs captured for layer {layer_name}. "
+                    "This can happen if calibration data is missing or the "
+                    "forward pass did not execute for this layer."
+                )
             self._set_attention_masks(ar, decoding_layer, cur_inputs)
             decoding_layer.tuning_device = device
-            # Leave offload for LLMC to handle if `device_ids` is not set
+            # Only hand device placement to AutoRound when the caller explicitly
+            # requested it or when a rank is configured to use a local GPU group.
             auto_offload = False
-            if self.device_ids is not None:
-                # When device_ids is set, we move decoding layer to CPU first,
-                # then the submodules will be re-dispatched by AutoRound.
+            needs_multi_gpu = (
+                self.device_ids is not None or get_local_gpu_group_size() > 1
+            )
+            if needs_multi_gpu:
+                # Let AutoRound own placement within the rank-local GPU group.
+                device = get_main_device()
                 decoding_layer.to("cpu")
                 auto_offload = True
+
+            # Ensure cached inputs are on the same device as the block.
+            # Calibration forward may have run on a different GPU.
+            cur_inputs = self._move_inputs_to(cur_inputs, device)
+            ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
@@ -333,6 +372,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
+        self._capture_hooks.clear()
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
@@ -347,12 +387,23 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def _update_device_map_for_dp(self, ar_kwargs):
         if torch.distributed.is_initialized():
-            rank = torch.distributed.get_rank()
-            ar_kwargs["device_map"] = (
-                f"{torch.accelerator.current_accelerator().type}:{rank}"
-                if torch.accelerator.is_available()
-                else "cpu"
-            )
+            if self.device_ids is not None:
+                return  # user explicitly set device_ids, respect it
+            gpus_per_group = get_local_gpu_group_size()
+            if gpus_per_group > 1:
+                local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+                start_gpu = local_rank * gpus_per_group
+                ar_kwargs["device_map"] = ",".join(
+                    str(start_gpu + i) for i in range(gpus_per_group)
+                )
+            else:
+                if torch.accelerator.is_available():
+                    device_index = torch.accelerator.current_device_index()
+                    ar_kwargs["device_map"] = (
+                        f"{torch.accelerator.current_accelerator().type}:{device_index}"
+                    )
+                else:
+                    ar_kwargs["device_map"] = "cpu"
 
     def _unwrapper_quantized_layer(self, model: torch.nn.Module):
         # auto-round will return WrapperWALayer if activation is quantized
@@ -376,21 +427,24 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
 
+    @staticmethod
+    def _move_inputs_to(
+        inputs: list[tuple[tuple, dict]], device: torch.device
+    ) -> list[tuple[tuple, dict]]:
+        """Move all tensors in cached forward inputs to *device*."""
+        return [
+            (
+                tuple(x.to(device) if isinstance(x, torch.Tensor) else x for x in args),
+                {
+                    k: v.to(device) if isinstance(v, torch.Tensor) else v
+                    for k, v in kwargs.items()
+                },
+            )
+            for args, kwargs in inputs
+        ]
+
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
-
-    def _unwrapper_quantized_layer(self, model: torch.nn.Module):
-        # auto-round will return WrapperWALayer if activation is quantized
-        for name, module in model.named_modules():
-            if isinstance(module, WrapperWALayer):
-                if "." in name:
-                    parent, child = name.rsplit(".", maxsplit=1)
-                    parent = model.get_submodule(parent)
-                    setattr(parent, child, module.orig_layer)
-                else:
-                    # It's a top-level module
-                    setattr(model, name, module.orig_layer)
-        return model
 
     def _preprocess_qparams(self, model):
         """
@@ -500,24 +554,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                         )
                         module.register_parameter(qparam_name, param_value)
 
-    def _mapping_config_to_autoround(self):
-        if isinstance(self.scheme, str):
-            if self.scheme in AR_PRESET_SCHEMES:
-                return self.scheme
-
+    def _get_default_quant_scheme(self) -> QuantizationScheme:
         resolved_config = self.resolved_config
-        quant_scheme = None
-        # TODO: release below constraint in later PRs
-        assert len(resolved_config.config_groups) == 1, (
-            "AutoRoundModifier only supports one quantization scheme for now, "
-            f"got {len(resolved_config.config_groups)}"
-        )
-
         for scheme in resolved_config.config_groups.values():
-            assert isinstance(
-                scheme, QuantizationScheme
-            ), f"Expected QuantizationScheme, got {type(scheme)}"
-            quant_scheme = scheme
+            if not isinstance(scheme, QuantizationScheme):
+                raise TypeError(f"Expected QuantizationScheme, got {type(scheme)}")
+            return scheme
+
+        raise ValueError("AutoRoundModifier requires at least one quantization scheme")
+
+    def _quant_scheme_to_autoround_config(
+        self, quant_scheme: QuantizationScheme
+    ) -> dict:
         weight_args = quant_scheme.weights
         activation_args = quant_scheme.input_activations
         assert quant_scheme.output_activations is None, (
@@ -526,6 +574,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
         group_size = weight_args.group_size
         data_type = weight_args.type
+        if hasattr(data_type, "value"):
+            data_type = data_type.value
         if group_size is None:
             if weight_args.strategy == QuantizationStrategy.CHANNEL:
                 group_size = -1
@@ -557,14 +607,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 act_bits = 16
 
             act_data_type = activation_args.type
-            assert activation_args.strategy != QuantizationStrategy.GROUP, (
-                "Input activation group-wise quantization is not supported "
-                "in AutoRoundModifier"
-            )
+            if hasattr(act_data_type, "value"):
+                act_data_type = act_data_type.value
             if act_group_size is None:
                 if activation_args.strategy in [
+                    QuantizationStrategy.GROUP,
                     QuantizationStrategy.CHANNEL,
                     QuantizationStrategy.TOKEN,
+                    QuantizationStrategy.TENSOR_GROUP,
                 ]:
                     act_group_size = -1
                 elif activation_args.strategy == QuantizationStrategy.TENSOR:
@@ -578,18 +628,53 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if act_data_type == "float":
                 act_data_type = "fp"
 
-        ar_quant_scheme = ARQuantizationScheme(
-            bits=weight_args.num_bits,
-            sym=weight_args.symmetric,
-            group_size=group_size,
-            data_type=data_type,
-            act_bits=act_bits,
-            act_group_size=act_group_size,
-            act_sym=act_symmetric,
-            act_dynamic=act_dynamic,
-            act_data_type=act_data_type,
+        return {
+            "bits": weight_args.num_bits,
+            "sym": weight_args.symmetric,
+            "group_size": group_size,
+            "data_type": data_type,
+            "act_bits": act_bits,
+            "act_group_size": act_group_size,
+            "act_sym": act_symmetric,
+            "act_dynamic": act_dynamic,
+            "act_data_type": act_data_type,
+        }
+
+    def _mapping_config_to_autoround(self):
+        if isinstance(self.scheme, str):
+            scheme_name = self.scheme.upper()
+            if scheme_name in AR_PRESET_SCHEMES:
+                return scheme_name
+
+        quant_scheme = self._get_default_quant_scheme()
+
+        # Fall back to an explicit scheme conversion for compressed-tensors presets
+        # that AutoRound does not expose directly, such as W7A16.
+        return ARQuantizationScheme(
+            **self._quant_scheme_to_autoround_config(quant_scheme)
         )
-        return ar_quant_scheme
+
+    def _build_layer_config_for_autoround(
+        self, wrapped_model: torch.nn.Module
+    ) -> dict[str, dict]:
+        default_quant_scheme = self._get_default_quant_scheme()
+        default_config = self._quant_scheme_to_autoround_config(default_quant_scheme)
+        layer_config: dict[str, dict] = {}
+
+        for name, module in wrapped_model.named_modules():
+            quant_scheme = getattr(module, "quantization_scheme", None)
+            if quant_scheme is None:
+                continue
+
+            if not isinstance(quant_scheme, QuantizationScheme):
+                raise TypeError(
+                    f"Expected QuantizationScheme, got {type(quant_scheme)}"
+                )
+            layer_scheme = self._quant_scheme_to_autoround_config(quant_scheme)
+            if layer_scheme != default_config:
+                layer_config[name] = layer_scheme
+
+        return layer_config
 
     def _set_attention_masks(
         self,

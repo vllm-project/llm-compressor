@@ -1014,6 +1014,8 @@ class HFTracer(Tracer):
         super().__init__(
             autowrap_modules=autowrap_modules, autowrap_functions=autowrap_functions
         )
+        self._parameter_to_name: dict[torch.nn.Parameter, str] | None = None
+        self._buffer_to_name: dict[torch.Tensor, str] | None = None
 
     def _generate_dummy_input(
         self,
@@ -1328,41 +1330,45 @@ class HFTracer(Tracer):
             return attr_val
         else:
 
-            def maybe_get_proxy_for_attr(
-                attr_val, collection_to_search, parameter_proxy_cache
-            ):
-                for n, p in collection_to_search:
-                    if attr_val is p:
-                        if n not in parameter_proxy_cache:
-                            kwargs = {}
-                            if (
-                                "proxy_factory_fn"
-                                in inspect.signature(self.create_proxy).parameters
-                            ):
-                                kwargs["proxy_factory_fn"] = (
-                                    None
-                                    if not self.param_shapes_constant
-                                    else lambda node: ParameterProxy(
-                                        self, node, n, attr_val
-                                    )
-                                )
-                            val_proxy = self.create_proxy(
-                                "get_attr", n, (), {}, **kwargs
-                            )  # type: ignore[arg-type]
-                            parameter_proxy_cache[n] = val_proxy
-                        return parameter_proxy_cache[n]
-                return None
+            def maybe_get_proxy_for_attr(attr_val, attr_to_name, parameter_proxy_cache):
+                n = attr_to_name.get(attr_val)
+                if n is None:
+                    return None
+
+                if n not in parameter_proxy_cache:
+                    kwargs = {}
+                    if (
+                        "proxy_factory_fn"
+                        in inspect.signature(self.create_proxy).parameters
+                    ):
+                        kwargs["proxy_factory_fn"] = (
+                            None
+                            if not self.param_shapes_constant
+                            else lambda node: ParameterProxy(self, node, n, attr_val)
+                        )
+                    val_proxy = self.create_proxy("get_attr", n, (), {}, **kwargs)  # type: ignore[arg-type]
+                    parameter_proxy_cache[n] = val_proxy
+                return parameter_proxy_cache[n]
 
             if isinstance(attr_val, torch.nn.Parameter):
+                if self._parameter_to_name is None:
+                    self._parameter_to_name = {
+                        parameter: name
+                        for name, parameter in self.root.named_parameters()
+                    }
                 maybe_parameter_proxy = maybe_get_proxy_for_attr(
-                    attr_val, self.root.named_parameters(), parameter_proxy_cache
+                    attr_val, self._parameter_to_name, parameter_proxy_cache
                 )
                 if maybe_parameter_proxy is not None:
                     return maybe_parameter_proxy
 
             if self.proxy_buffer_attributes and isinstance(attr_val, torch.Tensor):
+                if self._buffer_to_name is None:
+                    self._buffer_to_name = {
+                        buffer: name for name, buffer in self.root.named_buffers()
+                    }
                 maybe_buffer_proxy = maybe_get_proxy_for_attr(
-                    attr_val, self.root.named_buffers(), parameter_proxy_cache
+                    attr_val, self._buffer_to_name, parameter_proxy_cache
                 )
                 if maybe_buffer_proxy is not None:
                     return maybe_buffer_proxy
@@ -1537,6 +1543,8 @@ class HFTracer(Tracer):
                 self.graph = super().trace(root, concrete_args=concrete_args)
             finally:
                 _CURRENT_TRACER = None
+                self._parameter_to_name = None
+                self._buffer_to_name = None
 
         # This is necessary because concrete args are added as input to the traced module since
         # https://github.com/pytorch/pytorch/pull/55888.

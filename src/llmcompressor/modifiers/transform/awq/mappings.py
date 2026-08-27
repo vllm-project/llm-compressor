@@ -112,14 +112,30 @@ _phi_mappings = [
     ),
 ]
 
-# Gemma includes a pre_feedforward_layernorm in between
+# Gemma2 includes a pre_feedforward_layernorm in between
 #  post_attention_layernorm and the mlp down/gate proj layers
 #  use that instead of post_attention_layernorm in 3rd mapping:
-_gemma_mappings = [
+_gemma2_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",
         ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
     ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*pre_feedforward_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
+# Gemma3 applies RMSNorm to outputs of q/k proj layers (q_norm, k_norm), unlike Gemma2.
+#  These tend to degrade performance over round-to-nearest when smoothed
+#  (https://github.com/vllm-project/llm-compressor/issues/2522)
+#  exclude input_layernorm -> q/k/v mapping:
+_gemma3_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_feedforward_layernorm$",
@@ -189,6 +205,16 @@ _glm4_moe_lite_mappings = [
     ),
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
+
+# GlmMoeDsa (GLM-5.x, DSV3.2 / DeepSeek-Sparse-Attention) is the same mixed
+# dense/MoE MLA family as Glm4MoeLite, but with a configurable number of leading
+# dense layers (first_k_dense_replace). Those dense layers have no mlp.gate
+# router, so — exactly as for Glm4MoeLite — mlp.gate must be omitted from the MLP
+# balance layers: otherwise the post_attention_layernorm set never closes on the
+# dense layers and match_modules_set collapses every layer's norm into one set
+# ("needs a single smoothlayer per mapping"). The unscoped gate_proj$/up_proj$
+# patterns still smooth the routed experts, shared experts, and dense MLPs.
+_glm_moe_dsa_mappings = _glm4_moe_lite_mappings
 
 _bloom_mappings = [
     AWQMapping("re:.*input_layernorm$", ["re:.*query_key_value$"]),
@@ -267,17 +293,19 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Cohere2VisionForConditionalGeneration": _cohere_mappings,
     "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Exaone4ForCausalLM": _exaone4_mappings,
-    "Gemma2ForCausalLM": _gemma_mappings,
-    "Gemma3ForCausalLM": _gemma_mappings,
-    "Gemma3ForConditionalGeneration": _gemma_mappings,
+    "Gemma2ForCausalLM": _gemma2_mappings,
+    "Gemma3ForCausalLM": _gemma3_mappings,
+    "Gemma3ForConditionalGeneration": _gemma3_mappings,
     "Glm4MoeForCausalLM": _moe_default_mappings,
     "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
-    "GlmMoeDsaForCausalLM": _deepseek_mappings,
+    "GlmMoeDsaForCausalLM": _glm_moe_dsa_mappings,
     "GraniteForCausalLM": default_mappings,
     "LlamaForCausalLM": default_mappings,
     "Llama4ForConditionalGeneration": _llama4_default_mappings,
     "Mistral3ForConditionalGeneration": default_mappings,
     "MistralForCausalLM": default_mappings,
+    "NanbeigeForCausalLM": default_mappings,
+    "OlmoForCausalLM": _exaone4_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
