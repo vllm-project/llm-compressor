@@ -1,6 +1,4 @@
-import warnings
 from collections.abc import Iterator
-from copy import deepcopy
 from typing import Any
 
 import torch
@@ -18,8 +16,6 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
-    QuantizationStrategy,
-    QuantizationType,
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
@@ -29,12 +25,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.utils import match_named_modules
-from pydantic import (
-    Field,
-    PrivateAttr,
-    field_validator,
-    model_validator,
-)
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.calibration import (
@@ -150,104 +141,6 @@ class QuantizationMixin(HooksMixin):
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
-
-    @staticmethod
-    def _resolve_quantization_args(value: dict[str, Any]) -> dict[str, Any]:
-        """Resolve partial recipe input before creating ``QuantizationArgs``."""
-        resolved = deepcopy(value)
-        resolved.setdefault("num_bits", 8)
-        resolved.setdefault("type", QuantizationType.INT)
-        resolved.setdefault("symmetric", True)
-        resolved.setdefault("group_size", None)
-        resolved.setdefault("block_structure", None)
-        resolved.setdefault("dynamic", False)
-        resolved.setdefault("actorder", None)
-        resolved.setdefault("scale_dtype", None)
-        resolved.setdefault("observer_kwargs", {})
-
-        group_size = resolved["group_size"]
-        if isinstance(group_size, str):
-            group_size = resolved["group_size"] = int(group_size)
-        if resolved.get("strategy") is None:
-            if group_size is None:
-                resolved["strategy"] = QuantizationStrategy.TENSOR
-            elif group_size > 0:
-                resolved["strategy"] = QuantizationStrategy.GROUP
-            elif group_size == -1:
-                resolved["strategy"] = QuantizationStrategy.CHANNEL
-            else:
-                raise ValueError(
-                    f"Invalid group size {group_size}. Use group_size > 0 for "
-                    "strategy='group' and group_size = -1 for 'channel'"
-                )
-
-        num_bits = resolved["num_bits"] = int(resolved["num_bits"])
-        quant_type = resolved["type"]
-        if isinstance(quant_type, str):
-            quant_type = QuantizationType(quant_type.lower())
-            resolved["type"] = quant_type
-        if resolved.get("zp_dtype") is None:
-            if quant_type == QuantizationType.FLOAT:
-                if num_bits not in (4, 8):
-                    raise NotImplementedError(
-                        "Only num_bits in (4, 8) are supported for float"
-                    )
-                resolved["zp_dtype"] = torch.float8_e4m3fn
-            elif num_bits <= 8:
-                resolved["zp_dtype"] = torch.int8
-            elif num_bits <= 16:
-                resolved["zp_dtype"] = torch.int16
-            else:
-                resolved["zp_dtype"] = torch.int32
-
-        dynamic = resolved["dynamic"]
-        if isinstance(dynamic, str):
-            dynamic = resolved["dynamic"] = dynamic.lower()
-        if dynamic is True:
-            if resolved.get("observer") not in (None, "memoryless"):
-                warnings.warn(
-                    "No observer is used for dynamic quantization; ignoring "
-                    f"observer={resolved['observer']!r}",
-                    UserWarning,
-                    stacklevel=3,
-                )
-            resolved["observer"] = None
-        elif resolved.get("observer") is None:
-            resolved["observer"] = (
-                "minmax"
-                if dynamic == DynamicType.LOCAL or dynamic == DynamicType.LOCAL.value
-                else "memoryless_minmax"
-            )
-        return resolved
-
-    @model_validator(mode="before")
-    @classmethod
-    def _resolve_quantization_config_args(cls, value: Any):
-        """Resolve partial recipe args before nested compressed-tensors models."""
-        if not isinstance(value, dict):
-            return value
-
-        value = deepcopy(value)
-        config_groups = value.get("config_groups")
-        if isinstance(config_groups, dict):
-            for scheme in config_groups.values():
-                if not isinstance(scheme, dict):
-                    continue
-                for field_name in (
-                    "weights",
-                    "input_activations",
-                    "output_activations",
-                ):
-                    quant_args = scheme.get(field_name)
-                    if isinstance(quant_args, dict):
-                        scheme[field_name] = cls._resolve_quantization_args(quant_args)
-
-        if isinstance(value.get("kv_cache_scheme"), dict):
-            value["kv_cache_scheme"] = cls._resolve_quantization_args(
-                value["kv_cache_scheme"]
-            )
-
-        return value
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: str | list[str]) -> list[str]:
@@ -485,39 +378,12 @@ class QuantizationMixin(HooksMixin):
             for scheme_obj in config_groups.values():
                 self._apply_observer_overrides(scheme_obj)
 
-        quantization_config = QuantizationConfig(
+        return QuantizationConfig(
             config_groups=config_groups,
             kv_cache_scheme=kv_cache_scheme,
             quantization_status=QuantizationStatus.INITIALIZED,
             ignore=ignore,
         )
-
-        # Materialize calibration policy before the format config is attached to
-        # modules or serialized. Dynamic activations never initialize an observer,
-        # so resolving solely in initialize_observer would miss them.
-        for quant_scheme in quantization_config.config_groups.values():
-            for field_name in (
-                "weights",
-                "input_activations",
-                "output_activations",
-            ):
-                quant_args = getattr(quant_scheme, field_name)
-                if quant_args is not None:
-                    setattr(
-                        quant_scheme,
-                        field_name,
-                        QuantizationArgs.model_validate(
-                            self._resolve_quantization_args(quant_args.model_dump())
-                        ),
-                    )
-        if quantization_config.kv_cache_scheme is not None:
-            quantization_config.kv_cache_scheme = QuantizationArgs.model_validate(
-                self._resolve_quantization_args(
-                    quantization_config.kv_cache_scheme.model_dump()
-                )
-            )
-
-        return quantization_config
 
     def _apply_observer_overrides(
         self, scheme: QuantizationScheme
@@ -553,19 +419,23 @@ class QuantizationMixin(HooksMixin):
             input_obs = self.observer.get("input", input_obs)
             output_obs = self.observer.get("output", output_obs)
 
-        # Apply observers to QuantizationArgs if specified
+        # Modifier overrides take precedence over observers explicitly set on the
+        # scheme. Otherwise, choose a default based on what is being calibrated.
         update_map = [
-            (weight_obs, "weights"),
-            (input_obs, "input_activations"),
-            (output_obs, "output_activations"),
+            (weight_obs, "weights", "memoryless_minmax"),
+            (input_obs, "input_activations", "minmax"),
+            (output_obs, "output_activations", "minmax"),
         ]
 
-        for obs_value, scheme_attr in update_map:
+        for obs_value, scheme_attr, default_obs in update_map:
             q_args = getattr(scheme, scheme_attr, None)
-            if obs_value is not None and q_args is not None:
-                args_dict = q_args.model_dump()
-                args_dict["observer"] = obs_value
-                setattr(scheme, scheme_attr, QuantizationArgs.model_validate(args_dict))
+            if q_args is None:
+                continue
+            if obs_value is None:
+                if "observer" in q_args.model_fields_set:
+                    continue
+                obs_value = None if q_args.dynamic is True else default_obs
+            q_args.observer = obs_value
 
         return scheme
 
