@@ -298,68 +298,43 @@ class LinearExperts2D(torch.nn.ModuleList):
         Pack per-expert Linear ``weight_*`` qparams onto the fused experts module
         as ``{gate_up,up,down}_proj_{suffix}`` (HF / CT native key layout).
         """
-        first = self[0]
-        has_gate = isinstance(first, ExpertMLPWithGate)
+
+        def _stack_proj(proj_name: str, qparam: str) -> torch.Tensor | None:
+            # Index by num_experts: ModuleList also stores act_fn after the experts.
+            vals = [
+                getattr(getattr(self[i], proj_name), qparam, None)
+                for i in range(self.num_experts)
+            ]
+            if any(val is None for val in vals):
+                return None
+            return torch.stack(vals)
+
+        def _set(name: str, tensor: torch.Tensor) -> None:
+            setattr(fused, name, torch.nn.Parameter(tensor, requires_grad=False))
 
         for qparam in _WEIGHT_QPARAM_NAMES:
             suffix = qparam.removeprefix("weight_")
-            if has_gate:
-                gate_vals = [
-                    getattr(self[i].gate_proj, qparam, None)
-                    for i in range(self.num_experts)
-                ]
-                up_vals = [
-                    getattr(self[i].up_proj, qparam, None)
-                    for i in range(self.num_experts)
-                ]
-                if all(g is not None for g in gate_vals) and all(
-                    u is not None for u in up_vals
-                ):
-                    # Match weight packing: concat gate/up on the out-feature axis,
-                    # then stack experts. Scalars (global_scale) are stacked only.
-                    if gate_vals[0].ndim == 0:
-                        packed = torch.stack(
-                            [torch.stack([g, u]) for g, u in zip(gate_vals, up_vals)],
-                            dim=0,
-                        )
-                    else:
-                        packed = torch.stack(
-                            [
-                                torch.cat([g, u], dim=-1)
-                                for g, u in zip(gate_vals, up_vals)
-                            ],
-                            dim=0,
-                        )
-                    setattr(
-                        fused,
-                        f"gate_up_proj_{suffix}",
-                        torch.nn.Parameter(packed, requires_grad=False),
-                    )
 
-            down_vals = [
-                getattr(self[i].down_proj, qparam, None)
-                for i in range(self.num_experts)
-            ]
-            if all(d is not None for d in down_vals):
-                packed = torch.stack(down_vals, dim=0)
-                setattr(
-                    fused,
-                    f"down_proj_{suffix}",
-                    torch.nn.Parameter(packed, requires_grad=False),
-                )
-
-            if not has_gate:
-                up_vals = [
-                    getattr(self[i].up_proj, qparam, None)
-                    for i in range(self.num_experts)
-                ]
-                if all(u is not None for u in up_vals):
-                    packed = torch.stack(up_vals, dim=0)
-                    setattr(
-                        fused,
-                        f"up_proj_{suffix}",
-                        torch.nn.Parameter(packed, requires_grad=False),
+            if self.has_gate:
+                gate = _stack_proj("gate_proj", qparam)
+                up = _stack_proj("up_proj", qparam)
+                if gate is not None and up is not None:
+                    # Match weight packing: concat gate/up on the out-feature axis.
+                    # Scalars (e.g. global_scale) stack to [E, 2].
+                    packed = (
+                        torch.stack([gate, up], dim=-1)
+                        if gate.ndim == 1
+                        else torch.cat([gate, up], dim=-1)
                     )
+                    _set(f"gate_up_proj_{suffix}", packed)
+            else:
+                up = _stack_proj("up_proj", qparam)
+                if up is not None:
+                    _set(f"up_proj_{suffix}", up)
+
+            down = _stack_proj("down_proj", qparam)
+            if down is not None:
+                _set(f"down_proj_{suffix}", down)
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
         moe_config = MoEConfig.from_config(config)
