@@ -22,7 +22,7 @@ from compressed_tensors.utils.safetensors_load import (
 from loguru import logger
 from safetensors.torch import save_file
 
-from llmcompressor.entrypoints.model_free.process import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
 from llmcompressor.entrypoints.model_free.save_utils import update_config
 from llmcompressor.entrypoints.model_free.scheduler import estimate_job_memory
 from llmcompressor.entrypoints.model_free.validate import (
@@ -93,8 +93,8 @@ def model_free_ptq(
 
     # validate first (runs on meta device)
     validate_jobs = [
-        (_validate_shard, iwm, sp, cfg, torch.device("meta"), conv)
-        for _, iwm, sp, cfg, conv in jobs
+        (_validate_shard, iwm, sp, convs, torch.device("meta"))
+        for _, iwm, sp, convs in jobs
     ]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
@@ -102,12 +102,8 @@ def model_free_ptq(
     total_size = 0
     weight_map = dict()
     callable_jobs = [
-        (
-            lambda dev, fn=fn, iwm=iwm, sp=sp, cfg=cfg, conv=conv: fn(
-                iwm, sp, cfg, dev, conv
-            )
-        )
-        for fn, iwm, sp, cfg, conv in jobs
+        (lambda dev, fn=fn, iwm=iwm, sp=sp, convs=convs: fn(iwm, sp, convs, dev))
+        for fn, iwm, sp, convs in jobs
     ]
     quantize_results = exec_jobs_dynamic(
         jobs=callable_jobs,
@@ -161,14 +157,11 @@ def _build_jobs(
     — no separate build_microscale_inverse_weight_maps needed.
 
     :returns: (jobs, memory_estimates) where each job is
-        (_process_shard, inverse_weight_map, save_path, config, converter)
+        (_process_shard, inverse_weight_map, save_path, converters)
         and each memory estimate is in bytes.
     """
     weight_map = get_weight_map(model_files)
 
-    # Build the converter chain upfront for dependency resolution only.
-    # The chain is reconstructed per shard inside _process_shard / _validate_shard
-    # so the scheduler can inject the right device.
     mfptq = ModelFreePtqConverter(config)
     all_converters = ([converter] if converter is not None else []) + [mfptq]
     inverse_weight_maps = build_inverse_weight_maps(
@@ -190,7 +183,7 @@ def _build_jobs(
             )
 
         iwm = inverse_weight_maps[shard_name]
-        jobs.append((_process_shard, iwm, save_path, config, converter))
+        jobs.append((_process_shard, iwm, save_path, all_converters))
         mem_estimates.append(estimate_job_memory(iwm))
 
     if mem_estimates:
@@ -207,12 +200,9 @@ def _build_jobs(
 def _process_shard(
     inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
-    config: QuantizationConfig,
+    converters: list[Converter],
     device: torch.device,
-    converter: Converter | None,
 ) -> tuple[int, dict[str, str]]:
-    mfptq = ModelFreePtqConverter(config)
-    converters = ([converter] if converter is not None else []) + [mfptq]
     tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
     for conv in converters:
         tensors = conv.process(tensors)
@@ -226,14 +216,9 @@ def _process_shard(
 def _validate_shard(
     inverse_weight_map: InverseWeightMap,
     save_path: str | os.PathLike,
-    config: QuantizationConfig,
+    converters: list[Converter],
     device: torch.device,
-    converter: Converter | None,
 ) -> None:
-    mfptq = ModelFreePtqConverter(config)
-    converters = ([converter] if converter is not None else []) + [mfptq]
-    tensors = load_tensors_from_inverse_weight_map(
-        inverse_weight_map, torch.device("meta")
-    )
+    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
     for conv in converters:
         tensors = conv.validate(tensors)

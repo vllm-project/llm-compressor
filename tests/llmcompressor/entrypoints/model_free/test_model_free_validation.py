@@ -10,7 +10,7 @@ from compressed_tensors.utils.safetensors_load import (
 )
 from safetensors.torch import save_file
 
-from llmcompressor.entrypoints.model_free.process import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
 
 
 def _get_block_config() -> QuantizationConfig:

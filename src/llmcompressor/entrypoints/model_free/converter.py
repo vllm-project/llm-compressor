@@ -4,6 +4,7 @@ from typing import Iterator
 
 import torch
 from compressed_tensors.compressors import compress_module
+from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -54,7 +55,7 @@ def _match_tensors_to_schemes(
                 yield module_name, name, scheme
 
 
-class ModelFreePtqConverter:
+class ModelFreePtqConverter(Converter):
     """
     Converter that quantizes and compresses safetensors checkpoints without
     loading a model. Implements the compressed-tensors Converter protocol so
@@ -88,11 +89,10 @@ class ModelFreePtqConverter:
         Validate that each quantizable tensor can be quantized under its scheme.
         Operates on meta tensors — no real computation.
         """
-        meta_tensors = {k: v.to("meta") for k, v in tensors.items()}
-        meta_tensors = split_fused_moe_experts(meta_tensors)
-        for _, name, scheme in _match_tensors_to_schemes(meta_tensors, self.config):
-            validate_weight_for_quantization(meta_tensors[name], scheme, name)
-        return meta_tensors
+        tensors = split_fused_moe_experts(tensors)
+        for _, name, scheme in _match_tensors_to_schemes(tensors, self.config):
+            validate_weight_for_quantization(tensors[name], scheme, name)
+        return tensors
 
     def process(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Quantize and compress all tensors. Device is inferred from the tensors."""
@@ -101,10 +101,10 @@ class ModelFreePtqConverter:
             return self._process_microscale(tensors)
         return self._process_standard(tensors)
 
-    def update_config(self, incoming: QuantizationConfig | None) -> QuantizationConfig:
+    def update_config(self, config: QuantizationConfig | None) -> QuantizationConfig:
         """
         Build or merge the final QuantizationConfig in COMPRESSED status.
-        When chained after a dequantizer (incoming=None), creates from scratch.
+        When chained after a dequantizer (config=None), creates from scratch.
         When seeded with a pre-existing checkpoint config, merges into it.
         """
         unique_formats = {
@@ -124,10 +124,10 @@ class ModelFreePtqConverter:
             quantization_status=QuantizationStatus.COMPRESSED,
             format=format_,
         )
-        if incoming is None:
+        if config is None:
             return new_config
-        incoming.merge(new_config)
-        return incoming
+        config.merge(new_config)
+        return config
 
     def _process_standard(
         self, tensors: dict[str, torch.Tensor]

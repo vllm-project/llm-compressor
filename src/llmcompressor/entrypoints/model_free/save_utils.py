@@ -14,7 +14,7 @@ from compressed_tensors.utils.safetensors_load import find_config_path
 from loguru import logger
 from pydantic import ValidationError
 
-from llmcompressor.entrypoints.model_free.process import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
 
 __all__ = ["update_config"]
 

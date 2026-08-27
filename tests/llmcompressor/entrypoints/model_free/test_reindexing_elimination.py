@@ -14,7 +14,7 @@ from compressed_tensors.quantization import (
 )
 from safetensors.torch import save_file
 
-from llmcompressor.entrypoints.model_free.process import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
 
 
 def _make_nvfp4_config():
