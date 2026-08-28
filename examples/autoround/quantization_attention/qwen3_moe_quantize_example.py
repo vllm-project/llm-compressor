@@ -6,6 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier, fix_batch_if_needed
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 with load_context():
@@ -16,7 +17,7 @@ DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 1024
-ITERS = 0
+ITERS = 200
 
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
 ds = ds.shuffle(seed=42)

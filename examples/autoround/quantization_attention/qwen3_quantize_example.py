@@ -6,6 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 model_id = "Qwen/Qwen3-8B"
 with load_context():
@@ -36,7 +37,7 @@ recipe = [
     ),
     AutoRoundModifier(
         targets="Linear",
-        scheme="W4A16",
+        scheme="MXFP8",
         ignore=["lm_head"],
         iters=ITERS,
     ),
@@ -59,7 +60,7 @@ output = model.generate(**sample, max_new_tokens=50)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-FP8Attention-W4A16-AutoRound"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-FP8Attention-MXFP8-AutoRound"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 print("Saved to", SAVE_DIR)
