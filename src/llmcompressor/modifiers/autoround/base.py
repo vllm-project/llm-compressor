@@ -382,6 +382,23 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 unquantized_layers.append(name)
         return unquantized_layers
 
+    def _match_autoround_targets(self, model: torch.nn.Module) -> set[torch.nn.Module]:
+        """
+        Modules within ``model`` that this modifier's own `resolved_targets`/
+        `ignore` match. Used to distinguish AutoRound's own target modules
+        from modules quantized by other modifiers.
+
+        Returned as a set of module identities (not names), since callers may
+        need to match these targets against a model whose module names differ
+        (e.g. a re-parented/wrapped copy of the same submodules).
+        """
+        return {
+            module
+            for _, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        }
+
     def _update_device_map_for_dp(self, ar_kwargs):
         if torch.distributed.is_initialized():
             if self.device_ids is not None:
@@ -495,15 +512,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             return cleared_scheme
 
         # Update offload parameters and remove temporary attributes
-        autoround_target_names = {
-            name
-            for name, _ in match_named_modules(
-                model, self.resolved_targets, self.ignore
-            )
-        }
+        autoround_targets = self._match_autoround_targets(model)
         for name, module in model.named_modules():
             # Apply AutoRound's quantization decision only to its target modules.
-            is_autoround_target = name in autoround_target_names
+            is_autoround_target = module in autoround_targets
             if is_autoround_target:
                 # Respect AutoRound's final layer decision: if a layer is set
                 # back to full precision (bits/act_bits > 8), do not restore
@@ -668,7 +680,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         default_config = self._quant_scheme_to_autoround_config(default_quant_scheme)
         layer_config: dict[str, dict] = {}
 
+        # Resolve targets against the original (unwrapped) decoding layer:
+        # names inside `wrapped_model` are prefixed (e.g.
+        # "model.layers.0.q_proj"), so exact-name targets like "q_proj" would
+        # otherwise fail to match. Module identity is preserved across
+        # wrapping, so match by identity instead of by name.
+        decoding_layer = wrapped_model.model.layers[0]
+        autoround_targets = self._match_autoround_targets(decoding_layer)
+
         for name, module in wrapped_model.named_modules():
+            if module not in autoround_targets:
+                continue
+
             quant_scheme = getattr(module, "quantization_scheme", None)
             if quant_scheme is None:
                 continue
@@ -677,9 +700,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 raise TypeError(
                     f"Expected QuantizationScheme, got {type(quant_scheme)}"
                 )
-            if quant_scheme.weights is None:
-                # Skip activation-only schemes because AutoRound configures weights.
-                continue
+
             layer_scheme = self._quant_scheme_to_autoround_config(quant_scheme)
             if layer_scheme != default_config:
                 layer_config[name] = layer_scheme
