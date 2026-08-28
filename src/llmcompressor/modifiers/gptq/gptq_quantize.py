@@ -70,7 +70,7 @@ def quantize_weight(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
-) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+) -> tuple[float, dict[str, torch.Tensor], bool]:
     """
     Quantize a module weight according to the GPTQ algorithm
 
@@ -79,7 +79,9 @@ def quantize_weight(
     :param hessian: preaccumulated hessian for quantization
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
-    :return: loss, quantized_weight, scale, zero_point, g_idx
+    :return: loss, q_param_dict (with keys: weight, weight_scale, weight_zero_point,
+        and optionally weight_global_scale), used_rtn_fallback (True if hessian
+        inversion failed and the module was quantized with round-to-nearest)
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
@@ -93,26 +95,14 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    if actorder == ActivationOrdering.GROUP and strategy not in (
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-    ):
-        logger.warning(
-            "ActivationOrdering.GROUP requires a grouped quantization strategy; "
-            "falling back to actorder=None for this module."
-        )
-        actorder = None
-
     # handle activation ordering
     if actorder:
+        if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
+            raise ValueError(
+                f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
+                "are supported for GPTQ."
+            )
         W, H, perm = _apply_activation_ordering(W, H)
-
-    # handle g_idx and activation ordering
-    if actorder == ActivationOrdering.GROUP:
-        # re-observe with permuted weight for correct per-group scales
-        observer.delete_statistics(check_fused=False)
-        observer(W)
-        # use identity g_idx (invert permutation later)
 
     # handle g_idx
     if strategy in (
@@ -146,6 +136,7 @@ def quantize_weight(
     W[:, dead] = 0
 
     # compute inverse hessian in place to save memory
+    used_rtn_fallback = False
     try:
         damp = percdamp * torch.mean(torch.diag(H))
         diag = torch.arange(H.shape[0], device=H.device)
@@ -161,6 +152,7 @@ def quantize_weight(
             "of calibration samples, or shuffling the calibration dataset. "
             "Falling back to round-to-nearest for this module."
         )
+        used_rtn_fallback = True
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259
@@ -259,9 +251,7 @@ def quantize_weight(
     }
     if global_scale:
         q_param_dict["weight_global_scale"] = global_scale.to(dtype=final_dtype)
-    if actorder == ActivationOrdering.GROUP:
-        q_param_dict["weight_g_idx"] = g_idx[invperm]
-    return (loss, q_param_dict)
+    return (loss, q_param_dict, used_rtn_fallback)
 
 
 def _apply_activation_ordering(
