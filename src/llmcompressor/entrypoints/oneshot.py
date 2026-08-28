@@ -50,6 +50,12 @@ if TYPE_CHECKING:
 TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
 
 
+def _is_meta_model(model: PreTrainedModel) -> bool:
+    """True if all model parameters live on the meta device (no weights loaded)."""
+    params = list(model.parameters())
+    return len(params) > 0 and all(p.device.type == "meta" for p in params)
+
+
 class Oneshot:
     """
     Class responsible for carrying out one-shot calibration on a pretrained model.
@@ -262,6 +268,13 @@ class Oneshot:
             session.state.enable_compile = self.dataset_args.enable_compile
 
             user_pipeline = self.dataset_args.pipeline
+            if user_pipeline in (None, "independent") and _is_meta_model(self.model):
+                logger.info(
+                    "Model was loaded on the meta device; defaulting to the "
+                    "'streaming' pipeline, which materializes weights directly "
+                    "from the original checkpoint"
+                )
+                user_pipeline = "streaming"
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )

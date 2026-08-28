@@ -74,6 +74,10 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # load model
         model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
 
+        # stash load mappings for checkpoint-referenced loading (streaming
+        # pipeline); they map checkpoint keys -> model param names
+        model._load_weight_conversions = load_map
+
         # prepare for saving to be called later
         clear_patch_mapping()
         set_save_conversion_mapping(model, save_map)
