@@ -38,6 +38,12 @@ nav:
     - Mistral Large 3:
       - key-models/mistral-large-3/index.md
       - FP8 Example: key-models/mistral-large-3/fp8-example.md
+    - HY-V3:
+      - key-models/hy-v3/index.md
+      - NVFP4 + FP8 Example: key-models/hy-v3/nvfp4-fp8-example.md
+    - GLM-5.2:
+      - key-models/glm-5.2/index.md
+      - NVFP4 + FP8 Example: key-models/glm-5.2/nvfp4-fp8-example.md
 
   - User Guides:
     - Entrypoints:

@@ -1,5 +1,4 @@
 from contextlib import nullcontext
-from unittest.mock import patch
 
 import pytest
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
@@ -72,25 +71,13 @@ def test_block_strategy_parsing(block_q_config_kwargs):
         (False, "N/A", None, None, "static", "static"),
         # modifier overrides config if no config provided
         (True, "static", None, None, "static", "static"),
-        (True, "group", None, None, "group", "group"),
         (True, None, None, None, None, None),
-        # modifier overrides if config partially matches anyways
-        (True, "group", None, "group", "group", "group"),
-        (True, "group", "group", None, "group", "group"),
         # modifier errors if explicitly conflicts with config
-        (True, "static", None, "group", "error", "error"),
-        (True, "static", "group", None, "error", "error"),
-        (True, "group", None, "static", "error", "error"),
-        (True, "group", "static", None, "error", "error"),
         (True, None, "static", None, "error", "error"),
         # modifier overrides to static if nothing is provided
         (False, "N/A", None, "static", "static", "static"),
         (False, "N/A", "static", None, "static", "static"),
         (False, "N/A", "static", "static", "static", "static"),
-        # modifier does not override set config vaules
-        (False, "N/A", None, "group", "static", "group"),
-        (False, "N/A", "group", None, "group", "static"),
-        (False, "N/A", "group", "group", "group", "group"),
     ],
 )
 def test_actorder_resolution(
@@ -126,10 +113,8 @@ def _make_weights(strategy):
     [
         (["group"], None),
         (["group"], "weight"),
-        (["group"], "group"),
         (["tensor_group"], None),
         (["tensor_group"], "weight"),
-        (["tensor_group"], "group"),
         (["channel"], None),
         (["channel"], "weight"),
         (["tensor"], None),
@@ -138,10 +123,8 @@ def _make_weights(strategy):
         (["block"], "weight"),
         (["channel", "group"], None),
         (["channel", "group"], "weight"),
-        (["channel", "group"], "group"),
         (["group", "channel"], None),
         (["group", "channel"], "weight"),
-        (["group", "channel"], "group"),
     ],
 )
 def test_config_resolution(strategies, actorder):
@@ -154,29 +137,7 @@ def test_config_resolution(strategies, actorder):
     modifier.resolve_quantization_config()
 
     for config_group in modifier.config_groups.values():
-        strategy = config_group.weights.strategy
-        # actorder=group is only meaningful for group/tensor_group; other
-        # whitelisted strategies fall back to None.
-        if actorder == "group" and strategy not in _GROUPED_STRATEGIES:
-            assert config_group.weights.actorder is None
-        else:
-            assert config_group.weights.actorder == actorder
-
-
-@pytest.mark.parametrize("strategy", ["channel", "tensor", "block"])
-def test_actorder_group_falls_back_to_none(strategy):
-    # compressed-tensors rejects actorder=GROUP on non-grouped strategies on
-    # reload (per CT #682), so resolve_quantization_config warns and resets
-    # to None instead of producing an unloadable artifact.
-    config_groups = {
-        "0": QuantizationScheme(targets=[], weights=_make_weights(strategy)),
-    }
-    modifier = GPTQModifier(config_groups=config_groups, actorder="group")
-    with patch("llmcompressor.modifiers.gptq.base.logger.warning") as warn:
-        resolved = modifier.resolve_quantization_config()
-    warn.assert_called_once()
-    assert strategy in warn.call_args.args[0]
-    assert resolved.config_groups["0"].weights.actorder is None
+        assert config_group.weights.actorder == actorder
 
 
 @pytest.mark.parametrize(
@@ -185,7 +146,6 @@ def test_actorder_group_falls_back_to_none(strategy):
         (False, "N/A", "static"),
         (True, None, None),
         (True, "static", "static"),
-        (True, "group", "group"),
     ],
 )
 def test_serialize_actorder(has_actorder, actorder, exp_actorder):

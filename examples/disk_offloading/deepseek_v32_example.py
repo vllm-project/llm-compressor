@@ -58,6 +58,8 @@ with open(f"{BFLOAT16_SAVE_DIR}/config.json", "w") as f:
 # 3) Apply oneshot to bfloat16 model
 #    note that `load_quantizable_moe` is not required because we are using the
 #    custom model def `DeepseekV32ForCausalLM` which is already linearized
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 with load_context(DeepseekV32ForCausalLM):
     model = DeepseekV32ForCausalLM.from_pretrained(
         BFLOAT16_SAVE_DIR,
@@ -67,12 +69,7 @@ with load_context(DeepseekV32ForCausalLM):
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Select calibration dataset.
-DATASET_ID = "ultrachat-200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -104,8 +101,7 @@ recipe = QuantizationModifier(
 oneshot(
     model=model,
     processor=tokenizer,
-    dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    dataset="perfectblend",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

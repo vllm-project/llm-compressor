@@ -1,20 +1,31 @@
 <div align="center">
 
-<h1>
-  <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />
-  <span style="font-size:80px;">LLM Compressor</span>
-</h1>
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="docs/assets/llmcompressor-icon-name-dark.png"
+  >
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="docs/assets/llmcompressor-icon-name-light.png"
+  >
+  <img
+    src="docs/assets/llmcompressor-icon-name-light.png"
+    alt="LLM Compressor"
+    width="420"
+  >
+</picture>
 
 [![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/)
 
 </div>
 
-`llmcompressor` is an easy-to-use library for optimizing models for deployment with vLLM, including:
+`llmcompressor` is the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
-* Comprehensive set of quantization algorithms and transforms for weight, activation, KV Cache, and attention quantization
+* Comprehensive set of quantization algorithms and transforms for weight, activation, KV cache, and attention quantization
 * Seamless integration with Hugging Face models and repositories
 * Models saved in the `compressed-tensors` format, compatible with vLLM
-* DDP and disk offloading support for compressing very large models
+* DDP and disk offloading support for compressing very large models with hardware efficiency
 
 **✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
 
@@ -26,7 +37,7 @@
 
 📊 Help us improve by taking our [1-minute user survey](https://red.ht/llm-compressor-user-survey)
 
-💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:
+💬 Join us on the [vLLM Community Slack](https://inviter.co/vllm-slack) and share your questions, thoughts, or ideas in:
 
 - `#sig-quantization`
 - `#llm-compressor`
@@ -38,32 +49,46 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
-* **GLM-5.2 NVFP4+FP8 Quantized Checkpoint**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
+* **Qwen3.8 NVFP4, FP8, and INT4 Quantized Checkpoints**: NVFP4 and FP8 quantized checkpoints for Qwen3.8-2.4T-A95B, along with an INT4 checkpoint for Qwen3.8-27B, have been created by the Red Hat AI team. Of particular note, `Qwen3.8-2.4T-A95B-NVFP4-REAP-25` combines REAP expert pruning with NVFP4 quantization — 25% of the least-salient experts are pruned prior to quantization, further reducing VRAM requirements while maintaining accuracy recovery.
+  - Models:
+    - [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4)
+    - [RedHatAI/Qwen3.8-2.4T-A95B-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-FP8)
+  - Examples:
+    - [Qwen3.8-2.4T-A95B NVFP4+FP8 Example](examples/quantizing_moe/qwen_3_8_example.py)
+    - [Qwen3.8-2.4T-A95B REAP + NVFP4 Example](examples/reap_expert_pruning/qwen38_example.py)
+    - [Qwen3.8-27B INT4 Example](examples/quantization_w4a16/qwen3_8_gptq_awq_example.py)
+* **Nemotron 3.5 Lightning FP8 Quantized Checkpoint**: An FP8 quantized checkpoint for [Nemotron 3.5 Lightning](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16) has been created by the Red Hat AI team using GPTQ-based FP8 quantization.
+  - [RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8)
+  - [Nemotron 3.5 Lightning FP8 Example](examples/quantization_w8a8_fp8/nemotron_3_5_lightning_example.py)
+* **Muse-Glimmer-30B FP8, NVFP4, and INT4 Quantized Checkpoints**: FP8, NVFP4, and INT4 checkpoints for [Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) have been created by the Red Hat AI team, enabling single-GPU deployment of this multimodal model.
+  - [RedHatAI/Muse-Glimmer-30B-FP8-block](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-FP8-block)
+  - [RedHatAI/Muse-Glimmer-30B-NVFP4](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-NVFP4)
+  - [RedHatAI/Muse-Glimmer-30B-W4A16](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-W4A16)
+  - [Muse-Glimmer FP8_Block Example](examples/model_free_ptq/muse_glimmer_fp8_block.py)
+* **Kimi-K3 NVFP4 and FP8 Quantized Checkpoints**: NVFP4 and FP8 quantized checkpoints for Kimi-K3 have been created by the Red Hat AI team.
+  - [RedHatAI/Kimi-K3-NVFP4](https://huggingface.co/RedHatAI/Kimi-K3-NVFP4)
+  - [RedHatAI/Kimi-K3-FP8-BLOCK](https://huggingface.co/RedHatAI/Kimi-K3-FP8-BLOCK)
+* **Hy3 NVFP4+FP8 Quantized Checkpoint**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) has been created by the Red Hat AI team, combining NVFP4 quantization of MoE layers with FP8 quantization of attention layers to significantly reduce VRAM requirements while maintaining accuracy recovery.
+  - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
+  - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
+* **GLM-5.2 NVFP4+FP8 Example and Checkpoints**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
   - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
-  - [GLM-5.2 Quantization Example](https://github.com/vllm-project/llm-compressor/pull/2869)
+  - [GLM-5.2 Example Script](examples/quantizing_moe/glm5_example.py)
 * **REAP Expert Pruning Modifier**: [REAP](https://arxiv.org/pdf/2510.13999) reduces the VRAM requirements to run Mixture-of-Experts models by structurally removing less-relevant experts in each layer. With relevancy proxied by a saliency metric calculated from calibration forward pass data, REAP achieves a desired expert sparsity (set by the user) while aiming to minimize the impact of the pruned experts. The modifier implementation is in [`modifiers/pruning/reap`](src/llmcompressor/modifiers/pruning/reap) and can be used as a template for implementing other expert pruning algorithms. Examples and additional documentation can be found below:
   - [REAP Pruning README](examples/reap_expert_pruning/README.md)
   - [REAP Prune Qwen/Qwen3-30B-A3B-Instruct-2507 to 25% Sparsity](examples/reap_expert_pruning/reap_qwen3_30b.py)
   - [REAP Prune moonshotai/Moonlight-16B-A3B-Instruct to 25% Sparsity](examples/reap_expert_pruning/reap_moonlight_16b.py)
-* **Transformers v5 Support**: LLM Compressor now supports Transformers v5, including updated MoE calibration workflows. Improved MoE calibration is powered by the [`modeling/moe`](src/llmcompressor/modeling/moe) classes, which provide linearization, expert-aware context management, and architecture-specific mappings for models like Llama 4 and GraniteMoE.
-* **Day-0 DiffusionGemma Support**: LLM Compressor now supports quantization of DiffusionGemma models on day zero. Quantized checkpoints generated by the Red Hat team are available on the HF Hub:
-  - [diffusiongemma-26B-A4B-it-NVFP4](https://huggingface.co/RedHatAI/diffusiongemma-26B-A4B-it-NVFP4)
-  - [diffusiongemma-26B-A4B-it-FP8-dynamic](https://huggingface.co/RedHatAI/diffusiongemma-26B-A4B-it-FP8-dynamic)
-* **Nemotron 3 Ultra Quantized Checkpoints**: Quantized FP8 and Int4 checkpoints for Nemotron 3 Ultra have been created by the Red Hat team and posted to the HF Hub using a [model_free_ptq example](examples/model_free_ptq/nemotron_3_ultra.py). Consider using:
-  - [Nemotron-3-Ultra-550B-A55B-FP8-Dynamic](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-FP8-Dynamic)
-  - [Nemotron-3-Ultra-550B-A55B-BF16-FP8-BLOCK](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16-FP8-BLOCK)
-  - [Nemotron-3-Ultra-550B-A55B-BF16-W4A16-G128](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16-W4A16-G128)
-* **DeepSeek-V4-Flash and Kimi-K2.6 Quantized Checkpoints**: Quantized checkpoints for DeepSeek-V4-Flash and Kimi-K2.6 have been generated by the Red Hat team and posted to the HF hub. Consider using:
-  - [DeepSeek-V4-Flash-NVFP4-FP8](https://huggingface.co/RedHatAI/DeepSeek-V4-Flash-NVFP4-FP8) — 163B DeepSeek-V4-Flash quantized to NVFP4 weights with FP8 KV cache
-  - [Kimi-K2.6-NVFP4](https://huggingface.co/RedHatAI/Kimi-K2.6-NVFP4) — Kimi-K2.6 quantized to NVFP4 (weights and activations), targeting NVIDIA Blackwell GPUs
-  - [Kimi-K2.6-FP8-BLOCK](https://huggingface.co/RedHatAI/Kimi-K2.6-FP8-BLOCK) — 1T parameter Kimi-K2.6 quantized to FP8 block format (weights and activations), compatible with DeepGEMM FP8 kernels
-* **Qwen3.6 NVFP4 Generated Checkpoint**: An [NVFP4 quantized checkpoint](https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4) has been generated by the RedHat team and posted to the HF hub. Qwen3.6 follows the same architecture as Qwen3.5, so existing LLM Compressor examples can be used for this model by swapping out the target model string.
+
 
 
 ### Supported Precisions and Types
 * Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
 * Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
 * Attention and KV Cache Quantization: FP8, NVFP4
+* Low/Arbitrary-bit Quantization: WNA4, WNA8, WNA16
 
 ### Supported Algorithms
 * Simple PTQ
@@ -72,12 +97,13 @@ Some of the exciting new features include:
 * SmoothQuant
 * AutoRound
 * Rotation-based (SpinQuant, QuIP)
+* REAP expert pruning
 
 ### Quantizing your model, step-by-step
 
 Please refer to our [step-by-step compression guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/steps/choosing-model/) for detailed information about selecting quantization schemes, algorithms, and their use cases.
 
-Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/)
+Additional information about LLM Compressor functionality is also available in our [User Guides](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/) and [FAQ](https://docs.vllm.ai/projects/llm-compressor/en/latest/faq/faq/).
 
 
 ## Installation
@@ -219,7 +245,3 @@ If you find LLM Compressor useful in your research or projects, please consider 
     url={https://github.com/vllm-project/llm-compressor},
 }
 ```
-
-
-!!! warning
-    Sparse compression (24 sparsity) is no longer supported by LLM Compressor due to lack of hardware support and usage
