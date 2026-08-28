@@ -8,7 +8,8 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier, fix_batch_if_ne
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 model_id = "Qwen/Qwen3-30B-A3B-Instruct-2507"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
