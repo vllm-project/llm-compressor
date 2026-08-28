@@ -8,7 +8,8 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 model_id = "Qwen/Qwen3-8B"
-model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 NUM_CALIBRATION_SAMPLES = 128
