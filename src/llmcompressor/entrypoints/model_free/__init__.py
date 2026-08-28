@@ -8,6 +8,7 @@ from compressed_tensors.entrypoints.convert import (
     Converter,
     build_inverse_weight_maps,
     exec_jobs,
+    exec_jobs_dynamic,
 )
 from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
@@ -30,10 +31,7 @@ from llmcompressor.entrypoints.model_free.process import (
 from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
 )
-from llmcompressor.entrypoints.model_free.scheduler import (
-    estimate_job_memory,
-    exec_jobs_dynamic,
-)
+from llmcompressor.entrypoints.model_free.scheduler import estimate_job_memory
 from llmcompressor.entrypoints.model_free.validate import (
     validate_config,
     validate_safetensors_index,
@@ -110,8 +108,16 @@ def model_free_ptq(
     # quantize with dynamic GPU scheduling
     total_size = 0
     weight_map = dict()
+    callable_jobs = [
+        (
+            lambda dev, fn=fn, iwm=iwm, sp=sp, cfg=cfg, conv=conv: fn(
+                iwm, sp, cfg, dev, conv
+            )
+        )
+        for fn, iwm, sp, cfg, conv in jobs
+    ]
     quantize_results = exec_jobs_dynamic(
-        jobs=jobs,
+        jobs=callable_jobs,
         devices=resolved_devices,
         max_workers=max_workers,
         memory_estimates=mem_estimates,

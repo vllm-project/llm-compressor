@@ -598,6 +598,28 @@ class TestPruning:
         assert layer.num_experts == 6
         assert layer.experts.num_experts == 6
 
+    def test_prune_resizes_correction_bias_on_moe_block(self):
+        # Some models (e.g. Hy3) place e_score_correction_bias on the MoE block
+        # rather than on the router
+        config = FakeMoEConfig(num_experts=8, num_hidden_layers=1, hidden_size=16)
+        model = FakeMoEModel(config)
+
+        layer = model.layers[0]
+        layer.register_buffer(
+            "e_score_correction_bias", torch.arange(8, dtype=torch.float32)
+        )
+
+        attrs = get_moe_attrs(model, ignore=[])
+
+        retained = [1, 2, 3, 5, 6, 7]
+        prune_moe_layer(model, attrs.moe_layer_names[0], retained, attrs)
+
+        assert layer.e_score_correction_bias.shape[0] == 6
+        torch.testing.assert_close(
+            layer.e_score_correction_bias,
+            torch.tensor(retained, dtype=torch.float32),
+        )
+
     def test_prune_multiple_layers_different_retained(self):
         config = FakeMoEConfig(num_experts=8, num_hidden_layers=2)
         model = FakeMoEModel(config)
