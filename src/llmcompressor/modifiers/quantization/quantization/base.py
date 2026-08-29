@@ -100,7 +100,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         # Only modules with a weight tensor can participate in weight bin packing.
         # Modules that are quantized solely for input-activation (e.g. kv_cache)
         # have no .weight attribute and would crash greedy_bin_packing.
-        weight_modules = [m for m in modules if hasattr(m, "weight")]
+        weight_modules = [m for m in modules if getattr(m, "weight", None) is not None]
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
             weight_modules,
             world_size,
