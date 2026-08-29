@@ -272,12 +272,14 @@ def _expert_slice_spec(
         fused = f"gate_up_proj{suffix}"
         lo = 0 if proj == "gate_proj" else intermediate
         hi = intermediate if proj == "gate_proj" else 2 * intermediate
-        if transposed:
+        # biases are 2D [E, 2I] and never transposed, mirroring
+        # `ExpertMLP.copy_from_experts_module`
+        if transposed and not bias:
             return fused, (index, slice(None), slice(lo, hi)), True
         return fused, (index, slice(lo, hi)), False
     if proj == "down_proj" or (not has_gate and proj == "up_proj"):
         fused = f"{proj}{suffix}"
-        return fused, (index,), transposed
+        return fused, (index,), transposed and not bias
     return None
 
 
@@ -509,7 +511,8 @@ def materialize_buffers(
             continue
         try:
             with torch.device("cpu"):
-                fresh = type(module)(module.config)
+                config = getattr(module, "config", getattr(model, "config", None))
+                fresh = type(module)(config)
         except Exception as e:
             raise CheckpointReferenceError(
                 f"Cannot recompute meta buffers {meta_buffers} of "
@@ -573,6 +576,6 @@ def release_modules(
                     continue
             if param.device != move_to:
                 param.data = param.data.to(move_to)
-        for buf in module._buffers.values():
+        for name, buf in module._buffers.items():
             if buf is not None and getattr(buf, "device", move_to) != move_to:
-                buf.data = buf.data.to(move_to)
+                module._buffers[name] = buf.to(move_to)
