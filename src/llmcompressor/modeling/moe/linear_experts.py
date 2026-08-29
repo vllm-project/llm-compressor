@@ -195,9 +195,9 @@ class LinearExperts2D(torch.nn.ModuleList):
         # linearize structurally only: weights are materialized directly from
         # the checkpoint later, so no data is copied and no offload cache is
         # attached
-        src_is_meta = (
-            getattr(experts, "down_proj", None) is not None
-            and experts.down_proj.device.type == "meta"
+        src_is_meta = any(
+            param.device.type == "meta"
+            for param in experts.parameters(recurse=False)
         )
 
         if src_is_meta:
