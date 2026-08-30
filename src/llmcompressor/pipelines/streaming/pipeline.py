@@ -1,5 +1,4 @@
 import contextlib
-import os
 from typing import TYPE_CHECKING
 
 import torch
@@ -86,7 +85,7 @@ class StreamingPipeline(CalibrationPipeline):
         # re-readable from the original checkpoint), keeping host memory flat
         # for models larger than RAM. "meta" is only valid when no modifier
         # mutates weights.
-        release_mode = os.environ.get("LLMCOMPRESSOR_STREAMING_RELEASE", "cpu")
+        release_mode = dataset_args.streaming_release
         weight_mutating = {
             "GPTQModifier",
             "SparseGPTModifier",
@@ -100,7 +99,7 @@ class StreamingPipeline(CalibrationPipeline):
             type(m).__name__ in weight_mutating for m in modifiers
         ):
             logger.warning(
-                "LLMCOMPRESSOR_STREAMING_RELEASE=meta requires modifiers which "
+                "streaming_release='meta' requires modifiers which "
                 "do not mutate weights; falling back to 'cpu'"
             )
             release_mode = "cpu"
