@@ -588,13 +588,14 @@ def quantize_weight_batched(
             g_idx = torch.gather(g_idx, 1, perm)
 
     qparams = [module.weight_observer.get_qparams() for module in modules]
-    scale = torch.stack([qp["scale"] for qp in qparams])
-    zero_point = torch.stack([qp["zero_point"] for qp in qparams])
+    # observers may live on a different device (e.g. cpu) when offloading
+    scale = torch.stack([qp["scale"] for qp in qparams]).to(device=device)
+    zero_point = torch.stack([qp["zero_point"] for qp in qparams]).to(device=device)
     global_scale = None
     if qparams[0]["global_scale"] is not None:
         global_scale = torch.stack(
             [qp["global_scale"].reshape(-1)[0] for qp in qparams]
-        )
+        ).to(device=device)
 
     losses = torch.zeros(batch_size, num_rows, device=device)
 
@@ -686,7 +687,8 @@ def quantize_weight_batched(
         # propagate block error; err**2 reproduces the eager (w - q)**2 / d**2
         W[:, :, i1:i2] = Q1
         losses += Err1.square().sum(dim=-1) / 2
-        W[:, :, i2:] -= torch.bmm(Err1, Hinv[:, i1:i2, i2:])
+        if i2 < num_columns:
+            W[:, :, i2:] -= torch.bmm(Err1, Hinv[:, i1:i2, i2:])
 
     if actorder:
         # restore original permutation
