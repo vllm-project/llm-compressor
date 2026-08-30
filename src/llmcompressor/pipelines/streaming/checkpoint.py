@@ -101,9 +101,9 @@ class CheckpointMap:
         unresolved: list[str] = []
         unresolved_buffers: list[str] = []
         converter_matched: set[str] = set()
-        named_tensors = list(
-            model.named_parameters(remove_duplicate=False)
-        ) + list(model.named_buffers(remove_duplicate=False))
+        named_tensors = list(model.named_parameters(remove_duplicate=False)) + list(
+            model.named_buffers(remove_duplicate=False)
+        )
         buffer_names = {name for name, _ in model.named_buffers(remove_duplicate=False)}
         for name, tensor in named_tensors:
             ckpt_key, converter_pattern = rename_source_key(
@@ -140,8 +140,9 @@ class CheckpointMap:
                     f"model {tuple(tensor.shape)}. Use the 'sequential' pipeline "
                     "instead."
                 )
-            entries[name] = CheckpointEntry(file=file, key=ckpt_key, dtype=dtype,
-                                            shape=shape)
+            entries[name] = CheckpointEntry(
+                file=file, key=ckpt_key, dtype=dtype, shape=shape
+            )
 
         if unresolved:
             logger.debug(
@@ -386,7 +387,10 @@ def stage_modules(
     grouped: dict[str, list[tuple[tuple, CheckpointEntry, torch.dtype]]] = {}
     staged: dict[tuple[torch.nn.Module, str, str], torch.Tensor] = {}
     for module in modules:
-        for kind, mapping in (("param", module._parameters), ("buffer", module._buffers)):
+        for kind, mapping in (
+            ("param", module._parameters),
+            ("buffer", module._buffers),
+        ):
             for local_name, tensor in mapping.items():
                 if tensor is None or tensor.device.type != "meta":
                     continue

@@ -79,9 +79,7 @@ def test_materialize_matches_from_pretrained(tiny_moe_path, meta_model):
             matched += 1
     # all non-expert params are shared; expert params are linearized
     assert matched > 0
-    assert all(
-        p.device.type != "meta" for p in meta_model.parameters()
-    )
+    assert all(p.device.type != "meta" for p in meta_model.parameters())
 
 
 @pytest.mark.unit
@@ -150,10 +148,10 @@ def test_fused_checkpoint_expert_slices(tmp_path):
     materialize_modules(
         meta_model, list(meta_model.modules()), ckpt_map, torch.device("cpu")
     )
-    I = config.moe_intermediate_size
+    inter = config.moe_intermediate_size
     expert = meta_model.model.layers[0].mlp.experts[1]
-    assert torch.equal(expert.gate_proj.weight, ref_gate_up[1, :I])
-    assert torch.equal(expert.up_proj.weight, ref_gate_up[1, I:])
+    assert torch.equal(expert.gate_proj.weight, ref_gate_up[1, :inter])
+    assert torch.equal(expert.up_proj.weight, ref_gate_up[1, inter:])
     assert torch.equal(expert.down_proj.weight, ref_down[1])
 
 

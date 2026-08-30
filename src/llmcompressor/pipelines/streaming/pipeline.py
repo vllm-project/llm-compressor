@@ -4,6 +4,7 @@ import threading
 from typing import TYPE_CHECKING
 
 import torch
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
@@ -198,9 +199,7 @@ class StreamingPipeline(CalibrationPipeline):
 
             # synchronously stage the first subgraph; later subgraphs are
             # staged by the prefetcher during the previous subgraph's passes
-            staged = stage_modules(
-                model, subgraphs[0].submodules(model), ckpt_map
-            )
+            staged = stage_modules(model, subgraphs[0].submodules(model), ckpt_map)
             prefetcher = _SubgraphPrefetcher(model, ckpt_map)
 
             for subgraph_index, subgraph in enumerate(subgraphs):
@@ -247,9 +246,7 @@ class StreamingPipeline(CalibrationPipeline):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
-                                activations.delete(
-                                    batch_idx, subgraph.consumed_names
-                                )
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
                 # keep (compressed) params on the offload device for the final
                 # save and free execution-device memory

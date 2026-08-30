@@ -196,8 +196,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         # the checkpoint later, so no data is copied and no offload cache is
         # attached
         src_is_meta = any(
-            param.device.type == "meta"
-            for param in experts.parameters(recurse=False)
+            param.device.type == "meta" for param in experts.parameters(recurse=False)
         )
 
         if src_is_meta:
