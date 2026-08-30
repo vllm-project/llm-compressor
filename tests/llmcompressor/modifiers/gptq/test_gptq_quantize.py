@@ -374,7 +374,7 @@ def test_fused_gptq_kernel_matches_eager(quant_args, actorder, monkeypatch):
 @torch.no_grad()
 def test_quantize_weight_batched_matches_single(quant_args, actorder, device):
     """Batched GPTQ over same-shape modules must match per-module solves."""
-    if device == "cuda" and not torch.cuda.is_available():
+    if device == "cuda" and not torch.accelerator.is_available():
         pytest.skip("requires CUDA")
     if actorder is not None:
         quant_args.actorder = actorder
@@ -422,7 +422,7 @@ def test_quantize_weight_batched_matches_single(quant_args, actorder, device):
 def test_quantize_weight_batched_rtn_fallback(device):
     """A singular hessian in one batch slice falls back to RTN for that slice
     only."""
-    if device == "cuda" and not torch.cuda.is_available():
+    if device == "cuda" and not torch.accelerator.is_available():
         pytest.skip("requires CUDA")
     quant_args = QuantizationArgs(
         num_bits=4, symmetric=True, strategy="group", group_size=16
