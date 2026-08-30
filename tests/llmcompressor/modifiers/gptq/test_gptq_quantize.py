@@ -245,9 +245,9 @@ def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check QKV
     for proj_name in ["q_proj", "k_proj", "v_proj"]:
         proj = getattr(layer_0.self_attn, proj_name)
-        assert hasattr(proj, "weight_global_scale"), (
-            f"{proj_name} missing weight_global_scale"
-        )
+        assert hasattr(
+            proj, "weight_global_scale"
+        ), f"{proj_name} missing weight_global_scale"
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
@@ -265,9 +265,9 @@ def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check gate/up
     for proj_name in ["gate_proj", "up_proj"]:
         proj = getattr(layer_0.mlp, proj_name)
-        assert hasattr(proj, "weight_global_scale"), (
-            f"{proj_name} missing weight_global_scale"
-        )
+        assert hasattr(
+            proj, "weight_global_scale"
+        ), f"{proj_name} missing weight_global_scale"
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
@@ -409,12 +409,12 @@ def test_quantize_weight_batched_matches_single(quant_args, actorder, device):
         assert torch.allclose(
             s_params["weight"], b_params["weight"], rtol=1e-4, atol=1e-5
         ), f"module {idx} weight mismatch"
-        assert torch.allclose(s_params["weight_scale"], b_params["weight_scale"]), (
-            f"module {idx} scale mismatch"
-        )
-        assert math.isclose(s_loss, b_loss, rel_tol=1e-4, abs_tol=1e-5), (
-            f"module {idx} loss mismatch"
-        )
+        assert torch.allclose(
+            s_params["weight_scale"], b_params["weight_scale"]
+        ), f"module {idx} scale mismatch"
+        assert math.isclose(
+            s_loss, b_loss, rel_tol=1e-4, abs_tol=1e-5
+        ), f"module {idx} loss mismatch"
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
