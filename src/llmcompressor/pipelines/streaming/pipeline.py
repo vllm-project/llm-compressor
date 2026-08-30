@@ -1,6 +1,5 @@
 import contextlib
 import os
-import threading
 from typing import TYPE_CHECKING
 
 import torch
@@ -24,6 +23,7 @@ from llmcompressor.pipelines.streaming.checkpoint import (
     release_modules,
     stage_modules,
 )
+from llmcompressor.pipelines.streaming.prefetch import SubgraphPrefetcher
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -32,39 +32,6 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["StreamingPipeline"]
-
-
-class _SubgraphPrefetcher:
-    """
-    Prefetches the next subgraph's weights from the original checkpoint into
-    CPU memory in a background thread, overlapping disk reads with the
-    current subgraph's calibration.
-    """
-
-    def __init__(self, model: torch.nn.Module, ckpt_map: CheckpointMap):
-        self.model = model
-        self.ckpt_map = ckpt_map
-        self._thread: threading.Thread | None = None
-        self._staged = None
-        self._error: BaseException | None = None
-
-    def start(self, modules: list[torch.nn.Module]):
-        def _run():
-            try:
-                self._staged = stage_modules(self.model, modules, self.ckpt_map)
-            except BaseException as e:  # surfaced on join
-                self._error = e
-
-        self._thread = threading.Thread(target=_run, daemon=True)
-        self._thread.start()
-
-    def join(self) -> dict:
-        self._thread.join()
-        self._thread = None
-        if self._error is not None:
-            raise self._error
-        staged, self._staged = self._staged, None
-        return staged
 
 
 @CalibrationPipeline.register("streaming")
@@ -200,7 +167,7 @@ class StreamingPipeline(CalibrationPipeline):
             # synchronously stage the first subgraph; later subgraphs are
             # staged by the prefetcher during the previous subgraph's passes
             staged = stage_modules(model, subgraphs[0].submodules(model), ckpt_map)
-            prefetcher = _SubgraphPrefetcher(model, ckpt_map)
+            prefetcher = SubgraphPrefetcher(model, ckpt_map)
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 commit_staged(staged, onload_device)
