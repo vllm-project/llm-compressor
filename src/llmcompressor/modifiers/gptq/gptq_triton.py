@@ -253,6 +253,7 @@ def fused_gptq_block_update(
         or any(
             tensor.device != work.device for tensor in (hinv, scale, quantized, errors)
         )
+        or (zero_point is not None and zero_point.device != work.device)
     ):
         return False
 
