@@ -169,3 +169,29 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
         self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = observer_kwargs.get("grid", 200.0)
         self.patience = observer_kwargs.get("patience", 1000)
+
+
+@Observer.register("fouroversix")
+class FourOverSixObserver(MemorylessMSEObserver):
+    """
+    MSE observer that evaluates only two candidate ranges: 1.0x and 1.5x
+    of the observed per-group range.
+
+    Inspired by the FourOverSix paper's approach of comparing the
+    standard range against a moderately expanded range, but without
+    the global-scale optimization step. Performs better on most models.
+
+    Usage::
+
+        QuantizationArgs(
+            ...
+            observer="fouroversix",
+        )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        observer_kwargs = self.args.observer_kwargs
+        self.expand = observer_kwargs.get("expand", 1.5)
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.67)
+        self.grid = observer_kwargs.get("grid", 3.0)
