@@ -7,7 +7,6 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -55,25 +54,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _infer_pipeline(modifiers: list[Modifier]) -> str:
-        def _modifier_requires_calibration(modifier: Modifier):
-            if modifier.__class__.__name__ in (
-                "SmoothQuantModifier",
-                "WandaPruningModifier",
-                "SparseGPTModifier",
-                "GPTQModifier",
-                "AWQModifier",
-                "AutoRoundModifier",
-                "IMatrixGatherer",
-                "REAPPruningModifier",
-            ):
-                return True
-            elif isinstance(modifier, QuantizationModifier):
-                config = modifier.resolve_quantization_config()
-                return config.requires_calibration_data()
-            else:
-                return False
-
-        if any(_modifier_requires_calibration(modifier) for modifier in modifiers):
+        if any(modifier.requires_calibration_data for modifier in modifiers):
             return "sequential"
         else:
             return "datafree"

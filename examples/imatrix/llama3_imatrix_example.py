@@ -1,10 +1,10 @@
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization import preset_name_to_scheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3.1-8B"
@@ -12,23 +12,14 @@ model_id = "meta-llama/Meta-Llama-3.1-8B"
 model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-# Select calibration dataset.
-DATASET_ID = "open_platypus"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
 # Configure the quantization algorithm to run.
-#   * trigger a calibration pass with IMatrixGatherer so the observer can collect E[x²]
+#   * collect E[x²] during calibration through the imatrix_mse observer
 #   * quantize the weights to 4 bit with group size 128
 #   * use imatrix_mse observer to weight quantization error by channel importance
 scheme = preset_name_to_scheme("W4A16", ["Linear"])
 scheme.weights.observer = "imatrix_mse"
 
 recipe = [
-    IMatrixGatherer(ignore=["lm_head"]),
     QuantizationModifier(
         config_groups={"group_0": scheme},
         ignore=["lm_head"],
@@ -38,11 +29,11 @@ recipe = [
 # Apply algorithms.
 oneshot(
     model=model,
-    dataset=DATASET_ID,
+    dataset="perfectblend",
     splits="train[:5%]",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=512,
 )
 
 # Confirm generations of the quantized model look sane.

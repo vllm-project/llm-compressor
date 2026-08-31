@@ -51,6 +51,7 @@ def patch_deepseek_fp32_modules():
     BUG: norms should be loaded in float32, but usually aren't due to the base
     model having a quant_config which overrides this. Loading in float32 actually
     breaks the model definition (it expects bfloat16). Let's force load in bfloat16.
+    # Fixed upstream by: https://github.com/huggingface/transformers/pull/47486
     """
     with patch_attr(DeepseekV4PreTrainedModel, "_keep_in_fp32_modules_strict", set()):
         yield
@@ -64,9 +65,9 @@ def patch_deepseek_fp32_modules():
         (
             "inference-optimization/DSV4-tiny-empty",
             [
-                "model.layers.0.mlp.experts.2.up_proj.weight",
-                "model.layers.1.mlp.experts.0.gate_proj.weight",
-                "model.layers.2.mlp.experts.1.down_proj.weight",
+                "model.layers.0.ffn.experts.2.w3.weight",
+                "model.layers.1.ffn.experts.0.w1.weight",
+                "model.layers.2.ffn.experts.1.w2.weight",
             ],
         ),
         (
@@ -152,9 +153,7 @@ class DummyModel(torch.nn.Module):
 
 @torch.no_grad()
 @requires_gpu
-@pytest.mark.parametrize(
-    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4", "granitemoe"})
-)
+@pytest.mark.parametrize("model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4"}))
 def test_linearize_moe(model_type):
     config_path, experts_path = ARCH_TO_IMPORT_PATHS[model_type]
     config_cls = import_or_none(config_path)
@@ -197,43 +196,6 @@ def test_linearize_moe(model_type):
         assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
         assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
-
-
-def test_linearize_moe_granite():
-    try:
-        from transformers.models.granitemoe.configuration_granitemoe import (
-            GraniteMoeConfig,
-        )
-        from transformers.models.granitemoe.modeling_granitemoe import (
-            GraniteMoeParallelExperts,
-        )
-    except ImportError:
-        pytest.skip("GraniteMoeParallelExperts has been removed")
-
-    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
-    experts = GraniteMoeParallelExperts(
-        config.num_local_experts, config.hidden_size, config.intermediate_size
-    )
-    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
-
-    mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
-    assert mock_model.module is not experts
-
-    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
-    expert_size = [
-        (NUM_TEST_TOKENS // config.num_local_experts)
-        for _ in range(config.num_local_experts)
-    ]
-    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
-    true_outputs = experts(hidden_states, expert_size)
-    outputs = mock_model(hidden_states, expert_size)
-    with moe_calibration_context():
-        calib_outputs = mock_model(hidden_states, expert_size)
-
-    assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
-    assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
-    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
 def test_linearize_moe_llama4():
