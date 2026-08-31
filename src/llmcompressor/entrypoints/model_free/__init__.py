@@ -87,15 +87,12 @@ def model_free_ptq(
             logger.info(f"Copying {file_path} -> {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
-    # build jobs without baking in a device — the scheduler assigns devices
+    # build jobs without baking in a device, the scheduler assigns devices
     # dynamically based on free VRAM at submit time
     jobs, mem_estimates = _build_jobs(model_files, save_directory, config, converter)
 
-    # validate first (runs on meta device)
-    validate_jobs = [
-        (_validate_shard, iwm, sp, convs, torch.device("meta"))
-        for _, iwm, sp, convs in jobs
-    ]
+    # validate first, always on meta
+    validate_jobs = [(_validate_shard, iwm, convs) for _, iwm, _sp, convs in jobs]
     exec_jobs(validate_jobs, max_workers, desc="Validating")
 
     # quantize with dynamic GPU scheduling
@@ -154,7 +151,7 @@ def _build_jobs(
 
     Uses CT's build_inverse_weight_maps with the full converter chain so that
     ModelFreePtqConverter.get_dependencies() drives microscale partner resolution
-    — no separate build_microscale_inverse_weight_maps needed.
+    with no separate build_microscale_inverse_weight_maps needed.
 
     :returns: (jobs, memory_estimates) where each job is
         (_process_shard, inverse_weight_map, save_path, converters)
@@ -215,10 +212,10 @@ def _process_shard(
 
 def _validate_shard(
     inverse_weight_map: InverseWeightMap,
-    save_path: str | os.PathLike,
     converters: list[Converter],
-    device: torch.device,
 ) -> None:
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
+    tensors = load_tensors_from_inverse_weight_map(
+        inverse_weight_map, torch.device("meta")
+    )
     for conv in converters:
         tensors = conv.validate(tensors)

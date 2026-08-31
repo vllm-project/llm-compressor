@@ -87,7 +87,7 @@ class ModelFreePtqConverter(Converter):
     def validate(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Validate that each quantizable tensor can be quantized under its scheme.
-        Operates on meta tensors — no real computation.
+        Operates on meta tensors.
         """
         tensors = split_fused_moe_experts(tensors)
         for _, name, scheme in _match_tensors_to_schemes(tensors, self.config):
