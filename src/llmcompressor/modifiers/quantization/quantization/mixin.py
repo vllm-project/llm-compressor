@@ -419,8 +419,7 @@ class QuantizationMixin(HooksMixin):
             input_obs = self.observer.get("input", input_obs)
             output_obs = self.observer.get("output", output_obs)
 
-        # Modifier overrides take precedence. Otherwise choose a default based on
-        # the tensor location being calibrated.
+        # Apply observers to QuantizationArgs if specified
         update_map = [
             (weight_obs, "weights", "memoryless_minmax"),
             (input_obs, "input_activations", "minmax"),
