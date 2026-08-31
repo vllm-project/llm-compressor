@@ -2,11 +2,12 @@ from compressed_tensors.entrypoints.convert import (
     CompressedTensorsDequantizer,
     convert_checkpoint,
 )
-from compressed_tensors.offload import get_device_map, load_offloaded_model
+from compressed_tensors.offload import get_device_map
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 # moonshotai/Kimi-K2.6 checkpoint is published in W4A16 compressed-tensors format.
 # This script will first upconvert to bfloat16 so that the model can be compressed
@@ -39,10 +40,11 @@ convert_checkpoint(
 )
 
 # Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB
-with load_offloaded_model():
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         DEQUANTIZED_SAVE_DIR,
-        dtype="auto",
         device_map="auto_offload",
         max_memory={"cpu": 500e9},
         trust_remote_code=True,
@@ -59,12 +61,7 @@ with load_offloaded_model():
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
 print(f"Model was offloaded to the following devices: {devices}")
 
-# Select calibration dataset.
-DATASET_ID = "ultrachat-200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -80,8 +77,7 @@ recipe = QuantizationModifier(
 oneshot(
     model=model,
     processor=tokenizer,
-    dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    dataset="perfectblend",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

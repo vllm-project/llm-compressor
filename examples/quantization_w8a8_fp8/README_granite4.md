@@ -4,14 +4,7 @@
 
 For Granite 4, in addition to typical `nn.Linear` layers in `mamba` or `mlp` modules, there are three "Linear-like" layers in `GraniteMoeHybridMoe` (`moe` module) that could be quantized as well. Among the three layers, usually `router` should be kept in high precision for accuracy reason. Therefore, users could choose to quantize the other two layers, `input_linear` and `output_linear`, for better model compression.
 
-Note that input_linear and output_linear are `GraniteMoeHybridParallelExperts`, which subclasses `nn.Module` instead of `nn.Linear`, for it needs to store weights in 3D, i.e. [num_experts, out_feat, in_feat]. Because llm-compressor can only handle `nn.Linear` at the moment, our simple workaround would be:
-1. **Swap `GraniteMoeHybridParallelExperts` with `GraniteMoeHybridParallelExpertsLinear`**
-
-   The custom class is equivalent to the original one, except it subclasses nn.Linear and stores 2D weights. Moe expert weight tensors will be converted from 3D to 2D, i.e. from [num_experts, out_feat, in_feat] to [num_experts * out_feat, in_feat].
-2. **Perform dynamic fp8 quantization**
-
-   The new class is compatible with typical per-channel weight quantization, llm-compressor will be able to identify those layers and process them normally. The resulting scales will have shape of [num_experts * out_feat, 1]
-3. **Reshape weights and scales back to 3D before saving the checkpoint**
+The MoE experts store their weights in 3D, i.e., [num_experts, out_feat, in_feat], rather than as `nn.Linear` modules. `llmcompressor` handles this for you: loading the model inside `load_context()` linearizes the experts, so each expert becomes a regular `nn.Linear` that the recipe can target like any other layer. Weights are converted back to the checkpoint's expected format on save.
 
 > `fp8` compuation is supported on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
 
@@ -53,9 +46,14 @@ Load the model using `AutoModelForCausalLM`
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+from llmcompressor.utils import load_context
+
 MODEL_ID = "ibm-granite/granite-4.0-tiny-preview"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto")
+# `load_context()` linearizes the MoE experts as the model loads, so they can be
+# quantized as ordinary `Linear` layers.
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -67,39 +65,31 @@ We recommend targeting all `Linear` layers using the `FP8_DYNAMIC` scheme, which
 
 Since simple PTQ does not require data for weight quantization and the activations are quantized dynamically, we do not need any calibration data for this quantization flow.
 
-Note that we replace the 3D moe expert layers with their 2D equivalent counterpart before quantization and convert them back to 3D before model saving.
+The MoE experts are linearized by `load_context()` at load time and restored to the checkpoint's expected layout on save, so `Linear` is the only target needed.
 
 ```python
-from compressed_tensors.utils import replace_module
+from compressed_tensors.offload import dispatch_model
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
-skip_router_only = True  # assume we want to quantize input/output moe layers
-
-ignore_lay = ["lm_head",]
-if skip_router_only:
-    # swap moe linears to a custom class
-    for n, m in model.named_modules():
-        if isinstance(m, GraniteMoeHybridParallelExperts):
-            new_mod = GraniteMoeHybridParallelExpertsLinear.from_3d_expert(m)
-            replace_module(model, n, new_mod)
-    ignore_lay += ["re:.*block_sparse_moe.router"]
-    SAVE_DIR = "ibm-granite-4-tiny-fp8-dynamic-skipMoeRouter"
+# Load model.
+model_id = "ibm-granite/granite-4.0-tiny-preview"
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Configure the simple PTQ quantization
 recipe = QuantizationModifier(
-    targets=["Linear", "GraniteMoeHybridParallelExpertsLinear"],
+    targets=["Linear"],
     scheme="FP8_DYNAMIC",
-    ignore=ignore_lay,
+    ignore=["lm_head", "re:.*block_sparse_moe.router"],
 )
 
 # Apply the quantization algorithm.
 oneshot(model=model, recipe=recipe)
-
-# Revert weights of MoE experts to 3D format (num_experts, output_size, input_size)
-for n, m in model.named_modules():
-    if isinstance(m, GraniteMoeHybridParallelExpertsLinear):
-        m.to_3d_expert()
 
 # Save the model.
 model.save_pretrained(SAVE_DIR)

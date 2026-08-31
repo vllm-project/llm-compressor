@@ -1,3 +1,4 @@
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 #############################################################################
 # Distributed W8A8 quantization example with activation observer sync.
 # run this with `torchrun --nproc_per_node=2 llama3_8b_w8a8_distributed.py`
@@ -5,64 +6,20 @@
 #############################################################################
 
 import torch
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
-from datasets import load_dataset
+from compressed_tensors.offload import dispatch_model, init_dist
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-NUM_CALIBRATION_SAMPLES = 256
-MAX_SEQUENCE_LENGTH = 2048
-
-###### DDP MODEL LOAD CHANGE #####
 init_dist()
-with load_offloaded_model():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, dtype="auto", device_map="auto_offload"
-    )
-##################################
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto_offload")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-###### DDP DATA LOAD CHANGE #####
-ds = load_dataset(
-    DATASET_ID, split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES)
-)
-##################################
-
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # QuantizationModifier automatically detects torch.distributed and
 # all-reduces activation observer statistics at layer boundaries
@@ -72,10 +29,10 @@ recipe = [
 
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=256,
 )
 
 # Confirm generations of the quantized model look sane.

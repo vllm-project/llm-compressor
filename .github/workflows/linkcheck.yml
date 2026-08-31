@@ -37,6 +37,12 @@ jobs:
           echo "markdown=true" >> $GITHUB_OUTPUT
         fi
 
+    - name: Install Chrome for linkspector
+      if: steps.changes.outputs.markdown == 'true'
+      run: |
+        npm install -g @umbrelladocs/linkspector
+        npx puppeteer browsers install chrome
+
     - name: Run linkspector
       if: steps.changes.outputs.markdown == 'true'
       uses: umbrelladocs/action-linkspector@v1

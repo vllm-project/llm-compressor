@@ -66,7 +66,7 @@ def test_static_if_global_vars():
 
 
 def test_dynamic_if():
-    """Checks that non-resolvable if statements are ignored"""
+    """Checks that non-resolvable if statements are wrapped"""
 
     source = """
     def forward():
@@ -210,5 +210,64 @@ def test_walrus():
     
     def forward():
         (x,) = wrapped_0()  # skip: some envs use "(x,)" -> "x,"
+    """
+    check_wrapping(source, output)
+
+
+def test_dead_branch_names_not_tracked():
+    """Names from dead branches should not pollute _local_names.
+
+    Regression test: when `if True: ... else: x, _ = ...` was followed by a
+    dynamic `if isinstance(x, tuple): x, _ = x`, the autowrapper incorrectly
+    treated `_` as a live local (from the dead else branch) and generated
+    `wrapped_0(_, x)` — causing UnboundLocalError at trace time.
+    """
+
+    class Model:
+        use_fast_path = True
+
+    source = """
+    def forward(self, x):
+        if self.use_fast_path:
+            x = x
+        else:
+            x, _ = x
+        if isinstance(x, tuple):
+            x, _ = x
+    """
+    output = """
+    @torch.fx.wrap
+    def wrapped_0(x, *, _=None):
+        if isinstance(x, tuple):
+            x, _ = x  # skip: some envs use "(x,)" -> "x,"
+        return (_, x)
+
+    def forward(self, x):
+        if True:
+            x = x
+        else:
+            x, _ = x
+        _, x = wrapped_0(x)
+    """
+    check_wrapping(source, output, namespace={"self": Model()})
+
+
+def test_dynamic_ifexp():
+    """Checks that non-resolvable if expressions are wrapped"""
+
+    source = """
+    def forward():
+        test = ...
+        out = 1 if test else 2
+    """
+    output = """
+    @torch.fx.wrap
+    def wrapped_0(test):
+        return 1 if test else 2
+        return ()
+
+    def forward():
+        test = ...
+        out = wrapped_0(test)
     """
     check_wrapping(source, output)

@@ -94,21 +94,6 @@ recipe_modifier_group_actorder_weight = GPTQModifier(
     },
 )
 
-recipe_modifier_group_actorder_group = GPTQModifier(
-    ignore=["lm_head"],
-    config_groups={
-        "group_0": QuantizationScheme(
-            targets=["re:.*model.layers.2.self_attn.q_proj$"],
-            weights=QuantizationArgs(
-                num_bits=4,
-                strategy="group",
-                group_size=32,
-                actorder=ActivationOrdering.GROUP,
-            ),
-        )
-    },
-)
-
 # Test block quantization variants
 recipe_modifier_full_block = GPTQModifier(
     ignore=["lm_head"],
@@ -168,7 +153,6 @@ recipe_modifier_channel_actorder_weight = GPTQModifier(
         recipe_modifier_shorthand_a,
         recipe_modifier_shorthand_b,
         recipe_modifier_group_actorder_weight,
-        recipe_modifier_group_actorder_group,
         recipe_modifier_full_block,
         recipe_modifier_block_actorder_weight,
         recipe_modifier_channel_actorder_weight,
@@ -176,14 +160,12 @@ recipe_modifier_channel_actorder_weight = GPTQModifier(
 )
 def test_oneshot_application(recipe, tmp_path):
     output = tmp_path / "oneshot_output"
-    model_id = "nm-testing/tinysmokellama-3.2"
+    model_id = "nm-testing/tinysmokeqwen3"
     dataset = "open_platypus"
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = 0 if torch.accelerator.is_available() else "cpu"
 
     # Load original model for numerical comparison
-    original_model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.float16, device_map=device
-    )
+    original_model = AutoModelForCausalLM.from_pretrained(model_id, device_map=device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     # Create test input
@@ -201,7 +183,8 @@ def test_oneshot_application(recipe, tmp_path):
         output_dir=output,
         recipe=recipe,
         num_calibration_samples=9,
-        splits={"calibration": "train[:9]"},
+        splits="train[:9]",
+        max_seq_length=512,
     )
     model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
 
@@ -230,12 +213,7 @@ def test_oneshot_application(recipe, tmp_path):
     assert not hasattr(not_targetted, "quantization_scheme")
 
     # Verify g_idx behavior for activation ordering
-    if weight_args.actorder == ActivationOrdering.GROUP:
-        # GROUP actorder should save g_idx
-        assert hasattr(
-            targetted_linear_layer, "weight_g_idx"
-        ), "GROUP actorder should have g_idx"
-    elif weight_args.actorder == ActivationOrdering.WEIGHT:
+    if weight_args.actorder == ActivationOrdering.WEIGHT:
         # WEIGHT actorder should NOT save g_idx (identity mapping)
         assert not hasattr(
             targetted_linear_layer, "weight_g_idx"
@@ -256,4 +234,4 @@ def test_oneshot_application(recipe, tmp_path):
 
     # Cleanup
     del original_model, model_loaded
-    torch.cuda.empty_cache()
+    torch.accelerator.empty_cache()

@@ -1,6 +1,6 @@
 import contextlib
 import inspect
-from collections import deque
+from collections import UserDict, deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
@@ -63,11 +63,20 @@ class Subgraph:
         with append_autowrap_source_on_fail():
             return forward_fn(*args, **kwargs)
 
-    def submodules(self, model: Module, recurse: bool = False) -> set[Module]:
+    def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
         nodes = self.graph.find_nodes(op="call_module")
-        modules = set(model.get_submodule(node.target) for node in nodes)
+        modules = [model.get_submodule(node.target) for node in nodes]
+
+        # collect all modules while preserving order
+        # deterministic module order is required for downstream ddp
         if recurse:
-            modules = set(m for module in modules for m in module.modules())
+            direct_modules, modules = modules, []
+            seen = set()
+            for direct_module in direct_modules:
+                for submodule in direct_module.modules():
+                    if submodule not in seen:
+                        modules.append(submodule)
+                        seen.add(submodule)
 
         return modules
 
@@ -180,6 +189,10 @@ class SequentialTracer(HFTracer):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
 
+        # special extension for supporting `UserDict`s (Gemma4 uses this)
+        elif isinstance(a, UserDict):
+            return self.create_arg(dict(a))
+
         else:
             return super().create_arg(a)
 
@@ -259,8 +272,9 @@ def topological_partition(
         )
 
     partitions: list[list[Node]] = [[]]
+    node_to_partition: dict[Node, int] = {}
     remaining_indegrees = {
-        node: len([node for node in node.all_input_nodes if node.op != "get_attr"])
+        node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
         for node in graph.graph.nodes
     }
     partition_index = 0  # global counter
@@ -291,6 +305,7 @@ def topological_partition(
 
         # assign to partition
         partitions[partition_index].append(node)
+        node_to_partition[node] = partition_index
 
         # increment after assignment so is_complete fires after the target is placed
         if is_target:
@@ -310,15 +325,14 @@ def topological_partition(
     for node in graph.graph.find_nodes(op="get_attr"):
         user_partitions = []
         for user in node.users:
-            for index in range(len(partitions)):
-                if user in partitions[index]:
-                    user_partitions.append(index)
-                    break
+            if user in node_to_partition:
+                user_partitions.append(node_to_partition[user])
 
         # workaround
         if len(user_partitions):
             partition_index = min(user_partitions)
             partitions[partition_index].insert(0, node)
+            node_to_partition[node] = partition_index
 
     return partitions
 
@@ -339,6 +353,8 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
 
     # create subgraphs
     for partition_nodes in partitions:
+        partition_set = set(partition_nodes)
+
         # create a new graph for the partition
         graph = Graph(model)
         node_map = {}
@@ -348,7 +364,7 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
             input_node
             for node in partition_nodes
             for input_node in node.all_input_nodes
-            if input_node not in partition_nodes and input_node.op
+            if input_node not in partition_set and input_node.op
         }
         for input_node in new_input_nodes:
             node_map[input_node] = graph.placeholder(input_node.name)
@@ -362,7 +378,7 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
             output_dict = {
                 node.name: node_map[node]
                 for node in partition_nodes
-                if any(user not in partition_nodes for user in node.users.keys())
+                if any(user not in partition_set for user in node.users.keys())
             }
             graph.output(output_dict)
 
@@ -389,16 +405,11 @@ def trace_consumed_names(subgraphs: list[Subgraph]):
 
     :param subgraphs: list of subgraphs with empty `consumed_names` attributes
     """
-    # populate consumed_names according to when inputs are last used
-    # in order to vacate the `intermediates` cache and save memory
-    all_input_names = set().union(*(subgraph.input_names for subgraph in subgraphs))
-    for input_name in all_input_names:
-        for subgraph in reversed(subgraphs):
-            if input_name in subgraph.input_names:
-                subgraph.consumed_names.add(input_name)
-                break
-        else:
-            raise ValueError(f"Could not find input name {input_name} in subgraphs")
+    # The first occurrence in reverse order is the final use in execution order.
+    seen_names: set[str] = set()
+    for subgraph in reversed(subgraphs):
+        subgraph.consumed_names.update(subgraph.input_names - seen_names)
+        seen_names.update(subgraph.input_names)
 
 
 def graph_is_well_formed(graph: Graph) -> bool:
@@ -476,8 +487,13 @@ def handle_sequential_oom(func):
         except torch.OutOfMemoryError as e:
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
-                "Please consider choosing a smaller module "
-                "for `sequential_targets` argument, ex. 'Linear'"
+                "Please consider choosing a smaller module for `sequential_targets`, "
+                "ex. 'Linear' for dense models. "
+                "For MoE models with untraceable attention, "
+                "use the attention module and individual expert class instead, "
+                "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
+                "sequential_targets_per_subgraph set to batch multiple experts per "
+                "subgraph and reduce memory overhead."
             ) from e
 
     return wrapper

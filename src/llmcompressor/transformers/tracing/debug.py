@@ -24,8 +24,8 @@ def parse_args():
     parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
     parser.add_argument("--ignore", type=str, nargs="*", default=DatasetArguments().tracing_ignore, metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
     parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
-    parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
-    parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
+    parser.add_argument("--trust_remote_code", action=argparse.BooleanOptionalAction, default=False, help="Whether to trust model remote code")  # noqa: E501
+    parser.add_argument("--skip_weights", action=argparse.BooleanOptionalAction, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
     parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
     parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph")  # noqa: E501
     return parser.parse_args()
@@ -68,7 +68,6 @@ def trace(
         model = model_class.from_pretrained(
             model_id,
             device_map=device_map,
-            dtype="auto",
             trust_remote_code=trust_remote_code,
         )
     processor = AutoProcessor.from_pretrained(
@@ -81,7 +80,7 @@ def trace(
     dataset = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split=dataset_args.splits["calibration"],
+        split=dataset_args.splits,
         processor=processor,
     )(add_labels=False)
     sample = next(iter(dataset))
@@ -121,17 +120,17 @@ def get_dataset_kwargs(modality: str, ignore: list[str]) -> dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
-            "splits": {"calibration": "test_sft[:1]"},
+            "splits": "test_sft[:1]",
             "max_seq_length": 4096,
         },
         "vision": {
             "dataset": "flickr",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
         "audio": {
             "dataset": "peoples_speech",
-            "splits": {"calibration": "test[:1]"},
+            "splits": "test[:1]",
             "max_seq_length": 4096,
         },
     }

@@ -29,9 +29,8 @@ def test_hf_quantizer_decompress_match_manual_decompress(config):
     # Decompress using HFQuantizer from AutoModelForCausalLM
     hf_quantizer_model = AutoModelForCausalLM.from_pretrained(
         compressed_model_stub,
-        dtype="auto",
         device_map="auto",
-        quantization_config=CompressedTensorsConfig(run_compressed=False),
+        quantization_config=CompressedTensorsConfig(dequantize=True),
     )
 
     # Manually decompress from compressed model

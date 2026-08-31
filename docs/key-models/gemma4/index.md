@@ -4,7 +4,7 @@ Quantization examples for Google's Gemma 4 models.
 
 > **Note:** These examples require `transformers >= v5`, which can be installed with:
 > ```bash
-> uv pip install --upgrade transformers
+> uv pip install --upgrade transformers==5.8.1
 > ```
 
 ## Examples

@@ -1,13 +1,12 @@
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 """
 Distributed SmoothQuant + GPTQ W8A8 quantization using Data-Parallel Calibration.
 
 Run with:
     torchrun --standalone --nproc_per_node=NUM_GPUS smoothquant_ddp_example.py
 
-Each rank loads a disjoint partition of the calibration dataset.
-SmoothQuantModifier all-reduces per-channel activation statistics across ranks
-before computing smoothing scales (identical on every rank, no weight broadcast
-needed). GPTQModifier then applies distributed W8A8 quantization.
+Each rank loads a disjoint partition of the calibration dataset automatically
+when using a prebaked dataset string.
 
 This script intentionally mirrors the structure of
 examples/quantization_w4a16/llama3_ddp_example.py so it is easy to diff.
@@ -17,70 +16,32 @@ import time
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import dispatch_model, init_dist, load_offloaded_model
-from datasets import load_dataset
+from compressed_tensors.offload import dispatch_model, init_dist
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.utils import load_context
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 MODEL_ID = "Qwen/Qwen2-7B-Instruct"
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
 
 # ---------------------------------------------------------------------------
 # DDP init + model load
 # ---------------------------------------------------------------------------
 init_dist()
 
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        dtype="auto",
         device_map="auto_offload",
     )
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-# ---------------------------------------------------------------------------
-# Dataset: each rank gets a disjoint slice
-# ---------------------------------------------------------------------------
-ds = load_dataset(
-    DATASET_ID,
-    split=get_rank_partition(DATASET_SPLIT, NUM_CALIBRATION_SAMPLES),
-)
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(preprocess)
-ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # ---------------------------------------------------------------------------
 # Recipe: SmoothQuant (distributed-aware) + GPTQ W8A8
@@ -93,19 +54,19 @@ recipe = [
 # ---------------------------------------------------------------------------
 # Run oneshot
 # ---------------------------------------------------------------------------
-torch.cuda.reset_peak_memory_stats()
+torch.accelerator.reset_peak_memory_stats()
 start_time = time.time()
 
 oneshot(
     model=model,
-    dataset=ds,
+    dataset="perfectblend",
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    max_seq_length=2048,
+    num_calibration_samples=512,
 )
 
 elapsed = time.time() - start_time
-peak_mem_gb = torch.cuda.max_memory_allocated() / (1024**3)
+peak_mem_gb = torch.accelerator.max_memory_allocated() / (1024**3)
 
 rank = dist.get_rank()
 logger.info(
@@ -113,9 +74,8 @@ logger.info(
 )
 
 # ---------------------------------------------------------------------------
-# Sample generation (rank 0 only)
-# ---------------------------------------------------------------------------
 # Sample generation (all ranks must participate)
+# ---------------------------------------------------------------------------
 dist.barrier()
 dispatch_model(model)
 sample = tokenizer("Hello my name is", return_tensors="pt")

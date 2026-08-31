@@ -2,3 +2,5 @@ cadence: "nightly"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 recipe: tests/e2e/recipes/FP8/recipe_fp8_weight_only_per_tensor.yaml
 scheme: FP8A16_tensor
+# vLLM produces gibberish after this quantization scheme
+skip_sanity_check: true

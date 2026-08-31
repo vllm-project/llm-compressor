@@ -37,6 +37,8 @@ def main():
         f"max_model_len={lmeval_config['max_model_len']},"
         f"seed={seed},"
         f"gpu_memory_utilization={config['gpu_memory_utilization']},"
+        f"pipeline_parallel_size="
+        f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
     )
 
     results = lm_eval.simple_evaluate(

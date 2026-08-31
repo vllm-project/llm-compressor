@@ -2,6 +2,7 @@ import ast
 from types import FunctionType, MethodType
 from typing import Any
 
+from compressed_tensors.utils import patch_attr
 from loguru import logger
 
 from .control_flow_analyzer import ControlFlowAnalyzer
@@ -96,22 +97,24 @@ class AutoWrapper(ast.NodeTransformer):
 
         return ret
 
-    def visit_If(self, node: ast.If) -> ast.If | ast.Assign:
+    def visit_If(
+        self, node: ast.If | ast.IfExp
+    ) -> ast.If | ast.IfExp | ast.Assign | ast.Call:
         """
         Attempt to statically evaluate the condition of the `if` statement. If the
         condition can not be statically evaluated (1), then attmept to wrap the `if`
         statement
 
         :param node: `if` statement which may be wrapped
-        :return: if the `if` statement cannot be statically evaluated, return the
+        :return: if the `if` statement can be statically evaluated, return the
             `if` statement with the condition replaced by `True` or `False`.
-            Otherwise, return a wrapper function call
+            Otherwise, return a wrapper function call + assignment
         """
         try:
             value = bool(self._eval_expr(node.test))
 
             # force a wrap if any assignments occur within the if statement
-            for expr in ast.walk(node):
+            for expr in ast.walk(node.test):
                 if isinstance(expr, ast.NamedExpr):
                     raise Exception("If statement contains assignment")
 
@@ -120,7 +123,27 @@ class AutoWrapper(ast.NodeTransformer):
 
         else:
             node.test = ast.Constant(value=value)
-            return super().generic_visit(node)
+            # Only visit the live branch so that names from dead code
+            # (e.g. `_` in `elif False: hidden_states, _ = self.self_attn(...)`)
+            # are not added to `_local_names`
+            dead_attr = "orelse" if value else "body"
+            tmp_dead_branch = (
+                [ast.Pass()] if isinstance(node, ast.If) else ast.Constant(value=None)
+            )
+            with patch_attr(node, dead_attr, tmp_dead_branch):
+                node = super().generic_visit(node)
+            return node
+
+    def visit_IfExp(self, node: ast.IfExp) -> ast.IfExp | ast.Call:
+        """
+        `if else` expressions are treated the same as `if` statements. See `visit_If`.
+
+        :param node: `if else` expression which may be wrapped
+        :return: if the `if else` expression can be statically evaluated, return the
+            `if else` expression with the condition replaced by `True` or `False`.
+            Otherwise, return a wrapper function call
+        """
+        return self.visit_If(node)
 
     def visit_Tuple(self, node: ast.Tuple) -> ast.Tuple | ast.Call:
         """
