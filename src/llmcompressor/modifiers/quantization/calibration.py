@@ -59,13 +59,7 @@ def initialize_observer(
     args: QuantizationArgs = getattr_chain(
         module, f"quantization_scheme.{arg_name}", None
     )
-    if args is None or args.dynamic is True:
-        return
-
     observer = args.observer
-    if observer is None:
-        observer = "memoryless_minmax" if base_name == "weight" else "minmax"
-        args.observer = observer
 
     # training is no longer supported: always use memoryless for weights
     if base_name == "weight" and args.observer in ("static_minmax", "minmax"):

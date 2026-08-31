@@ -63,3 +63,21 @@ def test_static_fp8_input_uses_minmax():
 
     assert scheme.input_activations.dynamic is False
     assert scheme.input_activations.observer == "minmax"
+
+
+def test_serialized_null_observer_gets_default():
+    modifier = QuantizationModifier(
+        config_groups={
+            "group_0": {
+                "targets": ["Linear"],
+                "weights": {"observer": None},
+                "input_activations": {"observer": None},
+                "output_activations": {"observer": None},
+            }
+        }
+    )
+
+    scheme = modifier.resolved_config.config_groups["group_0"]
+    assert scheme.weights.observer == "memoryless_minmax"
+    assert scheme.input_activations.observer == "minmax"
+    assert scheme.output_activations.observer == "minmax"

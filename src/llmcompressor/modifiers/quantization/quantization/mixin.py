@@ -419,8 +419,8 @@ class QuantizationMixin(HooksMixin):
             input_obs = self.observer.get("input", input_obs)
             output_obs = self.observer.get("output", output_obs)
 
-        # Modifier overrides take precedence over observers explicitly set on the
-        # scheme. Otherwise, choose a default based on what is being calibrated.
+        # Modifier overrides take precedence. Otherwise choose a default based on
+        # the tensor location being calibrated.
         update_map = [
             (weight_obs, "weights", "memoryless_minmax"),
             (input_obs, "input_activations", "minmax"),
@@ -432,7 +432,10 @@ class QuantizationMixin(HooksMixin):
             if q_args is None:
                 continue
             if obs_value is None:
-                if "observer" in q_args.model_fields_set:
+                if (
+                    q_args.observer is not None
+                    and "observer" in q_args.model_fields_set
+                ):
                     continue
                 obs_value = None if q_args.dynamic is True else default_obs
             q_args.observer = obs_value
