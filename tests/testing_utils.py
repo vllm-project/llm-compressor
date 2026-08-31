@@ -585,9 +585,13 @@ def parse_params(configs_directory: Union[list, str]) -> List[dict]:
 
             config["testconfig_path"] = config_path
 
-            cadence = os.environ.get("CADENCE", "commit")
             expected_cadence = config.get("cadence")
+            if expected_cadence is None:
+                # no cadence declared: always run, regardless of CADENCE
+                config_dicts.append(config)
+                continue
 
+            cadence = os.environ.get("CADENCE", "commit")
             if not isinstance(expected_cadence, list):
                 expected_cadence = [expected_cadence]
             if cadence == "release" or cadence in expected_cadence:
