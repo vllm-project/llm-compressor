@@ -5,12 +5,6 @@ https://github.com/vllm-project/vllm/pull/43462
 """
 
 from compressed_tensors.offload import dispatch_model
-from compressed_tensors.quantization import (
-    FP8_E4M3_DATA,
-    QuantizationArgs,
-    QuantizationStrategy,
-    QuantizationType,
-)
 from datasets import Dataset, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -58,30 +52,20 @@ ds = Dataset.from_list(
 
 # Configure the quantization algorithm to run.
 #   * apply quip transforms to model in order to make quantization easier
+#   * NOTE: output rotations (u) are not performant and do not increase accuracy,
+#           so only input rotations (v) are used
 #   * quantize the weights to nvfp4 (fp4 weights, fp16 activations) with a
 #     hardware-imposed group size of 16
 #   * use GPTQ with mse observer for activation-ordering-aware calibration
 #     (combination follows the MR-GPTQ recipe, arXiv:2509.23202)
-NVFP4A16 = dict(
-    weights=QuantizationArgs(
-        num_bits=4,
-        actorder="static",
-        type=QuantizationType.FLOAT,
-        strategy=QuantizationStrategy.TENSOR_GROUP,
-        symmetric=True,
-        dynamic=False,
-        group_size=16,
-        scale_dtype=FP8_E4M3_DATA.dtype,
-        zp_dtype=FP8_E4M3_DATA.dtype,
-        observer="mse",
-    ),
-    targets=["Linear"],
-)
 recipe = [
-    QuIPModifier(
-        rotations=["v", "u"], transform_block_size=128, transform_type="hadamard"
+    QuIPModifier(rotations=["v"], transform_block_size=128, transform_type="hadamard"),
+    GPTQModifier(
+        targets="Linear",
+        scheme="NVFP4A16",
+        ignore=["lm_head"],
+        weight_observer="mse",
     ),
-    GPTQModifier(config_groups={"group_0": NVFP4A16}, ignore=["lm_head"]),
 ]
 
 # Apply algorithms.
