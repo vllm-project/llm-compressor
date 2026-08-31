@@ -39,6 +39,34 @@ When contributing a new mapping, be sure to add your model architecture to `test
 
 Adding a conversion mapping is the most efficient way to load your model. For models which do not have conversion mappings, they will fallback to performing conversion after loading.
 
+### Overriding Mappings For A Single Checkpoint
+
+Not every checkpoint of an architecture shares a layout. A model which has been loaded and re-saved through transformers stores 2D per-expert weights where the original release stores fused 3D weights, so mappings which are correct for your checkpoint may be wrong for the architecture as a whole. [`ornith-ai/Ornith-1.0-35B`](https://huggingface.co/ornith-ai/Ornith-1.0-35B) is one such checkpoint: it is a `qwen3_5_moe` model, but its experts ship as 2D `experts.{i}.{gate,up,down}_proj.weight` tensors, so loading it fuses every expert into 3D only for linearization to unfuse it again. Rather than adding those mappings to the table, register them at load time with `patch_moe_mappings`:
+
+```python
+from transformers import AutoModelForCausalLM
+from transformers.core_model_loading import WeightRenaming
+from llmcompressor.modeling import patch_moe_mappings
+from llmcompressor.utils import load_context
+
+with patch_moe_mappings(
+    "qwen3_5_moe",
+    [
+        WeightRenaming(
+            source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
+            target_patterns=r".experts.\1.gate_proj.",
+        ),
+        # ... one renaming per per-expert weight
+    ],
+):
+    with load_context():
+        model = AutoModelForCausalLM.from_pretrained(model_id)
+```
+
+Pass `remove_targets` to drop the target patterns of the architecture's default conversion mapping which your mappings replace, typically the fused 3D expert weights.
+
+Prefer the `with` form shown above. The mappings describe one checkpoint, not the architecture, so leaving the block restores the previous entry and a later load of a fused checkpoint of the same architecture in the same process is unaffected. Calling `patch_moe_mappings` outside a `with` block applies the override for the remaining lifetime of the process.
+
 ## MoE Conversion After Loading
 
 The vast majority of models can be converted after loading. Conversion after loading is often slow, since it may require converting from 2D -> 3D and then back to 2D. However, it is guaranteed to work for nearly all MoE model definitions.
