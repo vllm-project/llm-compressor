@@ -35,7 +35,6 @@ from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -390,13 +389,11 @@ def test_ddp_smoke_smoothquant():
 def test_ddp_smoke_imatrix():
     _test_ddp_modifier(
         "imatrix",
-        lambda: [
-            IMatrixGatherer(ignore=["lm_head"]),
-            QuantizationModifier(
-                scheme={"W4A16": ["Linear"]},
-                ignore=["lm_head"],
-            ),
-        ],
+        lambda: QuantizationModifier(
+            scheme={"W4A16": ["Linear"]},
+            ignore=["lm_head"],
+            weight_observer="imatrix_mse",
+        ),
         "independent",
         None,
         weight_atol=5e-3,

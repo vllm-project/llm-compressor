@@ -37,8 +37,10 @@ class BaseTestConfig(BaseModel):
     Required fields
     ---------------
     cadence : str
-        When this test runs. One of: "commit", "nightly", "weekly".
+        When this test runs. One of: "commit", "nightly", "weekly", "release".
         Determines the CI cadence for this test configuration.
+        When CADENCE is set to "release", all tests run regardless of their
+        individual cadence setting.
     model : str
         HuggingFace model ID to quantize (e.g. "meta-llama/Meta-Llama-3-8B-Instruct").
         Must be a valid model identifier on HuggingFace Hub or a local path.
@@ -160,7 +162,7 @@ class BaseTestConfig(BaseModel):
     # -------------------------------------------------------------------------
     # Required
     # -------------------------------------------------------------------------
-    cadence: str = Field(..., description="'commit', 'nightly', or 'weekly'")
+    cadence: str = Field(..., description="'commit', 'nightly', 'weekly', or 'release'")
     model: str = Field(..., description="HuggingFace model ID to quantize")
 
     # -------------------------------------------------------------------------
@@ -338,6 +340,13 @@ def requires_gpu(test_case_or_num):
         return decorator(test_case_or_num)
 
 
+def get_accelerator_type() -> str:
+    if not torch.accelerator.is_available():
+        raise RuntimeError("No accelerator available")
+
+    return torch.accelerator.current_accelerator().type
+
+
 def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
     """
     Pytest decorator to skip based on total available GPU memory (across all GPUs). This
@@ -374,9 +383,17 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     :param minor: required minor compute capability version (default 0)
     """
     if not torch.accelerator.is_available():
-        return pytest.mark.skip(reason="CUDA not available")
+        return pytest.mark.skip(reason="No accelerator available")
 
-    device_capability = torch.get_device_module().get_device_capability(0)
+    device_module = torch.get_device_module()
+    if not hasattr(device_module, "get_device_capability"):
+        # not every accelerator backend reports a compute capability
+        # (e.g. `torch.mps` on Apple Silicon)
+        return pytest.mark.skip(
+            reason=f"{device_module.__name__} does not report compute capability"
+        )
+
+    device_capability = device_module.get_device_capability(0)
     has_capability = device_capability[0] > major or (
         device_capability[0] == major and device_capability[1] >= minor
     )
@@ -386,6 +403,50 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
         f"found {device_capability[0]}.{device_capability[1]}"
     )
     return pytest.mark.skipif(not has_capability, reason=reason)
+
+
+def requires_version(package_name: str, req_version: str) -> pytest.MarkDecorator:
+    """
+    Pytest decorator to skip if the installed package version doesn't satisfy
+    a version requirement. Supports operator prefixes: >, >=, <, <=, ==, !=.
+    A bare version (no operator) is treated as >=.
+
+    Usage:
+    @requires_version("transformers", ">=4.45.0")
+    @requires_version("transformers", ">5.15")
+    @requires_version("transformers", "<6.0")
+    """
+    import operator
+    import re
+    from importlib.metadata import PackageNotFoundError, version
+
+    from packaging.version import Version
+
+    ops = {
+        ">=": operator.ge,
+        ">": operator.gt,
+        "<=": operator.le,
+        "<": operator.lt,
+        "==": operator.eq,
+        "!=": operator.ne,
+    }
+
+    match = re.match(r"^(>=|<=|!=|>|<|==)?(.+)$", req_version)
+    op_str = match.group(1) or ">="
+    ver_str = match.group(2)
+    compare = ops[op_str]
+
+    try:
+        installed = version(package_name)
+    except PackageNotFoundError:
+        return pytest.mark.skip(
+            reason=f"{package_name} is not installed",
+        )
+
+    return pytest.mark.skipif(
+        not compare(Version(installed), Version(ver_str)),
+        reason=(f"{package_name} {op_str}{ver_str} required, " f"found {installed}"),
+    )
 
 
 def torchrun(world_size: int = 1, init_dist: bool = False):
@@ -493,7 +554,7 @@ def _load_yaml(config_path: str):
     return None
 
 
-_VALID_CADENCES = {"commit", "weekly", "nightly"}
+_VALID_CADENCES = {"commit", "weekly", "nightly", "release"}
 
 
 def _validate_test_config(config: dict) -> bool:
@@ -529,7 +590,7 @@ def parse_params(configs_directory: Union[list, str]) -> List[dict]:
 
             if not isinstance(expected_cadence, list):
                 expected_cadence = [expected_cadence]
-            if cadence in expected_cadence:
+            if cadence == "release" or cadence in expected_cadence:
                 if not _validate_test_config(config):
                     raise ValueError(
                         "The config provided does not comply with the expected "
@@ -670,7 +731,8 @@ def requires_cadence(cadence: Union[str, List[str]]) -> Callable:
     current_cadence = os.environ.get("CADENCE", "commit")
 
     return pytest.mark.skipif(
-        (current_cadence not in cadence), reason="cadence mismatch"
+        (current_cadence != "release" and current_cadence not in cadence),
+        reason="cadence mismatch",
     )
 
 

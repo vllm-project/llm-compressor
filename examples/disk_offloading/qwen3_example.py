@@ -11,6 +11,8 @@ from llmcompressor.utils import load_context
 # Select model and load it in the `load_context` context
 # In this example, we emulate large model quantization with disk offloading by
 # restricting the theoretical size of CPU RAM to be smaller than the size of the model
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 with load_context():
     model_id = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(
@@ -25,12 +27,7 @@ with load_context():
 devices = {offloaded for _onloaded, offloaded in get_device_map(model).values()}
 print(f"Model was offloaded to the following devices: {devices}")
 
-# Select calibration dataset.
-DATASET_ID = "ultrachat-200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -41,8 +38,7 @@ recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head
 # Apply algorithms.
 oneshot(
     model=model,
-    dataset=DATASET_ID,
-    splits=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
+    dataset="perfectblend",
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
