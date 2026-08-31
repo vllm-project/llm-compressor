@@ -79,6 +79,255 @@ def _retie_embeddings(model: PreTrainedModel):
     logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
+def _extract_mtp_scheme(quant_config_dict: dict):
+    """
+    Derive a QuantizationScheme suitable for MTP layers from the saved
+    quantization_config. Returns None if the config cannot be parsed.
+
+    Microscale formats (NVFP4/MXFP4) are not yet fully supported for MTP
+    because they require special fused-set handling. Those cases fall back to
+    FP8-block quantization.
+    # TODO: add full microscale support for MTP layer quantization
+    """
+    from compressed_tensors.quantization import (
+        QuantizationArgs,
+        QuantizationConfig,
+        QuantizationScheme,
+        QuantizationStrategy,
+        QuantizationType,
+    )
+
+    if not quant_config_dict:
+        return None
+    try:
+        qconfig = QuantizationConfig.model_validate(quant_config_dict)
+    except Exception:
+        return None
+
+    if not qconfig.config_groups:
+        return None
+
+    primary_scheme = next(iter(qconfig.config_groups.values()))
+    weights_args = primary_scheme.weights
+    if weights_args is None:
+        return None
+
+    # microscale schemes (NVFP4/MXFP4) require fused-set handling not yet
+    # supported for MTP layers — fall back to FP8-block
+    is_microscale = weights_args.num_bits == 4 and weights_args.type in (
+        QuantizationType.FLOAT,
+        "float",
+    )
+    if is_microscale:
+        logger.warning(
+            "Main model uses a microscale scheme (NVFP4/MXFP4). MTP layer "
+            "quantization falls back to FP8-block. "
+            "TODO: add full microscale support for MTP layer quantization."
+        )
+        weights_args = QuantizationArgs(
+            num_bits=8,
+            type=QuantizationType.FLOAT,
+            strategy=QuantizationStrategy.BLOCK,
+            block_structure=[128, 128],
+        )
+
+    return QuantizationScheme(targets=["re:.*\\.weight"], weights=weights_args)
+
+
+def _quantize_and_save_mtp_tensors(
+    source_model: str,
+    dest_dir: str,
+    mtp_prefix: str,
+    shard_name: str = "model_mtp.safetensors",
+):
+    """
+    Load MTP tensors from source_model, quantize them with the scheme from
+    dest_dir's quantization_config, and save the result as a new shard.
+    Falls back to saving unquantized tensors and marking them ignored when
+    no quantization config is found.
+    """
+    import json
+
+    # Load MTP tensors from the original (unquantized) source checkpoint.
+    # AutoModel never downloads MTP shards (those keys are in
+    # _keys_to_ignore_on_load_unexpected), so we read the index directly and
+    # trigger a targeted download of only the shard(s) that contain MTP keys.
+    import json as _json
+
+    from compressed_tensors.base import QUANTIZATION_CONFIG_NAME
+    from compressed_tensors.compressors import compress_module
+    from compressed_tensors.utils.safetensors_load import (
+        find_config_path,
+        get_safetensors_folder,
+        get_weight_mappings,
+        update_safetensors_index,
+    )
+    from huggingface_hub import hf_hub_download
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+
+    from llmcompressor.entrypoints.model_free.lifecycle import (
+        calibrate_weight,
+        initialize_quantized_linear,
+    )
+
+    source_dir = get_safetensors_folder(source_model)
+    index_path = os.path.join(source_dir, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        with open(index_path) as f:
+            raw_map = _json.load(f)["weight_map"]
+        # find which shard file(s) hold the MTP keys and download if missing
+        mtp_shards = {v for k, v in raw_map.items() if k.startswith(mtp_prefix)}
+        for shard_file in mtp_shards:
+            local_shard = os.path.join(source_dir, shard_file)
+            if not os.path.exists(local_shard):
+                try:
+                    hf_hub_download(source_model, shard_file)
+                except Exception:
+                    pass  # local-only model, nothing to download
+        full_weight_map = {k: os.path.join(source_dir, v) for k, v in raw_map.items()}
+    else:
+        full_weight_map = get_weight_mappings(source_dir)
+
+    mtp_tensors = {}
+    for key, filepath in full_weight_map.items():
+        if key.startswith(mtp_prefix):
+            with safe_open(filepath, framework="pt", device="cpu") as f:
+                mtp_tensors[key] = f.get_tensor(key)
+
+    if not mtp_tensors:
+        raise ValueError(
+            f"No tensors with prefix '{mtp_prefix}' found in {source_model}"
+        )
+
+    # read quantization scheme from the already-saved dest config
+    config_path = find_config_path(dest_dir)
+    scheme = None
+    config = None
+    if config_path is not None:
+        with open(config_path) as f:
+            config = json.load(f)
+        quant_config_dict = config.get(QUANTIZATION_CONFIG_NAME)
+        if quant_config_dict:
+            scheme = _extract_mtp_scheme(quant_config_dict)
+
+    if scheme is not None:
+        output_tensors = {}
+        for key, tensor in mtp_tensors.items():
+            if not key.endswith(".weight"):
+                output_tensors[key] = tensor
+                continue
+            module_name = key[: -len(".weight")]
+            try:
+                module = initialize_quantized_linear(tensor, scheme, "cpu")
+                calibrate_weight(module)
+                compress_module(module)
+                for k, v in module.state_dict(prefix=module_name + ".").items():
+                    output_tensors[k] = v.cpu()
+            except Exception as exc:
+                logger.warning(
+                    f"Could not quantize MTP tensor {key}: {exc}. "
+                    "Keeping at full precision."
+                )
+                output_tensors[key] = tensor
+    else:
+        # no quantization config found — save unquantized and add to ignore
+        output_tensors = mtp_tensors
+
+    # save the shard
+    save_file(output_tensors, os.path.join(dest_dir, shard_name))
+
+    # update the safetensors index to include the new shard
+    dest_weight_map = {
+        k: os.path.basename(v) for k, v in get_weight_mappings(dest_dir).items()
+    }
+    dest_weight_map.update({key: shard_name for key in output_tensors})
+    total_size = sum(
+        os.path.getsize(os.path.join(dest_dir, s))
+        for s in set(dest_weight_map.values())
+    )
+    update_safetensors_index(dest_dir, total_size, dest_weight_map)
+
+    if config is not None and config_path is not None:
+        quant_config = config.get(QUANTIZATION_CONFIG_NAME)
+        if quant_config is not None:
+            if scheme is not None:
+                # add an explicit config group so inference engines know the
+                # quantization scheme applied to MTP layers
+                groups = quant_config.get("config_groups") or {}
+                groups["mtp_group"] = {
+                    "targets": [f"re:^{mtp_prefix}\\..*\\.weight"],
+                    "weights": scheme.weights.model_dump(),
+                }
+                quant_config["config_groups"] = groups
+            else:
+                # unquantized fallback — mark MTP as ignored
+                ignore_list = quant_config.get("ignore") or []
+                mtp_ignore_pattern = f"re:^{mtp_prefix}.*"
+                if mtp_ignore_pattern not in ignore_list:
+                    ignore_list.append(mtp_ignore_pattern)
+                    quant_config["ignore"] = ignore_list
+            config[QUANTIZATION_CONFIG_NAME] = quant_config
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=2)
+
+
+def _get_mtp_prefix(source_model: str, text_config) -> str:
+    """
+    Detect the tensor key prefix used for MTP layers in a checkpoint.
+    Qwen/Nemotron/DeepSeek use a top-level "mtp" prefix; GLM-style models
+    store MTP as the last N layers of model.layers (or model.language_model.layers
+    for VLMs).
+
+    Reads from the safetensors index rather than the downloaded files so that
+    the MTP shard does not need to be present locally (AutoModel never downloads
+    it because the keys are in _keys_to_ignore_on_load_unexpected).
+    """
+    import json
+
+    from compressed_tensors.utils.safetensors_load import get_safetensors_folder
+    from huggingface_hub import hf_hub_download
+
+    source_dir = get_safetensors_folder(source_model)
+    index_path = os.path.join(source_dir, "model.safetensors.index.json")
+
+    # fall back to downloading the index from the hub if not on disk
+    if not os.path.exists(index_path):
+        try:
+            index_path = hf_hub_download(source_model, "model.safetensors.index.json")
+        except Exception:
+            index_path = None
+
+    if index_path and os.path.exists(index_path):
+        with open(index_path) as f:
+            all_keys = list(json.load(f).get("weight_map", {}).keys())
+    else:
+        # single-shard model — read keys directly from the safetensors metadata
+        from safetensors import safe_open
+
+        shard = os.path.join(source_dir, "model.safetensors")
+        with safe_open(shard, framework="pt", device="cpu") as f:
+            all_keys = list(f.keys())
+
+    if any(k.startswith("mtp") for k in all_keys):
+        return "mtp"
+
+    # GLM-style: MTP is stored as the last N layers of model.layers
+    num_hidden = getattr(text_config, "num_hidden_layers", None)
+    if num_hidden is not None:
+        for prefix in (
+            f"model.language_model.layers.{num_hidden}",  # VLM (e.g. GLM5)
+            f"model.layers.{num_hidden}",  # text-only
+        ):
+            if any(k.startswith(prefix) for k in all_keys):
+                return prefix
+
+    raise ValueError(
+        f"Could not detect MTP tensor prefix in {source_model}. "
+        "Check the checkpoint structure or set mtp_prefix manually."
+    )
+
+
 def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
@@ -158,6 +407,19 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_directory)
+
+                    # copy mtp tensors (not loaded by transformers) and update config
+                    text_config = model.config.get_text_config()
+                    has_mtp = (
+                        getattr(text_config, "num_mtp_layers", 0)
+                        or getattr(text_config, "mtp_num_hidden_layers", 0)
+                        or getattr(text_config, "num_nextn_predict_layers", 0)
+                    )
+                    if has_mtp:
+                        mtp_prefix = _get_mtp_prefix(model.name_or_path, text_config)
+                        _quantize_and_save_mtp_tensors(
+                            model.name_or_path, save_directory, mtp_prefix=mtp_prefix
+                        )
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
