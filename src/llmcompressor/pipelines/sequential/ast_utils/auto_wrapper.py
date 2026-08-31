@@ -8,6 +8,13 @@ from .control_flow_analyzer import ControlFlowAnalyzer
 from .name_analyzer import NameAnalyzer
 
 
+def _is_only_raise(node: ast.AST) -> bool:
+    """Return True when ``node`` consists solely of ``raise`` statements."""
+    if isinstance(node, ast.If):
+        return all(_is_only_raise(child) for child in node.body)
+    return isinstance(node, ast.Raise)
+
+
 class AutoWrapper(ast.NodeTransformer):
     """
     Automatically wraps untracable code according to the following patterns:
@@ -110,6 +117,23 @@ class AutoWrapper(ast.NodeTransformer):
             Otherwise, return a wrapper function call + assignment
         """
         try:
+            # force a wrap whenever the test combines multiple conditions, even
+            # if statically evaluable. FX cannot constant-fold across
+            # ``if`` branches whose test depends on values produced by the
+            # model itself, so replacing a mixed test with ``True``/``False``
+            # raises during tracing.
+            # Examples: ``(a is None) ^ (b is not None)`` or
+            # ``a is None and b is None``.
+            if isinstance(node.test, ast.BoolOp):
+                raise Exception("If statement combines multiple conditions")
+
+            # force a wrap whenever the body raises. ``if True/False: raise ...``
+            # would otherwise become a literal raise during tracing, killing
+            # the trace before any call_module nodes are emitted.
+            for stmt in node.body:
+                if isinstance(stmt, ast.Raise):
+                    raise Exception("If statement raises")
+
             value = bool(self._eval_expr(node.test))
 
             # force a wrap if any assignments occur within the if statement
@@ -250,6 +274,11 @@ class AutoWrapper(ast.NodeTransformer):
             kwarg=None,
         )
 
+        # The wrapper function is still executed by FX during tracing, so a
+        # body that only raises will kill the trace. Replace ``raise`` bodies
+        # with a no-op so the wrapper can be safely called.
+        body = [ast.Pass()] if _is_only_raise(node) else [node]
+
         # build body and return statement
         return_stmt = ast.Return(
             value=ast.Tuple(
@@ -257,7 +286,7 @@ class AutoWrapper(ast.NodeTransformer):
                 ctx=ast.Load(),
             )
         )
-        body = [node, return_stmt]
+        body.append(return_stmt)
 
         # build function definition, store in `_wrapper_fn_defs`
         fn_name = f"wrapped_{self._wrapped_counter}"

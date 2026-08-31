@@ -52,8 +52,9 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
             "`oneshot`. For example, `oneshot(model.thinker, ...)`"
         )
 
-    # get source code of module forward
-    source = inspect.getsource(module.forward)
+    # get source code of module forward, unwrapping decorators (e.g.
+    # ``@can_return_tuple``) so the AST reflects the raw forward body
+    source = inspect.getsource(inspect.unwrap(module.forward))
     source = textwrap.dedent(source)
     tree = ast.parse(source)
 
@@ -82,9 +83,15 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
         filename,
     )
 
-    # patch forward with autowrapped forward
+    # patch forward with autowrapped forward on both the instance and the
+    # class. FX's tracer resolves forward via ``type(module).forward``, so
+    # patching only the instance leaves the decorated class forward in place
+    # and FX cannot trace through decorators like ``@capture_outputs``.
     new_forward = namespace["forward"].__get__(module)
-    with patch_attr(module, "forward", new_forward):
+    with (
+        patch_attr(module, "forward", new_forward),
+        patch_attr(type(module), "forward", namespace["forward"]),
+    ):
         yield
 
 

@@ -1,9 +1,10 @@
 import math
+from functools import wraps
 
 import pytest
 import torch
 import torch.fx
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, PretrainedConfig
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.sequential.helpers import (
@@ -137,3 +138,121 @@ def test_trace_subgraphs(targets_per_subgraph):
             ]
         )
         assert num_targets_present == targets_per_subgraph
+
+
+def forward_wrapper(forward):
+    @wraps(forward)
+    def wrapped(*args, **kwargs):
+        return forward(*args, **kwargs)
+
+    return wrapped
+
+
+class DecoratedDummyModel(torch.nn.Module):
+    """Minimal model whose ``forward`` is wrapped in a non-introspectable
+    decorator (e.g. ``@can_return_tuple``), the same pattern used by
+    ``Qwen3OmniMoeThinkerForConditionalGeneration.forward``."""
+
+    config = PretrainedConfig()
+    device = torch.device("cpu")
+
+    def __init__(self):
+        super().__init__()
+        self.layer1 = torch.nn.Linear(10, 10)
+        self.layer2 = torch.nn.Linear(10, 10)
+        self.layer3 = torch.nn.Linear(10, 10)
+        self.layer4 = torch.nn.Linear(10, 10)
+        self.layer5 = torch.nn.Linear(10, 10)
+        self.layer6 = torch.nn.Linear(10, 10)
+
+    @forward_wrapper
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        return self.layer6(x)
+
+
+class CombinedConditionModel(torch.nn.Module):
+    """``forward`` whose body contains a chained ``if`` test like the
+    XOR-input validation in Qwen3-Omni Thinker."""
+
+    config = PretrainedConfig()
+    device = torch.device("cpu")
+
+    def __init__(self):
+        super().__init__()
+        self.layer = torch.nn.Linear(10, 10)
+        self.input_ids = None
+
+    def forward(self, x, inputs_embeds=None):
+        if (x is None) ^ (inputs_embeds is not None):
+            raise ValueError("must specify exactly one of x or inputs_embeds")
+        if inputs_embeds is None:
+            x = self.layer(x)
+        return x
+
+
+class RaiseConditionModel(torch.nn.Module):
+    """``forward`` whose body contains an ``if … raise`` block, which the
+    autowrap would otherwise execute during FX tracing and kill the trace."""
+
+    config = PretrainedConfig()
+    device = torch.device("cpu")
+
+    def __init__(self):
+        super().__init__()
+        self.layer = torch.nn.Linear(10, 10)
+        self.input_ids = None
+
+    def forward(self, x):
+        if self.input_ids is None:
+            raise ValueError("must provide input_ids")
+        return self.layer(x)
+
+
+def test_trace_subgraphs_unwraps_decorated_forward():
+    model = DecoratedDummyModel()
+
+    subgraphs = trace_subgraphs(
+        model,
+        {"x": torch.rand(1, 10)},
+        sequential_targets=["Linear"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+
+    assert len(subgraphs) == 7
+
+
+def test_trace_subgraphs_wraps_combined_condition():
+    model = CombinedConditionModel()
+
+    subgraphs = trace_subgraphs(
+        model,
+        {"x": torch.rand(1, 10), "inputs_embeds": None},
+        sequential_targets=["Linear"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+
+    # The XOR raise check and the conditional layer call are both wrapped
+    # into @torch.fx.wrap helpers, so the trace produces at least the
+    # preamble subgraph without crashing.
+    assert len(subgraphs) >= 1
+
+
+def test_trace_subgraphs_wraps_raise_condition():
+    model = RaiseConditionModel()
+
+    subgraphs = trace_subgraphs(
+        model,
+        {"x": torch.rand(1, 10)},
+        sequential_targets=["Linear"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+
+    # The if-raise block is wrapped with body=pass, so FX does not
+    # execute the raise and the trace completes with at least the
+    # preamble subgraph.
+    assert len(subgraphs) >= 1
