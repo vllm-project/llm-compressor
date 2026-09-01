@@ -158,6 +158,7 @@ _muse_glimmer_mappings = [
             "re:.*language_model.layers.\\d+.self_attn.q_proj$",
             "re:.*language_model.layers.\\d+.self_attn.k_proj$",
             "re:.*language_model.layers.\\d+.self_attn.v_proj$",
+            "re:.*language_model.layers.\\d+.self_attn.gate_proj$",
         ],
     ),
     AWQMapping(
