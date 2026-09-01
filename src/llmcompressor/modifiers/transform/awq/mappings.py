@@ -149,7 +149,7 @@ _gemma3_mappings = [
 
 
 # Muse-Glimmer is Gemma-style with 4 norms/layer + gated attention.
-# input_layernorm feeds q/k/v (the attn gate is excluded on purpose);
+# input_layernorm feeds q/k/v/gate.
 # the MLP is fed by pre_feedforward_layernorm, NOT post_attention_layernorm.
 _muse_glimmer_mappings = [
     AWQMapping(
