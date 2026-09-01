@@ -19,12 +19,7 @@ The FP4 rounding boundaries replicate
 `compressed_tensors.quantization.utils.fp4_utils.cast_to_fp4`
 (<= 0.25 -> 0, [0.75, 1.25] -> 1.0, <= 2.5 -> 2.0, <= 5.0 -> 4.0, ...).
 
-Set `LLMCOMPRESSOR_DISABLE_GPTQ_TRITON=1` to force the eager fallback.
 """
-
-import os
-import threading
-import warnings
 
 import torch
 from compressed_tensors.utils.triton import HAS_TRITON, tl, triton
@@ -35,14 +30,7 @@ __all__ = ["fused_gptq_block_update", "FusedQuantType"]
 class FusedQuantType:
     INT = 0
     FP4_E2M1 = 1
-
-
-_KERNEL_LOCK = threading.Lock()
-_KERNEL_DISABLED = False
-
-
-def _env_disabled() -> bool:
-    return os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") == "1"
+    FP8_E4M3 = 2
 
 
 if HAS_TRITON:
@@ -139,7 +127,7 @@ if HAS_TRITON:
             if QUANT_TYPE == 0:
                 # int: round half to even, matching torch.round
                 rounded = tl.extra.cuda.libdevice.rint(clamped)
-            else:
+            elif QUANT_TYPE == 1:
                 # FP4 E2M1, boundaries match cast_to_fp4 in compressed_tensors
                 absolute = tl.abs(clamped)
                 magnitude = tl.where(
@@ -168,6 +156,9 @@ if HAS_TRITON:
                     ),
                 )
                 rounded = tl.where(clamped < 0.0, -magnitude, magnitude)
+            else:
+                # E4M3FN round-to-nearest, matching torch.float8_e4m3fn.
+                rounded = clamped.to(tl.float8e4nv).to(tl.float32)
 
             if HAS_ZP:
                 quantized_column = tl.extra.cuda.libdevice.mul_rn(
@@ -219,9 +210,9 @@ def fused_gptq_block_update(
     q_min: float,
     q_max: float,
     quant_type: int,
-) -> bool:
+) -> None:
     """
-    Run the fused GPTQ block update, or return False if inapplicable.
+    Run the fused GPTQ block update.
 
     :param work: fp32 working weights, [B, out_rows, width]; updated in place
     :param hinv: fp32 upper-Cholesky inverse Hessian factor, [B, width, width]
@@ -234,13 +225,12 @@ def fused_gptq_block_update(
         work; written in place
     :param q_min: minimum of the quantization grid (post-scale)
     :param q_max: maximum of the quantization grid (post-scale)
-    :param quant_type: FusedQuantType.INT or FusedQuantType.FP4_E2M1
-    :return: True if the fused kernel ran, False if the caller should fall
-        back to the eager loop
+    :param quant_type: FusedQuantType.INT, FP4_E2M1, or FP8_E4M3
+    Invalid inputs and Triton compilation or launch failures are raised to the
+    caller.
     """
-    global _KERNEL_DISABLED
-    if _KERNEL_DISABLED or _env_disabled() or not HAS_TRITON:
-        return False
+    if not HAS_TRITON:
+        raise RuntimeError("Triton is unavailable")
 
     if (
         work.dim() != 3
@@ -255,7 +245,7 @@ def fused_gptq_block_update(
         )
         or (zero_point is not None and zero_point.device != work.device)
     ):
-        return False
+        raise ValueError("invalid tensors for fused GPTQ block update")
 
     batch, out_rows, width = work.shape
     if (
@@ -267,9 +257,9 @@ def fused_gptq_block_update(
         or quantized.shape != work.shape
         or errors.shape != work.shape
     ):
-        return False
+        raise ValueError("invalid shapes for fused GPTQ block update")
     if zero_point is not None and zero_point.shape != work.shape:
-        return False
+        raise ValueError("zero_point must have the same shape as work")
 
     scale = scale.to(torch.float32)
     has_zp = zero_point is not None
@@ -277,43 +267,26 @@ def fused_gptq_block_update(
         zero_point = zero_point.to(torch.float32)
 
     block_rows = 16
-    try:
-        _gptq_block_update_kernel[(batch, triton.cdiv(out_rows, block_rows))](
-            work,
-            hinv,
-            scale,
-            zero_point if has_zp else scale,  # dummy pointer when unused
-            quantized,
-            errors,
-            out_rows,
-            *work.stride(),
-            *hinv.stride(),
-            *scale.stride(),
-            *(zero_point.stride() if has_zp else (0, 0, 0)),
-            *quantized.stride(),
-            *errors.stride(),
-            float(q_min),
-            float(q_max),
-            WIDTH=width,
-            QUANT_TYPE=quant_type,
-            HAS_ZP=has_zp,
-            BLOCK_ROWS=block_rows,
-            num_warps=4,
-            num_stages=2,
-        )
-    except torch.OutOfMemoryError:
-        raise
-    except Exception as error:
-        # Compilation is lazy; a failure on the first launch leaves `work`
-        # untouched, so the eager path remains a safe fallback. Disable the
-        # kernel process-wide to avoid repeated compile attempts.
-        with _KERNEL_LOCK:
-            _KERNEL_DISABLED = True
-        warnings.warn(
-            "Fused Triton GPTQ update unavailable; falling back to the eager "
-            f"column loop ({error})",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return False
-    return True
+    _gptq_block_update_kernel[(batch, triton.cdiv(out_rows, block_rows))](
+        work,
+        hinv,
+        scale,
+        zero_point if has_zp else scale,  # dummy pointer when unused
+        quantized,
+        errors,
+        out_rows,
+        *work.stride(),
+        *hinv.stride(),
+        *scale.stride(),
+        *(zero_point.stride() if has_zp else (0, 0, 0)),
+        *quantized.stride(),
+        *errors.stride(),
+        float(q_min),
+        float(q_max),
+        WIDTH=width,
+        QUANT_TYPE=quant_type,
+        HAS_ZP=has_zp,
+        BLOCK_ROWS=block_rows,
+        num_warps=4,
+        num_stages=2,
+    )
