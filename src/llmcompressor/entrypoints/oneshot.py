@@ -187,7 +187,10 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        self.validate_model(self.model)
+        self.validate_model(
+            self.model,
+            trust_remote_code=self.model_args.trust_remote_code_model,
+        )
 
     def __call__(self):
         """
@@ -275,7 +278,10 @@ class Oneshot:
         session.finalize()
 
     @staticmethod
-    def validate_model(model: PreTrainedModel):
+    def validate_model(
+        model: PreTrainedModel,
+        trust_remote_code: bool = False,
+    ):
         """
         Validate that oneshot can be applied to model.
         Raise warning if model is quantized with compressed-tensors quant method.
@@ -283,7 +289,10 @@ class Oneshot:
         """
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
-        config = AutoConfig.from_pretrained(model.config.name_or_path)
+        config = AutoConfig.from_pretrained(
+            model.config.name_or_path,
+            trust_remote_code=trust_remote_code,
+        )
         qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
         quant_method = (
             qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None

@@ -930,7 +930,7 @@ class KimiSparseMoeBlock(nn.Module):
 
         if self.use_latent_moe:
             hidden_states = self.routed_expert_down_proj(hidden_states)
-        if not self.training:
+        #if not self.training:
         if False:#if not self.training:
             y = self.moe_infer(hidden_states, topk_idx, topk_weight)
         else:

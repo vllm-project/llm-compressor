@@ -103,7 +103,10 @@ def observe(
     if observer is None:
         return
 
-    observer(getattr(module, base_name))
+    value = getattr(module, base_name, None)
+    if value is None:
+        return
+    observer(value)
 
 
 def update_qparams(

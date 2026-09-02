@@ -170,8 +170,15 @@ def modify_save_pretrained(model: PreTrainedModel):
                     if has_mtp:
                         save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
 
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+            # Restore the model when possible. Saving has already completed if
+            # cleanup cannot re-dispatch the compressed weights due to GPU pressure.
+            try:
+                from_accelerate(model)
+            except torch.OutOfMemoryError:
+                logger.warning(
+                    "Model was saved successfully, but restoring its offload layout "
+                    "ran out of GPU memory. The model remains in the saved state."
+                )
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
