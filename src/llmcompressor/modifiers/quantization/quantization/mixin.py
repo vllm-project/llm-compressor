@@ -433,7 +433,7 @@ class QuantizationMixin(HooksMixin):
             q_args = getattr(scheme, scheme_attr, None)
             if q_args is None:
                 continue
-            if obs_value is None:
+            elif obs_value is None:
                 if (
                     q_args.observer is not None
                     and "observer" in q_args.model_fields_set
