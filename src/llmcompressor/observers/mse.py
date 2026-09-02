@@ -141,7 +141,7 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
 def _load_fouroversix_alias(*args, **kwargs) -> NVFP4ExpandedMSEObserver:
     warnings.warn(
         "The 'fouroversix' observer is an alias for 'nvfp4_expanded_mse', "
-        "which our results showed to be more accurate at taking advantage"
+        "which our results showed to be more accurate at taking advantage "
         "of the same range expansion benefit. See "
         "https://github.com/vllm-project/llm-compressor/pull/2950.",
         UserWarning,
