@@ -59,6 +59,9 @@ def initialize_observer(
     args: QuantizationArgs = getattr_chain(
         module, f"quantization_scheme.{arg_name}", None
     )
+    if args is None or args.dynamic is True:
+        return
+
     observer = args.observer
 
     # training is no longer supported: always use memoryless for weights
