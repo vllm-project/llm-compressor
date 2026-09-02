@@ -10,6 +10,7 @@ from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
     get_layer_mappings_from_model,
 )
 from llmcompressor.modifiers.transform.smoothquant.utils import (
+    COHERE2_MOE_SMOOTHQUANT_MAPPINGS,
     COHERE_SMOOTHQUANT_MAPPINGS,
     DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     DEFAULT_SMOOTHQUANT_MAPPINGS,
@@ -63,6 +64,7 @@ def test_get_layer_mappings_from_architecture():
     [
         ("CohereForCausalLM", COHERE_SMOOTHQUANT_MAPPINGS),
         ("Cohere2ForCausalLM", COHERE_SMOOTHQUANT_MAPPINGS),
+        ("Cohere2MoeForCausalLM", COHERE2_MOE_SMOOTHQUANT_MAPPINGS),
         ("Cohere2VisionForConditionalGeneration", COHERE_SMOOTHQUANT_MAPPINGS),
     ],
 )
@@ -78,6 +80,7 @@ def test_new_architecture_mappings_resolve(architecture, expected_mappings):
     "architecture,expected_mappings",
     [
         ("DeepseekV3ForCausalLM", DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS),
+        ("Glm4MoeLiteForCausalLM", DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS),
         ("Phi3ForCausalLM", PHI3_VISION_SMOOTHQUANT_MAPPINGS),
     ],
 )
@@ -274,3 +277,83 @@ def test_granite_default_mapping_regex_matches_real_module_tree():
                 f"GraniteForCausalLM: balance pattern {balance_pat!r} matched "
                 f"no modules; sample names: {module_names[:20]}"
             )
+
+
+@pytest.mark.unit
+def test_glm4_moe_lite_mapping_regex_matches_real_module_tree():
+    """Glm4MoeLiteForCausalLM has no SmoothQuant entry, so it silently fell
+    back to DEFAULT_SMOOTHQUANT_MAPPINGS' plain q_proj/k_proj/v_proj regex,
+    which never matches this arch's MLA attention layer names
+    (q_a_proj/kv_a_proj_with_mqa) -- attention smoothing was a silent no-op.
+
+    Construct Glm4MoeLiteForCausalLM on the meta device with a tiny config
+    and assert the newly-registered DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS regex
+    actually matches its real MLA attention module names. No HF Hub
+    downloads, no weight allocation.
+    """
+    import re
+
+    import torch
+    from transformers import Glm4MoeLiteConfig, Glm4MoeLiteForCausalLM
+
+    config = Glm4MoeLiteConfig(
+        vocab_size=100,
+        hidden_size=64,
+        intermediate_size=128,
+        moe_intermediate_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        n_shared_experts=1,
+        n_routed_experts=4,
+        num_experts_per_tok=2,
+        kv_lora_rank=32,
+        q_lora_rank=32,
+        qk_rope_head_dim=8,
+        v_head_dim=16,
+        qk_nope_head_dim=8,
+    )
+    with torch.device("meta"):
+        model = Glm4MoeLiteForCausalLM(config)
+
+    module_names = [name for name, _ in model.named_modules()]
+
+    assert get_layer_mappings_from_architecture("Glm4MoeLiteForCausalLM") is (
+        DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS
+    )
+
+    for layer_map in DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS:
+        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
+        smooth_re = re.compile(smooth_pat)
+        smooth_hits = [n for n in module_names if smooth_re.search(n)]
+        assert smooth_hits, (
+            f"Glm4MoeLiteForCausalLM: smooth pattern {smooth_pat!r} matched "
+            f"no modules; sample names: {module_names[:20]}"
+        )
+        for balance_pat_raw in layer_map.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_re = re.compile(balance_pat)
+            balance_hits = [n for n in module_names if balance_re.search(n)]
+            assert balance_hits, (
+                f"Glm4MoeLiteForCausalLM: balance pattern {balance_pat!r} "
+                f"matched no modules; sample names: {module_names[:20]}"
+            )
+
+    # The previous fallback (DEFAULT_SMOOTHQUANT_MAPPINGS) is the actual bug:
+    # its plain q_proj/k_proj/v_proj balance layers never match this arch's
+    # MLA attention naming, so attention smoothing was silently a no-op.
+    default_balance_pats = [
+        p.removeprefix("re:")
+        for m in DEFAULT_SMOOTHQUANT_MAPPINGS
+        for p in m.balance_layers
+    ]
+    attn_module_names = [n for n in module_names if "self_attn" in n]
+    for pat in default_balance_pats:
+        compiled = re.compile(pat)
+        hits = [n for n in attn_module_names if compiled.search(n)]
+        assert not hits, (
+            f"Glm4MoeLiteForCausalLM: DEFAULT_SMOOTHQUANT_MAPPINGS balance "
+            f"pattern {pat!r} unexpectedly matched {hits} -- if this now "
+            f"matches, the silent-fallback bug this test guards against may "
+            f"no longer apply"
+        )

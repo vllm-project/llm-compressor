@@ -112,14 +112,30 @@ _phi_mappings = [
     ),
 ]
 
-# Gemma includes a pre_feedforward_layernorm in between
+# Gemma2 includes a pre_feedforward_layernorm in between
 #  post_attention_layernorm and the mlp down/gate proj layers
 #  use that instead of post_attention_layernorm in 3rd mapping:
-_gemma_mappings = [
+_gemma2_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",
         ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
     ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*pre_feedforward_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
+# Gemma3 applies RMSNorm to outputs of q/k proj layers (q_norm, k_norm), unlike Gemma2.
+#  These tend to degrade performance over round-to-nearest when smoothed
+#  (https://github.com/vllm-project/llm-compressor/issues/2522)
+#  exclude input_layernorm -> q/k/v mapping:
+_gemma3_mappings = [
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
         "re:.*pre_feedforward_layernorm$",
@@ -145,6 +161,40 @@ _cohere_mappings = [
             "re:.*self_attn.v_proj$",
             "re:.*mlp.gate_proj$",
             "re:.*mlp.up_proj$",
+        ],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
+# Cohere2MoE keeps Cohere's parallel block (a single input_layernorm feeds the
+# attention and the MLP simultaneously), with a mixed dense/MoE stack: the
+# leading first_k_dense_replace layer has a plain MLP (mlp.gate_proj/up_proj)
+# and no router, while MoE layers have per-expert projections
+# (mlp.experts.N.gate_proj/up_proj) plus a router (mlp.gate). As with
+# Glm4MoeLite, the router must be omitted from the balance layers — it does not
+# exist on the dense layer, which would break per-layer grouping in
+# match_modules_set (the collapse fixed in #2923). The unscoped
+# gate_proj$/up_proj$ patterns match both the dense MLP and every expert.
+# Known tradeoff, shared with the Glm4MoeLite/GlmMoeDsa mappings: on routed
+# layers the router consumes the smoothed norm output uncompensated, so
+# routing logits shift by the per-channel scales and top-k selection can
+# change on near-tie tokens. Cohere2MoE cannot avoid this by skipping MLP
+# smoothing (the Mixtral/Qwen-MoE convention) because the same norm also
+# feeds attention — omitting the norm from smoothing entirely would give up
+# attention smoothing too.
+_cohere2_moe_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            "re:.*self_attn.q_proj$",
+            "re:.*self_attn.k_proj$",
+            "re:.*self_attn.v_proj$",
+            "re:.*gate_proj$",
+            "re:.*up_proj$",
         ],
     ),
     AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
@@ -274,12 +324,18 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
+    "Cohere2MoeForCausalLM": _cohere2_moe_mappings,
     "Cohere2VisionForConditionalGeneration": _cohere_mappings,
+    # DeepseekV2 is the same mixed dense/MoE MLA family as Glm4MoeLite
+    # (first_k_dense_replace dense layers without a router), so it takes the
+    # router-omitting mappings — registering it to _deepseek_mappings would hit
+    # the dense-layer grouping collapse fixed for GlmMoeDsa in #2923.
+    "DeepseekV2ForCausalLM": _glm4_moe_lite_mappings,
     "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Exaone4ForCausalLM": _exaone4_mappings,
-    "Gemma2ForCausalLM": _gemma_mappings,
-    "Gemma3ForCausalLM": _gemma_mappings,
-    "Gemma3ForConditionalGeneration": _gemma_mappings,
+    "Gemma2ForCausalLM": _gemma2_mappings,
+    "Gemma3ForCausalLM": _gemma3_mappings,
+    "Gemma3ForConditionalGeneration": _gemma3_mappings,
     "Glm4MoeForCausalLM": _moe_default_mappings,
     "Glm4MoeLiteForCausalLM": _glm4_moe_lite_mappings,
     "GlmMoeDsaForCausalLM": _glm_moe_dsa_mappings,
@@ -289,6 +345,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Mistral3ForConditionalGeneration": default_mappings,
     "MistralForCausalLM": default_mappings,
     "NanbeigeForCausalLM": default_mappings,
+    "OlmoForCausalLM": _exaone4_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,

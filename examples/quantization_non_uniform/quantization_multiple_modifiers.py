@@ -1,7 +1,7 @@
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 import argparse
 
 from compressed_tensors.offload import dispatch_model
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -25,36 +25,6 @@ def parse_args():
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
 
 # Configure the quantization algorithm to run.
 #   * quantize self_attn layers to W8A8 with GPTQ
@@ -82,19 +52,14 @@ recipe = [
 
 if __name__ == "__main__":
     args = parse_args()
-    # Load dataset and preprocess.
-    ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-    ds = ds.shuffle(seed=42)
-    ds = ds.map(preprocess)
-    ds = ds.map(tokenize, remove_columns=ds.column_names)
 
     # Apply algorithms.
     oneshot(
         model=model,
-        dataset=ds,
+        dataset="perfectblend",
         recipe=recipe,
-        max_seq_length=MAX_SEQUENCE_LENGTH,
-        num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        max_seq_length=2048,
+        num_calibration_samples=512,
         pipeline="independent" if args.independent else "sequential",
     )
 
