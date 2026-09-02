@@ -116,26 +116,6 @@ def quantize_weight(
         and optionally weight_global_scale), used_rtn_fallback (True if hessian
         inversion failed and the module was quantized with round-to-nearest)
     """
-    return quantize_weight_single(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian,
-        blocksize=blocksize,
-        percdamp=percdamp,
-    )
-
-
-def quantize_weight_single(
-    module: torch.nn.Module,
-    quant_args: QuantizationArgs,
-    hessian: torch.Tensor,
-    blocksize: int = 128,
-    percdamp: float = 0.01,
-) -> tuple[float, dict[str, torch.Tensor], bool]:
-    """
-    Single-matrix GPTQ implementation; see `quantize_weight` for the public API
-    and return-value documentation.
-    """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
     final_shape = module.weight.shape
@@ -216,7 +196,6 @@ def quantize_weight_single(
         W1 = W[:, i1:i2].clone()
         Q1 = torch.zeros_like(W1)
         Err1 = torch.zeros_like(W1)
-        losses1 = torch.zeros_like(W1)
         Hinv1 = Hinv[i1:i2, i1:i2]
 
         fused = _try_fused_block_update(
@@ -235,6 +214,7 @@ def quantize_weight_single(
             # err = (w - q) / d, so err**2 reproduces the eager per-column loss
             losses1 = Err1.square()
         else:
+            losses1 = torch.zeros_like(W1)
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
@@ -351,22 +331,14 @@ def _fused_kernel_params(
     supported by the fused kernel (BLOCK strategy, FP8, non-CUDA weights fall
     back to the eager loop).
     """
-    if quant_args.strategy in (
-        QuantizationStrategy.TENSOR,
-        QuantizationStrategy.CHANNEL,
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-    ):
-        pass
-    else:
+    if not is_batched_quantizable(quant_args):
         return None
 
+    # is_batched_quantizable guarantees INT or 4-bit FLOAT
     if quant_args.type == QuantizationType.INT:
         quant_type = FusedQuantType.INT
-    elif quant_args.type == QuantizationType.FLOAT and quant_args.num_bits == 4:
-        quant_type = FusedQuantType.FP4_E2M1
     else:
-        return None
+        quant_type = FusedQuantType.FP4_E2M1
 
     q_min, q_max = calculate_range(quant_args, "cpu")
     return quant_type, float(q_min), float(q_max)
