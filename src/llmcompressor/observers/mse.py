@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
@@ -104,6 +106,10 @@ class MovingAverageMSEObserver(Observer):
         self.max_vals = max_vals
 
 
+# Alias fouroversix to the NVFP4ExpandedMSEObserver. Our results show
+# this is a more effective way to take advantage of the same range expansion
+# benefit that fouroversix is based on.
+# Results: https://github.com/vllm-project/llm-compressor/pull/2950
 @Observer.register("nvfp4_expanded_mse")
 class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
     """
@@ -132,26 +138,13 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
 
 
 @Observer.register("fouroversix")
-class FourOverSixObserver(MemorylessMSEObserver):
-    """
-    MSE observer that evaluates only two candidate ranges: 1.0x and 1.5x
-    of the observed per-group range.
-
-    Inspired by the FourOverSix paper's approach of comparing the
-    standard range against a moderately expanded range, but without
-    the global-scale optimization step. Performs better on most models.
-
-    Usage::
-
-        QuantizationArgs(
-            ...
-            observer="fouroversix",
-        )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        observer_kwargs = self.args.observer_kwargs
-        self.expand = observer_kwargs.get("expand", 1.5)
-        self.maxshrink = observer_kwargs.get("maxshrink", 0.67)
-        self.grid = observer_kwargs.get("grid", 3.0)
+def _load_fouroversix_alias(*args, **kwargs) -> NVFP4ExpandedMSEObserver:
+    warnings.warn(
+        "The 'fouroversix' observer is an alias for 'nvfp4_expanded_mse', "
+        "which our results showed to be more accurate at taking advantage"
+        "of the same range expansion benefit. See "
+        "https://github.com/vllm-project/llm-compressor/pull/2950.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return NVFP4ExpandedMSEObserver(*args, **kwargs)
