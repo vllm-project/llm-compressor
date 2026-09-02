@@ -306,7 +306,10 @@ class QuantizationMixin(HooksMixin):
 
         for scheme in self.resolved_config.config_groups.values():
             if scheme.weights is not None:
-                if scheme.weights.observer == "imatrix_mse":
+                if scheme.weights.observer in (
+                    "imatrix_mse",
+                    "nvfp4_expanded_imatrix",
+                ):
                     self.requires_calibration_data = True
                     return self
             if scheme.input_activations is not None:

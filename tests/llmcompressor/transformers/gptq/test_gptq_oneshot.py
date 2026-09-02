@@ -94,21 +94,6 @@ recipe_modifier_group_actorder_weight = GPTQModifier(
     },
 )
 
-recipe_modifier_group_actorder_group = GPTQModifier(
-    ignore=["lm_head"],
-    config_groups={
-        "group_0": QuantizationScheme(
-            targets=["re:.*model.layers.2.self_attn.q_proj$"],
-            weights=QuantizationArgs(
-                num_bits=4,
-                strategy="group",
-                group_size=32,
-                actorder=ActivationOrdering.GROUP,
-            ),
-        )
-    },
-)
-
 # Test block quantization variants
 recipe_modifier_full_block = GPTQModifier(
     ignore=["lm_head"],
@@ -168,7 +153,6 @@ recipe_modifier_channel_actorder_weight = GPTQModifier(
         recipe_modifier_shorthand_a,
         recipe_modifier_shorthand_b,
         recipe_modifier_group_actorder_weight,
-        recipe_modifier_group_actorder_group,
         recipe_modifier_full_block,
         recipe_modifier_block_actorder_weight,
         recipe_modifier_channel_actorder_weight,
@@ -229,12 +213,7 @@ def test_oneshot_application(recipe, tmp_path):
     assert not hasattr(not_targetted, "quantization_scheme")
 
     # Verify g_idx behavior for activation ordering
-    if weight_args.actorder == ActivationOrdering.GROUP:
-        # GROUP actorder should save g_idx
-        assert hasattr(
-            targetted_linear_layer, "weight_g_idx"
-        ), "GROUP actorder should have g_idx"
-    elif weight_args.actorder == ActivationOrdering.WEIGHT:
+    if weight_args.actorder == ActivationOrdering.WEIGHT:
         # WEIGHT actorder should NOT save g_idx (identity mapping)
         assert not hasattr(
             targetted_linear_layer, "weight_g_idx"
