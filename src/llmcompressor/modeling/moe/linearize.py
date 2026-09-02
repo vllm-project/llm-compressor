@@ -144,7 +144,8 @@ def linearize_moe_layer(
     :param moe_lookup: pre-computed mapping of MoE module -> name in model
     :return: list of (new LinearExperts2D module, offload kwargs from original)
     """
-    non_linearized = [(moe_lookup[m], m) for m in subgraph_modules if m in moe_lookup]
+    subgraph_set = set(subgraph_modules)
+    non_linearized = [(moe_lookup[m], m) for m in moe_lookup if m in subgraph_set]
 
     linearized = []
     for name, module in non_linearized:
