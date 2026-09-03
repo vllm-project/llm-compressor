@@ -7,6 +7,7 @@ from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
     QuantizationStatus,
+    QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import (
@@ -60,6 +61,11 @@ def initialize_observer(
         module, f"quantization_scheme.{arg_name}", None
     )
     if args is None or args.dynamic is True:
+        return
+
+    # codebook (e.g. LUT-B) quantization fits its codebook at compression time
+    # and does not use scale/zero-point observers
+    if args.type == QuantizationType.CODEBOOK:
         return
 
     observer = args.observer
