@@ -298,10 +298,10 @@ def _column_scale_window(
     Supports arbitrary leading batch dimensions: `scale` is [..., num_rows, G]
     and `g_idx` (group strategies) is [... or absent, num_columns].
 
-    :return: (eff_scale [..., num_rows, count], zero_point or None)
+    :return: (eff_scale [..., num_rows, block_width], zero_point or None)
     """
     strategy = quant_args.strategy
-    count = i2 - i1
+    block_width = i2 - i1
 
     has_zp = zero_point is not None and not quant_args.symmetric
 
@@ -328,13 +328,13 @@ def _column_scale_window(
     ):
         idx = g_idx[..., i1:i2].long()
         eff = torch.gather(
-            scale, -1, idx.unsqueeze(-2).expand(*scale.shape[:-1], count)
+            scale, -1, idx.unsqueeze(-2).expand(*scale.shape[:-1], block_width)
         )
         zp = (
             torch.gather(
                 zero_point,
                 -1,
-                idx.unsqueeze(-2).expand(*zero_point.shape[:-1], count),
+                idx.unsqueeze(-2).expand(*zero_point.shape[:-1], block_width),
             )
             if has_zp
             else None
@@ -346,24 +346,24 @@ def _column_scale_window(
         eff = torch.gather(
             scale,
             -1,
-            col_idx.expand(*scale.shape[:-1], count),
+            col_idx.expand(*scale.shape[:-1], block_width),
         )
         row_idx = row_idx.reshape((1,) * (eff.ndim - 2) + (num_rows, 1))
         eff = torch.gather(
             eff,
             -2,
-            row_idx.expand(*eff.shape[:-2], num_rows, count),
+            row_idx.expand(*eff.shape[:-2], num_rows, block_width),
         )
         if has_zp:
             zp = torch.gather(
                 zero_point,
                 -1,
-                col_idx.expand(*zero_point.shape[:-1], count),
+                col_idx.expand(*zero_point.shape[:-1], block_width),
             )
             zp = torch.gather(
                 zp,
                 -2,
-                row_idx.expand(*zp.shape[:-2], num_rows, count),
+                row_idx.expand(*zp.shape[:-2], num_rows, block_width),
             )
         else:
             zp = None
@@ -375,14 +375,14 @@ def _column_scale_window(
         gs = global_scale.to(GPTQ_PRECISION)
         gs = gs.reshape(*gs.shape, *([1] * (eff.ndim - gs.ndim)))
         eff = eff / gs
-    eff = eff.expand(*eff.shape[:-2], num_rows, count).contiguous()
+    eff = eff.expand(*eff.shape[:-2], num_rows, block_width).contiguous()
 
     if zp is None:
         # symmetric zero points are exactly zero; adding them is a no-op
         return eff, None
 
     zp = zp.to(GPTQ_PRECISION)
-    zp = zp.expand(*zp.shape[:-2], num_rows, count).contiguous()
+    zp = zp.expand(*zp.shape[:-2], num_rows, block_width).contiguous()
     return eff, zp
 
 
@@ -400,13 +400,14 @@ def _gptq_block_update_triton_req(
     quant_args: QuantizationArgs,
     i1: int,
 ) -> bool:
-    count = W1.shape[-1]
+    block_width = W1.shape[-1]
     return (
         triton_req(W1)
         and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
         and _fused_kernel_params(quant_args) is not None
-        and 0 < count <= 256
-        and not count & (count - 1)
+        and 0 < block_width <= 256
+        # Check that GPTQ block width is a power of two.
+        and not block_width & (block_width - 1)
     )
 
 
@@ -430,8 +431,8 @@ def _gptq_block_update_triton(
     if params is None:
         raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
 
-    count = W1.shape[-1]
-    if count > 256 or count & (count - 1):
+    block_width = W1.shape[-1]
+    if block_width > 256 or block_width & (block_width - 1):
         raise ValueError("Triton GPTQ block width must be a power of two <= 256")
 
     quant_type, q_min, q_max = params
@@ -443,7 +444,7 @@ def _gptq_block_update_triton(
         quant_args,
         num_rows=W1.shape[-2],
         i1=i1,
-        i2=i1 + count,
+        i2=i1 + block_width,
     )
     fused_gptq_block_update(
         W1.unsqueeze(-3) if W1.dim() == 2 else W1,
@@ -478,6 +479,7 @@ def gptq_block_update(
     if W1.dim() != 3:
         raise ValueError("The eager GPTQ block backend requires a 3D weight block")
 
+    block_width = W1.shape[-1]
     q_min, q_max = calculate_range(quant_args, W1.device)
     eff, zp = _column_scale_window(
         scale,
@@ -487,10 +489,9 @@ def gptq_block_update(
         quant_args,
         num_rows=W1.shape[-2],
         i1=i1,
-        i2=i1 + W1.shape[-1],
+        i2=i1 + block_width,
     )
-    count = W1.shape[-1]
-    for i in range(count):
+    for i in range(block_width):
         w = W1[:, :, i]
         normalized = w / eff[:, :, i]
         if zp is not None:
