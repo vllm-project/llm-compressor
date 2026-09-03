@@ -81,6 +81,11 @@ class TextGenerationDataset(RegistryMixin):
     # used to mask out the prompt so prompt tokens do not contribute to training loss
     PROMPT_KEY = "prompt"
 
+    # split loaded for calibration when the user does not specify one. Subclasses
+    # override this when their dataset uses a different split name (e.g. flickr30k
+    # only ships a "test" split). Set to None to load every split as a DatasetDict.
+    DEFAULT_SPLIT = "train"
+
     def __init__(
         self,
         dataset_args: DatasetArguments,
@@ -88,6 +93,8 @@ class TextGenerationDataset(RegistryMixin):
         processor: Processor,
     ):
         self.dataset_args = dataset_args
+        if split is None:
+            split = self.DEFAULT_SPLIT
         self.split = split
         self.processor = processor
 
@@ -134,7 +141,17 @@ class TextGenerationDataset(RegistryMixin):
         if isinstance(dataset, str):
             # load dataset: load from huggingface or disk
             dataset = self.load_dataset()
+
+        # When no split is specified a DatasetDict of every split is loaded; collapse
+        # it to a single split before doing any (expensive) processing on it.
+        dataset = self._select_split(dataset)
         logger.debug(f"Raw dataset: {get_columns(dataset)}")
+
+        # Limit to `num_calibration_samples` *before* the expensive preprocessing and
+        # tokenization maps. Otherwise the entire split (potentially hundreds of
+        # thousands of samples) is processed just to have the calibration sampler
+        # discard all but `num_calibration_samples` of it.
+        dataset = self._limit_calibration_samples(dataset)
 
         if self.preprocess is not None:
             # preprocess: apply template or preprocessing function
@@ -209,6 +226,56 @@ class TextGenerationDataset(RegistryMixin):
 
         logger.debug(f"Model kwargs after postprocessing: {get_columns(dataset)}")
         return dataset
+
+    def _select_split(self, dataset: DatasetType) -> DatasetType:
+        """
+        Collapse a multi-split dataset (DatasetDict, loaded when ``split`` is None) to
+        a single split for calibration. Prefers a "train" or "calibration" split,
+        otherwise falls back to the only/first split available.
+        """
+        # DatasetDict / IterableDatasetDict are dict subclasses; a single Dataset isn't
+        if not isinstance(dataset, dict):
+            return dataset
+
+        if len(dataset) == 1:
+            return next(iter(dataset.values()))
+
+        for name in ("train", "calibration"):
+            if name in dataset:
+                logger.warning(
+                    f"No split specified; using the '{name}' split for calibration."
+                )
+                return dataset[name]
+
+        first = next(iter(dataset))
+        logger.warning(
+            f"No split specified and no 'train'/'calibration' split found; using the "
+            f"'{first}' split for calibration. Pass `splits` to select a split."
+        )
+        return dataset[first]
+
+    def _limit_calibration_samples(self, dataset: DatasetType) -> DatasetType:
+        """
+        Reduce the raw dataset to ``num_calibration_samples`` before tokenization so
+        we don't process samples that the calibration sampler would only discard.
+
+        When ``shuffle_calibration_samples`` is set, the dataset is shuffled with a
+        fixed seed before selecting so that (a) the selection is a random subset of
+        the whole split rather than just the first rows, and (b) every rank selects
+        the same samples in a distributed setting, which the sampler's partitioning
+        logic relies on.
+        """
+        num_samples = self.dataset_args.num_calibration_samples
+        # streaming/iterable datasets are already lazy and don't support len/select
+        if num_samples is None or not isinstance(dataset, Dataset):
+            return dataset
+
+        if len(dataset) <= num_samples:
+            return dataset
+
+        if self.dataset_args.shuffle_calibration_samples:
+            dataset = dataset.shuffle(seed=42)
+        return dataset.select(range(num_samples))
 
     def load_dataset(self):
         """
