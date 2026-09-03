@@ -1,8 +1,7 @@
 cadence: ["nightly", "weekly"]
 model: Qwen/Qwen3-8B
 scheme: NVFP4
-dataset_id: HuggingFaceH4/ultrachat_200k
-dataset_split: train_sft
+dataset_id: perfectblend
 num_calibration_samples: 256
 lmeval:
   task: gsm8k

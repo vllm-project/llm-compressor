@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 from compressed_tensors.quantization import is_cached_attention_module
-from datasets import load_dataset
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import oneshot
@@ -13,8 +12,6 @@ from tests.testing_utils import requires_gpu, requires_version
 
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = f"train_sft[:{NUM_CALIBRATION_SAMPLES}]"
 
 MODEL_IDS = [
     "nm-testing/tinysmokeqwen3",
@@ -82,44 +79,16 @@ def kv_cache_fixture():
 
         model_id = "nm-testing/tinysmokeqwen3"
 
-        ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
-        ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
-
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["messages"],
-                    tokenize=False,
-                )
-            }
-
-        ds = ds.map(preprocess)
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
-                padding=False,
-                max_length=MAX_SEQUENCE_LENGTH,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
-        ds = ds.map(tokenize, remove_columns=ds.column_names)
-
         output_dir = os.path.join(tmp_path, model_id[-1].replace("-", "_"))
 
-        oneshot_args = dict(
+        oneshot(
             model=model_id,
-            dataset=ds,
+            dataset="perfectblend",
             recipe=recipe,
             max_seq_length=MAX_SEQUENCE_LENGTH,
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             output_dir=output_dir,
         )
-
-        oneshot(**oneshot_args)
         reset_session()
 
         yield (

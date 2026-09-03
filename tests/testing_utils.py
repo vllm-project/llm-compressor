@@ -68,12 +68,13 @@ class BaseTestConfig(BaseModel):
     Optional calibration dataset fields
     ------------------------------------
     dataset_id : str | None
-        HuggingFace dataset ID for calibration. Leave unset to skip calibration.
-        Datasets with special data-collator handling in run_oneshot_for_e2e_testing:
-          - "HuggingFaceH4/ultrachat_200k"  → text, DefaultDataCollator
+        Calibration dataset. Leave unset to skip calibration.
+        Names without "/" are treated as prebaked datasets (e.g. "perfectblend")
+        and passed directly to oneshot, which handles loading and preprocessing.
+        Names with "/" are HuggingFace dataset IDs loaded manually:
           - "neuralmagic/calibration"        → multimodal; set dataset_config="LLM"
           - any ID containing "flickr30k"   → multimodal, flickr30k collator
-        Any other dataset ID uses DefaultDataCollator.
+        Any other HuggingFace ID uses DefaultDataCollator.
     dataset_config : str | None
         Dataset config/subset name (e.g. "LLM" for "neuralmagic/calibration").
         Required for datasets with multiple configurations.
@@ -134,8 +135,7 @@ class BaseTestConfig(BaseModel):
         cadence: commit
         model: meta-llama/Meta-Llama-3-8B-Instruct
         scheme: FP8_DYNAMIC
-        dataset_id: HuggingFaceH4/ultrachat_200k
-        dataset_split: train_sft
+        dataset_id: perfectblend
         num_calibration_samples: 512
         ```
 
@@ -211,11 +211,9 @@ class BaseTestConfig(BaseModel):
     dataset_id: Optional[str] = Field(
         None,
         description=(
-            "HuggingFace dataset ID. Known datasets with special collator handling:\n"
-            " 'HuggingFaceH4/ultrachat_200k' — text, DefaultDataCollator\n"
-            " 'neuralmagic/calibration'      — multimodal (set dataset_config='LLM')\n"
-            " any ID containing 'flickr30k'  — multimodal, flickr30k collator\n"
-            "Any other ID uses DefaultDataCollator."
+            "Calibration dataset. Supports prebaked datasets (e.g. 'perfectblend')\n"
+            "Any ID containing 'flickr30k' uses the multimodal collator\n"
+            "Any other HuggingFace ID uses DefaultDataCollator."
         ),
     )
     dataset_config: Optional[str] = Field(
