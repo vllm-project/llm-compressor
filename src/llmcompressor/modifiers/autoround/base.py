@@ -21,6 +21,7 @@ from compressed_tensors.quantization import (
 from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
+from torch.utils._pytree import tree_map
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -228,7 +229,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def input_capture_hook(self, module, args, kwargs):
         name = module._tmp_name
-        self._all_module_input.setdefault(name, []).append((args, kwargs))
+        # Immediately offload to CPU so captured inputs don't accumulate on GPU.
+        # auto_round's block_forward (compressors/utils.py) handles per-batch CPU->GPU
+        # transfer, so no device mismatch occurs during optimization.
+        # tree_map handles nested structures (lists/dicts of tensors) robustly.
+        cpu_args = tree_map(
+            lambda x: x.detach().cpu() if isinstance(x, torch.Tensor) else x, args
+        )
+        cpu_kwargs = tree_map(
+            lambda x: x.detach().cpu() if isinstance(x, torch.Tensor) else x, kwargs
+        )
+        self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
@@ -242,7 +253,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self._capture_hooks[module._tmp_name] = handle
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module],
+        **kwargs,
     ):
         self.apply_autoround(state, modules)
         self.post_autoround_cleanup()
@@ -297,6 +312,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "device_map": self.device_ids,
             "ignore_layers": ",".join(ignore_layers) if ignore_layers else "",
             "disable_opt_rtn": self.disable_opt_rtn,
+            # Keep fp_outputs and best_params on CPU so that the previous block's
+            # cache_device tensors don't accumulate on GPU between blocks.
+            "low_gpu_mem_usage": True,
         }
 
         llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
@@ -340,10 +358,26 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 device = get_main_device()
                 decoding_layer.to("cpu")
                 auto_offload = True
+            elif torch.distributed.is_initialized():
+                # Standard DDP (1 GPU per rank): pre-load the block onto the rank's
+                # local GPU before quantize_block is called.  auto_round 0.14.2+
+                # calls _move_block_to_device inside setup_ddp_if_needed_, which
+                # triggers a slow reload when the block was evicted from page cache
+                # during the sequential calibration pass.
+                # Moving it here makes that call a no-op.
+                # Use current_device_index() (local GPU index) rather than global
+                # rank to avoid invalid device ordinal errors on multi-node setups.
+                if hasattr(torch, "accelerator") and torch.accelerator.is_available():
+                    device = torch.device(
+                        torch.accelerator.current_accelerator().type,
+                        torch.accelerator.current_device_index(),
+                    )
+                else:
+                    device = torch.device("cpu")
+                decoding_layer.to(device)
 
-            # Ensure cached inputs are on the same device as the block.
-            # Calibration forward may have run on a different GPU.
-            cur_inputs = self._move_inputs_to(cur_inputs, device)
+            # cur_inputs remain on CPU; auto_round's block_forward handles
+            # per-batch CPU->GPU transfer automatically.
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             q_input, _ = ar.quantize_block(
@@ -363,6 +397,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
+        # Release cached GPU memory back to the driver so the next block starts
+        # with a clean allocator state (avoids cross-block fragmentation).
+        if hasattr(torch, "accelerator") and torch.accelerator.is_available():
+            device_type = torch.accelerator.current_accelerator().type
+            device_module = getattr(torch, device_type, None)
+            if device_module is not None and hasattr(device_module, "empty_cache"):
+                device_module.empty_cache()
+        elif torch.accelerator.is_available():
+            torch.accelerator.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
@@ -397,7 +440,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     str(start_gpu + i) for i in range(gpus_per_group)
                 )
             else:
-                if torch.accelerator.is_available():
+                if hasattr(torch, "accelerator") and torch.accelerator.is_available():
                     device_index = torch.accelerator.current_device_index()
                     ar_kwargs["device_map"] = (
                         f"{torch.accelerator.current_accelerator().type}:{device_index}"
@@ -426,22 +469,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for _, mod in model.named_modules():
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
-
-    @staticmethod
-    def _move_inputs_to(
-        inputs: list[tuple[tuple, dict]], device: torch.device
-    ) -> list[tuple[tuple, dict]]:
-        """Move all tensors in cached forward inputs to *device*."""
-        return [
-            (
-                tuple(x.to(device) if isinstance(x, torch.Tensor) else x for x in args),
-                {
-                    k: v.to(device) if isinstance(v, torch.Tensor) else v
-                    for k, v in kwargs.items()
-                },
-            )
-            for args, kwargs in inputs
-        ]
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
