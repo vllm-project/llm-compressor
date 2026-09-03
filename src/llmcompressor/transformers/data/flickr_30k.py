@@ -18,6 +18,9 @@ class Flickr30K(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
+    # flickr30k only ships a "test" split
+    DEFAULT_SPLIT = "test"
+
     DEFAULT_CHAT_TEMPLATE = (
         "{% for message in messages %}\n"
         "{% if message['role'] == 'user' %}\n"
