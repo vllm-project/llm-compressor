@@ -149,7 +149,7 @@ def linearize_moe_layer(
     :return: list of (new LinearExperts2D module, offload kwargs from original)
     """
     subgraph_set = set(subgraph_modules)
-    moe_lookup = model._moe_lookup
+    moe_lookup = get_non_linearized_moes(model)
 
     non_linearized = [
         (moe_lookup[module], module) for module in subgraph_set if module in moe_lookup
