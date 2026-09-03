@@ -47,6 +47,9 @@ def get_processed_dataset(
 
     match splits:
         case None:
+            # Let the dataset class resolve its own default split (see
+            # TextGenerationDataset.DEFAULT_SPLIT). This avoids loading every split
+            # as a DatasetDict and tokenizing data we won't use for calibration.
             split_str = None
         case str():
             split_str = splits
@@ -103,20 +106,13 @@ def get_processed_dataset(
         )
         dataset = dataset_manager()
 
-        # If no split was specified, a DatasetDict format is typically returned.
-        # Fallback to the 'train' split for backward compatibility.
+        # A concrete split is always resolved above, so a single Dataset is expected.
+        # If a multi-split dataset still comes back, the split couldn't be resolved.
         if not isinstance(dataset, Dataset):
-            if "train" in dataset:
-                logger.warning(
-                    "No split was specified, but a multi-split dataset was loaded. "
-                    "Falling back to the 'train' split for calibration."
-                )
-                dataset = dataset["train"]
-            else:
-                raise ValueError(
-                    "No split specified and 'train' split not found in dataset. "
-                    "Please specify `splits` explicitly."
-                )
+            raise ValueError(
+                f"Expected a single calibration split but loaded {type(dataset)}. "
+                "Please specify `splits` explicitly."
+            )
 
         return dataset
 

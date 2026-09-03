@@ -26,6 +26,9 @@ class PeoplesSpeech(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
+    # the "test" config used below only ships a "test" split
+    DEFAULT_SPLIT = "test"
+
     def __init__(self, dataset_args: "DataArgs", split: str, processor: Processor):
         dataset_args = deepcopy(dataset_args)
         dataset_args.dataset = "MLCommons/peoples_speech"
