@@ -115,28 +115,24 @@ def get_non_linearized_moes(
     model: torch.nn.Module,
 ) -> list[tuple[str, torch.nn.Module]]:
     """
-    Return all modules which are recognized to be experts layers. A module is recognized
+    Return all modules which are recognized to be experts layers. Also sets an attribute
+    on the model to store the lookup.
+
+    A module is recognized
     as an experts layer if it conforms to the `FusedExpertsProtocol` or is registered by
     `LinearExperts2D`.
 
     :param model: model with modules to check for experts
     :return: list of named modules which are recognized as experts layers
     """
-    return [
-        (name, module)
-        for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
-        or LinearExperts2D.get_registration(module.__class__) is not None
-    ]
 
-
-def _get_moe_lookup(model: torch.nn.Module) -> dict[torch.nn.Module, str]:
     if not hasattr(model, "_moe_lookup"):
         model._moe_lookup = {
-            module: name for name, module in get_non_linearized_moes(model)
+            module: name for name, module in model.named_modules()
+            if isinstance(module, FusedExpertsProtocol)
+            or LinearExperts2D.get_registration(module.__class__) is not None
         }
     return model._moe_lookup
-
 
 def linearize_moe_layer(
     model: PreTrainedModel,
@@ -151,7 +147,7 @@ def linearize_moe_layer(
     :return: list of (new LinearExperts2D module, offload kwargs from original)
     """
     subgraph_set = set(subgraph_modules)
-    moe_lookup = _get_moe_lookup(model)
+    moe_lookup = model._moe_lookup
 
     non_linearized = [
         (moe_lookup[module], module) for module in subgraph_set if module in moe_lookup
