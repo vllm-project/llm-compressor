@@ -169,4 +169,7 @@ def linearize_moe_layer(
         model.set_submodule(name, linear_moe)
         linearized.append((linear_moe, offload_kwargs))
 
+    for _name, module in non_linearized:
+        del moe_lookup[module]
+
     return linearized
