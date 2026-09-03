@@ -130,7 +130,6 @@ class ExpertMLPWithoutGate(ExpertMLP):
             self.up_proj.bias.copy_(up_bias)
             self.down_proj.bias.copy_(down_bias)
 
-
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
 
@@ -193,7 +192,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls,
         experts: FusedExpertsProtocol,
         config: PreTrainedConfig,
-        setup_offloading: bool = True,
     ):
         with skip_weights_initialize():
             self = cls(config)
@@ -201,12 +199,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
             expert.copy_from_experts_module(experts, index)
-
-        if setup_offloading:
-            # copy offloading from original
-            offload_kwargs = get_cache_init_kwargs(experts)
-            for module in self.modules():
-                offload_module(module, **offload_kwargs)
 
         return self
 
