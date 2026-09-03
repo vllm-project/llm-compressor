@@ -128,11 +128,13 @@ def get_non_linearized_moes(
 
     if not hasattr(model, "_moe_lookup"):
         model._moe_lookup = {
-            module: name for name, module in model.named_modules()
+            module: name
+            for name, module in model.named_modules()
             if isinstance(module, FusedExpertsProtocol)
             or LinearExperts2D.get_registration(module.__class__) is not None
         }
     return model._moe_lookup
+
 
 def linearize_moe_layer(
     model: PreTrainedModel,
