@@ -24,9 +24,9 @@ def setup_model_and_config(tmp_path):
 
     return {
         "model": model,
-        "dataset": "ultrachat-200k",
+        "dataset": "perfectblend",
         "output_dir": str(tmp_path / "compressed_output"),
-        "splits": "train_gen[:10]",
+        "splits": "train[:10]",
         "max_seq_length": 2048,
         "pad_to_max_length": False,
         "num_calibration_samples": 8,

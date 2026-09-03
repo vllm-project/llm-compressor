@@ -20,7 +20,7 @@ def _get_dataloader(dataset_args, tokenizer):
     dataset_manager = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split="train_gen[:5%]",
+        split="train[:5%]",
         processor=tokenizer,
     )
     calib_dataset = dataset_manager()
@@ -60,7 +60,7 @@ def setup_model_and_config(request, tmpdir_factory):
         "new_recipe": None,
         "ppl_threshold": None,
         "model_stub": None,
-        "dataset": "ultrachat-200k",
+        "dataset": "perfectblend",
         "output": "tiny_llama_out",
         "max_seq_length": 512,
         "weight_dtype": torch.float16,
@@ -84,7 +84,7 @@ def setup_model_and_config(request, tmpdir_factory):
         num_calibration_samples=num_calibration_samples,
         recipe=config["new_recipe"],
         pad_to_max_length=pad_to_max_length,
-        splits=f"train_gen[:{num_calibration_samples}]",
+        splits=f"train[:{num_calibration_samples}]",
         save_compressed=False,
     )
 
@@ -134,7 +134,7 @@ def test_perplexity(setup_model_and_config):
         pytest.skip("Skipping perplexity calculation.")
     tokenizer = AutoTokenizer.from_pretrained(config["model_stub"])
     dataset_args = DatasetArguments(
-        dataset="ultrachat-200k",
+        dataset="perfectblend",
         max_seq_length=config["max_seq_length"],
     )
     dataloader = _get_dataloader(dataset_args, tokenizer)
