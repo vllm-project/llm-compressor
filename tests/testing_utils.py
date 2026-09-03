@@ -36,8 +36,9 @@ class BaseTestConfig(BaseModel):
 
     Required fields
     ---------------
-    cadence : str
-        When this test runs. One of: "commit", "nightly", "weekly", "release".
+    cadence : str or list[str]
+        When this test runs. One of: "commit", "nightly", "weekly", "release",
+        or a list of these values.
         Determines the CI cadence for this test configuration.
         When CADENCE is set to "release", all tests run regardless of their
         individual cadence setting.
@@ -162,7 +163,9 @@ class BaseTestConfig(BaseModel):
     # -------------------------------------------------------------------------
     # Required
     # -------------------------------------------------------------------------
-    cadence: str = Field(..., description="'commit', 'nightly', 'weekly', or 'release'")
+    cadence: Union[str, List[str]] = Field(
+        ..., description="'commit', 'nightly', 'weekly', or 'release'"
+    )
     model: str = Field(..., description="HuggingFace model ID to quantize")
 
     # -------------------------------------------------------------------------
