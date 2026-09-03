@@ -23,4 +23,6 @@ class CustomDataset(TextGenerationDataset):
 
     """
 
-    pass
+    # custom datasets may define arbitrary splits; default to loading all of them
+    # (as a DatasetDict) and let __call__ collapse to a single split for calibration
+    DEFAULT_SPLIT = None
