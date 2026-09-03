@@ -168,16 +168,19 @@ def test_linearize_moe(model_type):
         config = config_cls(**CONFIG_OVERRIDES.get(model_type, {}))
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
-        up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
-        init.normal_(up_proj, mean=0.0, std=config.initializer_range)
-        init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
-        up_proj_bias = _getattr_fallbacks(experts, ["gate_up_proj_bias", "up_proj_bias"], None)
-        if up_proj_bias is not None:
-            init.zeros_(up_proj_bias)
 
+        up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
+        up_proj_bias = _getattr_fallbacks(
+            experts, ["gate_up_proj_bias", "up_proj_bias"], None
+        )
+        down_proj = experts.down_proj
         down_proj_bias = getattr(experts, "down_proj_bias", None)
+        init.normal_(up_proj, mean=0.0, std=config.initializer_range)
+        init.normal_(down_proj, mean=0.0, std=config.initializer_range)
+        if up_proj_bias is not None:
+            init.normal_(up_proj_bias, mean=0.0, std=config.initializer_range)
         if down_proj_bias is not None:
-            init.zeros_(down_proj_bias)
+            init.normal_(down_proj_bias, mean=0.0, std=config.initializer_range)
 
         mock_model = DummyModel(experts, config)
         linearize_moe(mock_model)
