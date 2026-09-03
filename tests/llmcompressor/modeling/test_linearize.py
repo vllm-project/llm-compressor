@@ -171,11 +171,13 @@ def test_linearize_moe(model_type):
         up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
         init.normal_(up_proj, mean=0.0, std=config.initializer_range)
         init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
-        if hasattr(up_proj, "bias") and up_proj.bias is not None:
-            init.zeros_(up_proj.bias)
+        up_proj_bias = _getattr_fallbacks(experts, ["gate_up_proj_bias", "up_proj_bias"], None)
+        if up_proj_bias is not None:
+            init.zeros_(up_proj_bias)
 
-        if hasattr(experts.down_proj, "bias") and experts.down_proj.bias is not None:
-            init.zeros_(experts.down_proj.bias)
+        down_proj_bias = getattr(experts, "down_proj_bias", None)
+        if down_proj_bias is not None:
+            init.zeros_(down_proj_bias)
 
         mock_model = DummyModel(experts, config)
         linearize_moe(mock_model)
