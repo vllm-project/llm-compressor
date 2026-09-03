@@ -5,7 +5,7 @@ Tests for split_fused_moe_experts function.
 import torch
 from compressed_tensors.utils import match_quantizable_tensors
 
-from llmcompressor.entrypoints.model_free.process import split_fused_moe_experts
+from llmcompressor.entrypoints.model_free.converter import split_fused_moe_experts
 
 
 def test_split_fused_moe_experts():

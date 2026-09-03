@@ -148,6 +148,36 @@ _gemma3_mappings = [
 ]
 
 
+# Muse-Glimmer is Gemma-style with 4 norms/layer + gated attention.
+# input_layernorm feeds q/k/v/gate.
+# the MLP is fed by pre_feedforward_layernorm, NOT post_attention_layernorm.
+_muse_glimmer_mappings = [
+    AWQMapping(
+        "re:.*language_model.layers.\\d+.input_layernorm$",
+        [
+            "re:.*language_model.layers.\\d+.self_attn.q_proj$",
+            "re:.*language_model.layers.\\d+.self_attn.k_proj$",
+            "re:.*language_model.layers.\\d+.self_attn.v_proj$",
+            "re:.*language_model.layers.\\d+.self_attn.gate_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*language_model.layers.\\d+.self_attn.v_proj$",
+        ["re:.*language_model.layers.\\d+.self_attn.o_proj$"],
+    ),
+    AWQMapping(
+        "re:.*language_model.layers.\\d+.pre_feedforward_layernorm$",
+        [
+            "re:.*language_model.layers.\\d+.mlp.gate_proj$",
+            "re:.*language_model.layers.\\d+.mlp.up_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*language_model.layers.\\d+.mlp.up_proj$",
+        ["re:.*language_model.layers.\\d+.mlp.down_proj$"],
+    ),
+]
+
 # Cohere architecture is similar to default, with a very fundamental difference.
 # The MLP block is executed in parallel to the attention. So the tensor goes
 # through input_layernorm and then from there it goes directly to the attention
@@ -344,6 +374,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Llama4ForConditionalGeneration": _llama4_default_mappings,
     "Mistral3ForConditionalGeneration": default_mappings,
     "MistralForCausalLM": default_mappings,
+    "MuseGlimmerForConditionalGeneration": _muse_glimmer_mappings,
     "NanbeigeForCausalLM": default_mappings,
     "OlmoForCausalLM": _exaone4_mappings,
     "Olmo3ForCausalLM": _exaone4_mappings,

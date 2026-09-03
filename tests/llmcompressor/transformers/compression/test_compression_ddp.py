@@ -26,11 +26,9 @@ import torch
 import torch.distributed
 from compressed_tensors.offload import init_dist, load_offloaded_model
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -49,21 +47,17 @@ MAX_SEQ_LENGTH = 512
 # ---------------------------------------------------------------------------
 
 
-def _prepare_dataset(model_id: str, num_samples: int):
-    """Prepare calibration dataset with minimal preprocessing."""
-    tok = AutoTokenizer.from_pretrained(model_id)
+def _make_eval_dataset(model_id: str, num_samples: int = 5):
+    """Create a small tokenized dataset for output comparison (not calibration)."""
+    from datasets import Dataset
 
+    tok = AutoTokenizer.from_pretrained(model_id)
     if tok.chat_template is None:
         tok.chat_template = (
             "{% for message in messages %}{{ message['content'] }}{% endfor %}"
         )
-
-    split = get_rank_partition("train_sft", num_samples)
-    ds = load_dataset("HuggingFaceH4/ultrachat_200k", split=split)
-
-    ds = ds.map(
-        lambda ex: {"text": tok.apply_chat_template(ex["messages"], tokenize=False)}
-    )
+    prompts = [f"Question {i}: Explain briefly." for i in range(num_samples)]
+    ds = Dataset.from_dict({"text": prompts})
     ds = ds.map(
         lambda s: tok(
             s["text"], padding=False, max_length=MAX_SEQ_LENGTH, truncation=True
@@ -89,20 +83,20 @@ def _run_single_gpu(
         recipe: Compression recipe
         num_samples: Number of calibration samples
         device: Device to run on
-        return_model: If True, return (weights, model, dataset) instead of just weights
+        return_model: If True, return (weights, model, eval_dataset) instead of just
+            weights
 
     Returns:
-        weights dict if return_model=False, else (weights, model, dataset)
+        weights dict if return_model=False, else (weights, model, eval_dataset)
     """
     with load_offloaded_model():
         model = AutoModelForCausalLM.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map="auto_offload"
         )
-    ds = _prepare_dataset(model_id, num_samples)
 
     oneshot(
         model=model,
-        dataset=ds,
+        dataset="perfectblend",
         recipe=recipe,
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
@@ -116,7 +110,8 @@ def _run_single_gpu(
     }
 
     if return_model:
-        return weights, model, ds
+        eval_ds = _make_eval_dataset(model_id)
+        return weights, model, eval_ds
 
     del model
     torch.accelerator.empty_cache()
@@ -256,13 +251,10 @@ def _test_ddp_modifier(
     with load_offloaded_model():
         model = AutoModelForCausalLM.from_pretrained(MODEL, **load_kwargs)
 
-    # Prepare dataset with rank partitioning
-    ds = _prepare_dataset(MODEL, NUM_SAMPLES)
-
-    # Run oneshot with DDP
+    # Run oneshot with DDP — prebaked dataset handles rank partitioning automatically
     oneshot(
         model=model,
-        dataset=ds,
+        dataset="perfectblend",
         recipe=recipe_factory(),
         num_calibration_samples=NUM_SAMPLES,
         max_seq_length=MAX_SEQ_LENGTH,
