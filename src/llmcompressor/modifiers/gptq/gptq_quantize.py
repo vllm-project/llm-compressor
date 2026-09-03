@@ -1,6 +1,5 @@
 import math
 import os
-from copy import copy
 
 import torch
 import transformers
@@ -9,18 +8,15 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
-    fake_quantize,
 )
-from compressed_tensors.quantization.utils import calculate_range
+from compressed_tensors.quantization.utils import calculate_range, cast_to_fp4
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import triton_req
-from loguru import logger
 
 from llmcompressor.modifiers.gptq.gptq_triton import (
     FusedQuantType,
     fused_gptq_block_update,
 )
-from llmcompressor.modifiers.quantization.calibration import observe
 
 GPTQ_PRECISION = torch.float32
 
@@ -28,25 +24,48 @@ __all__ = [
     "make_empty_hessian",
     "accumulate_hessian",
     "quantize_weight",
-    "quantize_weight_batched",
-    "is_batched_quantizable",
 ]
 
 
-def is_batched_quantizable(quant_args: QuantizationArgs) -> bool:
-    """
-    Whether a weight quantization scheme is supported by the fused batched
-    path. Unsupported cases use the normal single-module GPTQ path.
-    """
-    if quant_args.strategy not in (
-        QuantizationStrategy.TENSOR,
-        QuantizationStrategy.CHANNEL,
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-        QuantizationStrategy.BLOCK,
-    ):
-        return False
-    return quant_args.type in (QuantizationType.INT, QuantizationType.FLOAT)
+def _apply_activation_ordering(
+    weights: torch.Tensor,
+    hessians: torch.Tensor,
+    actorder: ActivationOrdering | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    """Apply GPTQ activation ordering to a weight/Hessian batch."""
+    if not actorder:
+        return weights, hessians, None
+    if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
+        raise ValueError(
+            f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
+            " are supported for GPTQ."
+        )
+
+    num_rows, num_columns = weights.shape[-2:]
+    perm = torch.argsort(
+        torch.diagonal(hessians, dim1=-2, dim2=-1), dim=-1, descending=True
+    )
+    hessian_perm = perm
+    weight_perm = perm.to(device=weights.device)
+    if hessian_perm.device != hessians.device:
+        hessian_perm = hessian_perm.to(device=hessians.device)
+
+    hessians = torch.gather(
+        hessians,
+        -1,
+        hessian_perm.unsqueeze(-2).expand(-1, num_columns, -1),
+    )
+    hessians = torch.gather(
+        hessians,
+        -2,
+        hessian_perm.unsqueeze(-1).expand(-1, -1, num_columns),
+    )
+    weights = torch.gather(
+        weights,
+        -1,
+        weight_perm.unsqueeze(-2).expand(-1, num_rows, -1),
+    )
+    return weights, hessians, weight_perm
 
 
 def make_empty_hessian(
@@ -98,46 +117,56 @@ def accumulate_hessian(
 
 
 def quantize_weight(
-    module: torch.nn.Module,
+    weights: torch.Tensor,
+    hessians: torch.Tensor,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor,
+    global_scale: torch.Tensor | None,
     quant_args: QuantizationArgs,
-    hessian: torch.Tensor,
+    perm: torch.Tensor | None = None,
     blocksize: int = 128,
     percdamp: float = 0.01,
-) -> tuple[float, dict[str, torch.Tensor], bool]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Quantize a module weight according to the GPTQ algorithm
+    Quantize a batch of weights according to the GPTQ algorithm.
 
-    :param module: module with weight being quantized
+    :param weights: weights with shape [batch, rows, columns]
+    :param hessians: normalized Hessians with shape [batch, columns, columns]
+    :param scale: stacked observer scales
+    :param zero_point: stacked observer zero points
+    :param global_scale: optional stacked observer global scales
     :param quant_args: quantization arguments used to find quantization parameters
-    :param hessian: preaccumulated hessian for quantization
+    :param perm: activation-order permutation already applied to ``weights`` and
+        ``hessians``. The returned weights are restored to their original order.
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
-    :return: loss, q_param_dict (with keys: weight, weight_scale, weight_zero_point,
-        and optionally weight_global_scale), used_rtn_fallback (True if hessian
-        inversion failed and the module was quantized with round-to-nearest)
+    :return: quantized weights, per-batch losses, and RTN fallback flags
     """
+    if weights.ndim != 3 or hessians.ndim != 3:
+        raise ValueError("weights and hessians must have shape [batch, ...]")
+    if weights.shape[0] != hessians.shape[0]:
+        raise ValueError("weights and hessians must have matching batch sizes")
+
+    batch_size, num_rows, num_columns = weights.shape
     strategy = quant_args.strategy
     actorder = quant_args.actorder
-    final_shape = module.weight.shape
-    final_dtype = module.weight.dtype
-    W = module.weight.clone()
-    H = hessian
-
-    observer = module.weight_observer
-    W = W.to(dtype=GPTQ_PRECISION)
-    num_rows = W.shape[0]
-    num_columns = W.shape[1]
-
-    # handle activation ordering
-    if actorder:
-        if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
-            raise ValueError(
-                f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
-                "are supported for GPTQ."
-            )
-        W, H, perm = _apply_activation_ordering(W, H)
+    if actorder and perm is None:
+        raise ValueError("actorder requires pre-permuted weights, hessians, and perm")
+    final_dtype = weights.dtype
+    device = weights.device
+    # The caller provides a disposable stacked weight tensor, so use it as the
+    # working buffer when it is already FP32 instead of allocating another copy.
+    W = weights.to(device=device, dtype=GPTQ_PRECISION)
+    # The stacked Hessian is the disposable working buffer. The caller retains
+    # the original per-module Hessians separately for batch fallback.
+    H = hessians.to(device=device, dtype=GPTQ_PRECISION)
+    scale = scale.to(device=device)
+    zero_point = zero_point.to(device=device)
+    if global_scale is not None:
+        global_scale = global_scale.to(device=device)
 
     # handle g_idx
+    g_idx = None
     if strategy in (
         QuantizationStrategy.GROUP,
         QuantizationStrategy.TENSOR_GROUP,
@@ -149,54 +178,46 @@ def quantize_weight(
             if strategy != QuantizationStrategy.BLOCK
             else quant_args.block_structure[1]
         )
-        g_idx = torch.arange(num_columns, device=W.device, dtype=torch.int) // divisor
+        g_idx = torch.arange(num_columns, device=device, dtype=torch.int) // divisor
 
         if actorder == ActivationOrdering.WEIGHT:
-            g_idx = g_idx[perm]
+            g_idx = torch.gather(g_idx.unsqueeze(0).expand(batch_size, -1), 1, perm)
 
-    qparams = observer.get_qparams()
-    scale, zero_point, global_scale = (
-        qparams["scale"],
-        qparams["zero_point"],
-        qparams["global_scale"],
-    )
-
-    losses = torch.zeros(num_rows, device=module.weight.device)
+    losses = torch.zeros(batch_size, num_rows, device=device)
+    used_rtn_fallback = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
     # mask dead hessian values
-    dead = torch.diag(H) == 0
-    H[dead, dead] = 1
-    W[:, dead] = 0
+    diag = torch.diagonal(H, dim1=-2, dim2=-1)
+    dead = diag == 0
+    if dead.any():
+        torch.diagonal(H, dim1=-2, dim2=-1).masked_fill_(dead, 1.0)
+        W.masked_fill_(dead.unsqueeze(1), 0)
 
     # compute inverse hessian in place to save memory
-    used_rtn_fallback = False
-    try:
-        damp = percdamp * torch.mean(torch.diag(H))
-        diag = torch.arange(H.shape[0], device=H.device)
-        H[diag, diag] += damp
-        H = torch.linalg.cholesky(H)
-        H = torch.cholesky_inverse(H)
-        H = torch.linalg.cholesky(H, upper=True)
-        Hinv = H
-    except torch._C._LinAlgError:
-        logger.warning(
-            "Failed to invert hessian due to numerical instability. Consider "
-            "increasing GPTQModifier.dampening_frac, increasing the number "
-            "of calibration samples, or shuffling the calibration dataset. "
-            "Falling back to round-to-nearest for this module."
-        )
-        used_rtn_fallback = True
-        Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
+    damp = percdamp * torch.diagonal(H, dim1=-2, dim2=-1).mean(dim=-1)
+    torch.diagonal(H, dim1=-2, dim2=-1).add_(damp.unsqueeze(-1))
+    info = torch.empty(batch_size, dtype=torch.int32, device=device)
+    torch.linalg.cholesky_ex(H, check_errors=False, out=(H, info))
+    bad = info.nonzero(as_tuple=False).flatten()
+    if bad.numel() and batch_size > 1:
+        raise torch.linalg.LinAlgError("batched GPTQ Hessian inversion failed")
+    if bad.numel():
+        H[bad[0]].copy_(torch.eye(num_columns, dtype=H.dtype, device=device))
+        used_rtn_fallback[bad[0]] = True
+    else:
+        torch.cholesky_inverse(H, out=H)
+        torch.linalg.cholesky(H, upper=True, out=H)
+    Hinv = H
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
 
-        W1 = W[:, i1:i2].clone()
+        W1 = W[:, :, i1:i2].clone()
         Q1 = torch.zeros_like(W1)
         Err1 = torch.zeros_like(W1)
         losses1 = torch.zeros_like(W1)
-        Hinv1 = Hinv[i1:i2, i1:i2]
+        Hinv1 = Hinv[:, i1:i2, i1:i2]
 
         gptq_block_update(
             W1,
@@ -207,59 +228,26 @@ def quantize_weight(
             scale=scale,
             zero_point=zero_point,
             global_scale=global_scale,
-            g_idx=(
-                g_idx
-                if strategy in _GROUP_STRATEGIES
-                or strategy == QuantizationStrategy.BLOCK
-                else None
-            ),
+            g_idx=g_idx,
             quant_args=quant_args,
             i1=i1,
         )
 
         # propagate block error
-        W[:, i1:i2] = Q1
-        losses += torch.sum(losses1, 1) / 2
+        W[:, :, i1:i2] = Q1
+        losses += torch.sum(losses1, 2) / 2
 
-        w_err = Err1.matmul(Hinv[i1:i2, i2:])
-        W[:, i2:] -= w_err
+        w_err = torch.bmm(Err1, Hinv[:, i1:i2, i2:])
+        W[:, :, i2:] -= w_err
 
-    if actorder:
+    if perm is not None:
         # restore original permutation
-        invperm = torch.argsort(perm)
-        W = W[:, invperm]
+        # Release block-local tensors before allocating the restored output.
+        del W1, Q1, Err1, losses1, Hinv1, w_err
+        invperm = torch.argsort(perm, dim=-1)
+        W = torch.gather(W, -1, invperm.unsqueeze(-2).expand(-1, num_rows, -1))
 
-    W = W.reshape(final_shape).to(final_dtype)
-
-    loss = torch.sum(losses).item()
-    q_param_dict = {
-        "weight": W,
-        "weight_scale": scale.to(dtype=final_dtype),
-        "weight_zero_point": zero_point.to(dtype=quant_args.zp_dtype),
-    }
-    if global_scale:
-        q_param_dict["weight_global_scale"] = global_scale.to(dtype=final_dtype)
-    return (loss, q_param_dict, used_rtn_fallback)
-
-
-def _apply_activation_ordering(
-    W: torch.Tensor, H: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Permute weight and hessian in order of greatest output activations
-
-    :param W: weight to permute
-    :param H: hessian used to determine activation ordering
-    :return: permuted weight, permuted hessian, permutation map
-    """
-    perm = torch.argsort(torch.diag(H), descending=True)
-    return W[:, perm], H[perm][:, perm], perm
-
-
-_GROUP_STRATEGIES = (
-    QuantizationStrategy.GROUP,
-    QuantizationStrategy.TENSOR_GROUP,
-)
+    return W.to(final_dtype), losses.sum(dim=1), used_rtn_fallback
 
 
 def _fused_kernel_params(
@@ -318,24 +306,26 @@ def _column_scale_window(
     has_zp = zero_point is not None and not quant_args.symmetric
 
     if strategy == QuantizationStrategy.TENSOR:
-        # per-tensor scales may be shaped [], [1], or [1, 1] per module, so
-        # a stacked batch can be [B], [B, 1], or [B, 1, 1]; normalize to
-        # [..., 1, 1]
-        if scale.ndim >= 2 and scale.shape[-2:] == (1, 1):
+        # A stacked batch can be [B], [B, 1], or [B, 1, 1]. Normalize all
+        # forms to [B, 1, 1] before expanding over rows and columns.
+        if scale.ndim == 3:
             eff = scale
         else:
-            eff = scale.reshape(-1)[..., None, None]
+            eff = scale.reshape(-1, 1, 1)
         if has_zp:
-            if zero_point.ndim >= 2 and zero_point.shape[-2:] == (1, 1):
+            if zero_point.ndim == 3:
                 zp = zero_point
             else:
-                zp = zero_point.reshape(-1)[..., None, None]
+                zp = zero_point.reshape(-1, 1, 1)
         else:
             zp = None
     elif strategy == QuantizationStrategy.CHANNEL:
         eff = scale[..., :, 0:1]
         zp = zero_point[..., :, 0:1] if has_zp else None
-    elif strategy in _GROUP_STRATEGIES:
+    elif strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+    ):
         idx = g_idx[..., i1:i2].long()
         eff = torch.gather(
             scale, -1, idx.unsqueeze(-2).expand(*scale.shape[:-1], count)
@@ -352,10 +342,31 @@ def _column_scale_window(
     elif strategy == QuantizationStrategy.BLOCK:
         block_height, _ = quant_args.block_structure
         row_idx = torch.arange(num_rows, device=scale.device) // block_height
-        row_idx = row_idx.reshape((1,) * (scale.ndim - 2) + (num_rows, 1))
         col_idx = g_idx[..., i1:i2].long().unsqueeze(-2)
-        eff = scale[..., row_idx, col_idx]
-        zp = zero_point[..., row_idx, col_idx] if has_zp else None
+        eff = torch.gather(
+            scale,
+            -1,
+            col_idx.expand(*scale.shape[:-1], count),
+        )
+        row_idx = row_idx.reshape((1,) * (eff.ndim - 2) + (num_rows, 1))
+        eff = torch.gather(
+            eff,
+            -2,
+            row_idx.expand(*eff.shape[:-2], num_rows, count),
+        )
+        if has_zp:
+            zp = torch.gather(
+                zero_point,
+                -1,
+                col_idx.expand(*zero_point.shape[:-1], count),
+            )
+            zp = torch.gather(
+                zp,
+                -2,
+                row_idx.expand(*zp.shape[:-2], num_rows, count),
+            )
+        else:
+            zp = None
     else:
         raise ValueError(f"Unsupported strategy for column scale window: {strategy}")
 
@@ -464,247 +475,42 @@ def gptq_block_update(
     i1: int,
 ) -> None:
     """Run one GPTQ block with the eager Torch implementation."""
-    if W1.dim() != 2:
-        raise ValueError("The eager GPTQ block backend only supports one matrix")
+    if W1.dim() != 3:
+        raise ValueError("The eager GPTQ block backend requires a 3D weight block")
 
-    strategy = quant_args.strategy
+    q_min, q_max = calculate_range(quant_args, W1.device)
+    eff, zp = _column_scale_window(
+        scale,
+        zero_point,
+        global_scale,
+        g_idx,
+        quant_args,
+        num_rows=W1.shape[-2],
+        i1=i1,
+        i2=i1 + W1.shape[-1],
+    )
     count = W1.shape[-1]
     for i in range(count):
-        w = W1[:, i]
-        d = Hinv1[i, i]
-
-        if strategy == QuantizationStrategy.TENSOR:
-            q = fake_quantize(
-                w, scale, zero_point, quant_args, global_scale=global_scale
-            )
-        elif strategy == QuantizationStrategy.CHANNEL:
-            q = fake_quantize(
-                w,
-                scale[:, 0],
-                zero_point[:, 0],
-                quant_args,
-                global_scale=global_scale,
-            )
-        elif strategy in _GROUP_STRATEGIES:
-            group_index = g_idx[i1 + i]
-            altered_qargs = copy(quant_args)
-            altered_qargs.strategy = QuantizationStrategy.CHANNEL
-            q = fake_quantize(
-                w,
-                scale[:, group_index],
-                zero_point[:, group_index],
-                altered_qargs,
-                global_scale=global_scale,
-            )
-        elif strategy == QuantizationStrategy.BLOCK:
-            block_column_idx = g_idx[i1 + i]
-            q = fake_quantize(
-                w.unsqueeze(1),
-                scale[:, block_column_idx : block_column_idx + 1],
-                zero_point[:, block_column_idx : block_column_idx + 1],
-                quant_args,
-                global_scale=global_scale,
-            ).squeeze(1)
+        w = W1[:, :, i]
+        normalized = w / eff[:, :, i]
+        if zp is not None:
+            normalized = normalized + zp[:, :, i]
+        clamped = torch.clamp(normalized, q_min, q_max)
+        if quant_args.type == QuantizationType.INT:
+            rounded = torch.round(clamped)
+        elif quant_args.num_bits == 4:
+            rounded = cast_to_fp4(clamped)
+        elif quant_args.num_bits == 8:
+            rounded = clamped.to(torch.float8_e4m3fn).to(torch.float32)
         else:
-            raise ValueError(
-                f"Quantization strategy is not supported for GPTQ: {strategy}"
-            )
+            raise ValueError(f"Unsupported quantization scheme: {quant_args}")
+        q = rounded * eff[:, :, i]
+        if zp is not None:
+            q = (rounded - zp[:, :, i]) * eff[:, :, i]
 
-        Q1[:, i] = q
-        losses1[:, i] = (w - q) ** 2 / d**2
-        err = (w - q) / d
-        W1[:, i:] -= err.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
-        Err1[:, i] = err
-
-
-def _quantize_weights_individually(
-    modules: list[torch.nn.Module],
-    quant_args: QuantizationArgs,
-    hessians: list[torch.Tensor],
-    blocksize: int,
-    percdamp: float,
-    refresh_observers: bool = False,
-) -> list[tuple[float, dict[str, torch.Tensor], bool]]:
-    if refresh_observers:
-        for module in modules:
-            observe(module, "weight")
-    return [
-        quantize_weight(module, quant_args, hessian.clone(), blocksize, percdamp)
-        for module, hessian in zip(modules, hessians)
-    ]
-
-
-def quantize_weight_batched(
-    modules: list[torch.nn.Module],
-    quant_args: QuantizationArgs,
-    hessians: list[torch.Tensor],
-    blocksize: int = 128,
-    percdamp: float = 0.01,
-) -> list[tuple[float, dict[str, torch.Tensor], bool]]:
-    """
-    Batched GPTQ over multiple same-shape modules which share one
-    quantization scheme (e.g. linearized MoE experts). Weights are stacked to
-    [B, out, in] and Hessians to [B, in, in], and the Cholesky solves, column
-    updates, and error propagation run batched in lockstep.
-
-    All modules must have identically shaped weights and quantization args;
-    the caller is responsible for grouping. Batched execution uses the fused
-    CUDA path; unsupported or unavailable cases use `quantize_weight` per
-    module.
-
-    :param modules: modules whose weights are quantized; each must have a
-        populated `weight_observer`
-    :param quant_args: shared quantization arguments
-    :param hessians: preaccumulated Hessians, one per module
-    :param blocksize: chunk size of quantization updates
-    :param percdamp: dampening factor on hessian diagonal
-    :return: list of (loss, q_param_dict, used_rtn_fallback), one per module
-    """
-    if len(modules) == 0:
-        return []
-
-    # Batched execution is specifically the fused CUDA path.  Keep the
-    # fallback as the normal single-module GPTQ implementation rather than a
-    # second batched eager implementation.
-    if modules[0].weight.device.type != "cuda":
-        return _quantize_weights_individually(
-            modules, quant_args, hessians, blocksize, percdamp
-        )
-
-    strategy = quant_args.strategy
-    actorder = quant_args.actorder
-    batch_size = len(modules)
-    final_shape = modules[0].weight.shape
-    final_dtype = modules[0].weight.dtype
-    num_rows, num_columns = final_shape
-    device = modules[0].weight.device
-
-    original_hessians = [h.clone() for h in hessians]
-    used_rtn_fallback = [False] * batch_size
-    W = torch.stack([module.weight for module in modules]).to(dtype=GPTQ_PRECISION)
-    H = torch.stack([h.to(device=device) for h in hessians]).to(dtype=GPTQ_PRECISION)
-
-    # handle activation ordering (per batch element)
-    perm = None
-    if actorder:
-        if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
-            raise ValueError(
-                f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
-                "are supported for GPTQ."
-            )
-        perm = torch.argsort(
-            torch.diagonal(H, dim1=-2, dim2=-1), dim=-1, descending=True
-        )
-        W = torch.gather(W, -1, perm.unsqueeze(-2).expand(-1, num_rows, -1))
-        H = torch.gather(H, -1, perm.unsqueeze(-2).expand(-1, num_columns, -1))
-        H = torch.gather(H, -2, perm.unsqueeze(-1).expand(-1, -1, num_columns))
-
-    # mapping from column index to group index
-    g_idx = None
-    if strategy in _GROUP_STRATEGIES or strategy == QuantizationStrategy.BLOCK:
-        g_idx = torch.arange(num_columns, device=device, dtype=torch.int)
-        divisor = (
-            quant_args.group_size
-            if strategy in _GROUP_STRATEGIES
-            else quant_args.block_structure[1]
-        )
-        g_idx = (g_idx // divisor).unsqueeze(0).expand(batch_size, -1)
-        if actorder == ActivationOrdering.WEIGHT:
-            g_idx = torch.gather(g_idx, 1, perm)
-
-    losses = torch.zeros(batch_size, num_rows, device=device)
-
-    # mask dead hessian values
-    diag = torch.diagonal(H, dim1=-2, dim2=-1)
-    dead = diag == 0
-    if dead.any():
-        torch.diagonal(H, dim1=-2, dim2=-1).masked_fill_(dead, 1.0)
-        W.masked_fill_(dead.unsqueeze(1), 0)
-
-    # compute inverse hessians in place to save memory
-    damp = percdamp * torch.diagonal(H, dim1=-2, dim2=-1).mean(dim=-1)
-    torch.diagonal(H, dim1=-2, dim2=-1).add_(damp.unsqueeze(-1))
-    info = torch.empty(batch_size, dtype=torch.int32, device=device)
-    torch.linalg.cholesky_ex(H, check_errors=False, out=(H, info))
-    bad = info.nonzero(as_tuple=False).flatten().tolist()
-    if bad:
-        return _quantize_weights_individually(
-            modules, quant_args, original_hessians, blocksize, percdamp
-        )
-    torch.cholesky_inverse(H, out=H)
-    torch.linalg.cholesky(H, upper=True, out=H)
-    Hinv = H
-
-    qparams = [module.weight_observer.get_qparams() for module in modules]
-    # observers may live on a different device (e.g. cpu) when offloading
-    scale = torch.stack([qp["scale"] for qp in qparams]).to(device=device)
-    zero_point = torch.stack([qp["zero_point"] for qp in qparams]).to(device=device)
-    global_scale = None
-    if qparams[0]["global_scale"] is not None:
-        global_scale = torch.stack(
-            [qp["global_scale"].reshape(-1)[0] for qp in qparams]
-        ).to(device=device)
-
-    # See section 3.4 of https://arxiv.org/abs/2203.07259
-    for i1 in range(0, num_columns, blocksize):
-        i2 = min(i1 + blocksize, num_columns)
-
-        W1 = W[:, :, i1:i2].clone()
-        Q1 = torch.zeros_like(W1)
-        Err1 = torch.zeros_like(W1)
-        losses1 = torch.zeros_like(W1)
-        Hinv1 = Hinv[:, i1:i2, i1:i2]
-
-        block_args = (W1, Hinv1, Q1, Err1, losses1)
-        block_kwargs = {
-            "scale": scale,
-            "zero_point": zero_point,
-            "global_scale": global_scale,
-            "g_idx": g_idx,
-            "quant_args": quant_args,
-            "i1": i1,
-        }
-        if not _gptq_block_update_triton_req(*block_args, **block_kwargs):
-            return _quantize_weights_individually(
-                modules,
-                quant_args,
-                original_hessians,
-                blocksize,
-                percdamp,
-                refresh_observers=True,
-            )
-        try:
-            ImplBackend.call(
-                "_gptq_block_update_triton", *block_args, **block_kwargs
-            )
-        except Exception:
-            return _quantize_weights_individually(
-                modules,
-                quant_args,
-                original_hessians,
-                blocksize,
-                percdamp,
-                refresh_observers=True,
-            )
-
-        W[:, :, i1:i2] = Q1
-        losses += losses1.sum(dim=-1) / 2
-        if i2 < num_columns:
-            W[:, :, i2:] -= torch.bmm(Err1, Hinv[:, i1:i2, i2:])
-
-    if actorder:
-        # restore original permutation
-        invperm = torch.argsort(perm, dim=-1)
-        W = torch.gather(W, -1, invperm.unsqueeze(-2).expand(-1, num_rows, -1))
-
-    results = []
-    for k, module in enumerate(modules):
-        q_param_dict = {
-            "weight": W[k].reshape(final_shape).to(final_dtype),
-            "weight_scale": scale[k].to(dtype=final_dtype),
-            "weight_zero_point": zero_point[k].to(dtype=quant_args.zp_dtype),
-        }
-        if global_scale is not None:
-            q_param_dict["weight_global_scale"] = global_scale[k].to(dtype=final_dtype)
-        results.append((losses[k].sum().item(), q_param_dict, used_rtn_fallback[k]))
-    return results
+        diagonal = Hinv1[:, i, i]
+        error = (w - q) / diagonal[:, None]
+        Q1[:, :, i] = q
+        Err1[:, :, i] = error
+        losses1[:, :, i] = error.square()
+        W1[:, :, i:] -= error.unsqueeze(-1) * Hinv1[:, i, i:].unsqueeze(1)
