@@ -1,5 +1,4 @@
-import torch
-from datasets import load_dataset
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
 
 from llmcompressor import oneshot
@@ -31,58 +30,15 @@ recipe = [
     ),
 ]
 
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 4096
-
-ds = load_dataset(
-    "mlabonne/open-perfectblend",
-    split=f"train[:{NUM_CALIBRATION_SAMPLES}]",
-)
-ds = ds.shuffle(seed=42)
-
-ROLE_MAP = {"human": "user", "gpt": "assistant"}
-
-
-def preprocess_function(example):
-    messages = [
-        {
-            "role": ROLE_MAP.get(msg["from"], msg["from"]),
-            "content": [{"type": "text", "text": msg["value"]}],
-        }
-        for msg in example["conversations"]
-    ]
-    return processor.apply_chat_template(
-        messages,
-        tokenize=True,
-        return_dict=True,
-        add_generation_prompt=False,
-        processor_kwargs={
-            "return_tensors": "pt",
-            "padding": False,
-            "truncation": True,
-            "max_length": MAX_SEQUENCE_LENGTH,
-            "add_special_tokens": False,
-        },
-    )
-
-
-ds = ds.map(preprocess_function, batched=False, remove_columns=ds.column_names)
-
-
-def data_collator(batch):
-    assert len(batch) == 1
-    return {key: torch.tensor(value) for key, value in batch[0].items()}
-
-
 # Apply quantization.
 oneshot(
     model=model,
+    processor=processor,
     recipe=recipe,
-    dataset=ds,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    dataset="perfectblend",
+    max_seq_length=4096,
+    num_calibration_samples=512,
     moe_calibrate_all_experts=True,
-    data_collator=data_collator,
 )
 
 # Save to disk in compressed-tensors format.
