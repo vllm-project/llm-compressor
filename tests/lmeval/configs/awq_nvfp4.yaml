@@ -1,7 +1,6 @@
-cadence: "nightly"
+cadence: ["nightly", "weekly"]
 model: meta-llama/Llama-3.1-8B-Instruct
-dataset_id: HuggingFaceH4/ultrachat_200k
-dataset_split: train_sft
+dataset_id: perfectblend
 num_calibration_samples: 20
 recipe: tests/e2e/recipes/NVFP4/recipe_awq_nvfp4.yaml
 lmeval:

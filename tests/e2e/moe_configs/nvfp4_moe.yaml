@@ -1,6 +1,5 @@
 cadence: "nightly"
 model: Qwen/Qwen3-30B-A3B
 scheme: NVFP4
-dataset_id: HuggingFaceH4/ultrachat_200k
-dataset_split: train_sft
+dataset_id: perfectblend
 num_calibration_samples: 20

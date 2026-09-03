@@ -30,8 +30,7 @@ recipe = QuantizationModifier(
 oneshot(
     model=model,
     recipe=recipe,
-    dataset="ultrachat_200k",
-    splits="train_sft",
+    dataset="perfectblend",
     num_calibration_samples=512,
     max_seq_length=2048,
 )

@@ -216,4 +216,4 @@ def test_apply_autoround_passes_moved_inputs_to_quantize_block():
         modifier.apply_autoround(state, [layer])
 
     quantize_inputs = autoround.quantize_block.call_args.kwargs["inputs"]
-    assert quantize_inputs[0][0][0][0].device.type == "meta"
+    assert quantize_inputs[0][0][0][0].device.type == "cpu"
