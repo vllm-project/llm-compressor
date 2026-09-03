@@ -19,6 +19,7 @@ When saving your compressed models, you can use the following extra arguments wi
 |-----------|------|---------|-------------|
 | `quantization_format` | `Optional[str]` | `None` | The on-disk serialization format for quantized weights, defined by `compressed_tensors.QuantizationFormat`. If not provided, it is inferred from the model's quantization scheme. See the compressed-tensors documentation for available formats. |
 | `save_compressed` | `bool` | `True` | Controls whether to save the model in a compressed format. Set to `False` to save in the original frozen state. |
+| `mtp_scheme` | `Optional[Union[str, QuantizationScheme]]` | `None` | How to quantize Multi-Token Prediction (MTP) layers, which `transformers` never loads or compresses. Opt-in: by default (`None`) MTP layers are saved full precision (bf16) and marked ignored. Pass a preset name (`"FP8_DYNAMIC"`, `"NVFP4"`) or a `QuantizationScheme` to quantize them. Ignored for models without MTP layers. See [Quantizing MTP Layers](#quantizing-mtp-layers). |
 
 ## Examples
 
@@ -77,6 +78,30 @@ model.save_pretrained(
 )
 tokenizer.save_pretrained(SAVE_DIR)
 ```
+
+### Quantizing MTP Layers
+
+Some models ship Multi-Token Prediction (MTP) layers used as the draft model for speculative decoding in vLLM. `transformers` never loads these layers (their keys are in `_keys_to_ignore_on_load_unexpected`), so they are not touched by `oneshot`. By default `save_pretrained` copies them into the checkpoint at full precision (bf16) and adds them to the quantization ignore list.
+
+Pass `mtp_scheme` to quantize the MTP layers instead. Because MTP layers are never loaded, their activation scales cannot be calibrated; any input-activation quantization whose scale must be calibrated (fully static, or NVFP4-style `dynamic="local"` with a static `input_global_scale`) is automatically dropped to weight-only. Only fully dynamic activation quantization (e.g. `FP8_DYNAMIC`), whose scales are computed at runtime, is kept.
+
+```python
+SAVE_DIR = "your-model-NVFP4-MTP"
+model.save_pretrained(
+    SAVE_DIR,
+    save_compressed=True,
+    mtp_scheme="FP8_DYNAMIC",  # or "NVFP4", a QuantizationScheme, or None (bf16)
+)
+tokenizer.save_pretrained(SAVE_DIR)
+```
+
+Choosing a scheme:
+
+| `mtp_scheme` | Notes |
+|--------------|-------|
+| `None` (default) | MTP kept bf16 (lossless), added to ignore list. |
+| `"FP8_DYNAMIC"` | **Recommended** quantized scheme. Calibration-free (dynamic per-token activation scale, static per-channel weight scale) and works with all vLLM optimizations enabled. |
+| `"NVFP4"` | Smallest on disk. MTP layers are never loaded, so their activation scales cannot be calibrated; the input-activation quant is dropped to **weight-only** NVFP4. Functional but lower acceptance than `FP8_DYNAMIC`; prefer `FP8_DYNAMIC` unless you specifically need the smallest MTP footprint. |
 
 ## Notes
 
