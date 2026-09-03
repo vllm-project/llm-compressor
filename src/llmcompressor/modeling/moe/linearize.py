@@ -104,7 +104,9 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
+    for module, name in tqdm.tqdm(
+        non_linearized_moes.items(), desc="Linearizing experts"
+    ):
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)

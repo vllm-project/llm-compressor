@@ -57,9 +57,9 @@ class ExpertMLPWithGate(ExpertMLP):
             up_weight = experts.gate_up_proj[index, self.intermediate_size :]
             down_weight = experts.down_proj[index]
 
-            self.gate_proj.weight = torch.nn.Parameter(gate_weight)
-            self.up_proj.weight = torch.nn.Parameter(up_weight)
-            self.down_proj.weight = torch.nn.Parameter(down_weight)
+            self.gate_proj.weight.copy_(gate_weight)
+            self.up_proj.weight.copy_(up_weight)
+            self.down_proj.weight.copy_(down_weight)
 
         else:
             gate_weight = experts.gate_up_proj[index, :, : self.intermediate_size].T
@@ -70,15 +70,20 @@ class ExpertMLPWithGate(ExpertMLP):
             self.up_proj.weight = torch.nn.Parameter(up_weight.contiguous())
             self.down_proj.weight = torch.nn.Parameter(down_weight.contiguous())
 
-        # load biases (always use Parameter assignment, never copy_)
+        # load biases
         if experts.has_bias:
             gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
             up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
             down_bias = experts.down_proj_bias[index]
 
-            self.gate_proj.bias = torch.nn.Parameter(gate_bias)
-            self.up_proj.bias = torch.nn.Parameter(up_bias)
-            self.down_proj.bias = torch.nn.Parameter(down_bias)
+            if not experts.is_transposed:
+                self.gate_proj.bias = torch.nn.Parameter(gate_bias)
+                self.up_proj.bias = torch.nn.Parameter(up_bias)
+                self.down_proj.bias = torch.nn.Parameter(down_bias)
+            else:
+                self.gate_proj.bias.copy_(gate_bias)
+                self.up_proj.bias.copy_(up_bias)
+                self.down_proj.bias.copy_(down_bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
@@ -119,8 +124,8 @@ class ExpertMLPWithoutGate(ExpertMLP):
             up_weight = experts.up_proj[index]
             down_weight = experts.down_proj[index]
 
-            self.up_proj.weight = torch.nn.Parameter(up_weight)
-            self.down_proj.weight = torch.nn.Parameter(down_weight)
+            self.up_proj.weight.copy_(up_weight)
+            self.down_proj.weight.copy_(down_weight)
 
         else:
             up_weight = experts.up_proj[index].T
@@ -129,13 +134,17 @@ class ExpertMLPWithoutGate(ExpertMLP):
             self.up_proj.weight = torch.nn.Parameter(up_weight.contiguous())
             self.down_proj.weight = torch.nn.Parameter(down_weight.contiguous())
 
-        # load biases (always use Parameter assignment, never copy_)
+        # load biases
         if experts.has_bias:
             up_bias = experts.up_proj_bias[index]
             down_bias = experts.down_proj_bias[index]
 
-            self.up_proj.bias = torch.nn.Parameter(up_bias)
-            self.down_proj.bias = torch.nn.Parameter(down_bias)
+            if not experts.is_transposed:
+                self.up_proj.bias = torch.nn.Parameter(up_bias)
+                self.down_proj.bias = torch.nn.Parameter(down_bias)
+            else:
+                self.up_proj.bias.copy_(up_bias)
+                self.down_proj.bias.copy_(down_bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
