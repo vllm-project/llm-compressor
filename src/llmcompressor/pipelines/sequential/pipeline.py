@@ -148,9 +148,7 @@ class SequentialPipeline(CalibrationPipeline):
                 with disable_offloading():
                     # linearize moe layers just before calibration,
                     # deferring offloading setup until after compression
-                    linearized = linearize_moe_layer(
-                        model, subgraph.submodules(model)
-                    )
+                    linearized = linearize_moe_layer(model, subgraph.submodules(model))
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,

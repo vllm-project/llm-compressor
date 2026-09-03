@@ -25,6 +25,7 @@ from .conversion_mappings import (
 )
 from .linear_experts import LinearExperts2D
 
+
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
@@ -153,9 +154,7 @@ def linearize_moe_layer(
     moe_lookup = _get_moe_lookup(model)
 
     non_linearized = [
-        (moe_lookup[module], module)
-        for module in subgraph_set
-        if module in moe_lookup
+        (moe_lookup[module], module) for module in subgraph_set if module in moe_lookup
     ]
 
     linearized = []
