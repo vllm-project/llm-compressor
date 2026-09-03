@@ -7,10 +7,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
-from llmcompressor.modeling.moe.linearize import (
-    get_non_linearized_moes,
-    linearize_moe_layer,
-)
+from llmcompressor.modeling.moe.linearize import linearize_moe_layer
 
 NUM_TEST_TOKENS = 64
 MODULE_MSE = 1e-10
@@ -64,12 +61,9 @@ def _make_inputs(moe_config):
 def test_linearize_moe_layer_replaces_module():
     """linearize_moe_layer should replace the fused experts module in the model."""
     model, experts, config = _make_qwen3_moe_model()
-    moe_lookup = {module: name for name, module in get_non_linearized_moes(model)}
-
-    assert len(moe_lookup) == 1
     subgraph_modules = [experts]
 
-    linearized = linearize_moe_layer(model, subgraph_modules, moe_lookup)
+    linearized = linearize_moe_layer(model, subgraph_modules)
     assert len(linearized) == 1
 
     new_module = model.layer.mlp.experts
@@ -86,8 +80,7 @@ def test_linearize_moe_layer_output_matches():
 
     true_outputs = experts(*inputs)
 
-    moe_lookup = {module: name for name, module in get_non_linearized_moes(model)}
-    linearize_moe_layer(model, [experts], moe_lookup)
+    linearize_moe_layer(model, [experts])
 
     outputs = model(*inputs)
     with moe_calibration_context():
@@ -100,12 +93,11 @@ def test_linearize_moe_layer_output_matches():
 
 @torch.no_grad()
 def test_linearize_moe_layer_skips_non_moe():
-    """Modules not in moe_lookup should be ignored."""
+    """Modules not in the MoE lookup should be ignored."""
     model, experts, config = _make_qwen3_moe_model()
-    moe_lookup = {module: name for name, module in get_non_linearized_moes(model)}
 
     non_moe_module = torch.nn.Linear(16, 16)
-    linearized = linearize_moe_layer(model, [non_moe_module], moe_lookup)
+    linearized = linearize_moe_layer(model, [non_moe_module])
     assert len(linearized) == 0
     assert model.layer.mlp.experts is experts
 
@@ -115,9 +107,8 @@ def test_linearize_moe_layer_deferred_offloading():
     """With setup_offloading=False (via linearize_moe_layer), offloading should
     not be set up on the new module. The caller is responsible for that."""
     model, experts, config = _make_qwen3_moe_model()
-    moe_lookup = {module: name for name, module in get_non_linearized_moes(model)}
 
-    linearized = linearize_moe_layer(model, [experts], moe_lookup)
+    linearized = linearize_moe_layer(model, [experts])
     new_module, offload_kwargs = linearized[0]
 
     for submodule in new_module.modules():
@@ -132,8 +123,7 @@ def test_linearize_moe_layer_returns_offload_kwargs():
     model, experts, config = _make_qwen3_moe_model()
     original_kwargs = get_cache_init_kwargs(experts)
 
-    moe_lookup = {module: name for name, module in get_non_linearized_moes(model)}
-    linearized = linearize_moe_layer(model, [experts], moe_lookup)
+    linearized = linearize_moe_layer(model, [experts])
     _, returned_kwargs = linearized[0]
 
     assert returned_kwargs == original_kwargs
@@ -209,16 +199,15 @@ def test_view_based_parameter_assignment():
 @torch.no_grad()
 def test_linearize_moe_layer_idempotent():
     """Calling linearize_moe_layer twice should be a no-op the second time,
-    since the first call removes the module from the moe_lookup."""
+    since the cached lookup maps the original (now-replaced) module."""
     model, experts, config = _make_qwen3_moe_model()
-    moe_lookup = {module: name for name, module in get_non_linearized_moes(model)}
 
-    linearized_1 = linearize_moe_layer(model, [experts], moe_lookup)
+    linearized_1 = linearize_moe_layer(model, [experts])
     assert len(linearized_1) == 1
 
     new_module = model.layer.mlp.experts
     all_modules = list(model.modules())
-    linearized_2 = linearize_moe_layer(model, all_modules, moe_lookup)
+    linearized_2 = linearize_moe_layer(model, all_modules)
     assert len(linearized_2) == 0
     assert model.layer.mlp.experts is new_module
 
@@ -230,7 +219,10 @@ def test_load_quantizable_moe_fallback_does_not_linearize():
     from compressed_tensors.utils import patch_attr
 
     from llmcompressor.modeling.moe import conversion_mappings
-    from llmcompressor.modeling.moe.linearize import load_quantizable_moe
+    from llmcompressor.modeling.moe.linearize import (
+        get_non_linearized_moes,
+        load_quantizable_moe,
+    )
 
     with patch_attr(conversion_mappings, "ARCH_TO_2D_MAPPINGS", []):
         with load_quantizable_moe():

@@ -11,10 +11,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.moe.linearize import (
-    get_non_linearized_moes,
-    linearize_moe_layer,
-)
+from llmcompressor.modeling.moe.linearize import linearize_moe_layer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -141,10 +138,6 @@ class SequentialPipeline(CalibrationPipeline):
             sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
             session.state.sequential_prefetch = sequential_prefetch
 
-            moe_lookup = {
-                module: name for name, module in get_non_linearized_moes(model)
-            }
-
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
@@ -156,7 +149,7 @@ class SequentialPipeline(CalibrationPipeline):
                     # linearize moe layers just before calibration,
                     # deferring offloading setup until after compression
                     linearized = linearize_moe_layer(
-                        model, subgraph.submodules(model), moe_lookup
+                        model, subgraph.submodules(model)
                     )
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(

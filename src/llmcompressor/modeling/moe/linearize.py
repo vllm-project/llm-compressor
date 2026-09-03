@@ -25,7 +25,6 @@ from .conversion_mappings import (
 )
 from .linear_experts import LinearExperts2D
 
-
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
@@ -55,7 +54,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         model_type = config.model_type
 
         # load model in 3D format — linearization is deferred to the
-        # sequential pipeline for efficient per-subgraph conversion
+        # pipeline for efficient per-subgraph conversion
         model = original_from_pretrained(*args, **kwargs)
 
         # set up save mappings so saving after pipeline linearization
@@ -130,10 +129,17 @@ def get_non_linearized_moes(
     ]
 
 
+def _get_moe_lookup(model: torch.nn.Module) -> dict[torch.nn.Module, str]:
+    if not hasattr(model, "_moe_lookup"):
+        model._moe_lookup = {
+            module: name for name, module in get_non_linearized_moes(model)
+        }
+    return model._moe_lookup
+
+
 def linearize_moe_layer(
     model: PreTrainedModel,
     subgraph_modules: list[torch.nn.Module],
-    moe_lookup: dict[torch.nn.Module, str],
 ) -> list[tuple[torch.nn.Module, dict]]:
     """
     Linearize MoE layers within a subgraph during sequential calibration.
@@ -141,11 +147,16 @@ def linearize_moe_layer(
 
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
-    :param moe_lookup: pre-computed mapping of MoE module -> name in model
     :return: list of (new LinearExperts2D module, offload kwargs from original)
     """
     subgraph_set = set(subgraph_modules)
-    non_linearized = [(moe_lookup[m], m) for m in moe_lookup if m in subgraph_set]
+    moe_lookup = _get_moe_lookup(model)
+
+    non_linearized = [
+        (moe_lookup[module], module)
+        for module in subgraph_set
+        if module in moe_lookup
+    ]
 
     linearized = []
     for name, module in non_linearized:
