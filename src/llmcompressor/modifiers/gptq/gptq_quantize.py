@@ -250,11 +250,11 @@ def quantize_weight(
     return W.to(final_dtype), losses.sum(dim=1), used_rtn_fallback
 
 
-def _fused_kernel_params(
+def _get_fused_gptq_config(
     quant_args: QuantizationArgs,
 ) -> tuple[int, float, float] | None:
     """
-    Resolve fused-kernel quantization parameters, or None if the scheme is not
+    Resolve fused GPTQ kernel configuration, or None if the scheme is not
     supported by the fused kernel.
     """
     if quant_args.strategy in (
@@ -404,7 +404,7 @@ def _gptq_block_update_triton_req(
     return (
         triton_req(W1)
         and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
-        and _fused_kernel_params(quant_args) is not None
+        and _get_fused_gptq_config(quant_args) is not None
         and 0 < block_width <= 256
         # Check that GPTQ block width is a power of two.
         and not block_width & (block_width - 1)
@@ -427,15 +427,15 @@ def _gptq_block_update_triton(
     i1: int,
 ) -> None:
     """Run one GPTQ block with the registered Triton backend."""
-    params = _fused_kernel_params(quant_args)
-    if params is None:
+    kernel_config = _get_fused_gptq_config(quant_args)
+    if kernel_config is None:
         raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
 
     block_width = W1.shape[-1]
     if block_width > 256 or block_width & (block_width - 1):
         raise ValueError("Triton GPTQ block width must be a power of two <= 256")
 
-    quant_type, q_min, q_max = params
+    quant_type, q_min, q_max = kernel_config
     eff, zp = _column_scale_window(
         scale,
         zero_point,
