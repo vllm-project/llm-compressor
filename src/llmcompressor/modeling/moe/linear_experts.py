@@ -148,6 +148,10 @@ class LinearExperts2D(torch.nn.ModuleList):
     has_gate: ClassVar[bool]
     _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]]
 
+    # override when the generic gate_up_proj split does not fit the model
+    expert_cls_with_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithGate
+    expert_cls_without_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithoutGate
+
     num_experts: int
     intermediate_size: int
 
@@ -158,6 +162,7 @@ class LinearExperts2D(torch.nn.ModuleList):
     def get_registration(
         cls, key: type[torch.nn.Module], default: Any = None
     ) -> type["LinearExperts2D"]:
+        from .gpt_oss import GptOssLinearExperts  # noqa: F401
         from .llama4 import Llama4LinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
@@ -209,7 +214,9 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.intermediate_size = moe_config.intermediate_size
         act_fn: torch.nn.Module = ACT2FN[moe_config.hidden_act]
 
-        expert_cls = ExpertMLPWithGate if self.has_gate else ExpertMLPWithoutGate
+        expert_cls = (
+            self.expert_cls_with_gate if self.has_gate else self.expert_cls_without_gate
+        )
         post_up_fn = self._apply_gate if self.has_gate else act_fn.forward
         super().__init__(
             [
