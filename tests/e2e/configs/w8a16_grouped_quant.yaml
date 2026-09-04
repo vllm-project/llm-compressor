@@ -2,4 +2,6 @@ cadence: "nightly"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 scheme: W8A16
 dataset_id: perfectblend
+dataset_split: "train[:512]"
+num_calibration_samples: 512
 quant_type: "GPTQ"

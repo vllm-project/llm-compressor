@@ -18,6 +18,7 @@ recipe = GPTQModifier(targets="Linear", scheme="MXFP4A16", ignore=["lm_head"])
 oneshot(
     model=model,
     dataset="perfectblend",
+    splits="train[:512]",
     recipe=recipe,
     max_seq_length=2048,
     num_calibration_samples=512,
