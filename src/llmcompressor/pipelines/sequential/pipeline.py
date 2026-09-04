@@ -157,7 +157,19 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
+                    # Expose activations and subgraph context so modifiers can
+                    # read cached tensors during sequential_epoch_end callbacks.
+                    session.state.activations = activations
+                    session.state.next_subgraph_input_names = (
+                        subgraphs[subgraph_index + 1].input_names
+                        if subgraph_index < num_subgraphs - 1
+                        else None
+                    )
+
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+
+                    session.state.activations = None
+                    session.state.next_subgraph_input_names = None
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks

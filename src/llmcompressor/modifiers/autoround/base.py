@@ -23,7 +23,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 from torch.utils._pytree import tree_map
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import Event, State, active_session
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.autoround.utils import (
     fix_attention_mask,
@@ -155,8 +155,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     :param iters: number of tuning iterations per block (decoding layer). Higher values
         typically improve accuracy at the cost of longer tuning time. Defaults to 200.
     :param enable_torch_compile: whether to enable `torch.compile` to accelerate the
-        tuning loop. Disable if your environment or model encounters compilation issues.
-        Defaults to True.
+        tuning loop. Defaults to True. **Disable for multi-GPU DDP with large models**:
+        per-rank compilation time can vary by 10+ minutes on 100B+ models, causing other
+        ranks to time out on NCCL collectives while waiting for the slow rank.
     :param batch_size: calibration/tuning batch size used by AutoRound when optimizing
         rounding/clipping parameters. Larger values can improve stability but require
         more memory. Defaults to 8.
@@ -380,12 +381,41 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # per-batch CPU->GPU transfer automatically.
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
+            # Read FP16 reference outputs from IntermediatesCache if pipeline
+            # exposed them in state. Skips collect_reference (~39 GB CPU RAM/rank).
+            _state = active_session().state
+            _activations = getattr(_state, "activations", None)
+            _next_names = getattr(_state, "next_subgraph_input_names", None)
+            _fp_ref = None
+            if _activations is not None and _next_names is not None:
+                _HIDDEN_STATE_KEYS = {"hidden_states", "inputs_embeds"}
+                _sorted_names = sorted(
+                    _next_names, key=lambda n: n not in _HIDDEN_STATE_KEYS
+                )
+                _refs = []
+                _num_batches = min(
+                    len(cur_inputs), len(_activations.batch_intermediates)
+                )
+                for _b in range(_num_batches):
+                    _batch = _activations.batch_intermediates[_b]
+                    for _name in _sorted_names:
+                        if _name in _batch:
+                            _v = _batch[_name].value
+                            if isinstance(_v, torch.Tensor) and (
+                                _name in _HIDDEN_STATE_KEYS or _v.ndim == 3
+                            ):
+                                _refs.append(_v)
+                                break
+                if len(_refs) == len(cur_inputs):
+                    _fp_ref = _refs
+
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=ar_inputs,
                 q_input=self._q_input,
                 device=str(device),
                 auto_offload=auto_offload,
+                reference_output=_fp_ref,
             )
             self._q_input = q_input
 
