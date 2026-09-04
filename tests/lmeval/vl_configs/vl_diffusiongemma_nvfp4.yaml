@@ -1,0 +1,19 @@
+cadence: "nightly"
+model: google/diffusiongemma-26B-A4B-it
+model_class: DiffusionGemmaForBlockDiffusion
+recipe: tests/e2e/recipes/NVFP4/recipe_diffusiongemma_nvfp4.yaml
+dataset_id: neuralmagic/calibration
+dataset_config: LLM
+dataset_split: "train"
+num_calibration_samples: 256
+lmeval:
+  model: vllm-vlm
+  task: chartqa
+  apply_chat_template: True
+  add_bos_token: False
+  num_fewshot: 0
+  max_model_len: 128000
+  metrics:
+    exact_match,none: 0.53
+    relaxed_accuracy,none: 0.75
+    anywhere_accuracy,none: 0.79

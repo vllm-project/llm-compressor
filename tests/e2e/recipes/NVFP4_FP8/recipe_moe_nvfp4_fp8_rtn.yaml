@@ -1,0 +1,47 @@
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      ignore: ["re:.*lm_head", "re:model.visual.*", "re:.*mlp.gate$", "re:.*embed_tokens$", "re:.*shared_expert_gate$", "re:.*linear_attn.*"]
+      actorder: "weight"
+      config_groups:
+        group_nvfp4:
+          weights:
+            num_bits: 4
+            type: float
+            strategy: tensor_group
+            dynamic: false
+            symmetric: true
+            group_size: 16
+            scale_dtype: float8_e4m3fn
+            zp_dtype: float8_e4m3fn
+          input_activations:
+            num_bits: 4
+            type: float
+            strategy: tensor_group
+            dynamic: local
+            symmetric: true
+            group_size: 16
+            scale_dtype: float8_e4m3fn
+            zp_dtype: float8_e4m3fn
+          targets:
+            - "re:.*experts.*\\.(gate|up|down)_proj$"
+            - "re:.*shared_expert\\.(gate|up|down)_proj$"
+        group_fp8_block:
+          weights:
+            num_bits: 8
+            type: float
+            strategy: block
+            block_structure: [128, 128]
+            dynamic: false
+            symmetric: true
+            zp_dtype: float8_e4m3fn
+          input_activations:
+            num_bits: 8
+            type: float
+            strategy: group
+            group_size: 128
+            dynamic: true
+            symmetric: true
+            zp_dtype: float8_e4m3fn
+          targets:
+            - "re:.*self_attn\\.(k|o|q|v)_proj$"
