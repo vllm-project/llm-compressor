@@ -297,6 +297,17 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
+    streaming_release: str = field(
+        default="cpu",
+        metadata={
+            "help": "Only relevant for the streaming pipeline. Device to release "
+            "weights to after each subgraph is calibrated. 'cpu' keeps (possibly "
+            "modifier-updated) weights in host memory; 'meta' drops "
+            "checkpoint-backed weights, keeping host memory flat for models "
+            "larger than RAM. 'meta' is only valid when no modifier mutates "
+            "weights. Default is 'cpu'."
+        },
+    )
     enable_compile: bool = field(
         default=False,
         metadata={
