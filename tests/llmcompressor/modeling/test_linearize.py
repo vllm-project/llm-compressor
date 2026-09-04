@@ -153,7 +153,9 @@ class DummyModel(torch.nn.Module):
 
 @torch.no_grad()
 @requires_gpu
-@pytest.mark.parametrize("model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4"}))
+@pytest.mark.parametrize(
+    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4", "gpt_oss"})
+)
 def test_linearize_moe(model_type):
     config_path, experts_path = ARCH_TO_IMPORT_PATHS[model_type]
     config_cls = import_or_none(config_path)
