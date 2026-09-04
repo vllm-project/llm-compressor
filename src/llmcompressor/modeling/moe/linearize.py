@@ -163,7 +163,7 @@ def linearize_moe_layer(
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(
-            module, config, setup_offloading=False
+            module, config
         )
         model.set_submodule(name, linear_moe)
         linearized.append((linear_moe, offload_kwargs))
