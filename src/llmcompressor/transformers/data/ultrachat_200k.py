@@ -20,6 +20,9 @@ class UltraChatDataset(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
+    # ultrachat_200k ships train_sft/test_sft/train_gen/test_gen splits
+    DEFAULT_SPLIT = "train_sft"
+
     DEFAULT_CHAT_TEMPLATE = (
         "{% for message in messages %}\n"
         "{% if message['role'] == 'user' %}\n"
