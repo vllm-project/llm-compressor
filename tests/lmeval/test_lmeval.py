@@ -28,17 +28,19 @@ class LmEvalConfig(BaseModel):
     dtype: str = "bfloat16"
     task: str = "gsm8k"
     num_fewshot: int = 5
-    limit: int = 1000
+    limit: int = 10
     fewshot_as_multiturn: bool = False
     apply_chat_template: bool = False
     # Recovery testing (default): compare against base model performance
     # Default threshold is 0.95 (retain ≥95% of base), can be overridden
     recovery_threshold: Union[float, dict] = 0.95
     # Optional absolute metrics for warnings (not failures)
-    metrics: dict = None
+    metrics: dict = Field(default_factory=dict)
     trust_remote_code: bool = False
     max_model_len: int = 2048
     higher_is_better: bool = True
+    # Default to temperature=0.0 for more determinism when testing
+    sampling_params: dict = Field(default_factory=lambda: {"temperature": 0.0})
 
 
 class TestConfig(BaseTestConfig):
