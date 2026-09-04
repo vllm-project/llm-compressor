@@ -1,0 +1,72 @@
+name: Submit Quantized Checkpoint
+description: Submit a community-quantized model checkpoint for inclusion in RedHatAI
+title: "Submit: "
+labels: ["checkpoint-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing a quantized checkpoint! Please fill out the details below.
+        See the [Priority Quantization Checkpoints](../../issues/3088) issue for the full contribution guide.
+
+  - type: input
+    id: hf_model_url
+    attributes:
+      label: HuggingFace Model URL
+      description: Link to your quantized model on HuggingFace
+      placeholder: https://huggingface.co/your-username/Model-Name-FP8-dynamic
+    validations:
+      required: true
+
+  - type: input
+    id: base_model
+    attributes:
+      label: Base Model
+      description: The HuggingFace ID of the original model this was quantized from
+      placeholder: meta-llama/Llama-3.1-8B-Instruct
+    validations:
+      required: true
+
+  - type: dropdown
+    id: quant_method
+    attributes:
+      label: Quantization Method
+      options:
+        - FP8 Dynamic
+        - FP8 Block
+        - NVFP4
+        - MXFP4
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: tool_version
+    attributes:
+      label: llm-compressor Version
+      description: Version of llm-compressor used for quantization
+      placeholder: v0.5.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: eval_results
+    attributes:
+      label: Evaluation Results
+      description: |
+        Accuracy benchmarks comparing the quantized model to the base model.
+        Include at least one of: lm-eval, vLLM benchmarks, or other standard evals.
+      placeholder: |
+        | Benchmark | Base | Quantized | Delta |
+        |-----------|------|-----------|-------|
+        | MMLU      | 75.2 | 74.8      | -0.4  |
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_info
+    attributes:
+      label: Additional Information
+      description: Calibration dataset used, hardware, any known limitations, etc.
+    validations:
+      required: false
