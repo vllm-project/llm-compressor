@@ -2,6 +2,8 @@ cadence: ["nightly", "weekly"]
 model: meta-llama/Meta-Llama-3-8B-Instruct
 recipe: tests/e2e/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
 dataset_id: perfectblend
+dataset_split: "train[:512]"
+num_calibration_samples: 512
 lmeval:
   metrics:
     exact_match,flexible-extract: 0.75

@@ -2,6 +2,7 @@ cadence: ["nightly", "weekly"]
 model: meta-llama/Llama-3.1-8B-Instruct
 scheme: NVFP4
 dataset_id: perfectblend
+dataset_split: "train[:20]"
 seed: 100
 num_calibration_samples: 20
 lmeval:

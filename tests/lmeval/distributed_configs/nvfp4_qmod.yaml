@@ -2,6 +2,7 @@ cadence: ["nightly", "weekly"]
 model: Qwen/Qwen3-8B
 scheme: NVFP4
 dataset_id: perfectblend
+dataset_split: "train[:256]"
 num_calibration_samples: 256
 lmeval:
   task: gsm8k

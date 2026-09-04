@@ -28,6 +28,7 @@ start = time.perf_counter()
 oneshot(
     model=model,
     dataset="perfectblend",
+    splits="train[:512]",
     recipe=None,
     pipeline="sequential",
     sequential_prefetch=True,

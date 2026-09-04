@@ -289,6 +289,7 @@ Use the shared template at `.claude/skills/templates/oneshot_with_data.py` as th
   oneshot(
       model=model,
       dataset="perfectblend",
+      splits="train[:512]",
       recipe=recipe,
       max_seq_length=MAX_SEQUENCE_LENGTH,
       num_calibration_samples=NUM_CALIBRATION_SAMPLES,

@@ -97,6 +97,7 @@ def _run_single_gpu(
     oneshot(
         model=model,
         dataset="perfectblend",
+        splits="train[:512]",
         recipe=recipe,
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
@@ -255,6 +256,7 @@ def _test_ddp_modifier(
     oneshot(
         model=model,
         dataset="perfectblend",
+        splits="train[:512]",
         recipe=recipe_factory(),
         num_calibration_samples=NUM_SAMPLES,
         max_seq_length=MAX_SEQ_LENGTH,

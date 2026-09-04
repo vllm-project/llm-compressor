@@ -41,6 +41,7 @@ num_experts = getattr(model.config, "n_routed_experts", 384)
 oneshot(
     model=model,
     dataset="perfectblend",
+    splits="train[:512]",
     batch_size=4,
     recipe=recipe,
     max_seq_length=2048,
