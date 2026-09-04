@@ -13,7 +13,12 @@ from loguru import logger
 
 GPTQ_PRECISION = torch.float32
 
-__all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
+__all__ = [
+    "make_empty_hessian",
+    "accumulate_hessian",
+    "quantize_weight",
+    "quantize_weight_lut_b",
+]
 
 
 def make_empty_hessian(
@@ -251,6 +256,153 @@ def quantize_weight(
     }
     if global_scale:
         q_param_dict["weight_global_scale"] = global_scale.to(dtype=final_dtype)
+    return (loss, q_param_dict, used_rtn_fallback)
+
+
+def quantize_weight_lut_b(
+    module: torch.nn.Module,
+    quant_args: QuantizationArgs,
+    hessian: torch.Tensor,
+    blocksize: int = 128,
+    percdamp: float = 0.01,
+) -> tuple[float, dict[str, torch.Tensor], bool]:
+    """
+    Quantize a module weight according to the GPTQ algorithm using a non-uniform
+    LUT-B codebook rather than a uniform scale/zero-point grid.
+
+    Unlike :func:`quantize_weight`, this routine does not use observers. A per-tile
+    codebook is fit once from the original (unquantized) weight using the
+    compressed-tensors LUT-B primitives, and each column is snapped to its tile's
+    nearest codebook center during the GPTQ error-compensation loop. Because the
+    final weight only takes on E4M3 center values, the LUT-B compressor can recover
+    an identical codebook at save time, so no separate ``weight_codebook`` parameter
+    needs to be produced here.
+
+    :param module: module with weight being quantized
+    :param quant_args: quantization arguments describing the LUT-B scheme
+    :param hessian: preaccumulated hessian for quantization
+    :param blocksize: chunk size of quantization updates
+    :param percdamp: dampening factor on hessian diagonal
+    :return: loss, q_param_dict (with key: weight), used_rtn_fallback (True if
+        hessian inversion failed and the module was quantized with round-to-nearest)
+    """
+    # local import: these are compressed-tensors LUT-B internals used to build the
+    # non-uniform codebook, the intended integration point for calibration-aware
+    # codebook creation (see quantize_lut_b docstring).
+    from compressed_tensors.quantization.utils.lut_b import (
+        LUT_B_LLOYD_ITERATIONS,
+        _fit_codebooks,
+        _weight_to_tiles,
+        is_lut_b_quantization,
+    )
+
+    if not is_lut_b_quantization(quant_args):
+        raise ValueError(
+            "quantize_weight_lut_b requires a canonical LUT-B quantization scheme "
+            f"(codebook type, num_bits=3, block strategy), got {quant_args}"
+        )
+    if quant_args.actorder:
+        raise NotImplementedError(
+            "Activation ordering is not supported for LUT-B GPTQ; the 2D block "
+            "tiling requires contiguous columns. Unset `actorder`."
+        )
+
+    final_shape = module.weight.shape
+    final_dtype = module.weight.dtype
+    W = module.weight.clone().to(dtype=GPTQ_PRECISION)
+    H = hessian
+    num_rows, num_columns = W.shape
+    block_n, block_k = quant_args.block_structure
+    codebook_size = 1 << quant_args.num_bits
+
+    # Fit one codebook per tile from the original weight (data-free, no observers).
+    # centers: [num_tiles, codebook_size] E4M3 -> [row_tiles, column_tiles, cb] fp32
+    tiles = _weight_to_tiles(W, quant_args)
+    _, centers = _fit_codebooks(tiles, quant_args, LUT_B_LLOYD_ITERATIONS)
+    row_tiles = num_rows // block_n
+    column_tiles = num_columns // block_k
+    centers = centers.to(torch.float32).reshape(row_tiles, column_tiles, codebook_size)
+
+    # map each output row to its row-tile so we can gather per-row centers per column
+    row_block = torch.arange(num_rows, device=W.device) // block_n
+
+    losses = torch.zeros(num_rows, device=W.device)
+
+    # mask dead hessian values
+    dead = torch.diag(H) == 0
+    H[dead, dead] = 1
+    W[:, dead] = 0
+
+    # compute inverse hessian in place to save memory
+    used_rtn_fallback = False
+    try:
+        damp = percdamp * torch.mean(torch.diag(H))
+        diag = torch.arange(H.shape[0], device=H.device)
+        H[diag, diag] += damp
+        H = torch.linalg.cholesky(H)
+        H = torch.cholesky_inverse(H)
+        H = torch.linalg.cholesky(H, upper=True)
+        Hinv = H
+    except torch._C._LinAlgError:
+        logger.warning(
+            "Failed to invert hessian due to numerical instability. Consider "
+            "increasing GPTQModifier.dampening_frac, increasing the number "
+            "of calibration samples, or shuffling the calibration dataset. "
+            "Falling back to round-to-nearest for this module."
+        )
+        used_rtn_fallback = True
+        Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
+
+    # cache the per-row center table for the current column-block
+    cur_cb = -1
+    cvals = None
+
+    # See section 3.4 of https://arxiv.org/abs/2203.07259
+    for i1 in range(0, num_columns, blocksize):
+        i2 = min(i1 + blocksize, num_columns)
+        count = i2 - i1
+
+        W1 = W[:, i1:i2].clone()
+        Q1 = torch.zeros_like(W1)
+        Err1 = torch.zeros_like(W1)
+        losses1 = torch.zeros_like(W1)
+        Hinv1 = Hinv[i1:i2, i1:i2]
+
+        for i in range(count):
+            w = W1[:, i]
+            d = Hinv1[i, i]
+            column_idx = i1 + i
+
+            # gather this column-block's per-row centers: [num_rows, codebook_size]
+            cb = column_idx // block_k
+            if cb != cur_cb:
+                cvals = centers[row_block, cb]
+                cur_cb = cb
+
+            # quantize column: snap each row to its tile's nearest codebook center
+            nearest = (w.unsqueeze(1) - cvals).abs().argmin(dim=1)
+            q = cvals.gather(1, nearest.unsqueeze(1)).squeeze(1)
+
+            # propagate column error
+            Q1[:, i] = q
+            losses1[:, i] = (w - q) ** 2 / d**2
+
+            err1 = (w - q) / d
+            w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
+            W1[:, i:] -= w1_err
+            Err1[:, i] = err1
+
+        # propagate block error
+        W[:, i1:i2] = Q1
+        losses += torch.sum(losses1, 1) / 2
+
+        w_err = Err1.matmul(Hinv[i1:i2, i2:])
+        W[:, i2:] -= w_err
+
+    W = W.reshape(final_shape).to(final_dtype)
+
+    loss = torch.sum(losses).item()
+    q_param_dict = {"weight": W}
     return (loss, q_param_dict, used_rtn_fallback)
 
 

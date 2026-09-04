@@ -1,4 +1,5 @@
 import contextlib
+from typing import ClassVar
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
@@ -121,6 +122,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     requires_calibration_data: bool = True
+
+    # quantization parameters produced per module, broadcast to all ranks after
+    # compression in the distributed path. Subclasses producing a different set
+    # of parameters (e.g. codebook-based schemes) override this.
+    _q_param_names: ClassVar[list[str]] = _GPTQ_Q_PARAMS
 
     # gptq modifier arguments
     block_size: int = 128
@@ -295,7 +301,21 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self.compress_module_list(rank_to_modules[rank])
 
         # broadcast compressed modules to each rank
-        broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
+        broadcast_qparams_and_cleanup(module_list, module_to_rank, self._q_param_names)
+
+    def _quantize_weight(self, module, quant_args, hessian):
+        """
+        Run the weight quantization algorithm for a single calibrated module.
+        Subclasses override this to swap in a different quantization routine
+        (e.g. codebook fitting) while reusing the surrounding bookkeeping.
+        """
+        return quantize_weight(
+            module=module,
+            quant_args=quant_args,
+            hessian=hessian,
+            blocksize=self.block_size,
+            percdamp=self.dampening_frac,
+        )
 
     def compress_module_list(self, module_list):
         for module in module_list:
@@ -310,12 +330,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                loss, q_param_dict, used_rtn_fallback = quantize_weight(
+                loss, q_param_dict, used_rtn_fallback = self._quantize_weight(
                     module=module,
                     quant_args=quant_args,
                     hessian=self._hessians.pop(module) / self._num_samples.pop(module),
-                    blocksize=self.block_size,
-                    percdamp=self.dampening_frac,
                 )
                 comp_logger.set_results(name="GPTQ", loss=loss)
 
