@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: ["nightly", "weekly"]
 model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
 recipe: tests/e2e/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
