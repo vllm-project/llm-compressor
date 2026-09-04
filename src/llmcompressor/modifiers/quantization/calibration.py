@@ -7,6 +7,7 @@ from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
     QuantizationStatus,
+    QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import (
@@ -62,6 +63,11 @@ def initialize_observer(
     if args is None or args.dynamic is True:
         return
 
+    # codebook (e.g. LUT-B) quantization fits its codebook at compression time
+    # and does not use scale/zero-point observers
+    if args.type == QuantizationType.CODEBOOK:
+        return
+
     observer = args.observer
     if observer is None:
         observer = "memoryless_minmax" if base_name == "weight" else "minmax"
@@ -82,7 +88,7 @@ def initialize_observer(
             log_once=True,
         )
 
-    if args is not None and args.dynamic is not True:
+    if args is not None and args.dynamic is not True and observer is not None:
         observer = Observer.load_from_registry(observer, base_name=base_name, args=args)
         module.register_module(f"{base_name}_observer", observer)
         observer.attach(module)
