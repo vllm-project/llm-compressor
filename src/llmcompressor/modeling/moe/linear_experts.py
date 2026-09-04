@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -194,7 +193,9 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
     ):
         with skip_weights_initialize():
             self = cls(config)
@@ -202,11 +203,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
             expert.copy_from_experts_module(experts, index)
-
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
 
         return self
 

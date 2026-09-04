@@ -5,6 +5,7 @@ from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
+from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.utils.dev import get_main_device
 
@@ -33,6 +34,8 @@ class DataFreePipeline(CalibrationPipeline):
         # we want those ops to occur on the GPU
         onload_device = get_main_device()
         set_onload_device(model, onload_device)
+
+        linearize_moe(model)
 
         LifecycleCallbacks.calibration_start()
         LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
