@@ -14,7 +14,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import MinMaxTuple, Observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["IMatrixMSEObserver"]
+__all__ = ["IMatrixMSEObserver", "NVFP4ExpandedIMatrixObserver"]
 
 _GROUP_STRATEGIES = (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
 
@@ -48,6 +48,9 @@ class IMatrixMSEObserver(Observer):
         self.patience = kw.get("patience", 5)
         self.grid = kw.get("grid", 20)
         self.norm = kw.get("norm", 3.0)
+        self.expand = kw.get("expand", 1.0)
+        self.temperature = kw.get("temperature", 1.0)
+        self.imp_clip = kw.get("imp_clip", 0.0)
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
 
@@ -145,7 +148,11 @@ class IMatrixMSEObserver(Observer):
             return None
 
         imp = imp.to(device=observed.device, dtype=torch.float32)
+        if self.temperature != 1.0:
+            imp = imp.pow(self.temperature)
         imp = imp / (imp.mean() + torch.finfo(torch.float32).tiny)
+        if self.imp_clip > 0:
+            imp = imp.clamp(max=self.imp_clip)
 
         out_features = observed.shape[1]
         imp_2d = imp.unsqueeze(0).expand(out_features, -1)
@@ -268,12 +275,6 @@ def _grid_search(
     using FP32 scales. After optimization, global_scale is computed from the final
     min/max values in get_qparams().
     """
-    if (
-        args.strategy == QuantizationStrategy.TENSOR_GROUP
-        and args.scale_dtype is not None
-    ):
-        args = args.model_copy(update={"scale_dtype": None})
-
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
     best_error = torch.full(

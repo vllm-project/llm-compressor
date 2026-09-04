@@ -2,6 +2,7 @@ import warnings
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization.utils import generate_gparam
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
@@ -29,6 +30,16 @@ class MemorylessMSEObserver(Observer):
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
         self.expand = observer_kwargs.get("expand", 1.0)
+        gs_prior = observer_kwargs.get("gs_prior", None)
+        if gs_prior is not None:
+            self._gs_prior_scale = gs_prior["scale"]
+            self._gs_prior_fuse = gs_prior.get("fuse", True)
+            self._gs_prior_use_as_final = gs_prior.get("use_as_final", False)
+        else:
+            self._gs_prior_scale = None
+            self._gs_prior_fuse = True
+            self._gs_prior_use_as_final = False
+        self._gs_prior_value = None
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
         if self.expand < 1.0:
@@ -40,7 +51,30 @@ class MemorylessMSEObserver(Observer):
             update={"strategy": QuantizationStrategy.TOKEN}
         )
 
+    def _compute_approx_global_scale(
+        self, observed: torch.Tensor
+    ) -> torch.Tensor | None:
+        if (
+            self._gs_prior_scale is None
+            or self.args.strategy != QuantizationStrategy.TENSOR_GROUP
+        ):
+            return None
+
+        absmax = observed.abs().max()
+        if self._gs_prior_fuse:
+            for handler in self.fusion_handler._group:
+                mod = handler.module
+                if mod is not None:
+                    absmax = torch.max(absmax, mod.weight.abs().max())
+
+        absmax = absmax * self._gs_prior_scale
+        absmax = torch.clamp(absmax, min=torch.finfo(absmax.dtype).tiny)
+        return generate_gparam(-absmax.reshape(1), absmax.reshape(1))
+
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
+        gs_prior = self._compute_approx_global_scale(observed)
+        if self._gs_prior_use_as_final and gs_prior is not None:
+            self._gs_prior_value = gs_prior
         self.min_vals, self.max_vals = _grid_search_mse(
             observed,
             self.args,
@@ -51,7 +85,13 @@ class MemorylessMSEObserver(Observer):
             self.norm,
             self.chunk_size,
             self.expand,
+            global_scale=gs_prior,
         )
+
+    def get_global_scale(self):
+        if self._gs_prior_use_as_final and self._gs_prior_value is not None:
+            return self._gs_prior_value
+        return super().get_global_scale()
 
 
 @Observer.register("mse")

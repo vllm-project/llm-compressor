@@ -1,0 +1,5 @@
+.venv/
+*.log
+.env
+__pycache__/
+*.png
