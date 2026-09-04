@@ -29,20 +29,8 @@ from collections.abc import Callable
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.transform.spinquant.mappings import (
-    SPINQUANT_MAPPING_REGISTRY,
-    SpinQuantMapping,
-)
-from llmcompressor.modifiers.transform.spinquant.mappings import (
-    _default_mappings as _default_spinquant_mappings,
-)
-from llmcompressor.modifiers.transform.spinquant.norm_mappings import (
-    NORM_MAPPING_REGISTRY,
-    NormMapping,
-)
-from llmcompressor.modifiers.transform.spinquant.norm_mappings import (
-    _default_mappings as _default_norm_mappings,
-)
+from llmcompressor.modifiers.transform.spinquant.mappings import SpinQuantMapping
+from llmcompressor.modifiers.transform.spinquant.norm_mappings import NormMapping
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
     detect_linear_attn_projections,
     get_hybrid_attention_config,
@@ -51,60 +39,7 @@ from llmcompressor.modifiers.transform.utils.hybrid_attention import (
 __all__ = [
     "SPINQUANT_DYNAMIC_MAPPING_REGISTRY",
     "NORM_DYNAMIC_MAPPING_REGISTRY",
-    "get_spinquant_mapping_from_model",
-    "get_norm_mapping_from_model",
 ]
-
-
-def get_spinquant_mapping_from_model(model: Module) -> SpinQuantMapping:
-    """
-    Infer a SpinQuantMapping from a model. Checks the dynamic mapping registry
-    first (for models needing runtime-generated mappings), then falls back to
-    the static registry, then to default mappings.
-
-    :param model: the model to infer mappings for
-    :return: SpinQuantMapping for the model
-    """
-    architecture = model.__class__.__name__
-
-    if architecture in SPINQUANT_DYNAMIC_MAPPING_REGISTRY:
-        mapping = SPINQUANT_DYNAMIC_MAPPING_REGISTRY[architecture](model)
-        if mapping is not None:
-            return mapping
-
-    if architecture in SPINQUANT_MAPPING_REGISTRY:
-        return SPINQUANT_MAPPING_REGISTRY[architecture]
-
-    logger.info(
-        f"Architecture {architecture} not found in mappings. "
-        f"Using default mappings: {_default_spinquant_mappings}"
-    )
-    return _default_spinquant_mappings
-
-
-def get_norm_mapping_from_model(model: Module) -> list[NormMapping]:
-    """
-    Infer norm mappings from a model. Checks the dynamic norm mapping registry
-    first, then falls back to the static registry, then to default mappings.
-
-    :param model: the model to infer norm mappings for
-    :return: list of NormMapping for the model
-    """
-    architecture = model.__class__.__name__
-
-    if architecture in NORM_DYNAMIC_MAPPING_REGISTRY:
-        mappings = NORM_DYNAMIC_MAPPING_REGISTRY[architecture](model)
-        if mappings is not None:
-            return mappings
-
-    if architecture in NORM_MAPPING_REGISTRY:
-        return NORM_MAPPING_REGISTRY[architecture]
-
-    logger.info(
-        f"Architecture {architecture} not found in norm mappings. "
-        f"Using default norm mappings: {_default_norm_mappings}"
-    )
-    return _default_norm_mappings
 
 
 def build_qwen3_5_spinquant_mapping(model: Module) -> SpinQuantMapping | None:
@@ -155,11 +90,9 @@ def build_qwen3_5_norm_mappings(model: Module) -> list[NormMapping] | None:
     if result is None:
         return None
 
-    layer_types, num_layers = result
-    full_indices = [i for i in range(num_layers) if layer_types[i] == "full_attention"]
-    linear_indices = [
-        i for i in range(num_layers) if layer_types[i] == "linear_attention"
-    ]
+    layer_types, _ = result
+    full_indices = [i for i, t in enumerate(layer_types) if t == "full_attention"]
+    linear_indices = [i for i, t in enumerate(layer_types) if t == "linear_attention"]
     if not full_indices or not linear_indices:
         return None
 
@@ -212,8 +145,23 @@ def _detect_final_norm_name(model: Module) -> str | None:
     Detect the final residual-stream norm module name (the one feeding lm_head).
 
     The final norm is a direct child of the language/text model, so it is not
-    nested under a decoder layer and does not belong to the visual tower.
+    nested under a decoder layer and does not belong to the visual tower. We
+    locate the decoder-layers prefix first and resolve its sibling ``norm``,
+    falling back to a name-based heuristic if no layers module is found.
     """
+    layers_prefix = None
+    for name, _ in model.named_modules():
+        if name == "layers" or name.endswith(".layers"):
+            layers_prefix = name
+            break
+
+    if layers_prefix is not None:
+        parent = layers_prefix.rsplit(".", 1)[0] if "." in layers_prefix else ""
+        expected_norm = f"{parent}.norm" if parent else "norm"
+        for name, _ in model.named_modules():
+            if name == expected_norm:
+                return name
+
     for name, _ in model.named_modules():
         if not name.endswith(".norm"):
             continue

@@ -7,14 +7,14 @@ from llmcompressor.modifiers.transform.spinquant.dynamic_mappings import (
     SPINQUANT_DYNAMIC_MAPPING_REGISTRY,
     build_qwen3_5_norm_mappings,
     build_qwen3_5_spinquant_mapping,
-    get_norm_mapping_from_model,
-    get_spinquant_mapping_from_model,
 )
 from llmcompressor.modifiers.transform.spinquant.mappings import (
     SPINQUANT_MAPPING_REGISTRY,
+    infer_mapping_from_model,
 )
 from llmcompressor.modifiers.transform.spinquant.norm_mappings import (
     NORM_MAPPING_REGISTRY,
+    infer_norm_mapping_from_model,
 )
 
 
@@ -212,28 +212,28 @@ class TestGetMappingsFromModel:
         assert model.__class__.__name__ in SPINQUANT_DYNAMIC_MAPPING_REGISTRY
         assert model.__class__.__name__ in NORM_DYNAMIC_MAPPING_REGISTRY
 
-        mapping = get_spinquant_mapping_from_model(model)
+        mapping = infer_mapping_from_model(model)
         assert any("in_proj_qkv" in t for t in mapping.mlp_in)
 
-        norm_mappings = get_norm_mapping_from_model(model)
+        norm_mappings = infer_norm_mapping_from_model(model)
         assert len(norm_mappings) == 4
 
     def test_llama_uses_static_path(self):
         model = _make_standard_model()
         model.__class__ = type("LlamaForCausalLM", (model.__class__,), {})
         assert (
-            get_spinquant_mapping_from_model(model)
+            infer_mapping_from_model(model)
             is SPINQUANT_MAPPING_REGISTRY["LlamaForCausalLM"]
         )
         assert (
-            get_norm_mapping_from_model(model)
+            infer_norm_mapping_from_model(model)
             is NORM_MAPPING_REGISTRY["LlamaForCausalLM"]
         )
 
     def test_unknown_uses_defaults(self):
         model = _make_standard_model()
         model.__class__ = type("SomeNewModelNobodyKnows", (model.__class__,), {})
-        mapping = get_spinquant_mapping_from_model(model)
+        mapping = infer_mapping_from_model(model)
         assert mapping.embedding == "re:.*embed_tokens$"
-        norm_mappings = get_norm_mapping_from_model(model)
+        norm_mappings = infer_norm_mapping_from_model(model)
         assert len(norm_mappings) == 3

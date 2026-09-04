@@ -1,6 +1,8 @@
+from loguru import logger
 from pydantic import BaseModel, Field, field_validator
+from transformers import PreTrainedModel
 
-__all__ = ["SpinQuantMapping"]
+__all__ = ["SpinQuantMapping", "infer_mapping_from_model"]
 
 
 class SpinQuantMapping(BaseModel):
@@ -80,3 +82,35 @@ SPINQUANT_MAPPING_REGISTRY: dict[str, SpinQuantMapping] = {
     "LlamaForCausalLM": _default_mappings,
     "Cohere2MoeForCausalLM": _cohere2_moe_mappings,
 }
+
+
+def infer_mapping_from_model(model: PreTrainedModel) -> SpinQuantMapping:
+    """
+    Infer a SpinQuantMapping from a model. Checks the dynamic mapping registry
+    first (for models needing runtime-generated mappings, e.g. Qwen3.5 hybrid
+    attention), then falls back to the static registry, then to defaults.
+
+    :param model: the model to infer mappings for
+    :return: SpinQuantMapping for the model
+    """
+    # Imported lazily to avoid a circular import: dynamic_mappings imports the
+    # static registry and SpinQuantMapping from this module.
+    from llmcompressor.modifiers.transform.spinquant.dynamic_mappings import (
+        SPINQUANT_DYNAMIC_MAPPING_REGISTRY,
+    )
+
+    architecture = model.__class__.__name__
+
+    if architecture in SPINQUANT_DYNAMIC_MAPPING_REGISTRY:
+        mapping = SPINQUANT_DYNAMIC_MAPPING_REGISTRY[architecture](model)
+        if mapping is not None:
+            return mapping
+
+    if architecture in SPINQUANT_MAPPING_REGISTRY:
+        return SPINQUANT_MAPPING_REGISTRY[architecture]
+
+    logger.info(
+        f"Architecture {architecture} not found in mappings. "
+        f"Using default mappings: {_default_mappings}"
+    )
+    return _default_mappings
