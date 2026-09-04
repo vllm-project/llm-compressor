@@ -249,6 +249,13 @@ class Oneshot:
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
 
+            session.state.layerwise_decompression = (
+                self.dataset_args.layerwise_decompression
+            )
+            session.state.layerwise_compression = (
+                self.dataset_args.layerwise_compression
+            )
+
             session.initialize(
                 model=self.model,
                 start=-1,
