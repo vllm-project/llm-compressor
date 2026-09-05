@@ -234,14 +234,6 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        if len(get_non_linearized_moes(self.model)) > 0:
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(self.model)
-
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:

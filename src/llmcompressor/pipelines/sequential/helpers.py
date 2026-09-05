@@ -65,20 +65,20 @@ class Subgraph:
 
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
         nodes = self.graph.find_nodes(op="call_module")
-        modules = [model.get_submodule(node.target) for node in nodes]
+        named_modules = [(node.target, model.get_submodule(node.target)) for node in nodes]
 
         # collect all modules while preserving order
         # deterministic module order is required for downstream ddp
         if recurse:
-            direct_modules, modules = modules, []
+            direct_modules, named_modules = named_modules, []
             seen = set()
-            for direct_module in direct_modules:
-                for submodule in direct_module.modules():
+            for name, module in direct_modules:
+                for subname, submodule in module.named_modules(prefix=name):
                     if submodule not in seen:
-                        modules.append(submodule)
+                        named_modules.append((subname, submodule))
                         seen.add(submodule)
 
-        return modules
+        return named_modules
 
 
 def trace_subgraphs(

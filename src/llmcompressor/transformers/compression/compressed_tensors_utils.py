@@ -143,10 +143,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             # calibration; either way identical tensors would otherwise be saved
             # twice. Doing this before `to_accelerate` keeps accelerate's
             # tied-parameter bookkeeping consistent.
-            _retie_embeddings(model)
+            # _retie_embeddings(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
-            to_accelerate(model)
+            # to_accelerate(model)
 
             with suspend_distributed_timeout():
                 if is_source_process():
@@ -170,8 +170,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                     if has_mtp:
                         save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
 
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+            # # convert back from accelerate to restore model to original form
+            # from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper

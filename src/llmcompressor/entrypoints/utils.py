@@ -88,10 +88,6 @@ def pre_process(
     if not model_args.tie_word_embeddings:
         untie_word_embeddings(model_args.model)
 
-    # if the model was loaded with accelerate offloading, convert to CT offloading
-    if hasattr(model_args.model, "hf_device_map"):
-        from_accelerate(model_args.model)
-
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
 

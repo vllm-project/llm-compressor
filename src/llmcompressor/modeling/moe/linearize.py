@@ -62,7 +62,6 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # fall back to post-load conversion
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
-            linearize_moe(model)
             return model
 
         # prepare to load linearized weights

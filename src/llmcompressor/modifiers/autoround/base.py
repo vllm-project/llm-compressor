@@ -256,7 +256,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module],
+        modules: list[tuple[str, torch.nn.Module]],
         **kwargs,
     ):
         self.apply_autoround(state, modules)

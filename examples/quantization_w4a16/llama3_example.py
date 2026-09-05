@@ -4,10 +4,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(model_id)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(model_id, device="auto_offload", max_memory={})
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Configure the quantization algorithm to run.
