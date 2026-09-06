@@ -101,6 +101,7 @@ def _run_single_gpu(
         recipe=recipe,
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
+        shuffle_calibration_samples=False,
     )
 
     # Extract quantized weights (exclude common ignored parameters)
@@ -261,6 +262,7 @@ def _test_ddp_modifier(
         num_calibration_samples=NUM_SAMPLES,
         max_seq_length=MAX_SEQ_LENGTH,
         pipeline=pipeline,
+        shuffle_calibration_samples=False,
     )
 
     # Extract DDP weights (exclude common ignored parameters)
