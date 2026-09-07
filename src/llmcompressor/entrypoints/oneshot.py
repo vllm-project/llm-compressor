@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
 
 from llmcompressor.args import parse_args
+from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
@@ -116,6 +117,8 @@ class Oneshot:
     def __init__(
         self,
         log_dir: str | None = None,
+        qad_dataset: "str | Dataset | DatasetDict | DataLoader | None" = None,
+        qad_dataset_args: dict | None = None,
         **kwargs,
     ):
         """
@@ -167,6 +170,15 @@ class Oneshot:
                 level="DEBUG",
             )
 
+        if qad_dataset is None and qad_dataset_args is not None:
+            raise ValueError("qad_dataset_args requires qad_dataset")
+        if qad_dataset_args is not None and "dataset" in qad_dataset_args:
+            raise ValueError("Pass the QAD dataset via qad_dataset")
+        self.qad_dataset_args = (
+            DatasetArguments(dataset=qad_dataset, **(qad_dataset_args or {}))
+            if qad_dataset is not None
+            else None
+        )
         model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
@@ -246,7 +258,6 @@ class Oneshot:
 
             session.initialize(
                 model=self.model,
-                teacher_model=self.model_args.distill_teacher,
                 start=-1,
                 recipe=self.recipe,
                 recipe_stage=recipe_stage,
@@ -262,10 +273,30 @@ class Oneshot:
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
 
+            pipeline_kwargs = {}
+            if self.qad_dataset_args is not None:
+                from llmcompressor.modifiers.qad import QADModifier
+                from llmcompressor.pipelines.sequential import SequentialPipeline
+
+                if not isinstance(pipeline, SequentialPipeline):
+                    raise ValueError('qad_dataset requires pipeline="sequential"')
+                if not any(
+                    isinstance(modifier, QADModifier)
+                    for modifier in session.lifecycle.recipe.modifiers
+                ):
+                    raise ValueError("qad_dataset requires QADModifier in the recipe")
+                qad_dataloader = get_calibration_dataloader(
+                    self.qad_dataset_args, self.processor
+                )
+                if qad_dataloader is None or len(qad_dataloader) < 2:
+                    raise ValueError("qad_dataset must provide at least two batches")
+                pipeline_kwargs["additional_dataloaders"] = {"qad": qad_dataloader}
+
             pipeline(
                 self.model,
                 calibration_dataloader,
                 self.dataset_args,
+                **pipeline_kwargs,
             )
 
         session.finalize()
@@ -307,7 +338,6 @@ class Oneshot:
 def oneshot(
     # Model arguments
     model: str | PreTrainedModel,
-    distill_teacher: str | PreTrainedModel | None = None,
     config_name: str | None = None,
     tokenizer: str | PreTrainedTokenizerBase | None = None,
     processor: str | ProcessorMixin | None = None,
@@ -363,6 +393,8 @@ def oneshot(
     output_dir: str | None = None,
     log_dir: str | None = None,
     enable_compile: bool = False,
+    qad_dataset: str | Dataset | DatasetDict | DataLoader | None = None,
+    qad_dataset_args: dict | None = None,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -371,8 +403,6 @@ def oneshot(
     # Model arguments
     :param model: A pretrained model identifier from huggingface.co/models or a path
         to a local model. Required parameter.
-    :param distill_teacher: Teacher model (a trained text generation model)
-        for distillation.
     :param config_name: Pretrained config name or path if not the same as
         model_name.
     :param tokenizer: Pretrained tokenizer name or path if not the same as
@@ -405,6 +435,13 @@ def oneshot(
         internal dataset-to-dataloader conversion is skipped.
     :param dataset_config_name: The configuration name of the dataset
         to use.
+    :param qad_dataset: Optional separate dataset for QAD training and its internal
+        validation split. Accepts the same inputs as dataset. Requires QADModifier
+        and pipeline="sequential". If omitted, QAD shares the calibration data.
+    :param qad_dataset_args: DatasetArguments keyword overrides for qad_dataset,
+        e.g. num_calibration_samples, max_seq_length, batch_size, splits, and
+        preprocessing_func. Uses independent DatasetArguments defaults, not the
+        PTQ dataset settings. A pre-built DataLoader bypasses preprocessing.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
     :param splits: Optional percentages of each split to download.
     :param batch_size: calibration dataset batch size. During calibration,
