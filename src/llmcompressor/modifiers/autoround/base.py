@@ -1,3 +1,4 @@
+import inspect
 import os
 from contextlib import contextmanager
 from typing import Any
@@ -409,13 +410,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 if len(_refs) == len(cur_inputs):
                     _fp_ref = _refs
 
+            # reference_output added in auto-round 0.16.0 (intel/auto-round#2289).
+            # Guard with inspect until the version pin is bumped to >=0.16.0.
+            _qb_kwargs = {}
+            if "reference_output" in inspect.signature(ar.quantize_block).parameters:
+                _qb_kwargs["reference_output"] = _fp_ref
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=ar_inputs,
                 q_input=self._q_input,
                 device=str(device),
                 auto_offload=auto_offload,
-                reference_output=_fp_ref,
+                **_qb_kwargs,
             )
             self._q_input = q_input
 
@@ -429,13 +435,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.clear()
         # Release cached GPU memory back to the driver so the next block starts
         # with a clean allocator state (avoids cross-block fragmentation).
-        if hasattr(torch, "accelerator") and torch.accelerator.is_available():
+        if torch.accelerator.is_available():
             device_type = torch.accelerator.current_accelerator().type
             device_module = getattr(torch, device_type, None)
             if device_module is not None and hasattr(device_module, "empty_cache"):
                 device_module.empty_cache()
-        elif torch.accelerator.is_available():
-            torch.accelerator.empty_cache()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
