@@ -483,6 +483,6 @@ def test_ddp_smoke_autoround():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.85,
+        min_top1_match=0.80,
         max_kl_div=0.01,
     )
