@@ -1,4 +1,5 @@
 import contextlib
+import os
 from unittest.mock import patch
 
 import torch
@@ -27,6 +28,7 @@ from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     _apply_activation_ordering,
+    _GptqTritonError,
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
@@ -371,15 +373,25 @@ class GPTQModifier(Modifier, QuantizationMixin):
                             global_scales,
                             perm,
                         )
-                    except Exception:
-                        if len(batch) == 1:
-                            raise
+                    except Exception as error:
+                        triton_failed = isinstance(error, _GptqTritonError)
+                        retry_mode = "unbatched eager" if triton_failed else "unbatched"
                         logger.warning(
-                            "Batched GPTQ failed; retrying unbatched: "
+                            f"Batched GPTQ failed; retrying {retry_mode}: "
                             f"{[self._module_names[module] for module in batch]}"
                         )
                         del weights, hessians, scales, zero_points, global_scales, perm
-                        with patch.object(self, "batched_quantization", False):
+                        with contextlib.ExitStack() as retry_stack:
+                            retry_stack.enter_context(
+                                patch.object(self, "batched_quantization", False)
+                            )
+                            if triton_failed:
+                                retry_stack.enter_context(
+                                    patch.dict(
+                                        os.environ,
+                                        {"LLMCOMPRESSOR_DISABLE_GPTQ_TRITON": "1"},
+                                    )
+                                )
                             self.compress_module_list(
                                 batch,
                                 qparams={module: qparams[module] for module in batch},
@@ -485,15 +497,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
         device = get_execution_device(module)
         weight_size = out_features * in_features
         hessian_size = in_features * in_features
-        block_matrix_size = in_features * self.block_size
+        block_matrix_size = out_features * self.block_size
         w_err_size = out_features * in_features
 
         per_module_bytes = ( 
             2 * hessian_size # align module, stacked hessians
             + 3 * weight_size # align module, stacked weights, weight.to(dtype)
-            + block_matrix_size # W1, Q1, Err1, losses1
+            + 4 * block_matrix_size # W1, Q1, Err1, losses1
             + w_err_size # w_err
-        ) * 4 # convert to bytes (float32)
+        ) * 4 # convert to bytes (float32 uses 4 bytes per element)
 
         if not 0.0 < self.batch_memory_fraction <= 1.0:
             raise ValueError("batch_memory_fraction must be in (0, 1]")
