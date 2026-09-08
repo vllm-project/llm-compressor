@@ -34,9 +34,10 @@ def main():
         f"dtype={lmeval_config['dtype']},"
         f"add_bos_token={lmeval_config['add_bos_token']},"
         f"trust_remote_code={lmeval_config['trust_remote_code']},"
-        f"max_model_len={lmeval_config['max_model_len']},"
+        f"max_model_len={config['max_model_len']},"
         f"seed={seed},"
         f"gpu_memory_utilization={config['gpu_memory_utilization']},"
+        f"max_num_seqs={config['max_num_seqs']},"
         f"pipeline_parallel_size="
         f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
     )
@@ -49,7 +50,7 @@ def main():
         limit=lmeval_config["limit"],
         apply_chat_template=lmeval_config["apply_chat_template"],
         fewshot_as_multiturn=lmeval_config["fewshot_as_multiturn"],
-        fewshot_random_seed=seed,
+        fewshot_random_seed=seed
     )
 
     task = lmeval_config["task"]

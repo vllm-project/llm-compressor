@@ -2,11 +2,11 @@ quant_stage:
   quant_modifiers:
     QuantizationModifier:
       ignore: ["re:.*lm_head", "re:model.visual.*", "re:.*mlp.gate$", "re:.*embed_tokens$", "re:.*shared_expert_gate$", "re:.*linear_attn.*"]
-      actorder: "weight"
       config_groups:
         group_nvfp4:
           weights:
             num_bits: 4
+            actorder: "weight"
             type: float
             strategy: tensor_group
             dynamic: false
