@@ -1,0 +1,195 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║           KIMI-K3 LAYERWISE QUANTIZATION - QUICK REFERENCE                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📂 FILES IN THIS DIRECTORY
+─────────────────────────────────────────────────────────────────────────────
+
+EXAMPLES:
+  • kimi_k3_example.py                    Standard quantization (baseline)
+  • kimi_k3_layerwise_example.py          ✅ Sequential pipeline (use this!)
+  • kimi_k3_layerwise_full_example.py     🔮 Full layerwise (coming soon)
+
+DOCUMENTATION:
+  • LAYERWISE_INDEX.md                    START HERE - Navigation hub
+  • README_LAYERWISE.md                   Quick overview & file guide
+  • LAYERWISE_DECOMPRESSION.md            Deep dive on concepts
+  • TESTING_LAYERWISE.md                  How to test & troubleshoot
+  • QUICKREF.txt                          This file!
+
+─────────────────────────────────────────────────────────────────────────────
+
+🚀 QUICK START (5 MINUTES)
+─────────────────────────────────────────────────────────────────────────────
+
+  $ cd ~/repos/llm-compressor
+  $ python examples/quantizing_moe/kimi_k3_layerwise_example.py
+
+What happens:
+  ✓ Loads Kimi-K3 from HuggingFace
+  ✓ Processes one layer at a time (memory efficient!)
+  ✓ Saves to Kimi-K3-NVFP4-Layerwise/
+
+Expected memory: 60-70 GB peak (not 100+ GB)
+
+─────────────────────────────────────────────────────────────────────────────
+
+📖 READING GUIDE
+─────────────────────────────────────────────────────────────────────────────
+
+First time here?
+  1. LAYERWISE_INDEX.md        (5 min)  - Overview & navigation
+  2. README_LAYERWISE.md       (5 min)  - Quick overview
+  3. kimi_k3_layerwise_example.py (5 min) - Read the code
+
+Want to understand concepts?
+  → LAYERWISE_DECOMPRESSION.md  (15 min) - Deep dive explanation
+
+Want to run & test?
+  → TESTING_LAYERWISE.md        (20 min) - Complete testing guide
+
+Want all the details?
+  → Read everything in this order:
+     LAYERWISE_INDEX.md
+     → README_LAYERWISE.md
+     → LAYERWISE_DECOMPRESSION.md
+     → Look at example code
+     → TESTING_LAYERWISE.md
+
+─────────────────────────────────────────────────────────────────────────────
+
+🎯 WHAT IS LAYERWISE DECOMPRESSION?
+─────────────────────────────────────────────────────────────────────────────
+
+PROBLEM:
+  Recalibrating 100B+ model normally requires:
+  → Full decompression into FP32 (100+ GB)
+  → Process everything at once
+  → OOM errors on most hardware ❌
+
+SOLUTION:
+  Process one layer at a time:
+  1. Decompress layer N (1-2 GB)
+  2. Recalibrate with fresh data
+  3. Recompress layer N
+  4. Move to layer N+1
+  
+  Peak memory: 60-70 GB (not 100+ GB) ✅
+
+─────────────────────────────────────────────────────────────────────────────
+
+⚡ EXAMPLE COMPARISON
+─────────────────────────────────────────────────────────────────────────────
+
+STANDARD (kimi_k3_example.py):
+  Memory: 100+ GB
+  Speed: Fast
+  Code: Simple
+  Use when: Plenty of VRAM
+
+SEQUENTIAL (kimi_k3_layerwise_example.py):
+  Memory: 60-70 GB ⬇️ 30-50% lower
+  Speed: Slightly slower
+  Code: Medium complexity
+  Use when: 100B+ models, limited VRAM ✅ RECOMMENDED
+
+FULL LAYERWISE (kimi_k3_layerwise_full_example.py):
+  Memory: 40-50 GB ⬇️ Lowest
+  Speed: Similar to sequential
+  Code: Most explicit
+  Use when: Maximum control (coming soon)
+
+─────────────────────────────────────────────────────────────────────────────
+
+🧪 TESTING
+─────────────────────────────────────────────────────────────────────────────
+
+Basic (5 min):
+  $ python examples/quantizing_moe/kimi_k3_layerwise_example.py
+
+Monitor memory:
+  $ nvidia-smi -l 1  # Update every 1 second
+
+Full validation:
+  See TESTING_LAYERWISE.md for:
+  • Memory monitoring
+  • Model quality checks
+  • Validation checklist
+  • Troubleshooting guide
+
+Compare approaches:
+  $ time python examples/quantizing_moe/kimi_k3_example.py
+  $ time python examples/quantizing_moe/kimi_k3_layerwise_example.py
+
+─────────────────────────────────────────────────────────────────────────────
+
+🔧 KEY PARAMETERS
+─────────────────────────────────────────────────────────────────────────────
+
+Sequential Pipeline:
+  pipeline="sequential"
+  sequential_targets=["KimiK3DecoderLayer"]
+  propagate_error=True
+  batch_size=1
+
+Future Layerwise (when merged):
+  layerwise_decompression=True
+  layerwise_compression=True
+
+Quantization Ignores (Kimi-K3 specific):
+  qconfig.ignore += [
+    "re:.*mlp_res_proj.*",
+    "re:.*self_attention_res_proj.*",
+    "re:.*routed_expert.*",
+    "re:.*output_attn_res_proj.*",
+  ]
+
+─────────────────────────────────────────────────────────────────────────────
+
+❓ TROUBLESHOOTING
+─────────────────────────────────────────────────────────────────────────────
+
+OOM Error?
+  • Reduce NUM_CALIBRATION_SAMPLES to 64
+  • Reduce MAX_SEQUENCE_LENGTH to 512
+  • Add sequential_offload_device="cpu"
+  → See TESTING_LAYERWISE.md for full guide
+
+Calibration hangs?
+  • Test with 1 sample first
+  • Check dataset loads: python -c "from datasets import load_dataset; ..."
+  • Verify model loads: python -c "from llmcompressor.modeling.kimi_k3 ..."
+
+Bad model outputs?
+  • Check ignore patterns are set correctly
+  • Verify moe_calibrate_all_experts=True
+  • Ensure propagate_error=True
+  → See TESTING_LAYERWISE.md for details
+
+Full guide → TESTING_LAYERWISE.md
+
+─────────────────────────────────────────────────────────────────────────────
+
+📚 REFERENCES
+─────────────────────────────────────────────────────────────────────────────
+
+PR #2994:      https://github.com/vllm-project/llm-compressor/pull/2994
+Kimi-K3:       https://huggingface.co/moonshotai/Kimi-K3
+Main branch:   Commit 7e0a204cd has full layerwise implementation
+Compressed-T:  https://github.com/vllm-project/compressed-tensors
+
+─────────────────────────────────────────────────────────────────────────────
+
+✅ NEXT STEPS
+─────────────────────────────────────────────────────────────────────────────
+
+1. Start with LAYERWISE_INDEX.md
+2. Run kimi_k3_layerwise_example.py
+3. Monitor with nvidia-smi
+4. See TESTING_LAYERWISE.md for full validation
+5. Compare with non-sequential version
+6. Report any issues
+
+Happy quantizing! 🚀
+
+─────────────────────────────────────────────────────────────────────────────
