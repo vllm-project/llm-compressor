@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
@@ -104,6 +106,10 @@ class MovingAverageMSEObserver(Observer):
         self.max_vals = max_vals
 
 
+# Alias fouroversix to the NVFP4ExpandedMSEObserver. Our results show
+# this is a more effective way to take advantage of the same range expansion
+# benefit that fouroversix is based on.
+# Results: https://github.com/vllm-project/llm-compressor/pull/2950
 @Observer.register("nvfp4_expanded_mse")
 class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
     """
@@ -129,3 +135,16 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
         self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = observer_kwargs.get("grid", 200.0)
         self.patience = observer_kwargs.get("patience", 1000)
+
+
+@Observer.register("fouroversix")
+def _load_fouroversix_alias(*args, **kwargs) -> NVFP4ExpandedMSEObserver:
+    warnings.warn(
+        "The 'fouroversix' observer is an alias for 'nvfp4_expanded_mse', "
+        "which our results showed to be more accurate at taking advantage "
+        "of the same range expansion benefit. See "
+        "https://github.com/vllm-project/llm-compressor/pull/2950.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return NVFP4ExpandedMSEObserver(*args, **kwargs)
