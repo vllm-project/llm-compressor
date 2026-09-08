@@ -306,19 +306,32 @@ def resave_config(config: PretrainedConfig, save_dir: str):
         return
 
     # modify config.json to reflect fields that llmcompressor has modified
-    # for now, this is only the num_experts field for REAP sparsity
-    config_data_text = config_data.get("text_config", config_data)
-    experts = getattr_fallbacks(config.get_text_config(), NUM_EXPERTS_CONFIG_KEYS, None)
-    target_key = hasitem_fallbacks(config_data_text, NUM_EXPERTS_CONFIG_KEYS, None)
-    if experts is not None:
-        if target_key is None:
-            logger.warning(
-                "Failed to find target experts key in original config. "
-                "Keeping the transformers-serialized config."
-            )
-            return
+    src_text_config = config.get_text_config()
+    tgt_text_config = config_data.get("text_config", config_data)
 
-        config_data_text[target_key] = experts
+    # 1. Tied tensors
+    tied_val = getattr(src_text_config, "tie_word_embeddings", None)
+    has_tied = "tie_word_embeddings" in tgt_text_config
+    if tied_val is not None:
+        if has_tied:
+            tgt_text_config["tie_word_embeddings"] = tied_val
+        else:
+            logger.warning(
+                "Failed to find 'tie_word_embeddings' key in original config. "
+                f"Please set 'tie_word_embeddings' to {tied_val}"
+            )
+
+    # 2. REAP expert sparsity
+    experts_val = getattr_fallbacks(src_text_config, NUM_EXPERTS_CONFIG_KEYS, None)
+    experts_key = hasitem_fallbacks(tgt_text_config, NUM_EXPERTS_CONFIG_KEYS, None)
+    if experts_val is not None:
+        if experts_key is not None:
+            tgt_text_config[experts_key] = experts_val
+        else:
+            logger.warning(
+                "Failed to find 'num_experts' key in original config. "
+                f"Please set 'num_experts' to {experts_val}"
+            )
 
     save_path = os.path.join(save_dir, "config.json")
     with open(save_path, "w") as file:
