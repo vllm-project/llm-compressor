@@ -20,6 +20,11 @@ from llmcompressor.modifiers.gptq.gptq_triton import (
 
 GPTQ_PRECISION = torch.float32
 
+
+class _GptqTritonError(RuntimeError):
+    """Marks an error raised by the GPTQ Triton backend."""
+
+
 __all__ = [
     "make_empty_hessian",
     "accumulate_hessian",
@@ -446,17 +451,24 @@ def _gptq_block_update_triton(
         i1=i1,
         i2=i1 + block_width,
     )
-    fused_gptq_block_update(
-        W1.unsqueeze(-3) if W1.dim() == 2 else W1,
-        Hinv1.unsqueeze(-3) if Hinv1.dim() == 2 else Hinv1,
-        eff.unsqueeze(-3) if eff.dim() == 2 else eff,
-        zp if zp is None or zp.dim() == 3 else zp.unsqueeze(-3),
-        Q1.unsqueeze(-3) if Q1.dim() == 2 else Q1,
-        Err1.unsqueeze(-3) if Err1.dim() == 2 else Err1,
-        q_min,
-        q_max,
-        quant_type,
-    )
+    try:
+        fused_gptq_block_update(
+            W1.unsqueeze(-3) if W1.dim() == 2 else W1,
+            Hinv1.unsqueeze(-3) if Hinv1.dim() == 2 else Hinv1,
+            eff.unsqueeze(-3) if eff.dim() == 2 else eff,
+            zp if zp is None or zp.dim() == 3 else zp.unsqueeze(-3),
+            Q1.unsqueeze(-3) if Q1.dim() == 2 else Q1,
+            Err1.unsqueeze(-3) if Err1.dim() == 2 else Err1,
+            q_min,
+            q_max,
+            quant_type,
+        )
+    except Exception as error:
+        if isinstance(error, torch.OutOfMemoryError) or "out of memory" in str(
+            error
+        ).lower():
+            raise
+        raise _GptqTritonError("GPTQ Triton block update failed") from error
     losses1.copy_(Err1.square())
 
 
