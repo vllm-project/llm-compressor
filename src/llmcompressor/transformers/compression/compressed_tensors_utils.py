@@ -20,6 +20,7 @@ from transformers.utils import http_user_agent
 from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getattr_fallbacks, hasitem_fallbacks
@@ -309,29 +310,22 @@ def resave_config(config: PretrainedConfig, save_dir: str):
     src_text_config = config.get_text_config()
     tgt_text_config = config_data.get("text_config", config_data)
 
-    # 1. Tied tensors
-    tied_val = getattr(src_text_config, "tie_word_embeddings", None)
-    has_tied = "tie_word_embeddings" in tgt_text_config
-    if tied_val is not None:
-        if has_tied:
-            tgt_text_config["tie_word_embeddings"] = tied_val
-        else:
-            logger.warning(
-                "Failed to find 'tie_word_embeddings' key in original config. "
-                f"Please set 'tie_word_embeddings' to {tied_val}"
-            )
+    def modify_text_config(attrs: list[str]):
+        _missing = Sentinel("_missing")
+        src_value = getattr_fallbacks(src_text_config, attrs, _missing)
+        tgt_key = hasitem_fallbacks(tgt_text_config, attrs, _missing)
+        if src_value is not _missing:
+            if tgt_key is not _missing:
+                tgt_text_config[tgt_key] = src_value
+            else:
+                logger.warning(
+                    f"Failed to find {attrs} key in original config. "
+                    f"Please set {attrs} to {src_value}"
+                )
 
-    # 2. REAP expert sparsity
-    experts_val = getattr_fallbacks(src_text_config, NUM_EXPERTS_CONFIG_KEYS, None)
-    experts_key = hasitem_fallbacks(tgt_text_config, NUM_EXPERTS_CONFIG_KEYS, None)
-    if experts_val is not None:
-        if experts_key is not None:
-            tgt_text_config[experts_key] = experts_val
-        else:
-            logger.warning(
-                "Failed to find 'num_experts' key in original config. "
-                f"Please set 'num_experts' to {experts_val}"
-            )
+    modify_text_config(["tie_word_embeddings"])
+    modify_text_config(["torch_dtype", "dtype"])
+    modify_text_config(NUM_EXPERTS_CONFIG_KEYS)
 
     save_path = os.path.join(save_dir, "config.json")
     with open(save_path, "w") as file:
