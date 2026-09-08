@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import weakref
 from contextlib import contextmanager
@@ -12,15 +13,16 @@ from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
 from loguru import logger
-from transformers import PreTrainedModel
+from transformers import PretrainedConfig, PreTrainedModel
 
 from llmcompressor.core import active_session
+from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils.transformers import get_embeddings
 
-__all__ = ["modify_save_pretrained"]
+__all__ = ["modify_save_pretrained", "resave_config"]
 
 
 def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
@@ -243,6 +245,78 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+def resave_config(config: PretrainedConfig, save_dir: str):
+    """
+    Overwrite the config saved at ``save_dir`` with the original model config,
+    patched with fields that llmcompressor has modified.
+
+    Transformers regenerates ``config.json`` on save, which can introduce
+    differences from the original model config (reordered/dropped/renamed
+    fields). vLLM always supports loading the original model config, but only
+    sometimes supports loading the transformers-serialized one. To stay
+    compatible, this loads the original config file referenced by
+    ``config._name_or_path``, overwrites only the fields that llmcompressor has
+    changed (currently the expert-count fields in
+    :data:`NUM_EXPERTS_CONFIG_KEYS`, which change under REAP expert pruning),
+    and writes the result to ``save_dir/config.json``.
+
+    :param config: the (possibly modified) model config, used both to locate the
+        original config file and to source the patched field values
+    :param save_dir: directory containing the ``config.json`` to overwrite
+    """
+    name_or_path = getattr(config, "_name_or_path", "") or ""
+    if not name_or_path.strip():
+        logger.warning(
+            "Cannot resave the original config: config._name_or_path is empty. "
+            "Keeping the transformers-serialized config."
+        )
+        return
+
+    # locate the original config file, downloading from the hub if necessary
+    if os.path.isdir(name_or_path):
+        original_config_path = os.path.join(name_or_path, "config.json")
+    elif os.path.isfile(name_or_path):
+        original_config_path = name_or_path
+    else:
+        from huggingface_hub import hf_hub_download
+        from transformers.utils import http_user_agent
+
+        original_config_path = hf_hub_download(
+            repo_id=name_or_path,
+            filename="config.json",
+            cache_dir=None,
+            force_download=False,
+            user_agent=http_user_agent(),
+        )
+
+    with open(original_config_path, "r") as file:
+        config_data = json.load(file)
+
+    # overwrite the fields that llmcompressor has modified. Fields may live at the
+    # top level or nested under "text_config" (multimodal configs); patch them
+    # wherever they already exist so no spurious keys are introduced.
+    text_config = getattr(config, "text_config", None)
+    for key in NUM_EXPERTS_CONFIG_KEYS:
+        if hasattr(config, key):
+            new_value = getattr(config, key)
+        elif text_config is not None and hasattr(text_config, key):
+            new_value = getattr(text_config, key)
+        else:
+            continue
+
+        if key in config_data:
+            config_data[key] = new_value
+        if isinstance(config_data.get("text_config"), dict) and (
+            key in config_data["text_config"]
+        ):
+            config_data["text_config"][key] = new_value
+
+    save_path = os.path.join(save_dir, "config.json")
+    with open(save_path, "w") as file:
+        json.dump(config_data, file, indent=2, sort_keys=True)
+    logger.info(f"Resaved original config (with patched fields) to {save_path}")
 
 
 @contextmanager
