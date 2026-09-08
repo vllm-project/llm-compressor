@@ -18,3 +18,5 @@ lmeval:
     # activation quantization is also enabled.
     exact_match,flexible-extract: 0.73
     exact_match,strict-match: 0.66
+num_gpus: 2
+pipeline_parallel: true

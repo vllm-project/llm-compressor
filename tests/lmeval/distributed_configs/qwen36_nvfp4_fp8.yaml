@@ -1,4 +1,4 @@
-cadence: "weekly"
+cadence: ["nightly", "weekly"]
 model: Qwen/Qwen3.6-35B-A3B
 model_class: Qwen3_5MoeForConditionalGeneration
 recipe: tests/e2e/recipes/NVFP4_FP8/recipe_moe_nvfp4_fp8_rtn.yaml
@@ -17,3 +17,4 @@ lmeval:
     exact_match,flexible-extract: 0.73
     exact_match,strict-match: 0.66
 num_gpus: 2
+pipeline_parallel: true

@@ -39,7 +39,6 @@ class LmEvalConfig(BaseModel):
     # Optional base model metrics to skip base model evaluation
     base_metrics: dict = None
     trust_remote_code: bool = False
-    max_model_len: int = 2048
     higher_is_better: bool = True
 
 
@@ -59,7 +58,6 @@ class TestConfig(BaseTestConfig):
         default_factory=LmEvalConfig,
         description="LM Eval harness configuration (task, shots, limits, thresholds…)",
     )
-
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV")
