@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: ["nightly", "weekly"]
 model: google/diffusiongemma-26B-A4B-it
 model_class: DiffusionGemmaForBlockDiffusion
 recipe: tests/e2e/recipes/NVFP4/recipe_diffusiongemma_nvfp4.yaml
