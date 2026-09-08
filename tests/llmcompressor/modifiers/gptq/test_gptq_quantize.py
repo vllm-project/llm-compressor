@@ -1,4 +1,5 @@
 import math
+import os
 
 import pytest
 import torch
@@ -12,6 +13,7 @@ from loguru import logger
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
     _apply_activation_ordering,
+    _GptqTritonError,
     make_empty_hessian,
     quantize_weight,
 )
@@ -562,3 +564,67 @@ def test_compress_module_list_batches_same_shape(tmp_path):
         assert torch.allclose(m_single.weight_scale, m_batched.weight_scale)
         # quantized weights were written back through update_offload_parameter
         assert torch.allclose(m_single.weight, m_batched.weight, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_values", "module_count", "raises"),
+    [
+        (RuntimeError, [None, None, None], 2, False),
+        (_GptqTritonError, [None, "1", "1"], 2, False),
+        (RuntimeError, [None], 1, True),
+        (_GptqTritonError, [None, "1"], 1, False),
+    ],
+)
+@torch.no_grad()
+def test_batched_failure_only_disables_triton_for_triton_errors(
+    monkeypatch, error_type, expected_values, module_count, raises
+):
+    quant_args = QuantizationArgs(
+        num_bits=4, symmetric=True, strategy="group", group_size=16
+    )
+    modules = [
+        _make_observed_linear(64, 48, quant_args, seed=seed)
+        for seed in range(module_count)
+    ]
+    for module in modules:
+        qparams = module.weight_observer.get_qparams()
+        module.weight_scale = torch.nn.Parameter(
+            qparams["scale"], requires_grad=False
+        )
+        module.weight_zero_point = torch.nn.Parameter(
+            qparams["zero_point"], requires_grad=False
+        )
+        observe(module, "weight")
+    modifier = GPTQModifier()
+    modifier._module_names = {
+        module: f"model.layers.0.experts.{idx}"
+        for idx, module in enumerate(modules)
+    }
+    modifier._hessians = {
+        module: _make_spd_hessian(64, "cpu", seed=idx)
+        for idx, module in enumerate(modules)
+    }
+    modifier._num_samples = {module: torch.tensor(1.0) for module in modules}
+    modifier.batched_quantization = True
+    monkeypatch.setattr(
+        GPTQModifier, "_max_batch_size", lambda self, module: len(modules)
+    )
+    monkeypatch.delenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", raising=False)
+
+    original_compress_batch = modifier._compress_batch
+    observed_values = []
+
+    def fail_first_batch(*args, **kwargs):
+        observed_values.append(os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON"))
+        if len(observed_values) == 1:
+            raise error_type("simulated failure")
+        return original_compress_batch(*args, **kwargs)
+
+    monkeypatch.setattr(modifier, "_compress_batch", fail_first_batch)
+    if raises:
+        with pytest.raises(error_type):
+            modifier.compress_modules()
+    else:
+        modifier.compress_modules()
+
+    assert observed_values == expected_values
