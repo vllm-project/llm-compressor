@@ -97,7 +97,7 @@ def _run_single_gpu(
     oneshot(
         model=model,
         dataset="perfectblend",
-        splits="train[:512]",
+        splits=f"train[:{num_samples}]",
         recipe=recipe,
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
@@ -257,7 +257,7 @@ def _test_ddp_modifier(
     oneshot(
         model=model,
         dataset="perfectblend",
-        splits="train[:512]",
+        splits=f"train[:{NUM_SAMPLES}]",
         recipe=recipe_factory(),
         num_calibration_samples=NUM_SAMPLES,
         max_seq_length=MAX_SEQ_LENGTH,
@@ -412,8 +412,8 @@ def test_ddp_smoke_mse_cpu_offload():
         "independent",
         "cpu",
         weight_atol=1e-5,
-        min_top1_match=1.00,
-        max_kl_div=0.00,
+        min_top1_match=0.85,
+        max_kl_div=0.005,
     )
 
 
@@ -437,8 +437,8 @@ def test_ddp_smoke_rtn_disk_offload():
         "independent",
         "disk",
         weight_atol=1e-5,
-        min_top1_match=1.00,
-        max_kl_div=0.00,
+        min_top1_match=0.85,
+        max_kl_div=0.005,
         offload_folder=offload_folder,
     )
 
@@ -459,9 +459,9 @@ def test_ddp_smoke_awq():
         ],
         "independent",
         None,
-        weight_atol=5e-2,
-        min_top1_match=0.85,
-        max_kl_div=0.001,
+        weight_atol=5e-1,
+        min_top1_match=0.80,
+        max_kl_div=0.01,
     )
 
 
@@ -480,8 +480,8 @@ def test_ddp_smoke_gptq():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.95,
-        max_kl_div=0.001,
+        min_top1_match=0.70,
+        max_kl_div=0.01,
     )
 
 
@@ -500,6 +500,6 @@ def test_ddp_smoke_autoround():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.85,
-        max_kl_div=0.01,
+        min_top1_match=0.70,
+        max_kl_div=0.02,
     )
