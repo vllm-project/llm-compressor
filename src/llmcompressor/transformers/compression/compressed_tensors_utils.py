@@ -92,34 +92,15 @@ _MTP_UNQUANTIZED_ALIASES = frozenset(
 
 # MTP fusion-projection names that must stay full precision: these are plain
 # nn.Linear layers with no associated scale parameter in vLLM MTP loaders
-# (verified against vLLM 0.26.0 Qwen3_5MTP, DeepseekV3MTP, GLM4MTP).
 _FUSION_PROJ_NAMES = frozenset({"eh_proj", "fc"})
 
 
 def _drop_uncalibratable_input_activations(scheme):
-    """
-    Return ``scheme`` with input-activation quantization that requires
-    calibration removed, keeping the weights quantized.
-
-    MTP layers are never run during calibration, so any input-activation scale
-    that depends on observed activations cannot be produced. This covers two
-    cases:
-
-    - ``dynamic=False`` (fully static): a per-tensor scale calibrated from
-      activations.
-    - ``dynamic="local"`` (e.g. NVFP4 ``tensor_group``): per-group micro-scales
-      are computed at runtime, but a per-tensor ``input_global_scale`` is still
-      static and must be calibrated.
-
-    Both would save a checkpoint whose ``input_global_scale`` is meaningless
-    (never observed), producing ``1/scale -> inf`` at load time; drop them to
-    weight-only. Only fully dynamic activation quant (``dynamic is True``, e.g.
-    FP8_DYNAMIC), whose scales are computed entirely at runtime, needs no
-    calibration and is kept.
+    """Drop input activations that require calibration (static or dynamic="local")
+    to weight-only. MTP layers are never observed so their scales cannot be set.
+    Only fully-dynamic activations (dynamic is True, e.g. FP8_DYNAMIC) are kept.
     """
     input_acts = scheme.input_activations
-    # Keep only fully-dynamic activations (dynamic is True). Static (False) and
-    # local (DynamicType.LOCAL) both carry a calibration-dependent scale.
     if input_acts is not None and getattr(input_acts, "dynamic", False) is not True:
         logger.warning(
             "mtp_scheme uses input-activation quantization with a "
@@ -131,24 +112,9 @@ def _drop_uncalibratable_input_activations(scheme):
 
 
 def _resolve_mtp_scheme(mtp_scheme):
-    """
-    Resolve the caller-supplied ``mtp_scheme`` into a QuantizationScheme, or
-    None to keep the MTP layers full precision (bf16).
-
-    MTP quantization is opt-in and explicit: ``save_pretrained`` leaves MTP
-    layers unquantized unless the caller passes ``mtp_scheme``. Accepted values:
-
-    - ``None`` (default): keep MTP full precision (bf16).
-    - a ``QuantizationScheme``: quantize the MTP linears with it directly.
-    - a preset name string (e.g. ``"NVFP4"``, ``"FP8_DYNAMIC"``): resolve it
-      with compressed-tensors' ``preset_name_to_scheme``.
-    - ``"bf16"`` / ``"none"`` / ``"dense"`` / ``"unquantized"``: same as None.
-
-    Input-activation quantization whose scale must be calibrated (static, or
-    NVFP4-style ``dynamic="local"`` with a static ``input_global_scale``) is
-    always dropped to weight-only (see
-    ``_drop_uncalibratable_input_activations``), since MTP layers are never
-    observed. Only fully dynamic activation quant is kept.
+    """Resolve mtp_scheme to a QuantizationScheme or None (bf16/unquantized).
+    Accepts None, a QuantizationScheme, or a preset name string. Calibration-
+    dependent input activations are dropped to weight-only.
     """
     from compressed_tensors.quantization import (
         QuantizationScheme,
@@ -179,20 +145,13 @@ def _compress_mtp_linears(
     scheme,
     output_tensors: dict,
 ) -> list:
-    """
-    Quantize and compress a set of 2D MTP linear weights using
-    ``ModelFreePtqConverter``, which handles both per-tensor and microscale
-    (NVFP4/MXFP4) schemes including fused-set global-scale coordination.
-    Compressed tensors are written into ``output_tensors``; the list of
-    quantized module names is returned.
+    """Quantize MTP linears via ModelFreePtqConverter (handles microscale fused sets).
+    Writes compressed tensors into output_tensors; returns quantized module names.
     """
     from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 
     from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
 
-    # Build a minimal QuantizationConfig targeting every key in to_quantize.
-    # The converter matches on the module name (key without ".weight"), so
-    # "re:.*" covers all of them without needing exact names up front.
     mtp_scheme = QuantizationScheme(
         targets=["re:.*"],
         weights=scheme.weights,
@@ -204,8 +163,6 @@ def _compress_mtp_linears(
     compressed = converter.process(dict(to_quantize))
     output_tensors.update(compressed)
 
-    # Module names = keys that lost the ".weight" suffix (i.e. the inputs that
-    # now have derived keys like ".weight_packed", ".weight_scale", etc.)
     input_weight_keys = set(to_quantize.keys())
     quantized_modules = list(
         {
@@ -225,14 +182,8 @@ def _quantize_and_save_mtp_tensors(
     shard_name: str = "model_mtp.safetensors",
     mtp_scheme=None,
 ):
-    """
-    Load MTP tensors from source_model and save them as a new shard.
-
-    MTP quantization is opt-in via ``mtp_scheme`` (see ``_resolve_mtp_scheme``).
-    When it resolves to a scheme, the MTP linears are quantized with it;
-    otherwise (the default) the tensors are saved full precision (bf16) and the
-    MTP prefix is added to the quantization_config's ``ignore`` list so
-    inference engines skip it.
+    """Load MTP tensors from source_model, optionally quantize, and save as a shard.
+    Updates the safetensors index and quantization_config in dest_dir.
     """
     import json
     import re
@@ -248,18 +199,12 @@ def _quantize_and_save_mtp_tensors(
     from safetensors import safe_open
     from safetensors.torch import save_file
 
-    # Load MTP tensors from the original (unquantized) source checkpoint.
-    # AutoModel never downloads MTP shards (those keys are in
-    # _keys_to_ignore_on_load_unexpected), so we read the index directly and
-    # trigger a targeted download of only the shard(s) that contain MTP keys.
     source_dir = get_safetensors_folder(source_model)
     index_path = os.path.join(source_dir, "model.safetensors.index.json")
     if os.path.exists(index_path):
         with open(index_path) as f:
             raw_map = json.load(f)["weight_map"]
-        # find which shard file(s) hold the MTP keys and download if missing;
-        # build a per-shard resolved path so source_dir is never mutated (which
-        # would break paths for shards that were already present locally)
+
         mtp_shards = {v for k, v in raw_map.items() if k.startswith(mtp_prefix + ".")}
         resolved_shard = {}  # shard_filename -> absolute local path
         for shard_file in mtp_shards:
@@ -305,70 +250,34 @@ def _quantize_and_save_mtp_tensors(
             f"No tensors with prefix '{mtp_prefix}' found in {source_model}"
         )
 
-    # Load the already-saved dest config; it is needed to emit the MTP config
-    # group (or, when nothing is quantized, the ignore entry).
     config_path = find_config_path(dest_dir)
     config = None
     if config_path is not None:
         with open(config_path) as f:
             config = json.load(f)
 
-    # MTP quantization is opt-in: without an explicit mtp_scheme the layers stay
-    # full precision (bf16) and are added to the ignore list below.
     scheme = _resolve_mtp_scheme(mtp_scheme)
 
-    # module names of the MTP layers we actually quantized; used to emit config
-    # group targets that match modules exactly (targets match module names, not
-    # parameter names, so a "...\\.weight" pattern would match nothing)
     quantized_modules = []
     if scheme is not None:
         output_tensors = {}
-        # First pass: separate the 2D linear weights we will quantize from
-        # everything that must stay full precision.
         to_quantize = {}
         for key, tensor in mtp_tensors.items():
-            # only 2D linear weights are quantized; norms/biases/1D tensors
-            # (e.g. mtp.norm.weight) stay full precision
             if not key.endswith(".weight") or tensor.ndim != 2:
                 output_tensors[key] = tensor
-                continue
-            # Embedding and output-head weights have the vocab dimension as
-            # their first axis; keep them full precision. vLLM only supports
-            # packed-INT (WNA16) quantization for these, never FP8/NVFP4, and
-            # MTP embeddings/heads are built unquantized there, so quantizing
-            # them yields a checkpoint vLLM cannot load (this matches how the
-            # main model leaves its own embeddings/lm_head unquantized). We
-            # detect these by checking shape[0] == vocab_size; false positives
-            # are unlikely given the typical size difference.
-            if vocab_size is not None and tensor.shape[0] == vocab_size:
+            elif vocab_size is not None and tensor.shape[0] == vocab_size:
                 output_tensors[key] = tensor
-                continue
-            # The MTP fusion projection (eh_proj / fc, which combines the
-            # previous hidden state with the next-token embedding) is a plain
-            # nn.Linear with no scale param in some engines (e.g. deepseek/glm
-            # MTP in vLLM), so a quantized weight would load without its scale
-            # and silently corrupt outputs. Keep it full precision everywhere.
-            # NOTE: This is a hardcoded list verified against vLLM 0.26.0 MTP
-            # implementations. New MTP architectures with different fusion names
-            # would bypass this check and potentially create broken checkpoints.
-            if key[: -len(".weight")].rsplit(".", 1)[-1] in _FUSION_PROJ_NAMES:
+            elif key[: -len(".weight")].rsplit(".", 1)[-1] in _FUSION_PROJ_NAMES:
                 output_tensors[key] = tensor
-                continue
-            to_quantize[key] = tensor
+            else:
+                to_quantize[key] = tensor
 
         quantized_modules = _compress_mtp_linears(to_quantize, scheme, output_tensors)
     else:
-        # no quantization config found; save unquantized and add to ignore
         output_tensors = mtp_tensors
 
-    # save the shard
     save_file(output_tensors, os.path.join(dest_dir, shard_name))
 
-    # update the safetensors index to include the new shard
-    # Read the dest index directly when it exists: get_weight_mappings prefers a
-    # bare model.safetensors over the index file, so it would try to parse any
-    # placeholder shard header (and fail). Reading the index directly is also
-    # more reliable than parsing shard headers.
     _dest_index = os.path.join(dest_dir, "model.safetensors.index.json")
     if os.path.exists(_dest_index):
         with open(_dest_index) as _f:
@@ -388,25 +297,7 @@ def _quantize_and_save_mtp_tensors(
         quant_config = config.get(QUANTIZATION_CONFIG_NAME)
         if quant_config is not None:
             if quantized_modules:
-                # Config-group targets match *module* names, not parameter
-                # names. vLLM fuses sibling projections before matching
-                # (q/k/v -> qkv_proj, gate/up -> gate_up_proj), so the exact
-                # per-component names we quantized (e.g. mtp...gate_proj) never
-                # match the fused runtime module (mtp...gate_up_proj). Worse,
-                # vLLM resolves the *first* matching target across all groups in
-                # order, before its fused-layer fallback runs -- so the main
-                # model's broad mlp/attn regexes (which DO match the fused name)
-                # would capture the MTP modules unless the MTP group is both
-                # listed first and carries a target matching the fused names. We
-                # therefore emit an mtp-anchored regex covering the fused and
-                # unfused projection names and prepend the group. The exact
-                # names are kept as belt-and-suspenders for unfused projections.
-                #
-                # Each config group must carry its own compression `format`
-                # (the main model's groups do, and it is required when the
-                # top-level format is "mixed-precision"). Infer it from the
-                # scheme exactly as the main model does, so vLLM loads the MTP
-                # group with the correct compressor (e.g. nvfp4-pack-quantized).
+
                 from compressed_tensors.compressors.format import (
                     infer_module_format,
                 )
@@ -423,8 +314,6 @@ def _quantize_and_save_mtp_tensors(
                 }
                 if scheme.input_activations is not None:
                     group["input_activations"] = scheme.input_activations.model_dump()
-                # Prepend (dropping any stale mtp_group from a prior save) so
-                # vLLM's first-match wins for MTP modules over the main groups.
                 groups = {
                     k: v
                     for k, v in (quant_config.get("config_groups") or {}).items()
@@ -432,8 +321,6 @@ def _quantize_and_save_mtp_tensors(
                 }
                 quant_config["config_groups"] = {"mtp_group": group, **groups}
             else:
-                # nothing was quantized; mark MTP as ignored so inference
-                # engines skip it
                 ignore_list = quant_config.get("ignore") or []
                 mtp_ignore_pattern = f"re:^{re.escape(mtp_prefix)}\\."
                 if mtp_ignore_pattern not in ignore_list:
@@ -445,12 +332,8 @@ def _quantize_and_save_mtp_tensors(
 
 
 def _get_mtp_prefix(source_model: str, text_config) -> str:
-    """
-    Detect the tensor key prefix used for MTP layers in a checkpoint.
-
-    Reads from the safetensors index rather than the downloaded files so that
-    the MTP shard does not need to be present locally (AutoModel never downloads
-    it because the keys are in _keys_to_ignore_on_load_unexpected).
+    """Detect the MTP tensor key prefix from the safetensors index.
+    Returns "mtp" for Qwen/Nemotron-style or the layer index path for GLM-style.
     """
     import json
 
@@ -470,7 +353,6 @@ def _get_mtp_prefix(source_model: str, text_config) -> str:
         with open(index_path) as f:
             all_keys = list(json.load(f).get("weight_map", {}).keys())
     else:
-        # single-shard model; read keys directly from the safetensors metadata
         from safetensors import safe_open
 
         shard = os.path.join(source_dir, "model.safetensors")
@@ -485,9 +367,6 @@ def _get_mtp_prefix(source_model: str, text_config) -> str:
     if any(k.startswith("mtp.") for k in all_keys):
         return "mtp"
 
-    # GLM-style: MTP is the layer at index num_hidden_layers, stored either
-    # under model.language_model.layers (VLM, e.g. GLM-5.3-Flash) or
-    # model.layers (text-only)
     num_hidden = getattr(text_config, "num_hidden_layers", None)
     if num_hidden is not None:
         for prefix in (
@@ -572,12 +451,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
-            # Re-tie input and output embeddings before offload conversion so a
-            # shared table is written once. Offloading splits a tied weight into
-            # separate params, and quantized embeddings are untied during
-            # calibration; either way identical tensors would otherwise be saved
-            # twice. Doing this before `to_accelerate` keeps accelerate's
-            # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
