@@ -22,6 +22,7 @@ When the flags are not yet available, use kimi_k3_layerwise_example.py which
 demonstrates the sequential pipeline approach (available now).
 """
 
+import torch
 from compressed_tensors.quantization import QuantizationConfig
 from datasets import load_dataset
 from transformers import AutoTokenizer
@@ -32,6 +33,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 MODEL_ID = "moonshotai/Kimi-K3"
+num_gpus = torch.cuda.device_count()
+print(f"Detected {num_gpus} GPUs")
 
 # Load quantization config from pretrained and add ignore patterns
 qconfig = QuantizationConfig.from_pretrained(MODEL_ID)
