@@ -16,6 +16,9 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.transformers.compression.recipe_validation import (
+    warn_on_unmatched_ignore_entries,
+)
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils.transformers import get_embeddings
@@ -125,6 +128,16 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
+
+            # Report recipe `ignore` entries which matched no module before anything
+            # is written. This is the last point at which the author can still see a
+            # divergence between the recipe and the configuration that ships; after
+            # the write, only the resolved configuration is in the checkpoint.
+            # Warns only -- the save proceeds either way.
+            if is_source_process():
+                warn_on_unmatched_ignore_entries(
+                    model, active_session().lifecycle.recipe.modifiers
+                )
 
             # without this, quantization format will be inferred from the model
             if not save_compressed and quantization_format is None:
