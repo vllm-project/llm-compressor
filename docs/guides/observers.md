@@ -152,7 +152,7 @@ Observers support multiple quantization strategies via the `QuantizationArgs.str
 - `TOKEN`: Per-token statistics along token or sequence dimensions.
 - `BLOCK`: Block-wise quantization with configurable block structure.
 
-Note: observers do not handle `g_idx` (group index reordering for actorder). Column reordering for actorder is handled by GPTQ at compression time, not during observer statistics accumulation.
+Note: column reordering for actorder is handled by GPTQ at compression time, not during observer statistics accumulation.
 
 ## Observer Configuration Parameters
 

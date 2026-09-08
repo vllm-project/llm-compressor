@@ -154,7 +154,7 @@ class DummyModel(torch.nn.Module):
 @torch.no_grad()
 @requires_gpu
 @pytest.mark.parametrize(
-    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4", "granitemoe"})
+    "model_type", list(ARCH_TO_IMPORT_PATHS.keys() - {"llama4", "gpt_oss"})
 )
 def test_linearize_moe(model_type):
     config_path, experts_path = ARCH_TO_IMPORT_PATHS[model_type]
@@ -170,9 +170,19 @@ def test_linearize_moe(model_type):
         config = config_cls(**CONFIG_OVERRIDES.get(model_type, {}))
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
+
         up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
+        up_proj_bias = _getattr_fallbacks(
+            experts, ["gate_up_proj_bias", "up_proj_bias"], None
+        )
+        down_proj = experts.down_proj
+        down_proj_bias = getattr(experts, "down_proj_bias", None)
         init.normal_(up_proj, mean=0.0, std=config.initializer_range)
-        init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
+        init.normal_(down_proj, mean=0.0, std=config.initializer_range)
+        if up_proj_bias is not None:
+            init.normal_(up_proj_bias, mean=0.0, std=config.initializer_range)
+        if down_proj_bias is not None:
+            init.normal_(down_proj_bias, mean=0.0, std=config.initializer_range)
 
         mock_model = DummyModel(experts, config)
         linearize_moe(mock_model)
@@ -200,41 +210,53 @@ def test_linearize_moe(model_type):
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
-def test_linearize_moe_granite():
-    try:
-        from transformers.models.granitemoe.configuration_granitemoe import (
-            GraniteMoeConfig,
-        )
-        from transformers.models.granitemoe.modeling_granitemoe import (
-            GraniteMoeParallelExperts,
-        )
-    except ImportError:
-        pytest.skip("GraniteMoeParallelExperts has been removed")
+def test_linearize_moe_gpt_oss():
+    from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
+    from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
 
-    config = GraniteMoeConfig(hidden_size=512, intermediate_size=1024)
-    experts = GraniteMoeParallelExperts(
-        config.num_local_experts, config.hidden_size, config.intermediate_size
+    config = GptOssConfig(
+        hidden_size=64,
+        intermediate_size=32,
+        num_local_experts=4,
+        num_experts_per_tok=2,
     )
-    init.normal_(experts.weight, mean=0.0, std=config.initializer_range)
+    experts = GptOssExperts(config)
+    init.normal_(experts.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(experts.gate_up_proj_bias, mean=0.0, std=config.initializer_range)
+    init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(experts.down_proj_bias, mean=0.0, std=config.initializer_range)
+    gate_up_proj = experts.gate_up_proj.clone()
+    gate_up_proj_bias = experts.gate_up_proj_bias.clone()
 
     mock_model = DummyModel(experts, config)
     linearize_moe(mock_model)
     assert mock_model.module is not experts
 
-    hidden_states = torch.randn(NUM_TEST_TOKENS, config.hidden_size, dtype=config.dtype)
-    expert_size = [
-        (NUM_TEST_TOKENS // config.num_local_experts)
-        for _ in range(config.num_local_experts)
-    ]
-    expert_size[-1] += NUM_TEST_TOKENS % config.num_local_experts
-    true_outputs = experts(hidden_states, expert_size)
-    outputs = mock_model(hidden_states, expert_size)
-    with moe_calibration_context():
-        calib_outputs = mock_model(hidden_states, expert_size)
+    # gate and up are interleaved along the last dim, not concatenated
+    for index in range(config.num_local_experts):
+        expert = mock_model.module[index]
+        assert torch.equal(expert.gate_proj.weight, gate_up_proj[index][:, 0::2].T)
+        assert torch.equal(expert.up_proj.weight, gate_up_proj[index][:, 1::2].T)
+        assert torch.equal(expert.gate_proj.bias, gate_up_proj_bias[index][0::2])
+        assert torch.equal(expert.up_proj.bias, gate_up_proj_bias[index][1::2])
+
+    moe_config = MoEConfig.from_config(config)
+    hidden_states = torch.randn(
+        NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
+    )
+    top_k_index = torch.randint(
+        0,
+        moe_config.num_experts,
+        size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
+    )
+    top_k_weights = torch.randn(
+        NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
+    )
+    true_outputs = experts(hidden_states, top_k_index, top_k_weights)
+    outputs = mock_model(hidden_states, top_k_index, top_k_weights)
 
     assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
     assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
-    assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
 def test_linearize_moe_llama4():

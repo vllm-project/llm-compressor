@@ -53,7 +53,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm and scheme.
 recipe = QuantizationModifier(
     targets="Linear",
-    scheme="NVFP4",
+    scheme="<SCHEME>",
     ignore=["lm_head"],
 )
 
@@ -77,6 +77,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-<SCHEME>"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)

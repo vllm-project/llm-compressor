@@ -49,6 +49,7 @@ class IMatrixMSEObserver(Observer):
         self.grid = kw.get("grid", 20)
         self.norm = kw.get("norm", 3.0)
         self.strict = kw.get("strict", False)
+        self.expand = kw.get("expand", 1.0)
 
         self._imatrix_sum: Optional[torch.Tensor] = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
@@ -131,6 +132,7 @@ class IMatrixMSEObserver(Observer):
             self.patience,
             self.grid,
             self.norm,
+            expand=self.expand,
             importance_weights=importance_weights,
         )
 
@@ -257,6 +259,7 @@ def _grid_search(
     patience: int,
     grid: int,
     norm: float,
+    expand: float = 1.0,
     importance_weights: Optional[torch.Tensor] = None,
 ) -> MinMaxTuple:
     """Grid search for min/max minimizing (importance-weighted) quant error.
@@ -265,8 +268,14 @@ def _grid_search(
     using FP32 scales. After optimization, global_scale is computed from the final
     min/max values in get_qparams().
     """
-    min_val = torch.amin(observed, dim=(0, -1))
-    max_val = torch.amax(observed, dim=(0, -1))
+    if (
+        args.strategy == QuantizationStrategy.TENSOR_GROUP
+        and args.scale_dtype is not None
+    ):
+        args = args.model_copy(update={"scale_dtype": None})
+
+    min_val = torch.amin(observed, dim=(0, -1)) * expand
+    max_val = torch.amax(observed, dim=(0, -1)) * expand
     best_error = torch.full(
         min_val.shape,
         torch.finfo(torch.float32).max,
@@ -317,3 +326,30 @@ def _grid_search(
                 break
 
     return best_min, best_max
+
+
+@Observer.register("nvfp4_expanded_imatrix")
+class NVFP4ExpandedIMatrixObserver(IMatrixMSEObserver):
+    """
+    IMatrix observer with defaults tuned for NVFP4 range expansion.
+
+    Same search as :class:`IMatrixMSEObserver` but covers 1.8x down to
+    ~0.8x of the per-group range in 112 steps, matching
+    :class:`NVFP4ExpandedMSEObserver`.
+
+    Usage::
+
+        QuantizationArgs(
+            ...
+            observer="nvfp4_expanded_imatrix",
+        )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        kw = self.args.observer_kwargs
+        self.expand = kw.get("expand", 1.8)
+        self.maxshrink = kw.get("maxshrink", 1 - 0.8 / 1.8)
+        self.grid = kw.get("grid", 200)
+        self.norm = kw.get("norm", 2.4)
+        self.patience = kw.get("patience", 1000)
