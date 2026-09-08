@@ -70,7 +70,7 @@ def quantize_weight(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
-) -> tuple[float, dict[str, torch.Tensor]]:
+) -> tuple[float, dict[str, torch.Tensor], bool]:
     """
     Quantize a module weight according to the GPTQ algorithm
 
@@ -80,7 +80,8 @@ def quantize_weight(
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
     :return: loss, q_param_dict (with keys: weight, weight_scale, weight_zero_point,
-        and optionally weight_global_scale)
+        and optionally weight_global_scale), used_rtn_fallback (True if hessian
+        inversion failed and the module was quantized with round-to-nearest)
     """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
@@ -135,6 +136,7 @@ def quantize_weight(
     W[:, dead] = 0
 
     # compute inverse hessian in place to save memory
+    used_rtn_fallback = False
     try:
         damp = percdamp * torch.mean(torch.diag(H))
         diag = torch.arange(H.shape[0], device=H.device)
@@ -150,6 +152,7 @@ def quantize_weight(
             "of calibration samples, or shuffling the calibration dataset. "
             "Falling back to round-to-nearest for this module."
         )
+        used_rtn_fallback = True
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259
@@ -248,7 +251,7 @@ def quantize_weight(
     }
     if global_scale:
         q_param_dict["weight_global_scale"] = global_scale.to(dtype=final_dtype)
-    return (loss, q_param_dict)
+    return (loss, q_param_dict, used_rtn_fallback)
 
 
 def _apply_activation_ordering(

@@ -12,6 +12,7 @@ from collections.abc import Iterator, Sized
 from typing import Any, Callable, Optional
 
 import torch
+from compressed_tensors.distributed import is_distributed
 from datasets import Dataset
 from loguru import logger
 from torch import distributed as dist
@@ -219,7 +220,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
 
 
 def _is_dist_and_same_ds(dataset: Dataset) -> bool:
-    if not dist.is_initialized():
+    if not is_distributed():
         return False
 
     assert len(dataset) > 0, (

@@ -134,6 +134,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
+    _num_compressed_modules: int = PrivateAttr(default=0)
+    _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -308,7 +310,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
-                loss, q_param_dict = quantize_weight(
+                loss, q_param_dict, used_rtn_fallback = quantize_weight(
                     module=module,
                     quant_args=quant_args,
                     hessian=self._hessians.pop(module) / self._num_samples.pop(module),
@@ -316,6 +318,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     percdamp=self.dampening_frac,
                 )
                 comp_logger.set_results(name="GPTQ", loss=loss)
+
+            self._num_compressed_modules += 1
+            if used_rtn_fallback:
+                self._rtn_fallback_module_names.append(name)
 
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
@@ -347,6 +353,35 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self._num_samples.pop(module, None)
         wait_for_comms(pending_comms)
 
+    def _log_rtn_fallback_summary(self):
+        """
+        Emit a single end-of-run warning if any modules fell back to
+        round-to-nearest because hessian inversion failed. Without a summary,
+        per-module fallback warnings are easy to miss and a run where every
+        module fell back looks like a successful GPTQ run (#2952). In the
+        distributed case, each rank reports the modules it compressed.
+        """
+        num_fallback = len(self._rtn_fallback_module_names)
+        if num_fallback == 0:
+            return
+
+        total = self._num_compressed_modules
+        shown = ", ".join(self._rtn_fallback_module_names[:10])
+        if num_fallback > 10:
+            shown += f", and {num_fallback - 10} more (full list at DEBUG level)"
+            logger.debug(
+                "Modules quantized with round-to-nearest due to hessian "
+                "inversion failure: " + ", ".join(self._rtn_fallback_module_names)
+            )
+        logger.warning(
+            f"Hessian inversion failed for {num_fallback}/{total} modules "
+            f"({num_fallback / total:.1%}). These modules were quantized with "
+            "round-to-nearest instead of GPTQ (the quantization scheme is "
+            "unchanged). Consider increasing GPTQModifier.dampening_frac, "
+            "increasing the number of calibration samples, or shuffling the "
+            f"calibration dataset. Affected modules: {shown}"
+        )
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm
@@ -356,11 +391,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
+        self._log_rtn_fallback_summary()
+
         if len(self._num_samples) > 0:
             raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
         self._hessians = dict()
         self._num_samples = dict()
+        self._num_compressed_modules = 0
+        self._rtn_fallback_module_names = []
 
         return True
 

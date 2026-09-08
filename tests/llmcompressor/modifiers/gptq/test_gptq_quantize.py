@@ -5,6 +5,7 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
+from loguru import logger
 
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
@@ -45,13 +46,14 @@ def test_quantize_weight_group_strategy_actorder(actorder):
         )
     )
 
-    loss, q_param_dict = quantize_weight(
+    loss, q_param_dict, used_rtn_fallback = quantize_weight(
         module=module,
         quant_args=quant_args,
         hessian=hessian,
     )
 
     assert loss >= 0
+    assert not used_rtn_fallback
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape == (6, 4)
     assert q_param_dict["weight_zero_point"].shape == (6, 4)
@@ -80,7 +82,7 @@ def test_quantize_weight_supports_block_strategy(actorder):
     hessian = make_empty_hessian(module)
     hessian += torch.eye(hessian.shape[0], dtype=hessian.dtype, device=hessian.device)
 
-    loss, q_param_dict = quantize_weight(
+    loss, q_param_dict, used_rtn_fallback = quantize_weight(
         module=module,
         quant_args=quant_args,
         hessian=hessian,
@@ -88,6 +90,7 @@ def test_quantize_weight_supports_block_strategy(actorder):
     )
 
     assert loss >= 0
+    assert not used_rtn_fallback
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape == (3, 2)
     assert q_param_dict["weight_zero_point"].shape == (3, 2)
@@ -118,15 +121,80 @@ def test_quantize_weight_channel_actorder_weight():
     )
     hessian += torch.diag(diag)
 
-    loss, q_param_dict = quantize_weight(
+    loss, q_param_dict, used_rtn_fallback = quantize_weight(
         module=module, quant_args=quant_args, hessian=hessian, blocksize=4
     )
 
     assert loss >= 0
+    assert not used_rtn_fallback
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape[0] == module.weight.shape[0]
     assert q_param_dict["weight_zero_point"].shape[0] == module.weight.shape[0]
     assert "weight_g_idx" not in q_param_dict
+
+
+def _make_channel_quantized_linear(in_features=8, out_features=4):
+    module = torch.nn.Linear(in_features, out_features, bias=False)
+    quant_args = QuantizationArgs(num_bits=4, symmetric=True, strategy="channel")
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+    return module, quant_args
+
+
+@torch.no_grad()
+def test_quantize_weight_singular_hessian_rtn_fallback():
+    module, quant_args = _make_channel_quantized_linear()
+
+    # rank-1 hessian with a nonzero diagonal, so dead-column masking does not
+    # repair it; percdamp=0.0 keeps it singular and cholesky fails
+    hessian = make_empty_hessian(module) + 1
+
+    loss, q_param_dict, used_rtn_fallback = quantize_weight(
+        module=module, quant_args=quant_args, hessian=hessian, percdamp=0.0
+    )
+
+    assert used_rtn_fallback
+    assert loss >= 0
+    assert q_param_dict["weight"].shape == module.weight.shape
+
+
+@torch.no_grad()
+def test_gptq_rtn_fallback_summary_fires():
+    module, quant_args = _make_channel_quantized_linear()
+
+    # qparams written back by compress_module_list must already exist
+    module.weight_scale = torch.nn.Parameter(
+        torch.empty(4, 1, dtype=module.weight.dtype), requires_grad=False
+    )
+    module.weight_zero_point = torch.nn.Parameter(
+        torch.empty(4, 1, dtype=quant_args.zp_dtype), requires_grad=False
+    )
+
+    name = "model.layers.0.self_attn.q_proj"
+    modifier = GPTQModifier(dampening_frac=0.0)
+    modifier._module_names[module] = name
+    modifier._hessians[module] = make_empty_hessian(module) + 1  # singular
+    modifier._num_samples[module] = torch.tensor(1.0)
+
+    messages = []
+    handler_id = logger.add(messages.append, level="WARNING")
+    try:
+        modifier.compress_modules()
+        modifier._log_rtn_fallback_summary()
+    finally:
+        logger.remove(handler_id)
+
+    assert modifier._num_compressed_modules == 1
+    assert modifier._rtn_fallback_module_names == [name]
+    summaries = [str(m) for m in messages if "Hessian inversion failed for" in str(m)]
+    assert len(summaries) == 1
+    assert "1/1" in summaries[0]
+    assert "100.0%" in summaries[0]
+    assert "round-to-nearest" in summaries[0]
+    assert name in summaries[0]
 
 
 @requires_compute_capability(9, 0)  # Requires H100 or higher
