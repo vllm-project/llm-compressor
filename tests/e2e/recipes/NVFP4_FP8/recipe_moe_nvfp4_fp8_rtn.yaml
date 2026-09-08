@@ -6,7 +6,6 @@ quant_stage:
         group_nvfp4:
           weights:
             num_bits: 4
-            actorder: "weight"
             type: float
             strategy: tensor_group
             dynamic: false
