@@ -143,9 +143,9 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": (
                 "Optional dataset split selector. Passing a string like 'train' or "
-                "'train[:50%]' is strongly recommended. Legacy dict input is "
+                "'train[:50%%]' is strongly recommended. Legacy dict input is "
                 "deprecated and only supported for calibration compatibility "
-                "(for example: {'calibration': 'train[:50%]'})."
+                "(for example: {'calibration': 'train[:50%%]'})."
             )
         },
     )

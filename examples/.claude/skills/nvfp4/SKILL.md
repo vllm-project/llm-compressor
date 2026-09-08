@@ -12,99 +12,31 @@ Generate a working Python example script that quantizes a model to an NVFP4 sche
 
 ## Shared Documentation
 
-Read `.claude/skills/shared_quantization.md` for common steps on gathering model information and applying model-type adjustments (dense, MoE, multimodal).
+Read `.claude/skills/shared_quantization.md` for common steps on gathering model information, applying model-type adjustments (dense, MoE, multimodal), GPTQ, transforms, and calibration dataset configuration.
 
 ## Step 1 — Gather information
 
-Follow the shared documentation for gathering model information.
-
-In addition, ask the user (or use defaults) for:
-
-**Quantization algorithm:**
-1. **Use GPTQ?** — GPTQModifier can provide better accuracy than standard QuantizationModifier at the cost of longer calibration time. Ask the user if they want to use GPTQ (default: No, use QuantizationModifier for faster calibration).
-
-**GPTQ-specific configuration** (only if using GPTQ):
-
-Use smart defaults and inform the user of the configuration. Don't prompt for each parameter unless the user explicitly wants to customize.
-
-1. **Activation ordering (`actorder`)** — Controls the order in which weight columns are quantized
-   - Default: `"static"` (recommended for best accuracy recovery with no runtime cost)
-   - User can optionally set to `None` for no specific ordering
-2. **Offload Hessians (`offload_hessians`)** — Whether to offload Hessian matrices to CPU during quantization
-   - **Checkpoint size estimation:** For fp16 models, approximate checkpoint size = (total parameters × 2 bytes) / 1024^4 TB
-     - Example: 70B params → ~0.13 TB, 405B params → ~0.75 TB, 500B params → ~0.93 TB
-   - Auto-suggest `True` for models with checkpoint size ≥1TB (reduces GPU memory usage at cost of speed)
-     - This typically means models with **500B+ parameters** in fp16
-   - Auto-suggest `False` for models <1TB (faster, requires more GPU memory)
-   - User can override based on their specific memory constraints
-3. **Dampening fraction (`dampening_frac`)** — Hessian dampening for numerical stability
-   - Default: `0.01`
-   - User can adjust if they encounter Hessian inversion issues during quantization
-4. **Block size (`block_size`)** — Number of columns to compress in one pass
-   - Default: `128`
-   - User can adjust if desired
-
-After determining configuration, inform the user: "Using GPTQ with: actorder='static', dampening_frac=0.01, block_size=128, offload_hessians=[True/False based on model size]. These can be adjusted if needed."
-
-**Calibration dataset configuration:**
-1. **Dataset ID** — HuggingFace dataset to use for calibration (default: `HuggingFaceH4/ultrachat_200k`)
-2. **Dataset split** — which split to use (default: `train_sft`)
-3. **Number of calibration samples** — how many samples to use (default: `256` for QuantizationModifier, `512` for GPTQModifier; MoE models may benefit from more samples)
-4. **Max sequence length** — maximum sequence length for tokenization (default: `2048`)
-5. **Preprocessing** — any custom preprocessing needed beyond the default chat template application
-
-**Default behavior:** If the user doesn't specify dataset preferences, use the template's defaults which are configured for `HuggingFaceH4/ultrachat_200k` with chat template preprocessing.
+Follow the shared documentation for gathering model information, GPTQ, transforms, and calibration dataset configuration.
 
 **IMPORTANT:** NVFP4 is a W4A4 quantization scheme with:
 - Weights: fp4 with per-group-16 scaling
 - Activations: fp4 with calibrated global scale
-- **Requires calibration dataset** for both weight and activation quantization
+- **Requires calibration dataset** for both weight and activation quantization — always use the shared `oneshot_with_data.py` template
 - `model_free_ptq` is **NOT supported** — NVFP4 uses the `oneshot` path only
 
 If the user specifically requests `model_free_ptq`, inform them it's not available for NVFP4 and proceed with the `oneshot` approach.
 
-## Templates
-
-Templates are located in `.claude/skills/nvfp4/templates/`:
-
-- `oneshot.py` — template for `oneshot` with `QuantizationModifier` including calibration dataset
-
 ## Step 2 — Use the oneshot template (only path for NVFP4)
 
-Read `templates/oneshot.py` and use it as the starting point. This template includes:
-- Dataset loading and preprocessing (configured for `HuggingFaceH4/ultrachat_200k` by default)
-- Chat template preprocessing
-- Tokenization pipeline
-- `oneshot` call with dataset and calibration parameters
-- Uses `QuantizationModifier` with `scheme="NVFP4"` by default
+Read the shared template at `.claude/skills/templates/oneshot_with_data.py` and use it as the starting point. Set `scheme="NVFP4"`.
 
-**If using GPTQ:** Replace the recipe import and definition:
-```python
-from llmcompressor.modifiers.gptq import GPTQModifier
-
-recipe = GPTQModifier(
-    targets="Linear",
-    scheme="NVFP4",
-    ignore=["lm_head"],
-    actorder="static",  # or None if user prefers no specific ordering
-    dampening_frac=0.01,  # can be adjusted if Hessian inversion issues occur
-    offload_hessians=False,  # set to True for models ≥1TB
-    block_size=128,  # user can adjust if desired
-)
-```
-Also update the save directory suffix to `-NVFP4-GPTQ`.
-
-**Dataset customization:** If the user specified custom dataset preferences in Step 1, modify the template's dataset configuration accordingly:
-- Update `DATASET_ID` and `DATASET_SPLIT`
-- Adjust `NUM_CALIBRATION_SAMPLES` and `MAX_SEQUENCE_LENGTH`
-- Modify the `preprocess()` function if custom preprocessing is needed (the default applies chat template)
-- If the dataset doesn't use a `messages` field, adjust the preprocessing logic accordingly
+Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe if requested.
 
 Apply the model-type adjustments from the shared documentation before writing the final file.
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments from the shared documentation (`.claude/skills/shared_quantization.md`).
+Apply the model-type adjustments documented in `.claude/skills/shared_quantization.md`.
 
 **Note:** For MoE models, the pipeline automatically handles expert calibration via `CalibrationAfmoeMoE` module — no manual intervention needed.
 

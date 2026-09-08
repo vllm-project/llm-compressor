@@ -8,6 +8,7 @@ __all__ = [
     "MAPPINGS_REGISTRY",
     "DEFAULT_SMOOTHQUANT_MAPPINGS",
     "COHERE_SMOOTHQUANT_MAPPINGS",
+    "COHERE2_MOE_SMOOTHQUANT_MAPPINGS",
 ]
 
 LayerMapType = tuple[list[str], str]
@@ -92,6 +93,33 @@ COHERE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     ),
 ]
 
+# Cohere2MoE keeps Cohere's parallel block (a single input_layernorm feeds the
+# attention and the MLP simultaneously), so the Mixtral/Qwen-MoE convention of
+# smoothing attention only is not available here: every consumer of
+# input_layernorm must be balanced, or the smoothing stops being an identity
+# transform. The unscoped gate_proj/up_proj patterns cover both the leading
+# dense layer's MLP (mlp.gate_proj/up_proj, first_k_dense_replace) and every
+# expert (mlp.experts.N.gate_proj/up_proj). The router (mlp.gate) is
+# intentionally omitted — it is absent on the dense layer (the same constraint
+# the Glm4MoeLite AWQ mapping documents), so on routed layers routing logits
+# see the smoothed activations uncompensated and top-k selection can shift on
+# near-tie tokens. That tradeoff is shared with the Glm4MoeLite/GlmMoeDsa AWQ
+# mappings and is unavoidable here: skipping MLP smoothing entirely (the
+# Mixtral/Qwen-MoE convention) would also disable attention smoothing, since
+# the parallel block shares one norm.
+COHERE2_MOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
+    LayerMap(
+        balance_layers=[
+            "re:.*self_attn\\.q_proj$",
+            "re:.*self_attn\\.k_proj$",
+            "re:.*self_attn\\.v_proj$",
+            "re:.*gate_proj$",
+            "re:.*up_proj$",
+        ],
+        smooth_layers="re:.*input_layernorm$",
+    ),
+]
+
 AFMOE_SMOOTHQUANT_MAPPINGS: list[LayerMap] = [
     LayerMap(
         balance_layers=[
@@ -116,6 +144,7 @@ MAPPINGS_REGISTRY: dict[str, list[LayerMap]] = {
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
     "CohereForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,
     "Cohere2ForCausalLM": COHERE_SMOOTHQUANT_MAPPINGS,
+    "Cohere2MoeForCausalLM": COHERE2_MOE_SMOOTHQUANT_MAPPINGS,
     "Cohere2VisionForConditionalGeneration": COHERE_SMOOTHQUANT_MAPPINGS,
     "DeepseekV2ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,
     "DeepseekV3ForCausalLM": DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS,

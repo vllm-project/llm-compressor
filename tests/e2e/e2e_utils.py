@@ -240,38 +240,44 @@ def prepare_oneshot_kwargs(
     kwargs = {"model": loaded_model}
 
     if dataset_id:
-        split = get_rank_partition(dataset_split, num_calibration_samples)
+        if "/" not in dataset_id:
+            # Prebaked dataset name (e.g., "perfectblend") — let oneshot handle
+            # loading, preprocessing, and DDP partitioning automatically
+            kwargs["dataset"] = dataset_id
+        else:
+            split = get_rank_partition(dataset_split, num_calibration_samples)
 
-        ds = load_dataset(dataset_id, name=dataset_config, split=split)
-        if shuffle_calibration_samples:
-            ds = ds.shuffle(seed=42)
+            ds = load_dataset(dataset_id, name=dataset_config, split=split)
+            if shuffle_calibration_samples:
+                ds = ds.shuffle(seed=42)
 
-        ds = process_dataset(ds, processor, max_seq_length)
-        kwargs["dataset"] = ds
+            ds = process_dataset(ds, processor, max_seq_length)
+            kwargs["dataset"] = ds
+
+            if "flickr30k" in dataset_id:
+
+                def data_collator(batch):
+                    assert len(batch) == 1
+                    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
+                kwargs["data_collator"] = data_collator
+            elif "calibration" in dataset_id:
+
+                def data_collator(batch):
+                    assert len(batch) == 1
+                    return {
+                        key: (
+                            torch.tensor(value)
+                            if key != "pixel_values"
+                            else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+                        )
+                        for key, value in batch[0].items()
+                    }
+
+                kwargs["data_collator"] = data_collator
+
         kwargs["max_seq_length"] = max_seq_length
         kwargs["num_calibration_samples"] = num_calibration_samples
-
-        if "flickr30k" in dataset_id:
-
-            def data_collator(batch):
-                assert len(batch) == 1
-                return {key: torch.tensor(value) for key, value in batch[0].items()}
-
-            kwargs["data_collator"] = data_collator
-        elif "calibration" in dataset_id:
-
-            def data_collator(batch):
-                assert len(batch) == 1
-                return {
-                    key: (
-                        torch.tensor(value)
-                        if key != "pixel_values"
-                        else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
-                    )
-                    for key, value in batch[0].items()
-                }
-
-            kwargs["data_collator"] = data_collator
 
     kwargs["recipe"] = build_recipe(recipe, quant_type, scheme)
     kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples

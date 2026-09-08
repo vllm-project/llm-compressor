@@ -99,7 +99,11 @@ class TestLMEval:
     def set_up(self, test_data_file: str):
         eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
-        if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
+        cadence = os.environ.get("CADENCE", "commit")
+        expected_cadence = eval_config.get("cadence")
+        if not isinstance(expected_cadence, list):
+            expected_cadence = [expected_cadence]
+        if cadence != "release" and cadence not in expected_cadence:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.config = TestConfig(**eval_config)

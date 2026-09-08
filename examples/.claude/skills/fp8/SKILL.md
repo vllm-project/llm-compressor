@@ -12,7 +12,7 @@ Generate a working Python example script that quantizes a model to an FP8 scheme
 
 ## Step 1 — Gather information
 
-Read the shared documentation at `.claude/skills/shared_quantization.md` for common model information gathering steps.
+Read the shared documentation at `.claude/skills/shared_quantization.md` for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
 
 In addition to the shared information, ask the user (or infer from context) for:
 
@@ -31,9 +31,11 @@ Templates are located in `.claude/skills/fp8/templates/`:
 
 ## Step 2 — Choose the template
 
-### `oneshot` with `QuantizationModifier` (standard path)
+### `oneshot` with `QuantizationModifier` (standard path — most common)
 
-Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (`.claude/skills/shared_quantization.md`) before writing the final file.
+This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (`.claude/skills/shared_quantization.md`) before writing the final file.
+
+**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at `.claude/skills/templates/oneshot_with_data.py` instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
 
 ## Step 3 — Apply model-type adjustments
 
@@ -55,9 +57,10 @@ Name the file `{model_name_slug}_example.py` (e.g. `llama3_example.py`, `gemma4_
 Run `make style` after writing the file.
 
 ## Notes
+- The standard path (`QuantizationModifier` with no calibration data) is the most common and gives good accuracy for FP8. GPTQ and transforms are optional enhancements — only use them if the user requests improved accuracy.
 - `FP8_BLOCK` is preferred for Hopper/Blackwell throughput, but check that the model's weight shapes are compatible with 128x128 block tiling before choosing it.
 - `FP8_DYNAMIC` is the fallback when FP8_BLOCK is not suitable — broad hardware support (Ampere+), no calibration required.
 - `MXFP8` targets AMD MI300X.
-- Neither scheme requires a calibration dataset; `oneshot(model=model, recipe=recipe)` with no `dataset` argument is correct.
+- Neither scheme requires a calibration dataset with plain `QuantizationModifier`; `oneshot(model=model, recipe=recipe)` with no `dataset` argument is correct. Calibration data is only needed when using GPTQ or a transform.
 - Use `model_free_ptq` when the model has no transformers class definition, or when the model is ~1TB+ and you want to quantize directly from safetensors without loading the full model.
 - `save_compressed=True` is optional — the checkpoint saves in compressed-tensors format either way. Omit unless explicitly requested.
