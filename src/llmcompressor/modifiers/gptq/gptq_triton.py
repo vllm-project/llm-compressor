@@ -66,6 +66,7 @@ if HAS_TRITON:
         q_max,
         WIDTH: tl.constexpr,
         QUANT_TYPE: tl.constexpr,
+        DEQUANT_DTYPE: tl.constexpr,
         HAS_ZP: tl.constexpr,
         BLOCK_ROWS: tl.constexpr,
     ):
@@ -160,12 +161,27 @@ if HAS_TRITON:
                 # E4M3FN round-to-nearest, matching torch.float8_e4m3fn.
                 rounded = clamped.to(tl.float8e4nv).to(tl.float32)
 
-            if HAS_ZP:
-                quantized_column = tl.extra.cuda.libdevice.mul_rn(
-                    tl.extra.cuda.libdevice.sub_rn(rounded, zp), scale
+            if DEQUANT_DTYPE == 1:
+                rounded = rounded.to(tl.bfloat16)
+                scale_value = scale.to(tl.bfloat16)
+                if HAS_ZP:
+                    rounded = (rounded - zp.to(tl.bfloat16)).to(tl.bfloat16)
+                quantized_column = (
+                    (rounded * scale_value).to(tl.bfloat16).to(tl.float32)
                 )
+            elif DEQUANT_DTYPE == 2:
+                rounded = rounded.to(tl.float16)
+                scale_value = scale.to(tl.float16)
+                if HAS_ZP:
+                    rounded = (rounded - zp.to(tl.float16)).to(tl.float16)
+                quantized_column = (rounded * scale_value).to(tl.float16).to(tl.float32)
             else:
-                quantized_column = tl.extra.cuda.libdevice.mul_rn(rounded, scale)
+                if HAS_ZP:
+                    quantized_column = tl.extra.cuda.libdevice.mul_rn(
+                        tl.extra.cuda.libdevice.sub_rn(rounded, zp), scale
+                    )
+                else:
+                    quantized_column = tl.extra.cuda.libdevice.mul_rn(rounded, scale)
 
             diagonal = tl.load(
                 hinv_ptr
@@ -239,7 +255,7 @@ def fused_gptq_block_update(
         or hinv.dtype != torch.float32
         or quantized.dtype != torch.float32
         or errors.dtype != torch.float32
-        or scale.dtype not in (torch.float32, torch.float64)
+        or scale.dtype not in (torch.float16, torch.bfloat16, torch.float32)
         or any(
             tensor.device != work.device for tensor in (hinv, scale, quantized, errors)
         )
@@ -261,7 +277,11 @@ def fused_gptq_block_update(
     if zero_point is not None and zero_point.shape != work.shape:
         raise ValueError("zero_point must have the same shape as work")
 
-    scale = scale.to(torch.float32)
+    dequant_dtype = {
+        torch.float32: 0,
+        torch.bfloat16: 1,
+        torch.float16: 2,
+    }[scale.dtype]
     has_zp = zero_point is not None
     if has_zp:
         zero_point = zero_point.to(torch.float32)
@@ -285,6 +305,7 @@ def fused_gptq_block_update(
         float(q_max),
         WIDTH=width,
         QUANT_TYPE=quant_type,
+        DEQUANT_DTYPE=dequant_dtype,
         HAS_ZP=has_zp,
         BLOCK_ROWS=block_rows,
         num_warps=4,
