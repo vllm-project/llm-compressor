@@ -347,9 +347,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     weights, hessians, perm = _apply_activation_ordering(
                         weights, hessians, quant_args.actorder
                     )
-                    scales = torch.stack(
-                        [qparam["scale"] for qparam in batch_qparams]
-                    )
+                    scales = torch.stack([qparam["scale"] for qparam in batch_qparams])
                     zero_points = torch.stack(
                         [qparam["zero_point"] for qparam in batch_qparams]
                     )
@@ -441,9 +439,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             q_param_dict = {
                 "weight": quantized[index].to(dtype=module.weight.dtype),
                 "weight_scale": scales[index].to(dtype=module.weight.dtype),
-                "weight_zero_point": zero_points[index].to(
-                    dtype=quant_args.zp_dtype
-                ),
+                "weight_zero_point": zero_points[index].to(dtype=quant_args.zp_dtype),
             }
             if global_scales is not None:
                 q_param_dict["weight_global_scale"] = global_scales[index].to(
@@ -500,18 +496,18 @@ class GPTQModifier(Modifier, QuantizationMixin):
         block_matrix_size = out_features * self.block_size
         w_err_size = out_features * in_features
 
-        per_module_bytes = ( 
-            2 * hessian_size # align module, stacked hessians
-            + 3 * weight_size # align module, stacked weights, weight.to(dtype)
-            + 4 * block_matrix_size # W1, Q1, Err1, losses1
-            + w_err_size # w_err
-        ) * 4 # convert to bytes (float32 uses 4 bytes per element)
+        per_module_bytes = (
+            2 * hessian_size  # align module, stacked hessians
+            + 3 * weight_size  # align module, stacked weights, weight.to(dtype)
+            + 4 * block_matrix_size  # W1, Q1, Err1, losses1
+            + w_err_size  # w_err
+        ) * 4  # convert to bytes (float32 uses 4 bytes per element)
 
         if not 0.0 < self.batch_memory_fraction <= 1.0:
             raise ValueError("batch_memory_fraction must be in (0, 1]")
-        if torch.device(device).type != "cuda" or not torch.cuda.is_available():
+        if torch.device(device).type != "cuda" or not torch.accelerator.is_available():
             return 1
-        free_bytes, _ = torch.cuda.mem_get_info(device)
+        free_bytes, _ = torch.get_device_module().mem_get_info(device)
         budget = int(free_bytes * self.batch_memory_fraction)
         return max(1, budget // per_module_bytes)
 

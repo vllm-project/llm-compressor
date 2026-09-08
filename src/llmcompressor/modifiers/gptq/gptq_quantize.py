@@ -23,61 +23,6 @@ from llmcompressor.modifiers.gptq.gptq_triton import (
 GPTQ_PRECISION = torch.float32
 
 
-def _debug_numerics(name: str, actual: torch.Tensor, reference: torch.Tensor):
-    """Print exact GPTQ parity diagnostics when explicitly requested."""
-    if not os.getenv("LLMCOMPRESSOR_DEBUG_GPTQ_NUMERICS"):
-        return
-    equal = torch.equal(actual, reference)
-    mismatch = torch.count_nonzero(actual != reference).item()
-    max_diff = (actual - reference).abs().max().item() if actual.numel() else 0.0
-    print(
-        f"GPTQ_NUMERICS {name}: equal={equal} mismatches={mismatch} "
-        f"max_abs_diff={max_diff:.9g}",
-        flush=True,
-    )
-
-
-def _legacy_group_gptq_debug(
-    weight: torch.Tensor,
-    hinv: torch.Tensor,
-    scale: torch.Tensor,
-    zero_point: torch.Tensor,
-    global_scale: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    g_idx: torch.Tensor,
-    blocksize: int,
-) -> torch.Tensor:
-    """Run main's column loop for an opt-in, singleton group-quant trace."""
-    altered_qargs = copy(quant_args)
-    altered_qargs.strategy = QuantizationStrategy.CHANNEL
-    for i1 in range(0, weight.shape[1], blocksize):
-        i2 = min(i1 + blocksize, weight.shape[1])
-        weight_block = weight[:, i1:i2].clone()
-        quantized = torch.zeros_like(weight_block)
-        errors = torch.zeros_like(weight_block)
-        hinv_block = hinv[i1:i2, i1:i2]
-        for i in range(i2 - i1):
-            column = weight_block[:, i]
-            diagonal = hinv_block[i, i]
-            group = g_idx[i1 + i]
-            quantized_column = fake_quantize(
-                column,
-                scale[:, group],
-                zero_point[:, group],
-                altered_qargs,
-                global_scale=global_scale,
-            )
-            quantized[:, i] = quantized_column
-            error = (column - quantized_column) / diagonal
-            weight_block[:, i:] -= error.unsqueeze(1).matmul(
-                hinv_block[i, i:].unsqueeze(0)
-            )
-            errors[:, i] = error
-        weight[:, i1:i2] = quantized
-        weight[:, i2:] -= errors.matmul(hinv[i1:i2, i2:])
-    return weight
-
-
 class _GptqTritonError(RuntimeError):
     """Marks an error raised by the GPTQ Triton backend."""
 
@@ -127,36 +72,6 @@ def _apply_activation_ordering(
         -1,
         weight_perm.unsqueeze(-2).expand(-1, num_rows, -1),
     )
-    if os.getenv("LLMCOMPRESSOR_DEBUG_GPTQ_NUMERICS"):
-        reference_weights = torch.stack(
-            [
-                weights[index, :, torch.argsort(weight_perm[index])]
-                for index in range(weights.shape[0])
-            ]
-        )
-        reference_weights = torch.stack(
-            [
-                reference_weights[index, :, weight_perm[index]]
-                for index in range(weights.shape[0])
-            ]
-        )
-        # Index the original Hessian ordering back from the gathered result, then
-        # apply the legacy two-dimensional indexing expression independently.
-        invperm = torch.argsort(hessian_perm, dim=-1)
-        original_hessians = torch.stack(
-            [
-                hessians[index][invperm[index]][:, invperm[index]]
-                for index in range(hessians.shape[0])
-            ]
-        )
-        reference_hessians = torch.stack(
-            [
-                original_hessians[index][hessian_perm[index]][:, hessian_perm[index]]
-                for index in range(hessians.shape[0])
-            ]
-        )
-        _debug_numerics("activation_order.weight", weights, reference_weights)
-        _debug_numerics("activation_order.hessian", hessians, reference_hessians)
     return weights, hessians, weight_perm
 
 
@@ -256,13 +171,6 @@ def quantize_weight(
     zero_point = zero_point.to(device=device)
     if global_scale is not None:
         global_scale = global_scale.to(device=device)
-    if os.getenv("LLMCOMPRESSOR_DEBUG_GPTQ_NUMERICS"):
-        print(
-            f"GPTQ_NUMERICS dtypes: weight={W.dtype} hessian={H.dtype} "
-            f"scale={scale.dtype} zero_point={zero_point.dtype}",
-            flush=True,
-        )
-
     # handle g_idx
     g_idx = None
     if strategy in (
@@ -291,33 +199,9 @@ def quantize_weight(
         torch.diagonal(H, dim1=-2, dim2=-1).masked_fill_(dead, 1.0)
         W.masked_fill_(dead.unsqueeze(1), 0)
 
-    debug_hessian = None
-    if os.getenv("LLMCOMPRESSOR_DEBUG_GPTQ_NUMERICS"):
-        debug_hessian = H.clone()
-        debug_weight = W.clone()
-        _debug_numerics("dead_columns.weight", W, debug_weight)
-        _debug_numerics("dead_columns.hessian", H, debug_hessian)
-
     # compute inverse hessian in place to save memory
     damp = percdamp * torch.diagonal(H, dim1=-2, dim2=-1).mean(dim=-1)
     torch.diagonal(H, dim1=-2, dim2=-1).add_(damp.unsqueeze(-1))
-    if debug_hessian is not None:
-        reference_damped = torch.stack(
-            [
-                debug_hessian[index]
-                + torch.diag(
-                    percdamp
-                    * torch.mean(torch.diag(debug_hessian[index]))
-                    * torch.ones(
-                        num_columns,
-                        device=device,
-                        dtype=debug_hessian.dtype,
-                    )
-                )
-                for index in range(batch_size)
-            ]
-        )
-        _debug_numerics("damped_hessian", H, reference_damped)
     info = torch.empty(batch_size, dtype=torch.int32, device=device)
     torch.linalg.cholesky_ex(H, check_errors=False, out=(H, info))
     bad = info.nonzero(as_tuple=False).flatten()
@@ -330,22 +214,6 @@ def quantize_weight(
         torch.cholesky_inverse(H, out=H)
         torch.linalg.cholesky(H, upper=True, out=H)
     Hinv = H
-    if debug_hessian is not None and not bad.numel():
-        reference_hinv = []
-        for index in range(batch_size):
-            reference = debug_hessian[index].clone()
-            reference_diag = torch.arange(num_columns, device=device)
-            reference[reference_diag, reference_diag] += percdamp * torch.mean(
-                torch.diag(reference)
-            )
-            reference = torch.linalg.cholesky(reference)
-            reference = torch.cholesky_inverse(reference)
-            reference = torch.linalg.cholesky(reference, upper=True)
-            reference_hinv.append(reference)
-        reference_hinv = torch.stack(reference_hinv)
-        _debug_numerics("inverse_hessian", Hinv, reference_hinv)
-        debug_weight = W.clone()
-
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
@@ -384,30 +252,10 @@ def quantize_weight(
         invperm = torch.argsort(perm, dim=-1)
         W = torch.gather(W, -1, invperm.unsqueeze(-2).expand(-1, num_rows, -1))
 
-    if (
-        debug_hessian is not None
-        and not bad.numel()
-        and batch_size == 1
-        and strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
-    ):
-        legacy = _legacy_group_gptq_debug(
-            debug_weight[0],
-            reference_hinv[0],
-            scale[0],
-            zero_point[0],
-            None if global_scale is None else global_scale[0],
-            quant_args,
-            g_idx[0],
-            blocksize,
-        )
-        if perm is not None:
-            legacy = legacy[:, torch.argsort(perm[0])]
-        _debug_numerics("quantized_weight", W[0], legacy)
-
     return W.to(final_dtype), losses.sum(dim=1), used_rtn_fallback
 
 
-def _get_fused_gptq_config(
+def _get_triton_gptq_config(
     quant_args: QuantizationArgs,
 ) -> tuple[int, float, float] | None:
     """
@@ -465,15 +313,9 @@ def _column_scale_window(
     if strategy == QuantizationStrategy.TENSOR:
         # A stacked batch can be [B], [B, 1], or [B, 1, 1]. Normalize all
         # forms to [B, 1, 1] before expanding over rows and columns.
-        if scale.ndim == 3:
-            eff = scale
-        else:
-            eff = scale.reshape(-1, 1, 1)
+        eff = scale.reshape(-1, 1, 1)
         if has_zp:
-            if zero_point.ndim == 3:
-                zp = zero_point
-            else:
-                zp = zero_point.reshape(-1, 1, 1)
+            zp = zero_point.reshape(-1, 1, 1)
         else:
             zp = None
     elif strategy == QuantizationStrategy.CHANNEL:
@@ -560,7 +402,7 @@ def _gptq_block_update_triton_req(
     return (
         triton_req(W1)
         and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
-        and _get_fused_gptq_config(quant_args) is not None
+        and _get_triton_gptq_config(quant_args) is not None
         and 0 < block_width <= 256
         # Check that GPTQ block width is a power of two.
         and not block_width & (block_width - 1)
@@ -583,7 +425,7 @@ def _gptq_block_update_triton(
     i1: int,
 ) -> None:
     """Run one GPTQ block with the registered Triton backend."""
-    kernel_config = _get_fused_gptq_config(quant_args)
+    kernel_config = _get_triton_gptq_config(quant_args)
     if kernel_config is None:
         raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
 
@@ -667,37 +509,9 @@ def gptq_block_update(
             altered_qargs,
         ).transpose(0, 1)
 
-        debug_before_update = None
-        if (
-            os.getenv("LLMCOMPRESSOR_DEBUG_GPTQ_NUMERICS")
-            and W1.shape[0] == 1
-            and i == 0
-            and quant_args.strategy
-            in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
-        ):
-            altered_qargs = copy(quant_args)
-            altered_qargs.strategy = QuantizationStrategy.CHANNEL
-            group = g_idx[0, i1]
-            reference_q = fake_quantize(
-                w[0],
-                scale[0, :, group],
-                zero_point[0, :, group],
-                altered_qargs,
-                global_scale=None if global_scale is None else global_scale[0],
-            )
-            _debug_numerics("first_column.quantized", q[0], reference_q)
-            debug_before_update = W1[0, :, i:].clone()
-
         diagonal = Hinv1[:, i, i]
         error = (w - q) / diagonal[:, None]
         Q1[:, :, i] = q
         Err1[:, :, i] = error
         losses1[:, :, i] = error.square()
         W1[:, :, i:] -= error.unsqueeze(-1) * Hinv1[:, i, i:].unsqueeze(1)
-        if debug_before_update is not None:
-            reference_update = debug_before_update - error[0].unsqueeze(1).matmul(
-                Hinv1[0, i, i:].unsqueeze(0)
-            )
-            _debug_numerics(
-                "first_column.propagated_weight", W1[0, :, i:], reference_update
-            )
