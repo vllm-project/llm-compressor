@@ -21,6 +21,7 @@ from compressed_tensors.offload import init_dist, load_offloaded_model
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -84,7 +85,7 @@ def test_reap_ddp_qwen3():
         oneshot(
             model=model_ddp,
             dataset="perfectblend",
-            splits="train[:512]",
+            splits=get_rank_partition("train", NUM_SAMPLES),
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ddp_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
