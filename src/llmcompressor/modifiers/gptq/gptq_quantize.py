@@ -430,8 +430,9 @@ def _gptq_block_update_triton(
         raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
 
     block_width = W1.shape[-1]
-    if block_width > 256 or block_width & (block_width - 1):
-        raise ValueError("Triton GPTQ block width must be a power of two <= 256")
+    assert (
+        block_width > 256 or block_width & block_width - 1
+    ), "Triton GPTQ block width must be a power of two <= 256"
 
     quant_type, q_min, q_max = kernel_config
     eff, zp = _column_scale_window(
