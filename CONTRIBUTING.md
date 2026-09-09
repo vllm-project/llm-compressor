@@ -85,6 +85,22 @@ make style
 make quality
 ```
 
+### Pre-commit Hooks
+
+We provide [pre-commit](https://pre-commit.com/) hooks that run the same linting and formatting checks as `make quality` (plus a DCO sign-off hook) before each commit, so problems are caught locally instead of in CI. After installing the `[dev]` dependencies, enable them once per clone:
+
+```bash
+pre-commit install
+```
+
+The hooks then run automatically on `git commit`. To run them against all files on demand:
+
+```bash
+pre-commit run --all-files
+```
+
+To bypass the hooks for a single commit, use `git commit --no-verify`; to skip one hook, prefix the command with `SKIP=<hook-id>` (e.g. `SKIP=lint-cuda`).
+
 ### Testing
 
 ```bash
