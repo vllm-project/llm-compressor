@@ -119,6 +119,26 @@ def test_experts_field_patched_in_nested_text_config(save_dir, original_dir):
     assert resaved["model_type"] == "multimodal"
 
 
+def test_tie_word_embeddings_patched(save_dir, original_dir):
+    # original tied the embeddings; llmcompressor untied them
+    _write_json(original_dir / "config.json", {"tie_word_embeddings": True})
+    config = FakeConfig(name_or_path=str(original_dir), tie_word_embeddings=False)
+
+    resave_config(config, str(save_dir))
+
+    assert _read_json(save_dir / "config.json")["tie_word_embeddings"] is False
+
+
+def test_dtype_patched_via_key_fallback(save_dir, original_dir):
+    # original serializes the dtype under "torch_dtype"; config exposes "dtype"
+    _write_json(original_dir / "config.json", {"torch_dtype": "float32"})
+    config = FakeConfig(name_or_path=str(original_dir), dtype="bfloat16")
+
+    resave_config(config, str(save_dir))
+
+    assert _read_json(save_dir / "config.json")["torch_dtype"] == "bfloat16"
+
+
 def test_experts_present_but_missing_target_key_keeps_serialized(
     save_dir, original_dir
 ):
@@ -129,6 +149,20 @@ def test_experts_present_but_missing_target_key_keeps_serialized(
     resave_config(config, str(save_dir))
 
     # returns early without overwriting the transformers-serialized config
+    assert _read_json(save_dir / "config.json") == {"serialized_by": "transformers"}
+
+
+def test_partial_failure_keeps_serialized_config(save_dir, original_dir):
+    # experts can be patched, but tie_word_embeddings has no target key in the
+    # original config -> the resave is atomic and no fields are written
+    _write_json(original_dir / "config.json", {"num_experts": 8})
+    config = FakeConfig(
+        name_or_path=str(original_dir), num_experts=4, tie_word_embeddings=False
+    )
+
+    resave_config(config, str(save_dir))
+
+    # nothing is written, not even the patchable experts field
     assert _read_json(save_dir / "config.json") == {"serialized_by": "transformers"}
 
 

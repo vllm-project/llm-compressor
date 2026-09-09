@@ -310,7 +310,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
     src_text_config = config.get_text_config()
     tgt_text_config = config_data.get("text_config", config_data)
 
-    def modify_text_config(attrs: list[str]):
+    def modify_text_config(attrs: list[str]) -> bool:
         _missing = Sentinel("_missing")
         src_value = getattr_fallbacks(src_text_config, attrs, _missing)
         tgt_key = hasitem_fallbacks(tgt_text_config, attrs, _missing)
@@ -322,10 +322,20 @@ def resave_config(config: PretrainedConfig, save_dir: str):
                     f"Failed to find {attrs} key in original config. "
                     f"Please set {attrs} to {src_value}"
                 )
+                return False
+        return True
 
-    modify_text_config(["tie_word_embeddings"])
-    modify_text_config(["torch_dtype", "dtype"])
-    modify_text_config(NUM_EXPERTS_CONFIG_KEYS)
+    if not all(
+        [
+            modify_text_config(["tie_word_embeddings"]),
+            modify_text_config(["torch_dtype", "dtype"]),
+            modify_text_config(NUM_EXPERTS_CONFIG_KEYS),
+        ]
+    ):
+        logger.warning(
+            "Failed to modify config. Keeping the transformers-serialized config."
+        )
+        return
 
     save_path = os.path.join(save_dir, "config.json")
     with open(save_path, "w") as file:
