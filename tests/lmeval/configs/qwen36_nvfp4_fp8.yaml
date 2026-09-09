@@ -9,14 +9,18 @@ gpu_memory_utilization: 0.95
 seed: 42
 num_calibration_samples: 256
 max_model_len: 262144
-apply_chat_template: True
-add_bos_token: False
-num_fewshot: 0
 lmeval:
+  apply_chat_template: True
+  add_bos_token: False
+  num_fewshot: 0
+  fewshot_as_multiturn: True
+  task: gsm8k_platinum_cot_llama
+  # Thinking model: needs room for CoT before "The final answer is ..."
+  max_gen_toks: 64000
   metrics:
     # Note: recovery will be dependent on 
     # the hardware cpabilities. For blackwell
     # machines, we expect lower results as 
     # activation quantization is also enabled.
-    exact_match,flexible-extract: 0.73
-    exact_match,strict-match: 0.66
+    exact_match,flexible-extract: 0.96
+    exact_match,strict-match: 0.96

@@ -42,6 +42,10 @@ def main():
         f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
     )
 
+    gen_kwargs = None
+    if lmeval_config.get("max_gen_toks") is not None:
+        gen_kwargs = {"max_gen_toks": lmeval_config["max_gen_toks"]}
+
     results = lm_eval.simple_evaluate(
         model=lmeval_config["model"],
         model_args=model_args,
@@ -50,7 +54,8 @@ def main():
         limit=lmeval_config["limit"],
         apply_chat_template=lmeval_config["apply_chat_template"],
         fewshot_as_multiturn=lmeval_config["fewshot_as_multiturn"],
-        fewshot_random_seed=seed
+        fewshot_random_seed=seed,
+        gen_kwargs=gen_kwargs,
     )
 
     task = lmeval_config["task"]

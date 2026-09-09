@@ -40,6 +40,9 @@ class LmEvalConfig(BaseModel):
     base_metrics: dict = None
     trust_remote_code: bool = False
     higher_is_better: bool = True
+    # Max tokens to generate per request. If unset, lm-eval falls back to the
+    # backend default (256 for vLLM), which truncates reasoning models mid-CoT.
+    max_gen_toks: Union[int, None] = None
 
 
 class TestConfig(BaseTestConfig):
@@ -58,6 +61,7 @@ class TestConfig(BaseTestConfig):
         default_factory=LmEvalConfig,
         description="LM Eval harness configuration (task, shots, limits, thresholds…)",
     )
+
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV")
