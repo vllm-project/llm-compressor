@@ -148,30 +148,33 @@ def modify_save_pretrained(model: PreTrainedModel):
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
-            with suspend_distributed_timeout():
-                if is_source_process():
-                    # save model structure
-                    original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
+            try:
+                with suspend_distributed_timeout():
+                    if is_source_process():
+                        # save model structure
+                        original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
 
-                    # update config to reflect quantization
-                    compressor.update_config(save_dir)
+                        # update config to reflect quantization
+                        compressor.update_config(save_dir)
 
-                    # update existing recipe
-                    update_and_save_recipe(model.name_or_path, save_dir)
+                        # update existing recipe
+                        update_and_save_recipe(model.name_or_path, save_dir)
 
-                    # copy python files from cache dir to save_path if any
-                    copy_python_files_from_model_cache(model, save_dir)
+                        # copy python files from cache dir to save_path if any
+                        copy_python_files_from_model_cache(model, save_dir)
 
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
+                        # Copy MTP tensors (not loaded by transformers)
+                        # and update config.
+                        text_config = model.config.get_text_config()
+                        has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
+                            text_config, "mtp_num_hidden_layers", 0
+                        )
+                        if has_mtp:
+                            save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
 
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+            finally:
+                # Restore on every rank, including when source-rank saving fails.
+                from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
