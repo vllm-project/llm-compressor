@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Iterator
 import torch
 from compressed_tensors.offload import (
     disable_offloading,
-    offload_module,
     set_onload_device,
 )
 from torch.utils.data.dataloader import DataLoader
@@ -147,7 +146,7 @@ class SequentialPipeline(CalibrationPipeline):
                 num_batches = len(dataloader)
                 with disable_offloading():
                     # linearize moe layers just before calibration,
-                    # deferring offloading setup until after compression
+                    # deferring offloading setup until after calibration
                     linearized = linearize_moe_layer(model, subgraph.submodules(model))
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
@@ -184,11 +183,6 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
-
-                # offload after calibration using kwargs from original modules
-                for module, offload_kwargs in linearized:
-                    for submodule in module.modules():
-                        offload_module(submodule, **offload_kwargs)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
