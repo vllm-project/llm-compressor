@@ -718,13 +718,15 @@ def process_dataset(
             return processor.apply_chat_template(
                 messages,
                 return_tensors="pt",
-                padding=False,
-                truncation=True,
-                max_length=max_seq_length,
                 tokenize=True,
-                add_special_tokens=False,
                 return_dict=True,
                 add_generation_prompt=False,
+                processor_kwargs={
+                    "padding": False,
+                    "truncation": True,
+                    "max_length": max_seq_length,
+                    "add_special_tokens": False,
+                },
             )
 
     else:
