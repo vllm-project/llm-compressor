@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import re
 import weakref
@@ -12,13 +13,18 @@ from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
 from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from huggingface_hub import hf_hub_download
 from loguru import logger
-from transformers import PreTrainedModel
+from transformers import PretrainedConfig, PreTrainedModel
+from transformers.utils import http_user_agent
 
 from llmcompressor.core import active_session
+from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
+from llmcompressor.utils import getattr_fallbacks, hasitem_fallbacks
 from llmcompressor.utils.transformers import get_embeddings
 
 __all__ = ["modify_save_pretrained", "prune_false_linear_ignores"]
@@ -204,6 +210,9 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # save model structure
                     original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
 
+                    # resave the config with original structure for better vLLM compat
+                    resave_config(model.config, save_dir)
+
                     # update config to reflect quantization
                     compressor.update_config(save_dir)
 
@@ -294,6 +303,95 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+def resave_config(config: PretrainedConfig, save_dir: str):
+    """
+    Overwrite the config saved at ``save_dir`` with the original model config,
+    patched with fields that llmcompressor has modified.
+
+    Transformers regenerates ``config.json`` on save, which can introduce
+    differences from the original model config (reordered/dropped/renamed
+    fields). vLLM always supports loading the original model config, but only
+    sometimes supports loading the transformers-serialized one. To stay
+    compatible, this loads the original config file referenced by
+    ``config._name_or_path``, overwrites only the fields that llmcompressor has
+    changed (currently the expert-count fields in
+    :data:`NUM_EXPERTS_CONFIG_KEYS`, which change under REAP expert pruning),
+    and writes the result to ``save_dir/config.json``.
+
+    :param config: the (possibly modified) model config, used both to locate the
+        original config file and to source the patched field values
+    :param save_dir: directory containing the ``config.json`` to overwrite
+    """
+    if not (name_or_path := getattr(config, "_name_or_path", "")):
+        logger.warning(
+            "Failed to find config._name_or_path. "
+            "Keeping transformers-serialized config."
+        )
+        return
+
+    config_path = os.path.join(name_or_path, "config.json")
+    if not os.path.exists(config_path):
+        try:
+            config_path = hf_hub_download(
+                repo_id=name_or_path,
+                filename="config.json",
+                cache_dir=None,
+                force_download=False,
+                user_agent=http_user_agent(),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to find config.json. "
+                "Keeping the transformers-serialized config."
+            )
+            return
+
+    try:
+        with open(config_path, "r") as file:
+            config_data: dict = json.load(file)
+    except Exception:
+        logger.warning(
+            "Failed to load config.json. " "Keeping the transformers-serialized config."
+        )
+        return
+
+    # modify config.json to reflect fields that llmcompressor has modified
+    src_text_config = config.get_text_config()
+    tgt_text_config = config_data.get("text_config", config_data)
+
+    def modify_text_config(attrs: list[str]) -> bool:
+        _missing = Sentinel("_missing")
+        src_value = getattr_fallbacks(src_text_config, attrs, _missing)
+        tgt_key = hasitem_fallbacks(tgt_text_config, attrs, _missing)
+        if src_value is not _missing:
+            if tgt_key is not _missing:
+                tgt_text_config[tgt_key] = src_value
+            else:
+                logger.warning(
+                    f"Failed to find {attrs} key in original config. "
+                    f"Please set {attrs} to {src_value}"
+                )
+                return False
+        return True
+
+    if not all(
+        [
+            modify_text_config(["tie_word_embeddings"]),
+            modify_text_config(["torch_dtype", "dtype"]),
+            modify_text_config(NUM_EXPERTS_CONFIG_KEYS),
+        ]
+    ):
+        logger.warning(
+            "Failed to modify config. Keeping the transformers-serialized config."
+        )
+        return
+
+    save_path = os.path.join(save_dir, "config.json")
+    with open(save_path, "w") as file:
+        json.dump(config_data, file, indent=2, sort_keys=True)
+    logger.info(f"Resaved original config with patched fields to {save_path}")
 
 
 @contextmanager
