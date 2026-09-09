@@ -4,6 +4,7 @@ from compressed_tensors.quantization import fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 from llmcompressor.observers import MovingAverageMSEObserver, Observer
+from llmcompressor.observers.mse import MemorylessMSEObserver
 
 
 @pytest.mark.parametrize(
@@ -117,3 +118,19 @@ def test_mse_observer_torch_compile():
     finally:
         # always restore state, even if assertions fail
         active_session().state.enable_compile = False
+
+
+@pytest.mark.parametrize(
+    "observer_cls", [MemorylessMSEObserver, MovingAverageMSEObserver]
+)
+def test_mse_observer_rejects_expand_below_one(observer_cls):
+    # `expand` scales the initial search range (min/max * expand) and the grid
+    # search can only shrink it further, so an expand < 1.0 starts below the
+    # observed range and can never cover the data. Every MSE observer must
+    # reject it rather than silently produce a degenerate range.
+    args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
+    with pytest.raises(ValueError, match="expand value must be at least 1.0"):
+        observer_cls(base_name="weight", args=args, expand=0.5)
+
+    # expand >= 1.0 is accepted.
+    observer_cls(base_name="weight", args=args, expand=1.0)

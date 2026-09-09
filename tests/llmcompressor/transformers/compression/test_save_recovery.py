@@ -42,7 +42,7 @@ def _logits(model):
         return model(torch.tensor([[1, 2, 3]])).logits.clone()
 
 
-@pytest.mark.parametrize("stage", ["weights", "recipe", "python_files"])
+@pytest.mark.parametrize("stage", ["weights", "config", "recipe", "python_files"])
 def test_failed_save_restores_offload(offloaded_model, tmp_path, monkeypatch, stage):
     model = offloaded_model
     expected = _logits(model)
@@ -56,6 +56,8 @@ def test_failed_save_restores_offload(offloaded_model, tmp_path, monkeypatch, st
     with monkeypatch.context() as patch:
         if stage == "weights":
             patch.setattr(LlamaForCausalLM, "save_pretrained", fail)
+        elif stage == "config":
+            patch.setattr(saving, "resave_config", fail)
         elif stage == "recipe":
             patch.setattr(saving, "update_and_save_recipe", fail)
         else:

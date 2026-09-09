@@ -6,6 +6,7 @@ Common functions for interfacing with python primitives and directories/files.
 import contextlib
 import importlib
 import re
+from typing import Any
 
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
@@ -13,6 +14,7 @@ from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import PreTrainedModel
 
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils import get_embeddings
 
 __all__ = [
@@ -23,6 +25,8 @@ __all__ = [
     "disable_hf_kernels",
     "calibration_forward_context",
     "disable_lm_head",
+    "getattr_fallbacks",
+    "hasitem_fallbacks",
 ]
 
 
@@ -171,3 +175,29 @@ def disable_lm_head(model: torch.nn.Module):
                 stack.enter_context(patch_attr(model._hf_hook, "io_same_device", False))
 
             yield
+
+
+def getattr_fallbacks(
+    target: object, attrs: list[str], default: Any = Sentinel("None")
+) -> Any:
+    for attr in attrs:
+        if hasattr(target, attr):
+            return getattr(target, attr)
+
+    if default is not Sentinel("None"):
+        return default
+
+    raise AttributeError(f"{target} does not have any of {attrs} attributes")
+
+
+def hasitem_fallbacks(
+    target: dict, keys: list[str], default: Any = Sentinel("None")
+) -> Any:
+    for key in keys:
+        if key in target:
+            return key
+
+    if default is not Sentinel("None"):
+        return default
+
+    raise AttributeError(f"{target} does not have any of {keys} keys")
