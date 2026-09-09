@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterator
 import torch
 from compressed_tensors.offload import (
     disable_offloading,
+    offload_module,
     set_onload_device,
 )
 from torch.utils.data.dataloader import DataLoader
@@ -183,6 +184,10 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                for module, offload_kwargs in linearized:
+                    for submodule in module.modules():
+                        offload_module(submodule, **offload_kwargs)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

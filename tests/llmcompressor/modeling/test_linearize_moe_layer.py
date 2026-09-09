@@ -232,4 +232,4 @@ def test_load_quantizable_moe_fallback_does_not_linearize():
     assert (
         len(non_linearized) == 1
     ), "Fallback path should leave experts in fused (non-linearized) form"
-    assert non_linearized[0][1] is experts
+    assert experts in non_linearized
