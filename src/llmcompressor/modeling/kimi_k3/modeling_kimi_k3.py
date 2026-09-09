@@ -25,6 +25,8 @@
 #   initialization of meta tensors during disk offloading (quantized models)
 # - KimiK3ForConditionalGeneration.tie_weights: accepts **kwargs for
 #   compatibility with transformers API
+# - KimiK3ForConditionalGeneration.__init__: accepts **kwargs for
+#   compatibility with transformers API
 
 # NOTE: Reference implementation for model architecture; see the model card for production deployment.
 import math
@@ -922,7 +924,7 @@ class KimiK3ForConditionalGeneration(KimiK3PreTrainedModel):
     def _supports_default_dynamic_cache(cls) -> bool:
         return False
 
-    def __init__(self, config: KimiK3Config):
+    def __init__(self, config: KimiK3Config, **kwargs):
         super().__init__(config)
 
         vt_config = VisionTowerConfig(config.vision_config)
