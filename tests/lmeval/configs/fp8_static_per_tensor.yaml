@@ -2,6 +2,8 @@ cadence: ["nightly", "weekly"]
 model: meta-llama/Meta-Llama-3-8B-Instruct
 scheme: FP8
 dataset_id: perfectblend
+dataset_split: "train[:512]"
+num_calibration_samples: 512
 lmeval:
   metrics:
     exact_match,flexible-extract: 0.75

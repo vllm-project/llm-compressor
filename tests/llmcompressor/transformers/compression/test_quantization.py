@@ -135,6 +135,7 @@ def test_perplexity(setup_model_and_config):
     tokenizer = AutoTokenizer.from_pretrained(config["model_stub"])
     dataset_args = DatasetArguments(
         dataset="perfectblend",
+        splits="train[:512]",
         max_seq_length=config["max_seq_length"],
     )
     dataloader = _get_dataloader(dataset_args, tokenizer)

@@ -1,6 +1,7 @@
 cadence: ["nightly", "weekly"]
 model: meta-llama/Llama-3.1-8B-Instruct
 dataset_id: perfectblend
+dataset_split: "train[:20]"
 num_calibration_samples: 20
 recipe: tests/e2e/recipes/NVFP4/recipe_awq_nvfp4.yaml
 lmeval:

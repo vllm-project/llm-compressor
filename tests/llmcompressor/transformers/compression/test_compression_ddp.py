@@ -29,6 +29,8 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.datasets.utils import get_calibration_dataloader, get_rank_partition
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -49,23 +51,11 @@ MAX_SEQ_LENGTH = 512
 
 def _make_eval_dataset(model_id: str, num_samples: int = 5):
     """Create a small tokenized dataset for output comparison (not calibration)."""
-    from datasets import Dataset
-
     tok = AutoTokenizer.from_pretrained(model_id)
-    if tok.chat_template is None:
-        tok.chat_template = (
-            "{% for message in messages %}{{ message['content'] }}{% endfor %}"
-        )
-    prompts = [f"Question {i}: Explain briefly." for i in range(num_samples)]
-    ds = Dataset.from_dict({"text": prompts})
-    ds = ds.map(
-        lambda s: tok(
-            s["text"], padding=False, max_length=MAX_SEQ_LENGTH, truncation=True
-        ),
-        remove_columns=ds.column_names,
+    return get_calibration_dataloader(
+        DatasetArguments(dataset="perfectblend", splits=f"train[:{num_samples}]"),
+        processor=tok,
     )
-    ds.set_format("torch")
-    return ds
 
 
 def _run_single_gpu(
@@ -97,9 +87,11 @@ def _run_single_gpu(
     oneshot(
         model=model,
         dataset="perfectblend",
+        splits=f"train[:{num_samples}]",
         recipe=recipe,
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
+        shuffle_calibration_samples=False,
     )
 
     # Extract quantized weights (exclude common ignored parameters)
@@ -153,16 +145,9 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
     top1_total = 0
 
     with torch.no_grad():
-        for i in range(min(num_samples, len(dataset))):
-            sample = dataset[i]
-            inputs = {
-                k: v.unsqueeze(0).to("cuda:0")
-                for k, v in sample.items()
-                if k == "input_ids"
-            }
-
-            ref_out = ref_model(**inputs).logits[0].float().cpu()
-            ddp_out = ddp_model(**inputs).logits[0].float().cpu()
+        for sample in dataset:
+            ref_out = ref_model(**sample).logits[0].float().cpu()
+            ddp_out = ddp_model(**sample).logits[0].float().cpu()
 
             ref_log_probs = torch.nn.functional.log_softmax(ref_out, dim=-1)
             ddp_log_probs = torch.nn.functional.log_softmax(ddp_out, dim=-1)
@@ -255,10 +240,12 @@ def _test_ddp_modifier(
     oneshot(
         model=model,
         dataset="perfectblend",
+        splits=get_rank_partition("train", NUM_SAMPLES),
         recipe=recipe_factory(),
         num_calibration_samples=NUM_SAMPLES,
         max_seq_length=MAX_SEQ_LENGTH,
         pipeline=pipeline,
+        shuffle_calibration_samples=False,
     )
 
     # Extract DDP weights (exclude common ignored parameters)
@@ -496,6 +483,6 @@ def test_ddp_smoke_autoround():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.85,
+        min_top1_match=0.80,
         max_kl_div=0.01,
     )

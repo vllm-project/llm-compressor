@@ -2,3 +2,5 @@ cadence: "nightly"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 recipe: tests/e2e/recipes/WNA16/recipe_w4a16_awq_sym.yaml
 dataset_id: perfectblend
+dataset_split: "train[:512]"
+num_calibration_samples: 512

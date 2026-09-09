@@ -2,6 +2,8 @@ cadence: ["nightly", "weekly"]
 model: meta-llama/Meta-Llama-3-8B-Instruct
 scheme: W4A16
 dataset_id: perfectblend
+dataset_split: "train[:512]"
+num_calibration_samples: 512
 quant_type: "GPTQ"
 lmeval:
   recovery_threshold:

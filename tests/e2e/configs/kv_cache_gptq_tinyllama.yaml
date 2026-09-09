@@ -3,3 +3,5 @@ test_group: "rhaiis"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 recipe: tests/e2e/recipes/kv_cache/gptq.yaml
 dataset_id: perfectblend
+dataset_split: "train[:512]"
+num_calibration_samples: 512

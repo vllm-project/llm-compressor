@@ -55,9 +55,11 @@ def test_reap_ddp_qwen3():
         oneshot(
             model=model_ref,
             dataset="perfectblend",
+            splits="train[:512]",
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ref_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
+            shuffle_calibration_samples=False,
             pipeline="sequential",
         )
 
@@ -82,9 +84,11 @@ def test_reap_ddp_qwen3():
         oneshot(
             model=model_ddp,
             dataset="perfectblend",
+            splits="train[:512]",
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ddp_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
+            shuffle_calibration_samples=False,
             pipeline="sequential",
         )
 
