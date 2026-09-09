@@ -23,7 +23,7 @@ from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_mode
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
-from llmcompressor.utils import getattr_fallbacks, hasitem_fallbacks
+from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
 from llmcompressor.utils.transformers import get_embeddings
 
 __all__ = ["modify_save_pretrained"]
@@ -313,7 +313,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
 
     def modify_text_config(attrs: list[str]) -> bool:
         _missing = Sentinel("_missing")
-        src_value = getattr_fallbacks(src_text_config, attrs, _missing)
+        src_value = getitem_fallbacks(src_text_config, attrs, _missing)
         tgt_key = hasitem_fallbacks(tgt_text_config, attrs, _missing)
         if src_value is not _missing:
             if tgt_key is not _missing:
