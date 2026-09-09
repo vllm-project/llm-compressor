@@ -23,10 +23,6 @@ from llmcompressor.modifiers.gptq.gptq_triton import (
 GPTQ_PRECISION = torch.float32
 
 
-class _GptqTritonError(RuntimeError):
-    """Marks an error raised by the GPTQ Triton backend."""
-
-
 __all__ = [
     "make_empty_hessian",
     "accumulate_hessian",
@@ -57,21 +53,26 @@ def _apply_activation_ordering(
     if hessian_perm.device != hessians.device:
         hessian_perm = hessian_perm.to(device=hessians.device)
 
-    hessians = torch.gather(
+    permuted_hessians = torch.gather(
         hessians,
         -1,
         hessian_perm.unsqueeze(-2).expand(-1, num_columns, -1),
     )
-    hessians = torch.gather(
-        hessians,
+    permuted_hessians = torch.gather(
+        permuted_hessians,
         -2,
         hessian_perm.unsqueeze(-1).expand(-1, -1, num_columns),
     )
-    weights = torch.gather(
+    hessians.copy_(permuted_hessians)
+    del permuted_hessians
+
+    permuted_weights = torch.gather(
         weights,
         -1,
         weight_perm.unsqueeze(-2).expand(-1, num_rows, -1),
     )
+    weights.copy_(permuted_weights)
+    del permuted_weights
     return weights, hessians, weight_perm
 
 
@@ -89,7 +90,7 @@ def accumulate_hessian(
     module: torch.nn.Module,
     H: torch.Tensor | None,
     num_samples: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -130,10 +131,9 @@ def quantize_weight(
     zero_point: torch.Tensor,
     global_scale: torch.Tensor | None,
     quant_args: QuantizationArgs,
-    perm: torch.Tensor | None = None,
     blocksize: int = 128,
     percdamp: float = 0.01,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a batch of weights according to the GPTQ algorithm.
 
@@ -143,8 +143,6 @@ def quantize_weight(
     :param zero_point: stacked observer zero points
     :param global_scale: optional stacked observer global scales
     :param quant_args: quantization arguments used to find quantization parameters
-    :param perm: activation-order permutation already applied to ``weights`` and
-        ``hessians``. The returned weights are restored to their original order.
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
     :return: quantized weights, per-batch losses, and RTN fallback flags
@@ -157,20 +155,20 @@ def quantize_weight(
     batch_size, num_rows, num_columns = weights.shape
     strategy = quant_args.strategy
     actorder = quant_args.actorder
-    if actorder and perm is None:
-        raise ValueError("actorder requires pre-permuted weights, hessians, and perm")
     final_dtype = weights.dtype
     device = weights.device
     # The caller provides a disposable stacked weight tensor, so use it as the
     # working buffer when it is already FP32 instead of allocating another copy.
     W = weights.to(device=device, dtype=GPTQ_PRECISION)
-    # The stacked Hessian is the disposable working buffer. The caller retains
-    # the original per-module Hessians separately for batch fallback.
+    # The stacked Hessian is the disposable working buffer.
     H = hessians.to(device=device, dtype=GPTQ_PRECISION)
+    del weights, hessians
     scale = scale.to(device=device)
     zero_point = zero_point.to(device=device)
     if global_scale is not None:
         global_scale = global_scale.to(device=device)
+
+    W, H, perm = _apply_activation_ordering(W, H, quant_args.actorder)
     # handle g_idx
     g_idx = None
     if strategy in (
@@ -191,7 +189,6 @@ def quantize_weight(
 
     losses = torch.zeros(batch_size, num_rows, device=device)
     used_rtn_fallback = torch.zeros(batch_size, dtype=torch.bool, device=device)
-
     # mask dead hessian values
     diag = torch.diagonal(H, dim1=-2, dim2=-1)
     dead = diag == 0
@@ -205,14 +202,17 @@ def quantize_weight(
     info = torch.empty(batch_size, dtype=torch.int32, device=device)
     torch.linalg.cholesky_ex(H, check_errors=False, out=(H, info))
     bad = info.nonzero(as_tuple=False).flatten()
-    if bad.numel() and batch_size > 1:
-        raise torch.linalg.LinAlgError("batched GPTQ Hessian inversion failed")
     if bad.numel():
-        H[bad[0]].copy_(torch.eye(num_columns, dtype=H.dtype, device=device))
-        used_rtn_fallback[bad[0]] = True
-    else:
-        torch.cholesky_inverse(H, out=H)
-        torch.linalg.cholesky(H, upper=True, out=H)
+        H.index_copy_(
+            0,
+            bad,
+            torch.eye(num_columns, dtype=H.dtype, device=device).expand(
+                bad.numel(), -1, -1
+            ),
+        )
+        used_rtn_fallback[bad] = True
+    torch.cholesky_inverse(H, out=H)
+    torch.linalg.cholesky(H, upper=True, out=H)
     Hinv = H
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
@@ -462,7 +462,7 @@ def _gptq_block_update_triton(
             or "out of memory" in str(error).lower()
         ):
             raise
-        raise _GptqTritonError("GPTQ Triton block update failed") from error
+        raise RuntimeError("GPTQ Triton block update failed") from error
     losses1.copy_(Err1.square())
 
 
