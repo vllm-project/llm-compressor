@@ -6,9 +6,12 @@ dataset_id: neuralmagic/calibration
 dataset_config: LLM
 dataset_split: "train"
 gpu_memory_utilization: 0.95
-seed: 100
+seed: 42
 num_calibration_samples: 256
 max_model_len: 262144
+apply_chat_template: True
+add_bos_token: False
+num_fewshot: 0
 lmeval:
   metrics:
     # Note: recovery will be dependent on 
