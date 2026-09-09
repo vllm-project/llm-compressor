@@ -70,7 +70,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        QuantizationMixin.initialize_quantization(self, state.model)
+        QuantizationMixin.initialize_quantization(
+            self, state.model, layerwise=kwargs.get("layerwise_decompression", False)
+        )
 
         return True
 

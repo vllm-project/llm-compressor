@@ -245,6 +245,19 @@ class Oneshot:
             )
             linearize_moe(self.model)
 
+        if (
+            self.dataset_args.layerwise_decompression
+            or self.dataset_args.layerwise_compression
+        ) and self.dataset_args.pipeline != "sequential":
+            raise ValueError(
+                "`layerwise_decompression`/`layerwise_compression` require the "
+                "sequential pipeline (pass `pipeline='sequential'`): quantization "
+                "is initialized per-subgraph as the sequential pipeline visits "
+                "each one, rather than eagerly for the whole model, and only the "
+                "sequential pipeline calls that per-subgraph hook. With any other "
+                "pipeline no quantization would ever be applied."
+            )
+
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
@@ -260,6 +273,7 @@ class Oneshot:
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
+                layerwise_decompression=self.dataset_args.layerwise_decompression,
             )
 
             session.state.enable_compile = self.dataset_args.enable_compile

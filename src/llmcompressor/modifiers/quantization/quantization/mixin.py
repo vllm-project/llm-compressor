@@ -72,6 +72,10 @@ class QuantizationMixin(HooksMixin):
         - Remove calibration hooks
         - Apply freeze status
         - Keep quantization enabled for future steps
+    - (sequential pipeline, per-subgraph, only with `layerwise_decompression`):
+      QuantizationMixin.start_layerwise_calibration
+        - Re-attach schemes to a subgraph's modules after the pipeline decompresses
+          them, since decompression strips their quantization state
 
     NOTE: QuantizationMixin does not update scales and zero-points on its own,
         as this is not desired for all Modifiers inheriting from it. Modifier must
@@ -219,13 +223,28 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def initialize_quantization(self, model: torch.nn.Module):
+    def initialize_quantization(self, model: torch.nn.Module, layerwise: bool = False):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
+        :param layerwise: if True, skip whole-model initialization here entirely.
+            The normal path allocates scale/zero-point buffers (on the execution
+            device, i.e. GPU) for every matched module at once -- for models with
+            very many quantized submodules (e.g. MoEs with thousands of experts)
+            loaded near GPU capacity via offloading, this eagerly-allocated
+            overhead alone is enough to OOM, well before any calibration happens.
+            Quantization schemes are instead attached per-subgraph by
+            `start_layerwise_calibration`, called from `SequentialPipeline` right
+            before each subgraph is calibrated, bounding the number of modules
+            initialized at once to that subgraph.
         """
+        if layerwise:
+            # scheme attachment and qparam allocation is deferred to
+            # `start_layerwise_calibration`, called per-subgraph
+            model.apply(disable_quantization)
+            return
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             reset_quantization_status(module)  # reset any previously applied qconfigs
@@ -237,6 +256,36 @@ class QuantizationMixin(HooksMixin):
 
         # disable quantization until calibration
         model.apply(disable_quantization)
+
+    def start_layerwise_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module]
+    ):
+        """
+        Attach quantization schemes to `modules`, scoped to just this subset
+        instead of the whole model. Called by `SequentialPipeline` for every
+        subgraph (when `layerwise_decompression` is enabled), since
+        `initialize_quantization` skips whole-model initialization in that mode --
+        this is where scheme attachment and qparam allocation actually happens,
+        bounded to one subgraph's modules at a time. If a module was already
+        quantized (compressed) on disk, the pipeline decompresses it with
+        `leave_decompressed=False` right before calling this, which strips all
+        quantization state (scheme, status, scale/zero-point) from it so it can be
+        recalibrated against this modifier's scheme -- this restores that state,
+        now that the module's real (decompressed) weight is available to size
+        scale/zero-point buffers from.
+
+        :param model: model containing `modules`
+        :param modules: modules to attach quantization schemes to for this subgraph
+        """
+        for module in modules:
+            reset_quantization_status(module)
+
+        apply_quantization_config(
+            model, self.resolved_config, allowed_modules=set(modules)
+        )
+
+        if not self.bypass_divisibility_checks:
+            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
 
     def start_calibration(self, model: torch.nn.Module):
         """

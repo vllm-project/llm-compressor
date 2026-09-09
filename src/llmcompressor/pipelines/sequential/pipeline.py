@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterator
 import torch
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.offload import disable_offloading, set_onload_device
+from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -152,7 +153,31 @@ class SequentialPipeline(CalibrationPipeline):
                             m for m in modules if is_module_quantized(m)
                         ]
                         for module in compressed:
-                            decompress_module(module, leave_decompressed=False)
+                            # The eager, whole-model `apply_quantization_config`
+                            # call at session-initialize time already overwrote
+                            # this module's `quantization_scheme` with the *new*
+                            # (not-yet-compressed) scheme, and initialized qparams
+                            # for it (e.g. `weight_scale`, and possibly others the
+                            # original compressed scheme never had, e.g.
+                            # `weight_global_scale` for a TENSOR_GROUP scheme) as
+                            # empty placeholders -- destroying/polluting the real
+                            # compressed values needed to decompress correctly.
+                            # Clear those out and restore the preserved originals,
+                            # and use the preserved original format, so
+                            # decompression doesn't misinterpret the packed bytes
+                            # (see `get_compressed_shape_and_dtype`).
+                            pre_decompress_qparams = getattr(
+                                module, "_pre_decompress_qparams", None
+                            )
+                            if pre_decompress_qparams is not None:
+                                QuantizationMetadata.clear_all_qparams(module)
+                                for qparam_name, value in pre_decompress_qparams.items():
+                                    setattr(module, qparam_name, value)
+                            decompress_module(
+                                module,
+                                format=getattr(module, "_pre_decompress_format", None),
+                                leave_decompressed=False,
+                            )
                         for modifier in modifiers:
                             if hasattr(modifier, "start_layerwise_calibration"):
                                 modifier.start_layerwise_calibration(
