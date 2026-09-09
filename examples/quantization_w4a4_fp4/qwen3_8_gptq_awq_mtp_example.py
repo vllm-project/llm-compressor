@@ -1,5 +1,3 @@
-import os
-
 import torch
 from compressed_tensors.quantization.quant_scheme import (
     FP8_DYNAMIC,
@@ -16,8 +14,6 @@ from llmcompressor.utils import load_context
 
 MODEL_ID = "Qwen/Qwen3.8-27B"
 SAVE_DIR = "/workspace/models/Qwen3.8-27B-NVFP4-GPTQ-AWQ-MTP"
-
-os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Load model.
 with load_context(Qwen3_5ForConditionalGeneration):
@@ -101,20 +97,18 @@ def data_collator(batch):
     return {key: torch.tensor(value) for key, value in batch[0].items()}
 
 
-# Apply quantization.
+# Apply quantization and save the complete backbone and MTP artifact.
 oneshot(
     model=model,
+    processor=processor,
     recipe=recipe,
     dataset=ds,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     moe_calibrate_all_experts=True,
     data_collator=data_collator,
+    output_dir=SAVE_DIR,
+    mtp_scheme="NVFP4",
 )
-
-# Save compressed with MTP layers also quantized to NVFP4 via the PR's
-# save-time MTP pass. This exercises the full end-to-end pipeline.
-model.save_pretrained(SAVE_DIR, save_compressed=True, mtp_scheme="NVFP4")
-processor.save_pretrained(SAVE_DIR)
 
 print(f"\nSaved to {SAVE_DIR}")

@@ -42,6 +42,7 @@ from llmcompressor.pipelines import CalibrationPipeline
 __all__ = ["Oneshot", "oneshot"]
 
 if TYPE_CHECKING:
+    from compressed_tensors.quantization import QuantizationScheme
     from datasets import Dataset, DatasetDict
 
     from llmcompressor.recipe import RecipeInput
@@ -121,6 +122,7 @@ class Oneshot:
     def __init__(
         self,
         log_dir: str | None = None,
+        mtp_scheme: str | QuantizationScheme | None = None,
         **kwargs,
     ):
         """
@@ -139,6 +141,9 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
+        :param mtp_scheme: Optional preset name or ``QuantizationScheme`` used to
+            quantize unloaded MTP layers when ``output_dir`` is provided. ``None``
+            preserves them at full precision.
         """
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
@@ -178,6 +183,7 @@ class Oneshot:
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
+        self.mtp_scheme = mtp_scheme
 
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
@@ -211,6 +217,7 @@ class Oneshot:
             model_args=self.model_args,
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
+            mtp_scheme=self.mtp_scheme,
         )
 
     def apply_recipe_modifiers(
@@ -326,6 +333,7 @@ def oneshot(
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
+    mtp_scheme: str | QuantizationScheme | None = None,
     # Recipe arguments
     recipe: RecipeInput | None = None,
     recipe_args: list[str] | None = None,
@@ -398,6 +406,12 @@ def oneshot(
     :param save_compressed: Whether to compress sparse models during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
+    :param mtp_scheme: Optional preset name (for example, ``"FP8_DYNAMIC"`` or
+        ``"NVFP4"``) or ``QuantizationScheme`` used for MTP layers. Transformers
+        does not load these layers, so oneshot processes them from the source
+        checkpoint after saving the backbone to ``output_dir``. Schemes requiring
+        calibrated activation scales are reduced to weight-only. ``None`` preserves
+        MTP tensors at full precision.
 
     # Recipe arguments
     :param recipe: A LLM Compressor recipe. Accepts a path (or list

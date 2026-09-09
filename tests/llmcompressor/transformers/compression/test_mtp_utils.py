@@ -1,6 +1,6 @@
 """
 Tests for MTP (Multi-Token Prediction) layer quantization helpers in
-compressed_tensors_utils.  All tests are self-contained — they build local
+compressed_tensors_utils. All tests are self-contained: they build local
 dummy checkpoints rather than downloading real models, so no HF hub access or
 GPU is required.
 """
@@ -16,6 +16,7 @@ from llmcompressor.transformers.compression.compressed_tensors_utils import (
     _get_mtp_prefix,
     _quantize_and_save_mtp_tensors,
     _resolve_mtp_scheme,
+    save_mtp_tensors,
 )
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,41 @@ def test_get_mtp_prefix_raises_when_undetectable(tmp_path):
         json.dump({"metadata": {}, "weight_map": weight_map}, f)
     with pytest.raises(ValueError, match="Could not detect MTP tensor prefix"):
         _get_mtp_prefix(str(tmp_path), _FakeConfig(num_hidden_layers=99))
+
+
+def test_save_mtp_tensors_processes_unloaded_layers(monkeypatch, tmp_path):
+    """The oneshot finalizer reads MTP tensors from the model's source."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    text_config = SimpleNamespace(num_nextn_predict_layers=1, vocab_size=128)
+    model = SimpleNamespace(
+        config=SimpleNamespace(get_text_config=lambda: text_config),
+        name_or_path="source-model",
+    )
+    get_prefix = Mock(return_value="mtp")
+    quantize = Mock()
+    monkeypatch.setattr(
+        "llmcompressor.transformers.compression.compressed_tensors_utils."
+        "_get_mtp_prefix",
+        get_prefix,
+    )
+    monkeypatch.setattr(
+        "llmcompressor.transformers.compression.compressed_tensors_utils."
+        "_quantize_and_save_mtp_tensors",
+        quantize,
+    )
+
+    save_mtp_tensors(model, str(tmp_path), "NVFP4")
+
+    get_prefix.assert_called_once_with("source-model", text_config)
+    quantize.assert_called_once_with(
+        "source-model",
+        str(tmp_path),
+        mtp_prefix="mtp",
+        vocab_size=128,
+        mtp_scheme="NVFP4",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -422,8 +458,7 @@ def test_quantize_and_save_mtp_unquantized_fallback_adds_ignore(tmp_path):
 def test_quantize_and_save_mtp_defaults_to_bf16_and_ignores(tmp_path):
     """MTP quantization is opt-in: with no mtp_scheme the layers stay full
     precision (bf16) and are added to the ignore list, even when the main model
-    is quantized. This is the default so save_pretrained is backwards compatible.
-    """
+    is quantized. This is the default when oneshot saves MTP layers."""
     src = str(tmp_path / "src")
     dst = str(tmp_path / "dst")
     os.makedirs(src)

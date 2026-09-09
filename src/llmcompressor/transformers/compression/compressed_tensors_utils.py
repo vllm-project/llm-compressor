@@ -26,7 +26,7 @@ from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_pat
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
 from llmcompressor.utils.transformers import get_embeddings
 
-__all__ = ["modify_save_pretrained"]
+__all__ = ["modify_save_pretrained", "save_mtp_tensors"]
 
 
 def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
@@ -165,11 +165,7 @@ def _compress_mtp_linears(
 
     input_weight_keys = set(to_quantize.keys())
     quantized_modules = list(
-        {
-            k.rsplit(".", 1)[0]
-            for k in compressed
-            if k not in input_weight_keys
-        }
+        {k.rsplit(".", 1)[0] for k in compressed if k not in input_weight_keys}
     )
     return quantized_modules
 
@@ -297,7 +293,6 @@ def _quantize_and_save_mtp_tensors(
         quant_config = config.get(QUANTIZATION_CONFIG_NAME)
         if quant_config is not None:
             if quantized_modules:
-
                 from compressed_tensors.compressors.format import (
                     infer_module_format,
                 )
@@ -378,8 +373,46 @@ def _get_mtp_prefix(source_model: str, text_config) -> str:
 
     raise ValueError(
         f"Could not detect MTP tensor prefix in {source_model}. "
-        "Check the checkpoint structure or set mtp_prefix manually."
+        "Check the checkpoint structure."
     )
+
+
+def save_mtp_tensors(
+    model: PreTrainedModel,
+    save_directory: str,
+    mtp_scheme=None,
+):
+    """Save a model's MTP tensors alongside its oneshot output.
+
+    Transformers does not load MTP tensors into the model, so they are read from
+    the source checkpoint and processed separately after the backbone is saved.
+
+    :param model: Model whose source checkpoint contains the MTP tensors.
+    :param save_directory: Directory containing the saved backbone checkpoint.
+    :param mtp_scheme: Optional preset name or ``QuantizationScheme`` used to
+        quantize MTP layers. ``None`` preserves them at full precision.
+    """
+    text_config = model.config.get_text_config()
+    has_mtp = (
+        getattr(text_config, "num_mtp_layers", 0)
+        or getattr(text_config, "mtp_num_hidden_layers", 0)
+        or getattr(text_config, "num_nextn_predict_layers", 0)
+    )
+    if not has_mtp:
+        return
+
+    with suspend_distributed_timeout():
+        if not is_source_process():
+            return
+
+        mtp_prefix = _get_mtp_prefix(model.name_or_path, text_config)
+        _quantize_and_save_mtp_tensors(
+            model.name_or_path,
+            save_directory,
+            mtp_prefix=mtp_prefix,
+            vocab_size=getattr(text_config, "vocab_size", None),
+            mtp_scheme=mtp_scheme,
+        )
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -410,7 +443,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             quantization_format: str | None = None,
             save_compressed: bool = True,
-            mtp_scheme=None,
             **kwargs,
         ):
             """
@@ -424,16 +456,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param save_compressed: whether or not to compress the model. If true,
                 weights will be compressed. Otherwise, weights will remain in full
                 precision in the "FROZEN" state.
-            :param mtp_scheme: how to quantize Multi-Token Prediction (MTP) layers,
-                which transformers does not load or compress. MTP quantization is
-                opt-in: by default (None) MTP layers are saved full precision (bf16)
-                and marked ignored. Pass a ``QuantizationScheme`` or a preset name
-                (e.g. "FP8_DYNAMIC", "NVFP4") to quantize them. "bf16"/"none"/
-                "dense"/"unquantized" are treated the same as None. Input-
-                activation quant whose scale must be calibrated (static, or
-                NVFP4-style dynamic="local") is dropped to weight-only since MTP
-                layers cannot be calibrated; only fully dynamic activation quant
-                (e.g. FP8_DYNAMIC) is kept. Ignored for models without MTP layers.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -472,24 +494,6 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
-
-                    # quantize mtp tensors (not loaded by transformers) and
-                    # update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = (
-                        getattr(text_config, "num_mtp_layers", 0)
-                        or getattr(text_config, "mtp_num_hidden_layers", 0)
-                        or getattr(text_config, "num_nextn_predict_layers", 0)
-                    )
-                    if has_mtp:
-                        mtp_prefix = _get_mtp_prefix(model.name_or_path, text_config)
-                        _quantize_and_save_mtp_tensors(
-                            model.name_or_path,
-                            save_dir,
-                            mtp_prefix=mtp_prefix,
-                            vocab_size=getattr(text_config, "vocab_size", None),
-                            mtp_scheme=mtp_scheme,
-                        )
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
