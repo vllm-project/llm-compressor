@@ -23,8 +23,8 @@ from loguru import logger
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.memory import TensorProfiler
 from llmcompressor.entrypoints.model_free.save_utils import update_config
-from llmcompressor.entrypoints.model_free.scheduler import estimate_job_memory
 from llmcompressor.entrypoints.model_free.validate import (
     validate_config,
     validate_safetensors_index,
@@ -89,11 +89,17 @@ def model_free_ptq(
 
     # build jobs without baking in a device, the scheduler assigns devices
     # dynamically based on free VRAM at submit time
-    jobs, mem_estimates = _build_jobs(model_files, save_directory, config, converter)
+    jobs = _build_jobs(model_files, save_directory, config, converter)
 
-    # validate first, always on meta
-    validate_jobs = [(_validate_shard, iwm, convs) for _, iwm, _sp, convs in jobs]
-    exec_jobs(validate_jobs, max_workers, desc="Validating")
+    # process on meta device for validation and memory estimates
+    validate_jobs = [(_validate_shard, iwm, _sp, convs) for _, iwm, _sp, convs in jobs]
+    memory_estimates = exec_jobs(validate_jobs, max_workers, desc="Validating")
+    logger.info(
+        f"Distributing {len(jobs)} shard(s), estimated memory: "
+        f"{min(memory_estimates) / 1e9:.2f}-"
+        f"{max(memory_estimates) / 1e9:.2f} GB per shard, "
+        f"{sum(memory_estimates) / 1e9:.2f} GB total"
+    )
 
     # quantize with dynamic GPU scheduling
     total_size = 0
@@ -106,7 +112,7 @@ def model_free_ptq(
         jobs=callable_jobs,
         devices=resolved_devices,
         max_workers=max_workers,
-        memory_estimates=mem_estimates,
+        memory_estimates=memory_estimates,
         desc="Quantizing",
     )
     for _total_size, _weight_map in quantize_results:
@@ -146,7 +152,7 @@ def _build_jobs(
     save_directory: str | os.PathLike,
     config: QuantizationConfig,
     converter: Converter | None,
-) -> tuple[list[tuple], list[int]]:
+) -> list[tuple]:
     """Build per-shard quantization jobs without baking in a device.
 
     Uses CT's build_inverse_weight_maps with the full converter chain so that
@@ -170,7 +176,6 @@ def _build_jobs(
     shard_names = [name for name in model_files if name.endswith("safetensors")]
 
     jobs = []
-    mem_estimates = []
     for shard_name in shard_names:
         save_path = Path(save_directory) / shard_name
 
@@ -181,17 +186,8 @@ def _build_jobs(
 
         iwm = inverse_weight_maps[shard_name]
         jobs.append((_process_shard, iwm, save_path, all_converters))
-        mem_estimates.append(estimate_job_memory(iwm))
 
-    if mem_estimates:
-        logger.info(
-            f"Distributing {len(jobs)} shard(s), estimated memory: "
-            f"{min(mem_estimates) / 1e9:.2f}-"
-            f"{max(mem_estimates) / 1e9:.2f} GB per shard, "
-            f"{sum(mem_estimates) / 1e9:.2f} GB total"
-        )
-
-    return jobs, mem_estimates
+    return jobs
 
 
 def _process_shard(
@@ -212,10 +208,27 @@ def _process_shard(
 
 def _validate_shard(
     inverse_weight_map: InverseWeightMap,
+    save_path: str | os.PathLike,
     converters: list[Converter],
-) -> None:
-    tensors = load_tensors_from_inverse_weight_map(
-        inverse_weight_map, torch.device("meta")
-    )
-    for conv in converters:
-        tensors = conv.validate(tensors)
+) -> int:
+    with TensorProfiler() as prof:
+        tensors = load_tensors_from_inverse_weight_map(
+            inverse_weight_map, torch.device("meta")
+        )
+        for conv in converters:
+            tensors = conv.validate(tensors)
+
+    if prof.exception is not None or torch.device("meta") not in prof.memory_peak:
+        fallback_estimate = sum(
+            tensor.nbytes
+            for tensor in tensors.values()
+            if isinstance(tensor, torch.Tensor)
+        )
+        fallback_estimate = int(fallback_estimate * 2.5)
+        logger.warning(
+            f"Failed to estimate memory usage for {save_path}. Falling back to "
+            f"2.5x size of tensor inputs ({fallback_estimate / 1e9:.2f} GB)."
+        )
+        return fallback_estimate
+
+    return prof.memory_peak[torch.device("meta")]
