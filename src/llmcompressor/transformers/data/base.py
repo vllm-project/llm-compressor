@@ -93,9 +93,7 @@ class TextGenerationDataset(RegistryMixin):
         processor: Processor,
     ):
         self.dataset_args = dataset_args
-        if split is None:
-            split = self.DEFAULT_SPLIT
-        self.split = split
+        self.split = split or self.DEFAULT_SPLIT
         self.processor = processor
 
         # get tokenizer
