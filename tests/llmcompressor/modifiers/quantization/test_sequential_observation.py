@@ -176,7 +176,13 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     assert not hasattr(model[0], "quantization_scheme")
     assert not hasattr(model[1], "quantization_scheme")
 
-    modifier.start_layerwise_calibration(model, list(model[0].modules()))
+    modules = list(model[0].modules())
+    with patch(
+        "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
+    ) as fuse_weight_observers:
+        modifier.start_layerwise_calibration(model, modules)
+
+    fuse_weight_observers.assert_called_once_with(model, modules)
 
     assert model[0].quantization_status == QuantizationStatus.CALIBRATION
     assert hasattr(model[0], "weight_observer")

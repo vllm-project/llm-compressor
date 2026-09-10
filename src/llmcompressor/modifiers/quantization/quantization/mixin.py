@@ -292,7 +292,7 @@ class QuantizationMixin(HooksMixin):
                 self._initialize_observers(module)
                 self._calibration_hooks |= self._initialize_hooks(module)
                 apply_calibration_status(module)
-        fuse_weight_observers(model)
+        fuse_weight_observers(model, modules)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
