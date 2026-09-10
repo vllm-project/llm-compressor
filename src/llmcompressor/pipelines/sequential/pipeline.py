@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.compressors import compress_module, decompress_module
-from compressed_tensors.offload import disable_offloading, set_onload_device
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
+from compressed_tensors.offload import disable_offloading, set_onload_device
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -203,10 +203,12 @@ class SequentialPipeline(CalibrationPipeline):
                             m for m in modules if is_module_quantized(m)
                         ]
                         if not is_distributed():
-                           for module in tqdm(quantized, desc="Compressing modules"):
+                            for module in tqdm(quantized, desc="Compressing modules"):
                                 compress_module(module)
                         else:
-                            replace_module_parallel(quantized, compress_module, desc="Compressing modules")
+                            replace_module_parallel(
+                                quantized, compress_module, desc="Compressing modules"
+                            )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
