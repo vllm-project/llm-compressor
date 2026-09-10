@@ -77,4 +77,12 @@ The following models are among the most commonly used with LLM Compressor: Llama
 
       [:octicons-arrow-right-24: GLM-5.2](glm-5.2/index.md)
 
+  - **GLM-5.3-Flash**
+
+      ---
+
+      THUDM's GLM-5.3-Flash vision-language MoE model, quantized to NVFP4.
+
+      [:octicons-arrow-right-24: GLM-5.3-Flash](glm-5.3-flash/index.md)
+
 </div>

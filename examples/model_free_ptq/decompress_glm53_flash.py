@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+# This checkpoint has been uploaded as `RedHatAI/GLM-5.3-Flash-BF16`
 from compressed_tensors.entrypoints.convert import (
     FP8BlockDequantizer,
     convert_checkpoint,
