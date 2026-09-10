@@ -165,7 +165,7 @@ setup(
             "mypy~=1.10.0",
             "ruff~=0.4.8",
             # pre commit hooks
-            "pre-commit",
+            "pre-commit~=4.0",
             # docs - zensical
             "mkdocstrings-python",
             "zensical",
