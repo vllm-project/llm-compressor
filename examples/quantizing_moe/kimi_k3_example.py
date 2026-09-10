@@ -7,6 +7,7 @@ from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
+# Small representative model with same MXFP4 quantization
 MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"  # "moonshotai/Kimi-K3"
 
 # Patch quantization config to
