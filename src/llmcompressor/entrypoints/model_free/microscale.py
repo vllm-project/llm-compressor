@@ -31,13 +31,27 @@ DEFAULT_FUSED_MAPPINGS: dict[str, list[str]] = {
         r"{prefix}.{attn}.k_proj.weight",
         r"{prefix}.{attn}.v_proj.weight",
     ],
+    # Nemotron MTP q/k/v fusion: q_proj is primary
+    r"^(?P<prefix>mtp\.layers\..+?)\.(?P<attn>mixer)\.q_proj\.weight$": [
+        r"{prefix}.{attn}.k_proj.weight",
+        r"{prefix}.{attn}.v_proj.weight",
+    ],
     # MLA attention fusion: wq_a is primary
     r"^(?P<prefix>.+?)\.(?P<attn>attn|attention|self_attn)\.wq_a\.weight$": [
         r"{prefix}.{attn}.wkv_a_with_mqa.weight",
     ],
+    # Transformers MLA attention fusion: q_a_proj is primary
+    r"^(?P<prefix>.+?)\.(?P<attn>attn|attention|self_attn)\.q_a_proj\.weight$": [
+        r"{prefix}.{attn}.kv_a_proj_with_mqa.weight",
+    ],
     # MLP gate/up fusion: gate_proj is primary
     r"^(?P<prefix>.+?)\.(?P<mlp>mlp|feed_forward)\.gate_proj\.weight$": [
         r"{prefix}.{mlp}.up_proj.weight",
+    ],
+    # MoE gate/up fusion: gate_proj is primary
+    r"^(?P<prefix>.+?\.(?:mlp|feed_forward)\.(?:experts\.\d+|shared_experts))"
+    r"\.gate_proj\.weight$": [
+        r"{prefix}.up_proj.weight",
     ],
     # MoE w1/w3 fusion: w1 is primary
     r"^(?P<prefix>.+?)\.w1\.weight$": [
@@ -53,10 +67,22 @@ _DEFAULT_FUSED_MAPPINGS_LIST = [
         r"re:.*(attn|attention)\.v_proj\.weight$",
     ],
     [
+        r"re:^mtp\.layers\..*\.mixer\.q_proj\.weight$",
+        r"re:^mtp\.layers\..*\.mixer\.k_proj\.weight$",
+        r"re:^mtp\.layers\..*\.mixer\.v_proj\.weight$",
+    ],
+    [
         r"re:.*(attn|attention)\.wq_a\.weight$",
         r"re:.*(attn|attention)\.wkv_a_with_mqa\.weight$",
     ],
-    [r"re:.*mlp\.gate_proj\.weight$", r"re:.*mlp\.up_proj\.weight$"],
+    [
+        r"re:.*(attn|attention)\.q_a_proj\.weight$",
+        r"re:.*(attn|attention)\.kv_a_proj_with_mqa\.weight$",
+    ],
+    [
+        r"re:.*mlp(?:\.(?:experts\.\d+|shared_experts))?\.gate_proj\.weight$",
+        r"re:.*mlp(?:\.(?:experts\.\d+|shared_experts))?\.up_proj\.weight$",
+    ],
     [r"re:.*w1\.weight$", r"re:.*w3\.weight$"],
 ]
 

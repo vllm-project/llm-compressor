@@ -30,8 +30,8 @@ from llmcompressor.logger import configure_distributed_logger
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
-    save_mtp_tensors,
 )
+from llmcompressor.transformers.compression.mtp import save_mtp_tensors
 from llmcompressor.transformers.utils.helpers import (
     is_model_ct_quantized_from_path,
 )
@@ -128,7 +128,12 @@ def post_process(
         model_args.model.save_pretrained(
             output_dir, save_compressed=model_args.save_compressed
         )
-        save_mtp_tensors(model_args.model, output_dir, mtp_scheme)
+        save_mtp_tensors(
+            model_args.model,
+            output_dir,
+            mtp_scheme,
+            revision=model_args.model_revision,
+        )
 
         if model_args.processor is not None:
             model_args.processor.save_pretrained(output_dir)

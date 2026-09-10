@@ -84,6 +84,12 @@ Some models ship Multi-Token Prediction (MTP) layers used as the draft model for
 
 Pass `mtp_scheme` to `oneshot` to quantize the MTP layers instead. Because MTP layers are never loaded, their activation scales cannot be calibrated; any input-activation quantization whose scale must be calibrated (fully static, or NVFP4-style `dynamic="local"` with a static `input_global_scale`) is automatically dropped to weight-only. Only fully dynamic activation quantization (e.g. `FP8_DYNAMIC`), whose scales are computed at runtime, is kept.
 
+MTP processing currently supports `Qwen3_5ForConditionalGeneration`,
+`Glm5NextForConditionalGeneration`, `GlmMoeDsaForCausalLM`, and
+`NemotronHForCausalLM` checkpoints.
+Each architecture has an explicit projection layout so unsupported tensors fail
+instead of being quantized by a broad name heuristic.
+
 ```python
 SAVE_DIR = "your-model-NVFP4-MTP"
 oneshot(
@@ -103,8 +109,8 @@ Choosing a scheme:
 | `mtp_scheme` | Notes |
 |--------------|-------|
 | `None` (default) | MTP kept bf16 (lossless), added to ignore list. |
-| `"FP8_DYNAMIC"` | **Recommended** quantized scheme. Calibration-free (dynamic per-token activation scale, static per-channel weight scale) and works with all vLLM optimizations enabled. |
-| `"NVFP4"` | Smallest on disk. MTP layers are never loaded, so their activation scales cannot be calibrated; the input-activation quant is dropped to **weight-only** NVFP4. Functional but lower acceptance than `FP8_DYNAMIC`; prefer `FP8_DYNAMIC` unless you specifically need the smallest MTP footprint. |
+| `"FP8_DYNAMIC"` | Keeps calibration-free runtime activation quantization and uses weight-derived per-channel scales. |
+| `"NVFP4"` | Smallest on disk. Its calibration-dependent activation scale is unavailable for unloaded MTP layers, so MTP is weight-only NVFP4. |
 
 ## Notes
 

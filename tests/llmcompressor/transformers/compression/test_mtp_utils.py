@@ -1,603 +1,577 @@
-"""
-Tests for MTP (Multi-Token Prediction) layer quantization helpers in
-compressed_tensors_utils. All tests are self-contained: they build local
-dummy checkpoints rather than downloading real models, so no HF hub access or
-GPU is required.
-"""
-
 import json
-import os
+import re
+from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 import torch
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationStatus,
+    preset_name_to_scheme,
+)
+from safetensors import safe_open
 from safetensors.torch import save_file
+from transformers import PretrainedConfig
 
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    _get_mtp_prefix,
+from llmcompressor.transformers.compression import mtp
+from llmcompressor.transformers.compression.mtp import (
+    _dequantize_fp8_blocks,
+    _partition_mtp_tensors,
     _quantize_and_save_mtp_tensors,
+    _resolve_mtp_layout,
     _resolve_mtp_scheme,
-    save_mtp_tensors,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
-
-def _make_source_checkpoint(tmp_dir, tensors: dict):
-    """Write a minimal safetensors checkpoint with MTP tensors."""
-    mtp_tensors = {
-        "mtp.layers.0.self_attn.q_proj.weight": torch.randn(32, 32),
-        "mtp.layers.0.self_attn.v_proj.weight": torch.randn(32, 32),
-        "mtp.layers.0.mlp.gate_proj.weight": torch.randn(64, 32),
-        "mtp.eh_proj.weight": torch.randn(32, 64),
-        "mtp.norm.weight": torch.randn(32),
-    }
-    # multi-shard layout: main shard + mtp shard + index
-    save_file(tensors, os.path.join(tmp_dir, "model.safetensors"))
-    save_file(mtp_tensors, os.path.join(tmp_dir, "model_mtp.safetensors"))
-    weight_map = {k: "model.safetensors" for k in tensors}
-    weight_map.update({k: "model_mtp.safetensors" for k in mtp_tensors})
-    index = {"metadata": {}, "weight_map": weight_map}
-    with open(os.path.join(tmp_dir, "model.safetensors.index.json"), "w") as f:
-        json.dump(index, f)
-    return tmp_dir
-
-
-def _make_dest_checkpoint(tmp_dir, quant_config: dict | None = None):
-    """Write a minimal dest checkpoint with config.json and a main shard."""
-    save_file(
-        {"model.embed_tokens.weight": torch.zeros(10, 8)},
-        os.path.join(tmp_dir, "model.safetensors"),
+def _qwen_case() -> tuple[PretrainedConfig, dict[str, torch.Tensor], str, str]:
+    config = PretrainedConfig(
+        architectures=["Qwen3_5ForConditionalGeneration"],
+        mtp_num_hidden_layers=1,
     )
-    cfg = {"model_type": "test"}
-    if quant_config is not None:
-        cfg["quantization_config"] = quant_config
-    with open(os.path.join(tmp_dir, "config.json"), "w") as f:
-        json.dump(cfg, f)
-    return tmp_dir
-
-
-# ---------------------------------------------------------------------------
-# _get_mtp_prefix
-# ---------------------------------------------------------------------------
-
-
-class _FakeConfig:
-    def __init__(self, num_hidden_layers=4):
-        self.num_hidden_layers = num_hidden_layers
-
-
-def test_get_mtp_prefix_standard_mtp(tmp_path):
-    main = {"model.embed_tokens.weight": torch.zeros(4, 4)}
-    _make_source_checkpoint(str(tmp_path), main)
-    prefix = _get_mtp_prefix(str(tmp_path), _FakeConfig())
-    assert prefix == "mtp"
-
-
-def test_get_mtp_prefix_glm_vlm_style(tmp_path):
-    """GLM-5.3-Flash stores MTP at model.language_model.layers.{num_hidden}.*"""
-    num_hidden = 4
+    prefix = "mtp.layers.0"
     tensors = {
-        f"model.language_model.layers.{i}.mlp.gate_proj.weight": torch.zeros(4, 4)
-        for i in range(num_hidden)
+        "mtp.fc.weight": torch.randn(32, 64),
+        "mtp.norm.weight": torch.randn(32),
+        **{
+            f"{prefix}.self_attn.{proj}.weight": torch.randn(32, 32)
+            for proj in ("q_proj", "k_proj", "v_proj", "o_proj")
+        },
+        f"{prefix}.mlp.gate_proj.weight": torch.randn(64, 32),
+        f"{prefix}.mlp.up_proj.weight": torch.randn(64, 32),
+        f"{prefix}.mlp.down_proj.weight": torch.randn(32, 64),
     }
-    tensors[f"model.language_model.layers.{num_hidden}.eh_proj.weight"] = torch.zeros(
-        4, 4
-    )
-    save_file(tensors, str(tmp_path / "model.safetensors"))
-    weight_map = {k: "model.safetensors" for k in tensors}
-    with open(tmp_path / "model.safetensors.index.json", "w") as f:
-        json.dump({"metadata": {}, "weight_map": weight_map}, f)
-    prefix = _get_mtp_prefix(str(tmp_path), _FakeConfig(num_hidden_layers=num_hidden))
-    assert prefix == f"model.language_model.layers.{num_hidden}"
-
-
-def test_get_mtp_prefix_raises_when_undetectable(tmp_path):
-    tensors = {"model.layers.0.weight": torch.zeros(4, 4)}
-    save_file(tensors, str(tmp_path / "model.safetensors"))
-    weight_map = {k: "model.safetensors" for k in tensors}
-    with open(tmp_path / "model.safetensors.index.json", "w") as f:
-        json.dump({"metadata": {}, "weight_map": weight_map}, f)
-    with pytest.raises(ValueError, match="Could not detect MTP tensor prefix"):
-        _get_mtp_prefix(str(tmp_path), _FakeConfig(num_hidden_layers=99))
-
-
-def test_save_mtp_tensors_processes_unloaded_layers(monkeypatch, tmp_path):
-    """The oneshot finalizer reads MTP tensors from the model's source."""
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-
-    text_config = SimpleNamespace(num_nextn_predict_layers=1, vocab_size=128)
-    model = SimpleNamespace(
-        config=SimpleNamespace(get_text_config=lambda: text_config),
-        name_or_path="source-model",
-    )
-    get_prefix = Mock(return_value="mtp")
-    quantize = Mock()
-    monkeypatch.setattr(
-        "llmcompressor.transformers.compression.compressed_tensors_utils."
-        "_get_mtp_prefix",
-        get_prefix,
-    )
-    monkeypatch.setattr(
-        "llmcompressor.transformers.compression.compressed_tensors_utils."
-        "_quantize_and_save_mtp_tensors",
-        quantize,
+    return (
+        config,
+        tensors,
+        f"{prefix}.self_attn.q_proj",
+        "mtp.fc",
     )
 
-    save_mtp_tensors(model, str(tmp_path), "NVFP4")
 
-    get_prefix.assert_called_once_with("source-model", text_config)
-    quantize.assert_called_once_with(
-        "source-model",
-        str(tmp_path),
-        mtp_prefix="mtp",
-        vocab_size=128,
+def _glm5_next_case() -> tuple[PretrainedConfig, dict[str, torch.Tensor], str, str]:
+    config = PretrainedConfig(
+        architectures=["Glm5NextForConditionalGeneration"],
+        num_hidden_layers=5,
+        num_nextn_predict_layers=1,
+    )
+    prefix = "model.language_model.layers.5"
+    tensors = {
+        f"{prefix}.eh_proj.weight": torch.randn(32, 64),
+        f"{prefix}.enorm.weight": torch.randn(32),
+        f"{prefix}.hc_attn_base": torch.randn(3),
+        f"{prefix}.hc_ffn_fn": torch.randn(3, 32),
+        f"{prefix}.mlp.gate.weight": torch.randn(2, 32),
+        f"{prefix}.self_attn.indexer.weights_proj.weight": torch.randn(32, 32),
+        f"{prefix}.self_attn.indexer.wk.weight": torch.randn(32, 32),
+        f"{prefix}.self_attn.indexer.wq_b.weight": torch.randn(32, 32),
+        **{
+            f"{prefix}.self_attn.{proj}.weight": torch.randn(32, 32)
+            for proj in (
+                "q_a_proj",
+                "kv_a_proj_with_mqa",
+                "q_b_proj",
+                "kv_b_proj",
+                "o_proj",
+            )
+        },
+        **{
+            f"{prefix}.mlp.experts.0.{proj}.weight": torch.randn(32, 32)
+            for proj in ("gate_proj", "up_proj", "down_proj")
+        },
+        **{
+            f"{prefix}.mlp.shared_experts.{proj}.weight": torch.randn(32, 32)
+            for proj in ("gate_proj", "up_proj", "down_proj")
+        },
+    }
+    return (
+        config,
+        tensors,
+        f"{prefix}.mlp.experts.0.gate_proj",
+        f"{prefix}.self_attn.q_a_proj",
+    )
+
+
+def _glm_moe_dsa_case() -> tuple[PretrainedConfig, dict[str, torch.Tensor], str, str]:
+    config = PretrainedConfig(
+        architectures=["GlmMoeDsaForCausalLM"],
+        num_hidden_layers=5,
+        num_nextn_predict_layers=1,
+    )
+    prefix = "model.layers.5"
+    tensors = {
+        f"{prefix}.eh_proj.weight": torch.randn(32, 64),
+        f"{prefix}.input_layernorm.weight": torch.randn(32),
+        f"{prefix}.mlp.gate.weight": torch.randn(2, 32),
+        f"{prefix}.self_attn.kv_b_proj.weight": torch.randn(32, 32),
+        f"{prefix}.self_attn.indexer.weights_proj.weight": torch.randn(32, 32),
+        f"{prefix}.self_attn.indexer.wk.weight": torch.randn(32, 32),
+        f"{prefix}.self_attn.indexer.wq_b.weight": torch.randn(32, 32),
+        **{
+            f"{prefix}.self_attn.{proj}.weight": torch.randn(32, 32)
+            for proj in ("q_a_proj", "kv_a_proj_with_mqa", "q_b_proj", "o_proj")
+        },
+        **{
+            f"{prefix}.mlp.experts.0.{proj}.weight": torch.randn(32, 32)
+            for proj in ("gate_proj", "up_proj", "down_proj")
+        },
+        **{
+            f"{prefix}.mlp.shared_experts.{proj}.weight": torch.randn(32, 32)
+            for proj in ("gate_proj", "up_proj", "down_proj")
+        },
+    }
+    return (
+        config,
+        tensors,
+        f"{prefix}.self_attn.q_a_proj",
+        f"{prefix}.eh_proj",
+    )
+
+
+def _nemotron_case() -> tuple[PretrainedConfig, dict[str, torch.Tensor], str, str]:
+    config = PretrainedConfig(
+        architectures=["NemotronHForCausalLM"],
+        num_nextn_predict_layers=1,
+        mtp_hybrid_override_pattern="*E",
+    )
+    tensors = {
+        "mtp.layers.0.eh_proj.weight": torch.randn(32, 64),
+        "mtp.layers.0.enorm.weight": torch.randn(32),
+        "mtp.layers.0.hnorm.weight": torch.randn(32),
+        "mtp.layers.1.final_layernorm.weight": torch.randn(32),
+        "mtp.layers.1.mixer.gate.weight": torch.randn(2, 32),
+        **{
+            f"mtp.layers.0.mixer.{proj}.weight": torch.randn(32, 32)
+            for proj in ("q_proj", "k_proj", "v_proj", "o_proj")
+        },
+        **{
+            f"mtp.layers.1.mixer.experts.0.{proj}.weight": torch.randn(32, 32)
+            for proj in ("up_proj", "down_proj")
+        },
+        **{
+            f"mtp.layers.1.mixer.shared_experts.{proj}.weight": torch.randn(32, 32)
+            for proj in ("up_proj", "down_proj")
+        },
+    }
+    return (
+        config,
+        tensors,
+        "mtp.layers.0.eh_proj",
+        "mtp.layers.1.mixer.gate",
+    )
+
+
+CASES: dict[
+    str, Callable[[], tuple[PretrainedConfig, dict[str, torch.Tensor], str, str]]
+] = {
+    "qwen3.5": _qwen_case,
+    "glm5-next": _glm5_next_case,
+    "glm-moe-dsa": _glm_moe_dsa_case,
+    "nemotron-h": _nemotron_case,
+}
+
+
+def _write_source(path: Path, tensors: dict[str, torch.Tensor]) -> None:
+    path.mkdir()
+    save_file({"backbone.weight": torch.randn(32, 32)}, path / "model.safetensors")
+    save_file(tensors, path / "model_mtp.safetensors")
+    weight_map = {"backbone.weight": "model.safetensors"}
+    weight_map.update({name: "model_mtp.safetensors" for name in tensors})
+    (path / "model.safetensors.index.json").write_text(
+        json.dumps({"metadata": {}, "weight_map": weight_map})
+    )
+
+
+def _write_destination(path: Path, stale_mtp_name: str) -> None:
+    path.mkdir()
+    save_file({"backbone.weight": torch.randn(32, 32)}, path / "model.safetensors")
+    scheme = preset_name_to_scheme("FP8_DYNAMIC", targets=["Linear"])
+    quantization_config = QuantizationConfig(
+        config_groups={"group_0": scheme},
+        format="float-quantized",
+        quantization_status=QuantizationStatus.COMPRESSED,
+        ignore=["lm_head"],
+    ).model_dump(mode="json", exclude_none=True)
+    quantization_config.update(
+        {
+            "compressed-tensors_version": "test-version",
+            "transform_config": {},
+        }
+    )
+    (path / "config.json").write_text(
+        json.dumps({"quantization_config": quantization_config})
+    )
+    (path / "model.safetensors.index.json").write_text(
+        json.dumps(
+            {
+                "metadata": {},
+                "weight_map": {
+                    "backbone.weight": "model.safetensors",
+                    stale_mtp_name: "stale-mtp.safetensors",
+                },
+            }
+        )
+    )
+
+
+@pytest.mark.parametrize("case_name", CASES)
+def test_nvfp4_quantizes_supported_architecture_layouts(tmp_path, case_name):
+    """Each supported checkpoint layout is packed and described for its runtime."""
+    config, tensors, quantized_module, dense_module = CASES[case_name]()
+    layout = _resolve_mtp_layout(config, set(tensors))
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    stale_name = f"{layout.source_prefixes[0]}.obsolete.weight"
+    _write_source(source, tensors)
+    _write_destination(destination, stale_name)
+
+    _quantize_and_save_mtp_tensors(
+        str(source),
+        str(destination),
+        config,
         mtp_scheme="NVFP4",
     )
 
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        output_names = set(file.keys())
+    assert f"{quantized_module}.weight_packed" in output_names
+    assert f"{quantized_module}.weight_global_scale" in output_names
+    assert f"{dense_module}.weight" in output_names
+    assert f"{dense_module}.weight_packed" not in output_names
+    assert not any(name.endswith("input_global_scale") for name in output_names)
 
-# ---------------------------------------------------------------------------
-# _quantize_and_save_mtp_tensors
-# ---------------------------------------------------------------------------
-
-
-FP8_QUANT_CONFIG = {
-    "config_groups": {
-        "group_0": {
-            "targets": ["Linear"],
-            "weights": {"num_bits": 8, "type": "float", "strategy": "tensor"},
-        }
-    },
-    "format": "dense",
-    "quantization_status": "compressed",
-}
-
-
-def test_quantize_and_save_mtp_creates_shard(tmp_path):
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp")
-
-    assert os.path.exists(os.path.join(dst, "model_mtp.safetensors"))
-    assert os.path.exists(os.path.join(dst, "model.safetensors.index.json"))
-
-
-def test_quantize_and_save_mtp_index_includes_mtp_keys(tmp_path):
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp")
-
-    with open(os.path.join(dst, "model.safetensors.index.json")) as f:
-        index = json.load(f)
-    mtp_keys = [k for k in index["weight_map"] if k.startswith("mtp")]
-    assert len(mtp_keys) > 0
-
-
-def test_quantize_and_save_mtp_config_group_added(tmp_path):
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp", mtp_scheme="FP8_DYNAMIC")
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    groups = cfg.get("quantization_config", {}).get("config_groups", {})
-    assert "mtp_group" in groups
-    # mtp_group must be first so vLLM's first-match resolution wins for the MTP
-    # modules over the main model's broad regexes
-    assert next(iter(groups)) == "mtp_group"
-    # the group must carry its own compression format (required when the
-    # top-level format is mixed-precision, and present on the main groups too)
-    assert groups["mtp_group"].get("format") not in (None, "dense")
-    targets = groups["mtp_group"]["targets"]
-    # targets match module names, not parameter names, so never a ".weight"
-    # suffix
-    assert all(not t.endswith(".weight") for t in targets)
-    # an mtp-anchored regex leads the targets so it matches vLLM's *fused*
-    # runtime module names (qkv_proj / gate_up_proj), which the exact
-    # per-component names cannot
-    assert any(t.startswith("re:") and t[3:].startswith("^mtp") for t in targets)
-    # the exact component modules are still listed; the 1D norm is excluded
-    assert "mtp.layers.0.self_attn.q_proj" in targets
-    assert "mtp.norm" not in targets
-    # MTP should NOT be in the ignore list
-    ignore = cfg.get("quantization_config", {}).get("ignore", [])
-    assert not any("mtp" in s for s in ignore)
-
-
-def test_quantize_and_save_mtp_keeps_1d_norms_full_precision(tmp_path):
-    """1D tensors (e.g. mtp.norm.weight) must stay full precision, not be
-    routed through the linear quantization path."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp", mtp_scheme="FP8_DYNAMIC")
-
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-        # norm stays as a plain weight (no scale companion), unchanged dtype
-        assert "mtp.norm.weight" in keys
-        assert "mtp.norm.weight_scale" not in keys
-        assert f.get_tensor("mtp.norm.weight").dtype == torch.float32
-        # a 2D linear weight is quantized (gains a weight_scale)
-        assert "mtp.layers.0.self_attn.q_proj.weight_scale" in keys
-
-
-def test_quantize_and_save_mtp_keeps_embeddings_full_precision(tmp_path):
-    """Embedding/head modules must stay full precision: vLLM cannot load FP8
-    embeddings, so they are neither quantized nor listed in mtp_group."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-
-    # source with an embedding (rows == vocab_size) alongside a normal linear
-    vocab_size = 128
-    mtp_tensors = {
-        "mtp.embed_tokens.weight": torch.randn(vocab_size, 32),
-        "mtp.layers.0.self_attn.q_proj.weight": torch.randn(32, 32),
-    }
-    save_file(
-        {"model.layers.0.weight": torch.randn(32, 32)},
-        os.path.join(src, "model.safetensors"),
+    output_config = json.loads((destination / "config.json").read_text())
+    quantization_config = output_config["quantization_config"]
+    assert next(iter(quantization_config["config_groups"])) == "mtp_group"
+    assert quantization_config["config_groups"]["mtp_group"]["targets"] == list(
+        layout.targets
     )
-    save_file(mtp_tensors, os.path.join(src, "model_mtp.safetensors"))
-    weight_map = {"model.layers.0.weight": "model.safetensors"}
-    weight_map.update({k: "model_mtp.safetensors" for k in mtp_tensors})
-    with open(os.path.join(src, "model.safetensors.index.json"), "w") as f:
-        json.dump({"metadata": {}, "weight_map": weight_map}, f)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
+    assert quantization_config["compressed-tensors_version"] == "test-version"
+    assert quantization_config["format"] == "mixed-precision"
+    assert "lm_head" in quantization_config["ignore"]
+
+    output_index = json.loads(
+        (destination / "model.safetensors.index.json").read_text()
+    )["weight_map"]
+    assert stale_name not in output_index
+    assert all(output_index[name] == "model_mtp.safetensors" for name in output_names)
+
+
+@pytest.mark.parametrize(
+    "case_factory,fused_modules",
+    [
+        (
+            _qwen_case,
+            [
+                "mtp.layers.0.self_attn.q_proj",
+                "mtp.layers.0.self_attn.k_proj",
+                "mtp.layers.0.self_attn.v_proj",
+            ],
+        ),
+        (
+            _glm5_next_case,
+            [
+                "model.language_model.layers.5.mlp.experts.0.gate_proj",
+                "model.language_model.layers.5.mlp.experts.0.up_proj",
+            ],
+        ),
+        (
+            _glm_moe_dsa_case,
+            [
+                "model.layers.5.self_attn.q_a_proj",
+                "model.layers.5.self_attn.kv_a_proj_with_mqa",
+            ],
+        ),
+        (
+            _nemotron_case,
+            [
+                "mtp.layers.0.mixer.q_proj",
+                "mtp.layers.0.mixer.k_proj",
+                "mtp.layers.0.mixer.v_proj",
+            ],
+        ),
+    ],
+)
+def test_nvfp4_fused_projections_share_global_scale(
+    tmp_path, case_factory, fused_modules
+):
+    """Projection sets fused by vLLM receive one shared NVFP4 global scale."""
+    config, tensors, _, _ = case_factory()
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    layout = _resolve_mtp_layout(config, set(tensors))
+    _write_source(source, tensors)
+    _write_destination(destination, f"{layout.source_prefixes[0]}.obsolete.weight")
 
     _quantize_and_save_mtp_tensors(
-        src, dst, mtp_prefix="mtp", vocab_size=vocab_size, mtp_scheme="FP8_DYNAMIC"
+        str(source),
+        str(destination),
+        config,
+        mtp_scheme="NVFP4",
     )
 
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-    assert "mtp.embed_tokens.weight" in keys
-    assert "mtp.embed_tokens.weight_scale" not in keys  # not quantized
-    assert "mtp.layers.0.self_attn.q_proj.weight_scale" in keys  # linear is
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    targets = cfg["quantization_config"]["config_groups"]["mtp_group"]["targets"]
-    assert "mtp.embed_tokens" not in targets
-    assert "mtp.layers.0.self_attn.q_proj" in targets
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        scales = [
+            file.get_tensor(f"{module}.weight_global_scale") for module in fused_modules
+        ]
+    assert all(torch.equal(scales[0], scale) for scale in scales[1:])
 
 
-def test_quantize_and_save_mtp_keeps_fusion_proj_full_precision(tmp_path):
-    """The MTP fusion projection (eh_proj / fc) is a plain nn.Linear with no
-    scale param in some engines, so it must stay full precision and out of the
-    config group even though it is a normal 2D linear weight."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp", mtp_scheme="FP8_DYNAMIC")
-
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-    assert "mtp.eh_proj.weight" in keys
-    assert "mtp.eh_proj.weight_scale" not in keys  # not quantized
-    assert "mtp.layers.0.self_attn.q_proj.weight_scale" in keys  # linear is
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    targets = cfg["quantization_config"]["config_groups"]["mtp_group"]["targets"]
-    assert "mtp.eh_proj" not in targets
-    assert "mtp.layers.0.self_attn.q_proj" in targets
-
-
-NVFP4_QUANT_CONFIG = {
-    "config_groups": {
-        "group_0": {
-            "targets": ["Linear"],
-            "weights": {
-                "num_bits": 4,
-                "type": "float",
-                "strategy": "tensor_group",
-                "group_size": 16,
-                "symmetric": True,
-            },
-        }
-    },
-    "format": "nvfp4-pack-quantized",
-    "quantization_status": "compressed",
-}
-
-
-def _make_nvfp4_source(src, vocab_size=None):
-    """Source checkpoint with a complete q/k/v fused set and a gate/up set."""
-    mtp_tensors = {
-        "mtp.layers.0.self_attn.q_proj.weight": torch.randn(32, 32),
-        "mtp.layers.0.self_attn.k_proj.weight": torch.randn(32, 32),
-        "mtp.layers.0.self_attn.v_proj.weight": torch.randn(32, 32),
-        "mtp.layers.0.self_attn.o_proj.weight": torch.randn(32, 32),
-        "mtp.layers.0.mlp.gate_proj.weight": torch.randn(64, 32),
-        "mtp.layers.0.mlp.up_proj.weight": torch.randn(64, 32),
-        "mtp.eh_proj.weight": torch.randn(32, 64),
-        "mtp.norm.weight": torch.randn(32),
-    }
-    if vocab_size is not None:
-        mtp_tensors["mtp.embed_tokens.weight"] = torch.randn(vocab_size, 32)
-    save_file(
-        {"model.layers.0.weight": torch.randn(32, 32)},
-        os.path.join(src, "model.safetensors"),
-    )
-    save_file(mtp_tensors, os.path.join(src, "model_mtp.safetensors"))
-    weight_map = {"model.layers.0.weight": "model.safetensors"}
-    weight_map.update({k: "model_mtp.safetensors" for k in mtp_tensors})
-    with open(os.path.join(src, "model.safetensors.index.json"), "w") as f:
-        json.dump({"metadata": {}, "weight_map": weight_map}, f)
-    return src
-
-
-def test_quantize_and_save_mtp_nvfp4_fused_shared_global_scale(tmp_path):
-    """NVFP4 (microscale) MTP linears are packed to fp4 with per-block scales
-    and a per-tensor global scale; the q/k/v fused set shares one global scale
-    so vLLM's fused QKV linear loads consistently. eh_proj stays full precision.
-    """
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    _make_nvfp4_source(src)
-    _make_dest_checkpoint(dst, quant_config=NVFP4_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp", mtp_scheme="NVFP4")
-
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-        # linear weights are packed to fp4 (weight_packed) with scales
-        assert "mtp.layers.0.self_attn.q_proj.weight_packed" in keys
-        assert "mtp.layers.0.self_attn.q_proj.weight_scale" in keys
-        assert "mtp.layers.0.self_attn.q_proj.weight_global_scale" in keys
-        # NVFP4's local-dynamic input activations require a calibrated
-        # input_global_scale, which MTP cannot produce -> dropped to weight-only
-        assert not any(k.endswith("input_global_scale") for k in keys)
-        # fusion proj + norm stay full precision, no packing
-        assert "mtp.eh_proj.weight" in keys
-        assert "mtp.eh_proj.weight_packed" not in keys
-        assert "mtp.norm.weight" in keys
-        # q/k/v share one global scale (fused-set coordination)
-        gq = f.get_tensor("mtp.layers.0.self_attn.q_proj.weight_global_scale")
-        gk = f.get_tensor("mtp.layers.0.self_attn.k_proj.weight_global_scale")
-        gv = f.get_tensor("mtp.layers.0.self_attn.v_proj.weight_global_scale")
-        assert torch.equal(gq, gk)
-        assert torch.equal(gq, gv)
-        # gate/up likewise share a global scale
-        gg = f.get_tensor("mtp.layers.0.mlp.gate_proj.weight_global_scale")
-        gu = f.get_tensor("mtp.layers.0.mlp.up_proj.weight_global_scale")
-        assert torch.equal(gg, gu)
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    group = cfg["quantization_config"]["config_groups"]["mtp_group"]
-    assert group["format"] == "nvfp4-pack-quantized"
-    assert group["weights"]["num_bits"] == 4
-    assert str(group["weights"]["strategy"]).endswith("tensor_group")
-    targets = group["targets"]
-    assert "mtp.layers.0.self_attn.q_proj" in targets
-    assert "mtp.eh_proj" not in targets
-    assert "mtp.norm" not in targets
-
-
-def test_quantize_and_save_mtp_missing_shard_skips_gracefully(tmp_path):
-    """A referenced MTP shard that is absent locally is skipped, not fatal."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-    # remove the mtp shard so the index references a missing file
-    os.remove(os.path.join(src, "model_mtp.safetensors"))
-
-    # no local shard and no hub access -> no MTP tensors -> ValueError, not crash
-    with pytest.raises(ValueError, match="No tensors with prefix"):
-        _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp")
-
-
-def test_quantize_and_save_mtp_unquantized_fallback_adds_ignore(tmp_path):
-    """When no quantization_config is present, MTP tensors are saved unquantized
-    and marked as ignored so inference engines skip them."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    # dest has a quantization_config but with no config_groups → scheme is None
-    _make_dest_checkpoint(dst, quant_config={"format": "dense"})
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp")
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    ignore = cfg.get("quantization_config", {}).get("ignore", [])
-    assert any("mtp" in s for s in ignore)
-
-
-def test_quantize_and_save_mtp_defaults_to_bf16_and_ignores(tmp_path):
-    """MTP quantization is opt-in: with no mtp_scheme the layers stay full
-    precision (bf16) and are added to the ignore list, even when the main model
-    is quantized. This is the default when oneshot saves MTP layers."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    # no mtp_scheme -> default (bf16), even though the main model is FP8
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp")
-
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-    # nothing is quantized: the linear keeps a plain .weight, gains no scale
-    assert "mtp.layers.0.self_attn.q_proj.weight" in keys
-    assert "mtp.layers.0.self_attn.q_proj.weight_scale" not in keys
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    quant_cfg = cfg.get("quantization_config", {})
-    # no mtp_group is emitted, and MTP is marked ignored instead
-    assert "mtp_group" not in quant_cfg.get("config_groups", {})
-    assert any("mtp" in s for s in quant_cfg.get("ignore", []))
-
-
-def test_quantize_and_save_mtp_explicit_preset_overrides_main_scheme(tmp_path):
-    """An explicit preset name (e.g. "NVFP4") quantizes the MTP layers with that
-    scheme regardless of the main model's scheme (here FP8)."""
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    _make_nvfp4_source(src)
-    # main model is FP8, but we explicitly ask for NVFP4 on the MTP layers
-    _make_dest_checkpoint(dst, quant_config=FP8_QUANT_CONFIG)
-
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp", mtp_scheme="NVFP4")
-
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-        # NVFP4 packing, not FP8 -> weight_packed + global scale present
-        assert "mtp.layers.0.self_attn.q_proj.weight_packed" in keys
-        assert "mtp.layers.0.self_attn.q_proj.weight_global_scale" in keys
-
-    with open(os.path.join(dst, "config.json")) as f:
-        cfg = json.load(f)
-    group = cfg["quantization_config"]["config_groups"]["mtp_group"]
-    assert group["format"] == "nvfp4-pack-quantized"
-    assert group["weights"]["num_bits"] == 4
-
-
-def test_quantize_and_save_mtp_explicit_scheme_object(tmp_path):
-    """A QuantizationScheme object is accepted directly as mtp_scheme."""
-    from compressed_tensors.quantization import preset_name_to_scheme
-
-    src = str(tmp_path / "src")
-    dst = str(tmp_path / "dst")
-    os.makedirs(src)
-    os.makedirs(dst)
-    main = {"model.layers.0.weight": torch.randn(32, 32)}
-    _make_source_checkpoint(src, main)
-    # no quantization_config at all on the dest model
-    _make_dest_checkpoint(dst, quant_config=None)
-
-    scheme = preset_name_to_scheme("FP8_DYNAMIC", targets=["re:.*\\.weight"])
-    _quantize_and_save_mtp_tensors(src, dst, mtp_prefix="mtp", mtp_scheme=scheme)
-
-    from safetensors import safe_open
-
-    with safe_open(os.path.join(dst, "model_mtp.safetensors"), framework="pt") as f:
-        keys = set(f.keys())
-    assert "mtp.layers.0.self_attn.q_proj.weight_scale" in keys
-
-
-# ---------------------------------------------------------------------------
-# _resolve_mtp_scheme
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_mtp_scheme_none_and_aliases():
-    assert _resolve_mtp_scheme(None) is None
-    for alias in ("bf16", "BF16", "bfloat16", "none", "dense", "unquantized"):
-        assert _resolve_mtp_scheme(alias) is None
-
-
-def test_resolve_mtp_scheme_preset_name():
-    scheme = _resolve_mtp_scheme("NVFP4")
-    assert scheme is not None
-    assert scheme.weights.num_bits == 4
-    assert str(scheme.weights.strategy).endswith("tensor_group")
-
-
-def test_resolve_mtp_scheme_drops_local_dynamic_input_activations():
-    """NVFP4 input activations use dynamic="local": per-group micro-scales are
-    dynamic but a per-tensor input_global_scale is static and must be
-    calibrated. MTP layers are never observed, so it is dropped to weight-only
-    (leaving it in would emit a meaningless input_global_scale -> 1/scale=inf).
-    """
-    scheme = _resolve_mtp_scheme("NVFP4")
-    assert scheme.weights is not None  # weights stay quantized (4-bit)
-    assert scheme.input_activations is None  # local-dynamic acts dropped
-
-
-def test_resolve_mtp_scheme_passthrough_weight_only_object():
-    """A QuantizationScheme with no static activation quant is returned as-is."""
-    from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
-
-    obj = QuantizationScheme(
-        targets=["re:.*\\.weight"],
-        weights=QuantizationArgs(
-            num_bits=4, type="int", strategy="group", group_size=128
+@pytest.mark.parametrize(
+    "case_factory,target_names,ignore_names",
+    [
+        (
+            _qwen_case,
+            [
+                "mtp.layers.0.self_attn.qkv_proj",
+                "mtp.layers.0.mlp.gate_up_proj",
+            ],
+            ["mtp.fc"],
         ),
+        (
+            _glm5_next_case,
+            [
+                "model.layers.5.mlp.experts.0.gate_proj",
+                "model.layers.5.mlp.experts.0.up_proj",
+                "model.layers.5.mlp.experts.0.down_proj",
+                "model.layers.5.mlp.shared_experts.gate_up_proj",
+            ],
+            [
+                "model.layers.5.eh_proj",
+                "model.layers.5.self_attn.fused_qkv_a_proj",
+            ],
+        ),
+        (
+            _glm_moe_dsa_case,
+            [
+                "model.layers.5.self_attn.fused_qkv_a_proj",
+                "model.layers.5.self_attn.indexer.wq_b",
+                "model.layers.5.mlp.experts.0.gate_proj",
+                "model.layers.5.mlp.experts.0.up_proj",
+                "model.layers.5.mlp.experts.0.down_proj",
+                "model.layers.5.mlp.shared_experts.gate_up_proj",
+            ],
+            [
+                "model.layers.5.eh_proj",
+                "model.layers.5.self_attn.indexer.wk_weights_proj",
+            ],
+        ),
+        (
+            _nemotron_case,
+            [
+                "mtp.layers.0.eh_proj",
+                "mtp.layers.0.mixer.qkv_proj",
+                "mtp.layers.1.mixer.experts.0.gate_proj",
+                "mtp.layers.1.mixer.experts.0.up_proj",
+                "mtp.layers.1.mixer.experts.0.down_proj",
+            ],
+            ["mtp.layers.1.mixer.gate"],
+        ),
+    ],
+)
+def test_runtime_patterns_match_vllm_modules(case_factory, target_names, ignore_names):
+    """Architecture policies use the module prefixes constructed by vLLM."""
+    config, tensors, _, _ = case_factory()
+    layout = _resolve_mtp_layout(config, set(tensors))
+
+    for name in target_names:
+        assert any(re.fullmatch(pattern[3:], name) for pattern in layout.targets)
+    for name in ignore_names:
+        assert any(re.fullmatch(pattern[3:], name) for pattern in layout.ignores)
+
+
+def test_glm5_next_mtp_keeps_attention_dense():
+    """GLM-5.3-Flash MLA stays dense because vLLM constructs it that way."""
+    config, tensors, _, _ = _glm5_next_case()
+    layout = _resolve_mtp_layout(config, set(tensors))
+
+    quantized, dense = _partition_mtp_tensors(tensors, layout)
+
+    prefix = "model.language_model.layers.5"
+    assert f"{prefix}.mlp.experts.0.gate_proj.weight" in quantized
+    assert f"{prefix}.self_attn.q_a_proj.weight" in dense
+    assert f"{prefix}.self_attn.indexer.wq_b.weight" in dense
+
+
+def test_glm5_next_validation_ignores_backbone_layers():
+    """Only layer ids beyond the Flash backbone belong to MTP."""
+    config, tensors, _, _ = _glm5_next_case()
+    names = set(tensors) | {"model.language_model.layers.0.mlp.gate.weight"}
+
+    layout = _resolve_mtp_layout(config, names)
+
+    assert layout.source_prefixes == ("model.language_model.layers.5",)
+
+
+def test_glm_moe_dsa_quantizes_vllm_supported_attention():
+    """GLM DSA keeps only the non-quantized indexer fusion inputs dense."""
+    config, tensors, _, _ = _glm_moe_dsa_case()
+    layout = _resolve_mtp_layout(config, set(tensors))
+
+    quantized, dense = _partition_mtp_tensors(tensors, layout)
+
+    prefix = "model.layers.5.self_attn"
+    assert f"{prefix}.q_a_proj.weight" in quantized
+    assert f"{prefix}.indexer.wq_b.weight" in quantized
+    assert f"{prefix}.indexer.wk.weight" in dense
+    assert f"{prefix}.indexer.weights_proj.weight" in dense
+
+
+def test_glm5_next_discards_base_only_mhc_tensors(tmp_path):
+    """Flash MTP omits mHC tensors that vLLM does not construct for MTP."""
+    config, tensors, _, _ = _glm5_next_case()
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "model.language_model.layers.5.obsolete")
+
+    _quantize_and_save_mtp_tensors(str(source), str(destination), config)
+
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        output_names = set(file.keys())
+    assert not any(".hc_attn_" in name or ".hc_ffn_" in name for name in output_names)
+
+
+def test_default_preserves_mtp_and_ignores_runtime_prefix(tmp_path):
+    """Omitting mtp_scheme preserves MTP tensors and removes a stale MTP group."""
+    config, tensors, quantized_module, _ = _qwen_case()
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    output_config = json.loads((destination / "config.json").read_text())
+    output_config["quantization_config"]["config_groups"]["mtp_group"] = output_config[
+        "quantization_config"
+    ]["config_groups"]["group_0"]
+    (destination / "config.json").write_text(json.dumps(output_config))
+
+    _quantize_and_save_mtp_tensors(str(source), str(destination), config)
+
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        output_names = set(file.keys())
+    assert f"{quantized_module}.weight" in output_names
+    assert f"{quantized_module}.weight_scale" not in output_names
+
+    output_config = json.loads((destination / "config.json").read_text())
+    quantization_config = output_config["quantization_config"]
+    assert "mtp_group" not in quantization_config["config_groups"]
+    assert r"re:^mtp\." in quantization_config["ignore"]
+
+
+def test_unknown_projection_is_rejected():
+    """A new projection must be added to an architecture layout explicitly."""
+    config, tensors, _, _ = _qwen_case()
+    tensors["mtp.layers.0.self_attn.new_proj.weight"] = torch.randn(32, 32)
+    layout = _resolve_mtp_layout(config, set(tensors))
+
+    with pytest.raises(ValueError, match="Unsupported MTP projection"):
+        _partition_mtp_tensors(tensors, layout)
+
+
+def test_layout_requires_the_configured_physical_layers():
+    """Nemotron hybrid MTP must include every physical layer in its pattern."""
+    config, tensors, _, _ = _nemotron_case()
+    tensors = {
+        name: tensor
+        for name, tensor in tensors.items()
+        if not name.startswith("mtp.layers.1.")
+    }
+
+    with pytest.raises(ValueError, match=r"expected \[0, 1\], found \[0\]"):
+        _resolve_mtp_layout(config, set(tensors))
+
+
+def test_unknown_architecture_is_rejected():
+    """MTP is never guessed for an architecture without a registered layout."""
+    config = PretrainedConfig(
+        architectures=["FutureMtpForCausalLM"],
+        num_nextn_predict_layers=1,
     )
-    assert obj.input_activations is None
-    assert _resolve_mtp_scheme(obj) is obj
+
+    with pytest.raises(ValueError, match="FutureMtpForCausalLM"):
+        _resolve_mtp_layout(config, {"mtp.layers.0.q_proj.weight"})
 
 
-def test_resolve_mtp_scheme_drops_static_input_activations():
-    """Static (non-dynamic) input-activation quant cannot be calibrated for MTP
-    layers, so it is dropped to weight-only regardless of how it was supplied."""
-    # "FP8" preset uses static per-tensor input activations
-    scheme = _resolve_mtp_scheme("FP8")
-    assert scheme is not None
-    assert scheme.weights is not None  # weights stay quantized
-    assert scheme.input_activations is None  # static acts dropped
+def test_native_fp8_blocks_are_dequantized_before_requantization():
+    """Native block-FP8 MTP weights are restored before applying mtp_scheme."""
+    weight = torch.arange(1, 17).reshape(4, 4).to(torch.float8_e4m3fn)
+    scales = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    tensors = {
+        "mtp.layers.0.self_attn.q_proj.weight": weight,
+        "mtp.layers.0.self_attn.q_proj.weight_scale_inv": scales,
+    }
+    config = PretrainedConfig(quantization_config={"weight_block_size": [2, 2]})
+
+    output = _dequantize_fp8_blocks(tensors, config)
+
+    assert "mtp.layers.0.self_attn.q_proj.weight_scale_inv" not in output
+    assert output["mtp.layers.0.self_attn.q_proj.weight"].dtype == torch.bfloat16
+    assert output["mtp.layers.0.self_attn.q_proj.weight"][0, 2] == 6
+    assert output["mtp.layers.0.self_attn.q_proj.weight"][2, 0] == 27
 
 
-def test_resolve_mtp_scheme_keeps_dynamic_input_activations():
-    """Dynamic input-activation quant needs no calibration, so it is kept."""
-    scheme = _resolve_mtp_scheme("FP8_DYNAMIC")
-    assert scheme is not None
-    assert scheme.input_activations is not None
-    assert scheme.input_activations.dynamic is True
+def test_missing_local_mtp_shard_is_fatal(tmp_path):
+    """A partial source checkpoint cannot silently produce a partial output."""
+    config, tensors, _, _ = _qwen_case()
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    weight_map = {name: "missing.safetensors" for name in tensors}
+    (source / "model.safetensors.index.json").write_text(
+        json.dumps({"metadata": {}, "weight_map": weight_map})
+    )
+    _write_destination(destination, "mtp.obsolete.weight")
+
+    with pytest.raises(FileNotFoundError, match="MTP shard not found"):
+        _quantize_and_save_mtp_tensors(str(source), str(destination), config)
 
 
-def test_resolve_mtp_scheme_invalid_type_raises():
+def test_source_index_uses_requested_revision(tmp_path, monkeypatch):
+    """Remote MTP discovery uses the same revision as the backbone load."""
+    index = tmp_path / "model.safetensors.index.json"
+    index.write_text(
+        json.dumps(
+            {
+                "weight_map": {
+                    "mtp.layers.0.self_attn.q_proj.weight": "model.safetensors"
+                }
+            }
+        )
+    )
+    calls = []
+
+    def download(repo_id, filename, revision):
+        calls.append((repo_id, filename, revision))
+        return str(index)
+
+    monkeypatch.setattr(mtp, "hf_hub_download", download)
+
+    weight_map, _, local = mtp._source_weight_map("org/model", "commit")
+
+    assert not local
+    assert weight_map["mtp.layers.0.self_attn.q_proj.weight"] == ("model.safetensors")
+    assert calls == [
+        ("org/model", "model.safetensors.index.json", "commit"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "alias",
+    ["bf16", "BF16", "bfloat16", "none", "dense", "unquantized"],
+)
+def test_unquantized_scheme_aliases(alias):
+    """Full-precision aliases resolve to no MTP quantization scheme."""
+    assert _resolve_mtp_scheme(alias) is None
+
+
+def test_scheme_keeps_only_calibration_free_activations():
+    """Static and local-dynamic activations are dropped; dynamic stays enabled."""
+    assert _resolve_mtp_scheme("NVFP4").input_activations is None
+    assert _resolve_mtp_scheme("FP8").input_activations is None
+    assert _resolve_mtp_scheme("FP8_DYNAMIC").input_activations.dynamic is True
+
+
+def test_scheme_rejects_invalid_type():
+    """mtp_scheme accepts only preset names, scheme objects, or None."""
     with pytest.raises(TypeError, match="mtp_scheme must be"):
         _resolve_mtp_scheme(123)
