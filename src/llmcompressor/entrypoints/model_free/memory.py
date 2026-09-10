@@ -7,6 +7,7 @@ from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_leaves
 
 __all__ = ["TensorProfiler"]
 
@@ -41,10 +42,6 @@ class MemoryProfile:
     def peak(self) -> dict[torch.device, int]:
         return {device: max(self._timelines[device]) for device in self._timelines}
 
-    @property
-    def timeline(self) -> dict[torch.device, list[int]]:
-        return self._timelines
-
     def __len__(self) -> int:
         return max((len(timeline) for timeline in self._timelines.values()), default=0)
 
@@ -52,13 +49,11 @@ class MemoryProfile:
 class TensorProfiler(TorchDispatchMode):
     _tracked: set[int]
     _memory: MemoryProfile
-    _events: list[tuple[int, str]]
     _exception: BaseException | None
 
     def __init__(self, catch_exception: bool = True):
         self._tracked = set()
         self._memory = MemoryProfile()
-        self._events = list()
         self._catch_exception = catch_exception
         self._exception = None
 
@@ -74,32 +69,11 @@ class TensorProfiler(TorchDispatchMode):
         return ret
 
     @property
-    def memory_mib(self) -> dict[torch.device | str, float]:
-        return {device: value / (1024 * 1024) for device, value in self.memory.items()}
-
-    @property
     def memory_peak(self) -> dict[torch.device | str, int]:
         ret = self._memory.peak.copy()
         all = max(ret.values(), default=0)
         ret.update({"all": all})
         return ret
-
-    @property
-    def memory_peak_mib(self) -> dict[torch.device | str, float]:
-        return {
-            device: value / (1024 * 1024) for device, value in self.memory_peak.items()
-        }
-
-    @property
-    def memory_timeline(self) -> dict[torch.device, list[int]]:
-        return self._memory.timeline
-
-    @property
-    def memory_timeline_mib(self) -> dict[torch.device, list[float]]:
-        return {
-            device: [value / (1024 * 1024) for value in timeline]
-            for device, timeline in self._memory.timeline
-        }
 
     @property
     def exception(self) -> BaseException | None:
@@ -111,9 +85,10 @@ class TensorProfiler(TorchDispatchMode):
 
     def __torch_dispatch__(self, func, types, args, kwargs=None):
         ret = func(*args, **(kwargs or {}))
-        if isinstance(ret, torch.Tensor):
-            storage = ret.untyped_storage()
-            self._track(storage)
+
+        for obj in tree_leaves(ret):
+            if isinstance(obj, torch.Tensor):
+                self._track(obj.untyped_storage())
 
         return ret
 

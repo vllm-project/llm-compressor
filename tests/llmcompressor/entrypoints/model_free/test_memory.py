@@ -126,6 +126,48 @@ def test_complex_operations():
 
 
 @device_parametrize
+def test_structured_object_operations():
+    with TensorProfiler() as prof:
+        a = torch.randn(16, 16)
+
+        # Tuple of tensor views; should not allocate new storage.
+        b = a.chunk(4)  # noqa: F841
+        c = a.unbind(0)  # noqa: F841
+        d = a.tensor_split(4)  # noqa: F841
+
+        # Namedtuple-like structured returns.
+        e = a.topk(4)
+        f = a.sort()
+        g = a.max(dim=0)
+
+        # Multi-output linear algebra.
+        h = a.svd()
+        i = torch.linalg.qr(a)
+
+        # Tuples of index tensors.
+        if not a.is_meta:
+            j = torch.nonzero(a > 0, as_tuple=True)
+            k = torch.where(a > 0)
+
+    assert prof.memory["total"] == get_n_bytes(
+        a,
+        e.values,
+        e.indices,
+        f.values,
+        f.indices,
+        g.values,
+        g.indices,
+        h.U,
+        h.S,
+        h.V,
+        i.Q,
+        i.R,
+        *j if not a.is_meta else torch.empty(0),
+        *k if not a.is_meta else torch.empty(0),
+    )
+
+
+@device_parametrize
 def test_deletion_tracking():
     with TensorProfiler() as prof:
         a = torch.randn(64)
