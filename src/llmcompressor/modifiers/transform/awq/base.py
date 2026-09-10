@@ -593,16 +593,38 @@ class AWQModifier(Modifier):
         self._assert_all_activations_consumed()
 
     @torch.no_grad()
-    def _run_samples(self, module: Module) -> list[torch.Tensor]:
+    def _iter_sample_outputs(self, module: Module) -> Iterator[torch.Tensor]:
+        """
+        Run each cached batch through `module`, yielding one output per batch.
+
+        Padding tokens are dropped as soon as each output is produced rather than
+        when the loss is computed, so padding is never materialized across the whole
+        calibration set. Masked outputs are shaped (num_tokens, hidden_size); when no
+        loss mask is available the module output is yielded unchanged.
+
+        :param module: module to replay cached inputs through
+        """
         cache = self._parent_args_cache[module]
-        use_prefetch = active_session().state.sequential_prefetch
+        state = active_session().state
+        loss_masks = state.loss_masks if state else None
+
+        use_prefetch = state.sequential_prefetch if state else False
         batch_iter = cache.iter_prefetch() if use_prefetch else cache
-        outputs = [module(**batch) for batch in batch_iter]
-        return [
+        for batch_idx, batch in enumerate(batch_iter):
+            output = module(**batch)
             # If tuple, assume that first argument is the input
-            output[0] if isinstance(output, tuple) else output
-            for output in outputs
-        ]
+            output = output[0] if isinstance(output, tuple) else output
+
+            loss_mask = loss_masks[batch_idx] if loss_masks else None
+            if loss_mask is not None:
+                token_mask = loss_mask.to(output.device) == 1  # (batch, seq)
+                output = output[token_mask]  # (num_tokens, hidden_size)
+
+            yield output
+
+    @torch.no_grad()
+    def _run_samples(self, module: Module) -> list[torch.Tensor]:
+        return list(self._iter_sample_outputs(module))
 
     def _compute_best_scale(
         self,
@@ -708,12 +730,8 @@ class AWQModifier(Modifier):
                         / _scalesview
                     ).to(balance_layer.weight.dtype)
 
-                # W_q * X
-                int_w_outputs = self._run_samples(mapping.parent)
-
-                # compute mean squared error (L2 norm)
-                loss = self._compute_loss(fp16_outputs, int_w_outputs)
-                del int_w_outputs
+                # W_q * X, and the mean squared error (L2 norm) against fp16_outputs
+                loss = self._compute_loss(fp16_outputs, mapping.parent)
 
                 if initial_error is None:
                     initial_error = loss
@@ -765,34 +783,32 @@ class AWQModifier(Modifier):
     def _compute_loss(
         self,
         fp16_outputs: list[torch.Tensor],
-        int_w_outputs: list[torch.Tensor],
+        module: Module,
     ) -> float:
-        session = active_session()
-        loss_masks = session.state.loss_masks if session.state else None
+        """
+        Mean squared error between `fp16_outputs` and the outputs of `module` in its
+        current (quantized) state.
 
+        The quantized outputs are consumed one batch at a time instead of being
+        materialized up front, so peak memory holds a single batch rather than a
+        second copy of the calibration set.
+
+        :param fp16_outputs: outputs of `module` in the unquantized case, one tensor
+            for each batch, already stripped of padding tokens
+        :param module: module to replay cached inputs through
+        """
         device = fp16_outputs[0].device
         loss = torch.tensor(0.0, device=device)
         num_elements = torch.tensor(0, device=device)
 
         # Compute the MSE loss for each batch
-        for batch_idx, (fp16_batch, int_w_batch) in enumerate(
-            zip(fp16_outputs, int_w_outputs)
+        for fp16_batch, int_w_batch in zip(
+            fp16_outputs, self._iter_sample_outputs(module)
         ):
-            loss_mask = loss_masks[batch_idx] if loss_masks else None
-
-            if loss_mask is not None:
-                token_mask = loss_mask.to(fp16_batch.device) == 1  # (batch, seq)
-                fp16_masked = fp16_batch[token_mask]  # (num_masked_tokens, hidden)
-                int_w_masked = int_w_batch.to(fp16_batch.device)[token_mask]
-                loss += torch.nn.functional.mse_loss(
-                    fp16_masked, int_w_masked, reduction="sum"
-                )
-                num_elements += fp16_masked.numel()
-            else:
-                loss += torch.nn.functional.mse_loss(
-                    fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
-                )
-                num_elements += fp16_batch.numel()
+            loss += torch.nn.functional.mse_loss(
+                fp16_batch, int_w_batch.to(fp16_batch.device), reduction="sum"
+            )
+            num_elements += fp16_batch.numel()
 
         if is_distributed():
             loss, num_elements = _allreduce_data_sum([loss, num_elements])
