@@ -24,7 +24,7 @@ from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_mode
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
-from llmcompressor.utils import getattr_fallbacks, hasitem_fallbacks
+from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
 from llmcompressor.utils.transformers import get_embeddings
 
 __all__ = ["modify_save_pretrained", "prune_false_linear_ignores"]
@@ -350,7 +350,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
 
     try:
         with open(config_path, "r") as file:
-            config_data: dict = json.load(file)
+            tgt_config: dict = json.load(file)
     except Exception:
         logger.warning(
             "Failed to load config.json. " "Keeping the transformers-serialized config."
@@ -358,12 +358,13 @@ def resave_config(config: PretrainedConfig, save_dir: str):
         return
 
     # modify config.json to reflect fields that llmcompressor has modified
-    src_text_config = config.get_text_config()
-    tgt_text_config = config_data.get("text_config", config_data)
+    src_config = config.to_dict()
+    src_text_config = src_config.get("text_config", src_config)
+    tgt_text_config = tgt_config.get("text_config", tgt_config)
 
     def modify_text_config(attrs: list[str]) -> bool:
         _missing = Sentinel("_missing")
-        src_value = getattr_fallbacks(src_text_config, attrs, _missing)
+        src_value = getitem_fallbacks(src_text_config, attrs, _missing)
         tgt_key = hasitem_fallbacks(tgt_text_config, attrs, _missing)
         if src_value is not _missing:
             if tgt_key is not _missing:
@@ -390,7 +391,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
 
     save_path = os.path.join(save_dir, "config.json")
     with open(save_path, "w") as file:
-        json.dump(config_data, file, indent=2, sort_keys=True)
+        json.dump(tgt_config, file, indent=2, sort_keys=True)
     logger.info(f"Resaved original config with patched fields to {save_path}")
 
 
