@@ -70,7 +70,9 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     monkeypatch.setattr(pipeline_module, "set_onload_device", lambda *args: None)
     monkeypatch.setattr(pipeline_module, "disable_offloading", contextlib.nullcontext)
     monkeypatch.setattr(
-        pipeline_module, "calibration_forward_context", lambda model: contextlib.nullcontext()
+        pipeline_module,
+        "calibration_forward_context",
+        lambda model: contextlib.nullcontext(),
     )
     monkeypatch.setattr(
         pipeline_module, "DisableQuantization", lambda model: contextlib.nullcontext()

@@ -149,16 +149,12 @@ class SequentialPipeline(CalibrationPipeline):
                     # layerwise decompression: strip compression and
                     # re-apply quantization config for this subgraph
                     if dataset_args.layerwise_decompression:
-                        compressed = [
-                            m for m in modules if is_module_quantized(m)
-                        ]
+                        compressed = [m for m in modules if is_module_quantized(m)]
                         for module in compressed:
                             decompress_module(module, leave_decompressed=False)
                         for modifier in modifiers:
                             if hasattr(modifier, "start_layerwise_calibration"):
-                                modifier.start_layerwise_calibration(
-                                    model, modules
-                                )
+                                modifier.start_layerwise_calibration(model, modules)
 
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
@@ -199,9 +195,7 @@ class SequentialPipeline(CalibrationPipeline):
                     # layerwise compression: pack weights back after
                     # calibration and error propagation
                     if dataset_args.layerwise_compression:
-                        quantized = [
-                            m for m in modules if is_module_quantized(m)
-                        ]
+                        quantized = [m for m in modules if is_module_quantized(m)]
                         if not is_distributed():
                             for module in tqdm(quantized, desc="Compressing modules"):
                                 compress_module(module)
