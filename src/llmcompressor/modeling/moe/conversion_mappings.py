@@ -96,6 +96,10 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.jamba.configuration_jamba.JambaConfig",
         "transformers.models.jamba.modeling_jamba.JambaExperts",
     ),
+    "kimi_k3": (
+        "llmcompressor.modeling.kimi_k3.configuration_kimi_k3.KimiK3Config",
+        "llmcompressor.modeling.kimi_k3.modeling_kimi_linear.KimiLinearExperts",
+    ),
     "laguna": (
         "transformers.models.laguna.configuration_laguna.LagunaConfig",
         "transformers.models.laguna.modeling_laguna.LagunaExperts",
@@ -163,6 +167,23 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
 }
 
 ARCH_TO_2D_MAPPINGS = {
+    "kimi_k3": (
+        [],
+        [
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.w1\.",
+                target_patterns=r".experts.\1.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.w2\.",
+                target_patterns=r".experts.\1.down_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.w3\.",
+                target_patterns=r".experts.\1.up_proj.",
+            ),
+        ],
+    ),
     "deepseek_v4": (
         [".experts.gate_up_proj", ".experts.down_proj"],
         [

@@ -431,7 +431,7 @@ def _gptq_block_update_triton(
 
     block_width = W1.shape[-1]
     assert (
-        block_width > 256 or block_width & block_width - 1
+        0 < block_width <= 256 and not block_width & (block_width - 1)
     ), "Triton GPTQ block width must be a power of two <= 256"
 
     quant_type, q_min, q_max = kernel_config

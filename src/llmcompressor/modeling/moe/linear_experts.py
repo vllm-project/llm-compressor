@@ -143,11 +143,11 @@ class LinearExperts2D(torch.nn.ModuleList):
 
     """
 
-    is_concatenated: ClassVar[bool]
-    is_transposed: ClassVar[bool]
-    has_bias: ClassVar[bool]
-    has_gate: ClassVar[bool]
-    _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]]
+    is_concatenated: ClassVar[bool] = False
+    is_transposed: ClassVar[bool] = False
+    has_bias: ClassVar[bool] = False
+    has_gate: ClassVar[bool] = True
+    _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]] = _default_apply_gate
 
     # override when the generic gate_up_proj split does not fit the model
     expert_cls_with_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithGate
@@ -165,6 +165,7 @@ class LinearExperts2D(torch.nn.ModuleList):
     ) -> type["LinearExperts2D"]:
         from .gpt_oss import GptOssLinearExperts  # noqa: F401
         from .llama4 import Llama4LinearExperts  # noqa: F401
+        from .kimi_linear import KimiLinearLinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
 

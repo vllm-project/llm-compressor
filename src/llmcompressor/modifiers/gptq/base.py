@@ -378,10 +378,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         try:
             with contextlib.ExitStack() as ctx_stack:
-                comp_loggers = [
-                    ctx_stack.enter_context(CompressionLogger(module))
-                    for module in modules
-                ]
                 quantized, losses, used_rtn_fallback = quantize_weight(
                     weights=weights,
                     hessians=hessians,
@@ -393,8 +389,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     percdamp=self.dampening_frac,
                 )
 
-                for index, comp_logger in enumerate(comp_loggers):
-                    comp_logger.set_results(name="GPTQ", loss=losses[index].item())
+                for index in range(len(modules)):
                     if used_rtn_fallback[index].item():
                         self._rtn_fallback_module_names.append(names[index])
         except Exception as error:
