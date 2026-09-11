@@ -171,7 +171,33 @@ FUSED_LAYER_NAMES = [
 ]
 
 
-def fuse_weight_observers(model: Module):
+def _has_fused_layer_group(module: Module) -> bool:
+    return any(
+        all(hasattr(module, name) for name in fusion_name_group)
+        for fusion_name_group in FUSED_LAYER_NAMES
+    )
+
+
+def _fusion_search_modules(model: Module, modules: list[Module] | None):
+    if modules is None:
+        return model.modules()
+
+    search_modules = []
+    seen = set()  # isn't completely necessary, but
+    # in case we pass something like
+    # [parent_module, parent_module.q_proj, parent_module.k_proj]
+    for module in modules:
+        if module in seen or not _has_fused_layer_group(module):
+            continue
+        search_modules.append(module)
+        seen.add(module)
+
+    # When sequential targets are child modules such as `Linear`, the subgraph
+    # module list may not contain the parent module that owns q/k/v or gate/up.
+    return search_modules or model.modules()
+
+
+def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -181,10 +207,11 @@ def fuse_weight_observers(model: Module):
     global_scale from the combined statistics of all observers in the group.
 
     :param model: model whose weight observers should be linked
+    :param modules: optional subset of modules to search for fused layer groups
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    for submodule in model.modules():
+    for submodule in _fusion_search_modules(model, modules):
         for fusion_name_group in FUSED_LAYER_NAMES:
             if not all(hasattr(submodule, name) for name in fusion_name_group):
                 continue

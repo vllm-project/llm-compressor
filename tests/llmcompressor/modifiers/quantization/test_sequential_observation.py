@@ -4,6 +4,7 @@ import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
+    QuantizationStatus,
     initialize_module_for_quantization,
 )
 from torch import nn
@@ -161,3 +162,57 @@ def test_nested_parent_modules_produce_valid_global_scale():
             assert (
                 torch.isfinite(param).all() and param.item() > 0
             ), f"{name} not valid: {param.item()}"
+
+
+def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
+    model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
+    state = State(model=model)
+    state.layerwise_decompression = True
+
+    modifier.on_initialize(state)
+    modifier.on_calibration_start(state, None)
+
+    assert not hasattr(model[0], "quantization_scheme")
+    assert not hasattr(model[1], "quantization_scheme")
+
+    modules = list(model[0].modules())
+    with patch(
+        "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
+    ) as fuse_weight_observers:
+        modifier.start_layerwise_calibration(model, modules)
+
+    fuse_weight_observers.assert_called_once_with(model, modules)
+
+    assert model[0].quantization_status == QuantizationStatus.CALIBRATION
+    assert hasattr(model[0], "weight_observer")
+    assert not hasattr(model[1], "quantization_scheme")
+
+    modifier.on_sequential_epoch_end(
+        state,
+        Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+        modules=list(model[0].modules()),
+    )
+
+    assert model[0].quantization_status == QuantizationStatus.FROZEN
+    assert not hasattr(model[0], "weight_observer")
+    assert not hasattr(model[1], "quantization_scheme")
+
+
+def test_layerwise_quantization_supports_old_compressed_tensors_apply_api():
+    model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
+
+    from compressed_tensors.quantization import apply_quantization_config
+
+    def old_apply_quantization_config(model, config):
+        return apply_quantization_config(model, config)
+
+    with patch(
+        "llmcompressor.modifiers.quantization.quantization.mixin.apply_quantization_config",
+        old_apply_quantization_config,
+    ):
+        modifier.start_layerwise_calibration(model, list(model[0].modules()))
+
+    assert model[0].quantization_status == QuantizationStatus.CALIBRATION
+    assert not hasattr(model[1], "quantization_scheme")
