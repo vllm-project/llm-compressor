@@ -27,6 +27,7 @@ __all__ = [
     "disable_lm_head",
     "getattr_fallbacks",
     "hasitem_fallbacks",
+    "getitem_fallbacks",
 ]
 
 
@@ -196,6 +197,19 @@ def hasitem_fallbacks(
     for key in keys:
         if key in target:
             return key
+
+    if default is not Sentinel("None"):
+        return default
+
+    raise AttributeError(f"{target} does not have any of {keys} keys")
+
+
+def getitem_fallbacks(
+    target: dict, keys: list[str], default: Any = Sentinel("None")
+) -> Any:
+    for key in keys:
+        if key in target:
+            return target[key]
 
     if default is not Sentinel("None"):
         return default
