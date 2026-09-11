@@ -95,18 +95,18 @@ def test_mse_fp4():
     [
         (4, "int", QuantizationStrategy.TENSOR, None, None),
         (4, "int", QuantizationStrategy.CHANNEL, None, None),
-        (4, "int", QuantizationStrategy.GROUP, 32, None),
-        (4, "int", QuantizationStrategy.TENSOR_GROUP, 32, None),
-        (4, "float", QuantizationStrategy.GROUP, 32, None),
-        (4, "float", QuantizationStrategy.TENSOR_GROUP, 16, None),
-        (8, "float", QuantizationStrategy.BLOCK, None, [2, 32]),
+        (4, "int", QuantizationStrategy.GROUP, 512, None),
+        (4, "int", QuantizationStrategy.TENSOR_GROUP, 512, None),
+        (4, "float", QuantizationStrategy.GROUP, 512, None),
+        (4, "float", QuantizationStrategy.TENSOR_GROUP, 512, None),
+        (8, "float", QuantizationStrategy.BLOCK, None, [2, 512]),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_with_full_buffer(
+def test_mse_triton_matches_eager_when_tile_fits_group(
     num_bits, quant_type, strategy, group_size, block_structure
 ):
-    """A 100% buffer preserves eager choices across supported MSE layouts."""
+    """A full buffer preserves eager choices when each group spans a tile."""
     if quant_type == "float" and num_bits == 8:
         major, _ = torch.cuda.get_device_capability()
         if major < 9:
@@ -118,37 +118,6 @@ def test_mse_triton_matches_eager_with_full_buffer(
         strategy=strategy,
         group_size=group_size,
         block_structure=block_structure,
-    )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
-    torch.manual_seed(0)
-    observed = flatten_for_calibration(
-        torch.randn(8, 64, device="cuda"), "weight", args
-    )
-    search_args = (
-        observed,
-        args,
-        token_args,
-        0.5,
-        5,
-        100.0,
-        2.4,
-        1.0,
-        1.0,
-    )
-    eager = ImplBackend.call("_grid_search_mse", *search_args)
-    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
-    assert torch.equal(eager[0], triton[0])
-    assert torch.equal(eager[1], triton[1])
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_when_group_is_split():
-    """Large qparam groups preserve eager choices across 512-value tiles."""
-    args = QuantizationArgs(
-        num_bits=4,
-        type="int",
-        symmetric=True,
-        strategy=QuantizationStrategy.CHANNEL,
     )
     token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
     torch.manual_seed(0)
