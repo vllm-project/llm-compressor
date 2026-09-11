@@ -196,7 +196,6 @@ def quantize_weight(
         torch.diagonal(H, dim1=-2, dim2=-1).masked_fill_(dead, 1.0)
         W.masked_fill_(dead.unsqueeze(1), 0)
 
-    # compute inverse hessian in place to save memory
     damp = percdamp * torch.diagonal(H, dim1=-2, dim2=-1).mean(dim=-1)
     torch.diagonal(H, dim1=-2, dim2=-1).add_(damp.unsqueeze(-1))
     info = torch.empty(batch_size, dtype=torch.int32, device=device)
@@ -431,7 +430,7 @@ def _gptq_block_update_triton(
 
     block_width = W1.shape[-1]
     assert (
-        block_width > 256 or block_width & block_width - 1
+        0 < block_width <= 256 and block_width & (block_width - 1) == 0
     ), "Triton GPTQ block width must be a power of two <= 256"
 
     quant_type, q_min, q_max = kernel_config
