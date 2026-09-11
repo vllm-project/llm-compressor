@@ -119,6 +119,8 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
+
         session = active_session()
 
         # prepare model for sequential onloading
@@ -260,7 +262,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                         if dataset_args.log_sequential_error and batch_kls:
                             avg_kl = sum(batch_kls) / len(batch_kls)
-                            logger.log(
+                            _logger.log(
                                 "METRIC",
                                 f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                                 f"sequential error (KL): {avg_kl:.6f}",
