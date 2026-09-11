@@ -631,6 +631,11 @@ def save_mtp_tensors(
         return
 
     source_model = getattr(model, "name_or_path", None) or model.config._name_or_path
+    if not source_model:
+        raise ValueError(
+            "Cannot preserve MTP tensors because the model has no source "
+            "checkpoint path or Hub model ID"
+        )
     with suspend_distributed_timeout():
         if is_source_process():
             _quantize_and_save_mtp_tensors(

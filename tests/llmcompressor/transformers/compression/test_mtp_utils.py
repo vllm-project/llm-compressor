@@ -2,6 +2,7 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -21,6 +22,7 @@ from llmcompressor.transformers.compression.mtp import (
     _quantize_and_save_mtp_tensors,
     _resolve_mtp_layout,
     _resolve_mtp_scheme,
+    save_mtp_tensors,
 )
 
 
@@ -576,6 +578,20 @@ def test_unknown_architecture_is_rejected():
 
     with pytest.raises(ValueError, match="FutureMtpForCausalLM"):
         _resolve_mtp_layout(config, {"mtp.layers.0.q_proj.weight"})
+
+
+def test_mtp_model_requires_source_checkpoint():
+    """MTP preservation fails clearly when source tensors cannot be located."""
+    model = SimpleNamespace(
+        config=PretrainedConfig(
+            architectures=["Qwen3_5ForConditionalGeneration"],
+            mtp_num_hidden_layers=1,
+        ),
+        name_or_path="",
+    )
+
+    with pytest.raises(ValueError, match="no source checkpoint path"):
+        save_mtp_tensors(model, "unused")
 
 
 def test_native_fp8_blocks_are_dequantized_before_requantization():
