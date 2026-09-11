@@ -20,6 +20,10 @@ nav:
       - key-models/kimi-k26/index.md
       - NVFP4 Example: key-models/kimi-k26/nvfp4-example.md
       - FP8 Block Example: key-models/kimi-k26/fp8-block-example.md
+    - Kimi-K3:
+      - key-models/kimi-k3/index.md
+      - NVFP4 Example: key-models/kimi-k3/nvfp4-example.md
+      - FP8 Block Example: key-models/kimi-k3/fp8-block-example.md
     - Qwen3.5:
       - key-models/qwen3.5/index.md
       - NVFP4A16 VL Example: key-models/qwen3.5/nvfp4-vl-example.md

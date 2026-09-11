@@ -26,6 +26,8 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 # Swap this with a BF16 version of DeepSeek-V4-Pro
 MODEL_ID = "inference-optimization/DeepSeek-V4-Pro-0.5B-A0.37B"
 
+# NOTE: `transformers==5.14` breaks saving for disk-offloaded models.
+# Please install `transformers>=5.15` or install from source
 init_dist()
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(

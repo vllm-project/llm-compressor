@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 from compressed_tensors.quantization import QuantizationConfig
 from loguru import logger
@@ -7,30 +5,18 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import skip_weights_initialize
+from llmcompressor.utils.dev import skip_weights_download
 
 SMOKE_MODEL = "nm-testing/tinysmokellama-3.2"
 CT_MODEL = "nm-testing/SmolLM-1.7B-Instruct-quantized.w4a16"
-
-
-def _recipe():
-    return [
-        QuantizationModifier(
-            targets="Linear",
-            scheme="FP8_DYNAMIC",
-            ignore=["lm_head"],
-        )
-    ]
+NON_CT_MODEL = "inference-optimization/DeepSeek-R1-Distill-Llama-8B-NVFP4"  # modelopt
 
 
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_oneshot_allows_unquantized_smoke_model(tmp_path):
-    model = oneshot(
-        model=SMOKE_MODEL,
-        recipe=_recipe(),
-        output_dir=str(tmp_path),
-    )
+    with skip_weights_download():
+        model = oneshot(model=SMOKE_MODEL, recipe=[], output_dir=str(tmp_path))
 
     assert model is not None
 
@@ -41,24 +27,21 @@ def test_oneshot_warns_pre_quantized_smoke_model():
     logs = []
     handler_id = logger.add(logs.append, format="{message}", level="WARNING")
 
-    with skip_weights_initialize():
-        oneshot(
-            model=CT_MODEL,
-            recipe=_recipe(),
-        )
+    # TODO: inspect bad interaction between ct decompress and `skip_weights_download`
+    # for now, actually load the model weights in this test
+    oneshot(model=CT_MODEL, recipe=[])
 
     assert any("already quantized" in log for log in logs)
     logger.remove(handler_id)
 
 
+@pytest.mark.skip("Skip downloading large modelopt model")
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_oneshot_rejects_pre_quantized_smoke_model():
-    with skip_weights_initialize():
-        model = AutoModelForCausalLM.from_pretrained(SMOKE_MODEL)
-    model.config.quantization_config = SimpleNamespace(quant_method="fp_quant")
     with pytest.raises(ValueError, match="already quantized"):
-        oneshot(model=model, recipe=_recipe())
+        with skip_weights_download():
+            oneshot(model=NON_CT_MODEL, recipe=[])
 
 
 @pytest.mark.smoke

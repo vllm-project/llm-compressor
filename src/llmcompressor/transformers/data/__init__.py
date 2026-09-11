@@ -9,5 +9,6 @@ from .flickr_30k import Flickr30K
 from .gsm8k import GSM8KDataset
 from .open_platypus import OpenPlatypusDataset
 from .peoples_speech import PeoplesSpeech
+from .perfectblend import PerfectBlendDataset
 from .ultrachat_200k import UltraChatDataset
 from .wikitext import WikiTextDataset

@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
@@ -26,8 +28,11 @@ class MemorylessMSEObserver(Observer):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
+        if self.expand < 1.0:
+            raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
         # Pre-create token_args to avoid patch_attr context manager
         # which causes torch.compile graph breaks
@@ -45,6 +50,7 @@ class MemorylessMSEObserver(Observer):
             self.grid,
             self.norm,
             self.chunk_size,
+            self.expand,
         )
 
 
@@ -69,8 +75,11 @@ class MovingAverageMSEObserver(Observer):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
+        if self.expand < 1.0:
+            raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
         # Pre-create token_args to avoid patch_attr context manager
         # which causes torch.compile graph breaks
@@ -88,6 +97,7 @@ class MovingAverageMSEObserver(Observer):
             self.grid,
             self.norm,
             self.chunk_size,
+            self.expand,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:
@@ -96,3 +106,47 @@ class MovingAverageMSEObserver(Observer):
 
         self.min_vals = min_vals
         self.max_vals = max_vals
+
+
+# Alias fouroversix to the NVFP4ExpandedMSEObserver. Our results show
+# this is a more effective way to take advantage of the same range expansion
+# benefit that fouroversix is based on.
+# Results: https://github.com/vllm-project/llm-compressor/pull/2950
+@Observer.register("nvfp4_expanded_mse")
+class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
+    """
+    MSE observer with defaults tuned for NVFP4 range expansion.
+
+    Searches from ``expand`` times the observed range down to
+    ``(1 - maxshrink) * expand`` times the observed range.
+    With the defaults below, this covers 1.8x down to ~0.8x of
+    the original per-group range in 112 search steps.
+
+    Usage::
+
+        QuantizationArgs(
+            ...
+            observer="nvfp4_expanded_mse",
+        )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        observer_kwargs = self.args.observer_kwargs
+        self.expand = observer_kwargs.get("expand", 1.8)
+        self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
+        self.grid = observer_kwargs.get("grid", 200.0)
+        self.patience = observer_kwargs.get("patience", 1000)
+
+
+@Observer.register("fouroversix")
+def _load_fouroversix_alias(*args, **kwargs) -> NVFP4ExpandedMSEObserver:
+    warnings.warn(
+        "The 'fouroversix' observer is an alias for 'nvfp4_expanded_mse', "
+        "which our results showed to be more accurate at taking advantage "
+        "of the same range expansion benefit. See "
+        "https://github.com/vllm-project/llm-compressor/pull/2950.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return NVFP4ExpandedMSEObserver(*args, **kwargs)

@@ -36,20 +36,12 @@ model_free_ptq(
 
 # Quantizing models to NVFP4A16/ MXFP4A16
 
-Using model_free_ptq to quantize models with microscale schemes (NVFP4/MXFP4) is the same as quantizing models with non-microscale schemes, except for one additional step. That extra step is that the safetensors in the model files must be reindexed to ensure that fused modules (qkv, gate_up) end up in the same safetensors files, which allows model_free_ptq to fuse global scales.
+Using `model_free_ptq` to quantize models with microscale schemes (NVFP4/MXFP4) is the same as quantizing models with non-microscale schemes. `model_free_ptq` fuses the global scales across fused modules (qkv, gate_up) directly, so no additional reindexing step is required.
 
-First, apply `llmcompressor.reindex_fused_weights` from the command line entrypoint
-```bash
-llmcompressor.reindex_fused_weights \
-    unsloth/Kimi-K2-Thinking-BF16 \
-    Kimi-K2-Thinking-BF16-reindexed \
-    --num_workers=10
-```
-
-Then, call `model_free_ptq` on the reindex files
+Call `model_free_ptq` with a microscale scheme:
 ```python
 model_free_ptq(
-    model_stub="Kimi-K2-Thinking-BF16-reindexed",
+    model_stub="unsloth/Kimi-K2-Thinking-BF16",
     save_directory="Kimi-K2-Thinking-BF16-NVFP4A16",
     scheme="NVFP4A16",
     ignore=[

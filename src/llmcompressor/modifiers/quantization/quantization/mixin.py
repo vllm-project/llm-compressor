@@ -47,6 +47,7 @@ from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
+    warn_inference_mode_forwards,
 )
 
 __all__ = ["QuantizationMixin"]
@@ -247,6 +248,7 @@ class QuantizationMixin(HooksMixin):
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
+        warn_inference_mode_forwards(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
@@ -304,7 +306,10 @@ class QuantizationMixin(HooksMixin):
 
         for scheme in self.resolved_config.config_groups.values():
             if scheme.weights is not None:
-                if scheme.weights.observer == "imatrix_mse":
+                if scheme.weights.observer in (
+                    "imatrix_mse",
+                    "nvfp4_expanded_imatrix",
+                ):
                     self.requires_calibration_data = True
                     return self
             if scheme.input_activations is not None:
@@ -419,17 +424,23 @@ class QuantizationMixin(HooksMixin):
 
         # Apply observers to QuantizationArgs if specified
         update_map = [
-            (weight_obs, "weights"),
-            (input_obs, "input_activations"),
-            (output_obs, "output_activations"),
+            (weight_obs, "weights", "memoryless_minmax"),
+            (input_obs, "input_activations", "minmax"),
+            (output_obs, "output_activations", "minmax"),
         ]
 
-        for obs_value, scheme_attr in update_map:
+        for obs_value, scheme_attr, default_obs in update_map:
             q_args = getattr(scheme, scheme_attr, None)
-            if obs_value is not None and q_args is not None:
-                args_dict = q_args.model_dump()
-                args_dict["observer"] = obs_value
-                setattr(scheme, scheme_attr, QuantizationArgs.model_validate(args_dict))
+            if q_args is None:
+                continue
+            elif obs_value is None:
+                if (
+                    q_args.observer is not None
+                    and "observer" in q_args.model_fields_set
+                ):
+                    continue
+                obs_value = None if q_args.dynamic is True else default_obs
+            q_args.observer = obs_value
 
         return scheme
 
