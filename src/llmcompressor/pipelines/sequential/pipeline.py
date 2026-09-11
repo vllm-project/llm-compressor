@@ -88,6 +88,57 @@ def _compute_kl_divergence(
     ).item()
 
 
+_PRE_KL_KEY = "__pre_kl__"
+
+
+def _cache_pre_compression_output(
+    activations: IntermediatesCache,
+    batch_idx: int,
+    outputs: dict[str, Any],
+) -> None:
+    """
+    Save the main activation tensor from a subgraph's pre-compression output
+    into the intermediates cache for later KL divergence comparison.
+
+    :param activations: intermediates cache shared across the pipeline
+    :param batch_idx: index of the current calibration batch
+    :param outputs: subgraph output dict from the calibration (pre-compression) pass
+    """
+    main_tensor = _get_largest_tensor(outputs)
+    if main_tensor is not None:
+        activations.update(batch_idx, {_PRE_KL_KEY: main_tensor})
+
+
+def _compute_batch_kl_divergence(
+    activations: IntermediatesCache,
+    batch_idx: int,
+    output: dict[str, Any],
+) -> float | None:
+    """
+    Compute the KL divergence for a single batch by comparing the saved
+    pre-compression activation against the post-compression output, then
+    remove the cached pre-compression tensor to free memory.
+
+    :param activations: intermediates cache holding the pre-compression tensor
+    :param batch_idx: index of the current propagation batch
+    :param output: subgraph output dict from the propagation (post-compression) pass
+    :return: scalar KL divergence, or None if either tensor is unavailable
+    """
+    pre_data = activations.fetch(batch_idx, [_PRE_KL_KEY])
+    pre_tensor = pre_data.get(_PRE_KL_KEY)
+    if pre_tensor is None:
+        return None
+    # clean up cached tensor; delete only after confirming the key exists,
+    # since IntermediatesCache.delete raises KeyError for missing keys
+    activations.delete(batch_idx, [_PRE_KL_KEY])
+
+    post_tensor = _get_largest_tensor(output)
+    if post_tensor is None:
+        return None
+
+    return _compute_kl_divergence(pre_tensor, post_tensor)
+
+
 @CalibrationPipeline.register("sequential")
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
@@ -186,13 +237,6 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-                # per-batch largest tensor captured before compression, used by
-                # log_sequential_error to compare against post-compression outputs.
-                # keyed by batch_idx (rather than appended to a list) so that a
-                # batch skipped in pass 1 (e.g. _get_largest_tensor returns None)
-                # cannot desynchronize the alignment with pass 2
-                pre_compression_outputs: dict[int, torch.Tensor] = {}
-
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
@@ -216,11 +260,9 @@ class SequentialPipeline(CalibrationPipeline):
                             dataset_args.log_sequential_error
                             and subgraph_index < num_subgraphs - 1
                         ):
-                            main_tensor = _get_largest_tensor(outputs)
-                            if main_tensor is not None:
-                                pre_compression_outputs[batch_idx] = (
-                                    main_tensor.detach().clone().cpu()
-                                )
+                            _cache_pre_compression_output(
+                                activations, batch_idx, outputs
+                            )
 
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
@@ -247,18 +289,12 @@ class SequentialPipeline(CalibrationPipeline):
                                 if (
                                     dataset_args.log_sequential_error
                                     and subgraph_index < num_subgraphs - 1
-                                    and batch_idx in pre_compression_outputs
                                 ):
-                                    post_tensor = _get_largest_tensor(output)
-                                    if post_tensor is not None:
-                                        pre_tensor = pre_compression_outputs[
-                                            batch_idx
-                                        ].to(post_tensor.device)
-                                        batch_kls.append(
-                                            _compute_kl_divergence(
-                                                pre_tensor, post_tensor
-                                            )
-                                        )
+                                    kl = _compute_batch_kl_divergence(
+                                        activations, batch_idx, output
+                                    )
+                                    if kl is not None:
+                                        batch_kls.append(kl)
 
                         if dataset_args.log_sequential_error and batch_kls:
                             avg_kl = sum(batch_kls) / len(batch_kls)
@@ -267,8 +303,6 @@ class SequentialPipeline(CalibrationPipeline):
                                 f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                                 f"sequential error (KL): {avg_kl:.6f}",
                             )
-
-                pre_compression_outputs.clear()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
