@@ -4,7 +4,8 @@ import sys
 import pytest
 import torch
 import torch.fx
-from transformers import AutoModelForCausalLM
+from compressed_tensors.utils import patch_attr
+from transformers import AutoModelForCausalLM, Qwen3Config, Qwen3ForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.sequential.ast_helpers import autowrap_forward
@@ -308,6 +309,40 @@ def test_trace_subgraphs(targets_per_subgraph):
             ]
         )
         assert num_targets_present == targets_per_subgraph
+
+
+@pytest.mark.unit
+def test_linear_subgraphs_preserve_eager_attention_mask():
+    """Linear partitioning must not reconstruct an SDPA ``None`` mask."""
+    config = Qwen3Config(
+        vocab_size=32,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        head_dim=8,
+        max_position_embeddings=32,
+    )
+    model = Qwen3ForCausalLM(config).eval()
+    sample_input = {
+        "input_ids": torch.tensor([[1, 2, 3, 4]]),
+        "attention_mask": torch.ones(1, 4, dtype=torch.long),
+    }
+
+    subgraphs = trace_subgraphs(
+        model,
+        sample_input,
+        sequential_targets=["Linear"],
+        ignore=DatasetArguments().tracing_ignore,
+        targets_per_subgraph=1,
+    )
+
+    # ``trace_subgraphs`` traces attention eagerly. Runtime execution must use
+    # the same implementation because the partitioned graph contains the
+    # eager ``attention_scores + attention_mask`` operation.
+    with patch_attr(model.config, "_attn_implementation", "eager"):
+        run_subgraphs(model, subgraphs, sample_input)
 
 
 @pytest.mark.parametrize(
