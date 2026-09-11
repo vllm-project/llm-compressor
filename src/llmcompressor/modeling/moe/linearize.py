@@ -15,6 +15,7 @@ from transformers.conversion_mapping import (
     register_checkpoint_conversion_mapping,
 )
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
+from transformers.integrations.finegrained_fp8 import replace_with_fp8_linear
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
@@ -24,6 +25,44 @@ from .conversion_mappings import (
     set_save_conversion_mapping,
 )
 from .linear_experts import LinearExperts2D
+
+
+def _patch_fp8_quantizer_for_moe():
+    """Patch transformers' FP8 quantizer to skip expert modules."""
+    original_replace_with_fp8_linear = replace_with_fp8_linear
+
+    def patched_replace_with_fp8_linear(*args, **kwargs):
+        # Skip FP8Experts and similar expert container modules
+        modules_to_not_convert = kwargs.get("modules_to_not_convert") or []
+        if not isinstance(modules_to_not_convert, list):
+            modules_to_not_convert = list(modules_to_not_convert) if modules_to_not_convert else []
+
+        # Extract model from args (first positional argument)
+        model = args[0] if args else kwargs.get("model")
+
+        # Add FP8Experts and related MoE expert modules to skip list
+        skip_module_names = {
+            "FP8Experts",
+            "FP8MoEExperts",
+            "Experts",
+            "MoEExperts",
+        }
+
+        if model is not None:
+            for name, module in model.named_modules():
+                if any(skip_name in module.__class__.__name__ for skip_name in skip_module_names):
+                    if name not in modules_to_not_convert:
+                        modules_to_not_convert.append(name)
+
+        kwargs["modules_to_not_convert"] = modules_to_not_convert
+        return original_replace_with_fp8_linear(*args, **kwargs)
+
+    # Monkey patch the function
+    import transformers.integrations.finegrained_fp8
+
+    transformers.integrations.finegrained_fp8.replace_with_fp8_linear = (
+        patched_replace_with_fp8_linear
+    )
 
 
 @contextlib.contextmanager
@@ -46,6 +85,9 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
+    # Patch FP8 quantizer to skip expert modules
+    _patch_fp8_quantizer_for_moe()
+
     original_from_pretrained = model_cls.from_pretrained
     patched_fn_called = False
 
