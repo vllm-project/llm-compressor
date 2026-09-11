@@ -149,8 +149,10 @@ class SequentialPipeline(CalibrationPipeline):
                     # layerwise decompression: strip compression and
                     # re-apply quantization config for this subgraph
                     if dataset_args.layerwise_decompression:
-                        compressed = [m for m in modules if is_module_quantized(m)]
-                        for module in compressed:
+                        compressed = [
+                            m for m in modules if is_module_quantized(m)
+                        ]
+                        for module in tqdm(compressed, desc="Decompressing modules"):
                             decompress_module(module, leave_decompressed=False)
                         for modifier in modifiers:
                             if hasattr(modifier, "start_layerwise_calibration"):
