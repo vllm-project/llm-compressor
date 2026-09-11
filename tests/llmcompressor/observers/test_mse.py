@@ -98,6 +98,7 @@ def test_mse_fp4():
         (4, "int", QuantizationStrategy.GROUP, 32, None),
         (4, "int", QuantizationStrategy.TENSOR_GROUP, 32, None),
         (4, "float", QuantizationStrategy.GROUP, 32, None),
+        (4, "float", QuantizationStrategy.TENSOR_GROUP, 16, None),
         (8, "float", QuantizationStrategy.BLOCK, None, [2, 32]),
     ],
 )
