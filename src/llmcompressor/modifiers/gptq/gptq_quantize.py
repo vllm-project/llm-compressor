@@ -21,6 +21,7 @@ from llmcompressor.modifiers.gptq.gptq_triton import (
 )
 
 GPTQ_PRECISION = torch.float32
+MIN_BATCHED_CHOLESKY_SIZE = 16
 
 
 __all__ = [
@@ -124,6 +125,61 @@ def accumulate_hessian(
     return H, num_samples
 
 
+def _factorize_hessian(
+    weights: torch.Tensor,
+    hessians: torch.Tensor,
+    percdamp: float,
+    used_rtn_fallback: torch.Tensor,
+) -> torch.Tensor:
+    """Prepare and factorize GPTQ Hessians in place."""
+    batch_size, _, num_columns = weights.shape
+    diag = torch.diagonal(hessians, dim1=-2, dim2=-1)
+    dead = diag == 0
+    if dead.any():
+        diag.masked_fill_(dead, 1.0)
+        weights.masked_fill_(dead.unsqueeze(1), 0)
+
+    # doing singletons is faster than 2 <= batches < 16
+    if batch_size < MIN_BATCHED_CHOLESKY_SIZE:
+        info = torch.empty((), dtype=torch.int32, device=hessians.device)
+        identity = None
+        for index in range(batch_size):
+            damp = percdamp * torch.mean(torch.diag(hessians[index]))
+            torch.diagonal(hessians[index]).add_(damp)
+            torch.linalg.cholesky_ex(
+                hessians[index], check_errors=False, out=(hessians[index], info)
+            )
+            if info.item() == 0:
+                torch.cholesky_inverse(hessians[index], out=hessians[index])
+                torch.linalg.cholesky(hessians[index], upper=True, out=hessians[index])
+            else:
+                if identity is None:
+                    identity = torch.eye(
+                        num_columns, dtype=hessians.dtype, device=hessians.device
+                    )
+                hessians[index].copy_(identity)
+                used_rtn_fallback[index] = True
+        return hessians
+
+    damp = percdamp * diag.mean(dim=-1)
+    diag.add_(damp.unsqueeze(-1))
+    info = torch.empty(batch_size, dtype=torch.int32, device=hessians.device)
+    torch.linalg.cholesky_ex(hessians, check_errors=False, out=(hessians, info))
+    bad = info.nonzero(as_tuple=False).flatten()
+    if bad.numel():
+        hessians.index_copy_(
+            0,
+            bad,
+            torch.eye(
+                num_columns, dtype=hessians.dtype, device=hessians.device
+            ).expand(bad.numel(), -1, -1),
+        )
+        used_rtn_fallback[bad] = True
+    torch.cholesky_inverse(hessians, out=hessians)
+    torch.linalg.cholesky(hessians, upper=True, out=hessians)
+    return hessians
+
+
 def quantize_weight(
     weights: torch.Tensor,
     hessians: torch.Tensor,
@@ -189,30 +245,7 @@ def quantize_weight(
 
     losses = torch.zeros(batch_size, num_rows, device=device)
     used_rtn_fallback = torch.zeros(batch_size, dtype=torch.bool, device=device)
-    # mask dead hessian values
-    diag = torch.diagonal(H, dim1=-2, dim2=-1)
-    dead = diag == 0
-    if dead.any():
-        torch.diagonal(H, dim1=-2, dim2=-1).masked_fill_(dead, 1.0)
-        W.masked_fill_(dead.unsqueeze(1), 0)
-
-    damp = percdamp * torch.diagonal(H, dim1=-2, dim2=-1).mean(dim=-1)
-    torch.diagonal(H, dim1=-2, dim2=-1).add_(damp.unsqueeze(-1))
-    info = torch.empty(batch_size, dtype=torch.int32, device=device)
-    torch.linalg.cholesky_ex(H, check_errors=False, out=(H, info))
-    bad = info.nonzero(as_tuple=False).flatten()
-    if bad.numel():
-        H.index_copy_(
-            0,
-            bad,
-            torch.eye(num_columns, dtype=H.dtype, device=device).expand(
-                bad.numel(), -1, -1
-            ),
-        )
-        used_rtn_fallback[bad] = True
-    torch.cholesky_inverse(H, out=H)
-    torch.linalg.cholesky(H, upper=True, out=H)
-    Hinv = H
+    Hinv = _factorize_hessian(W, H, percdamp, used_rtn_fallback)
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
