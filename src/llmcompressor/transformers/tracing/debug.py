@@ -24,8 +24,8 @@ def parse_args():
     parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
     parser.add_argument("--ignore", type=str, nargs="*", default=DatasetArguments().tracing_ignore, metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
     parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
-    parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
-    parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
+    parser.add_argument("--trust_remote_code", action=argparse.BooleanOptionalAction, default=False, help="Whether to trust model remote code")  # noqa: E501
+    parser.add_argument("--skip_weights", action=argparse.BooleanOptionalAction, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
     parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
     parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph")  # noqa: E501
     return parser.parse_args()

@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: ["nightly", "weekly"]
 model: meta-llama/Meta-Llama-3-8B-Instruct
 scheme: FP8_DYNAMIC
 lmeval:
