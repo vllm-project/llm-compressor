@@ -281,8 +281,7 @@ class Oneshot:
 
         session.finalize()
 
-    @staticmethod
-    def validate_model(model: PreTrainedModel):
+    def validate_model(self, model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
         Raise warning if model is quantized with compressed-tensors quant method.
@@ -290,7 +289,10 @@ class Oneshot:
         """
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
-        config = AutoConfig.from_pretrained(model.config.name_or_path)
+        config = AutoConfig.from_pretrained(
+            model.config.name_or_path,
+            trust_remote_code=self.model_args.trust_remote_code_model,
+        )
         qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
         quant_method = (
             qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None
@@ -369,6 +371,7 @@ def oneshot(
         "_prepare_4d_causal_attention_mask_with_cache_position",
         "_update_linear_attn_mask",
         "project_per_layer_inputs",
+        "_apply_attn_res",
     ],
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",
