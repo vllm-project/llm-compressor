@@ -277,6 +277,12 @@ class BaseTestConfig(BaseModel):
             "Tests are skipped if fewer are available.",
         ),
     )
+    max_num_seqs: int = Field(
+        128, description="Maximum number of sequences to process in parallel."
+    )
+    max_model_len: int = Field(
+        10000, description="Maximum sequence length for the model."
+    )
     pipeline_parallel: bool = Field(
         False,
         description=(
@@ -639,7 +645,7 @@ def process_dataset(
 
         def process(sample):
             return processor(
-                sample["question"],
+                text=sample["question"],
                 padding=False,
                 max_length=max_seq_length,
                 truncation=True,
@@ -650,7 +656,7 @@ def process_dataset(
 
         def process(sample):
             return processor(
-                processor.apply_chat_template(
+                text=processor.apply_chat_template(
                     sample["messages"],
                     tokenize=False,
                 ),
@@ -664,7 +670,7 @@ def process_dataset(
         # use the output rather than the instruction
         def process(sample):
             return processor(
-                processor.apply_chat_template(
+                text=processor.apply_chat_template(
                     sample["output"],
                     tokenize=False,
                 ),
@@ -710,13 +716,15 @@ def process_dataset(
             return processor.apply_chat_template(
                 messages,
                 return_tensors="pt",
-                padding=False,
-                truncation=True,
-                max_length=max_seq_length,
                 tokenize=True,
-                add_special_tokens=False,
                 return_dict=True,
                 add_generation_prompt=False,
+                processor_kwargs={
+                    "padding": False,
+                    "truncation": True,
+                    "max_length": max_seq_length,
+                    "add_special_tokens": False,
+                },
             )
 
     else:
