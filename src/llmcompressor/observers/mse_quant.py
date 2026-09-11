@@ -190,6 +190,232 @@ def _grid_search_mse_triton_kernel(
     tl.store(best_step_ptr + qparam, best_step)
 
 
+@triton.jit
+def _grid_search_mse_triton_packed_kernel(
+    observed_ptr,
+    min_base_ptr,
+    max_base_ptr,
+    zp_base_ptr,
+    best_step_ptr,
+    num_observations,
+    num_qparams,
+    group_size,
+    total_steps,
+    inv_grid,
+    q_min,
+    q_max,
+    norm,
+    patience,
+    triton_error_buffer,
+    scale_eps,
+    BLOCK_VALUES: tl.constexpr,
+    TILE_QPARAMS: tl.constexpr,
+    TOTAL_STEPS: tl.constexpr,
+    QUANT_TYPE: tl.constexpr,
+    NUM_BITS: tl.constexpr,
+    HAS_ZP: tl.constexpr,
+    SYMMETRIC: tl.constexpr,
+    SCALE_ROUND_TYPE: tl.constexpr,
+    OBSERVED_DTYPE: tl.constexpr,
+):
+    """Pack complete qparams so each program handles about 512 values."""
+    tile_offsets = tl.arange(0, TILE_QPARAMS)
+    qparams = tl.program_id(0) * TILE_QPARAMS + tile_offsets
+    qparam_mask = qparams < num_qparams
+    value_offsets = tl.arange(0, BLOCK_VALUES)
+    obs_idx = value_offsets // group_size
+    group_idx = value_offsets % group_size
+    value_mask = qparam_mask[:, None] & (
+        value_offsets[None, :] < num_observations * group_size
+    )
+    values = tl.load(
+        observed_ptr
+        + obs_idx[None, :] * num_qparams * group_size
+        + qparams[:, None] * group_size
+        + group_idx[None, :],
+        mask=value_mask,
+        other=0.0,
+    ).to(tl.float32)
+    min_base = tl.load(min_base_ptr + qparams, mask=qparam_mask, other=0.0).to(
+        tl.float32
+    )
+    max_base = tl.load(max_base_ptr + qparams, mask=qparam_mask, other=0.0).to(
+        tl.float32
+    )
+    zp = tl.load(zp_base_ptr + qparams, mask=qparam_mask, other=0.0).to(tl.float32)
+    best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float32)
+    best_step = tl.zeros((TILE_QPARAMS,), tl.int32)
+    stale = tl.zeros((TILE_QPARAMS,), tl.int32)
+
+    for step in range(TOTAL_STEPS):
+        if step < total_steps:
+            active = stale < patience
+            scale = calculate_candidate_scale(
+                min_base,
+                max_base,
+                1.0 - step * inv_grid,
+                q_min,
+                q_max,
+                SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
+                QUANT_TYPE=QUANT_TYPE,
+                SYMMETRIC=SYMMETRIC,
+            )
+            scale = tl.maximum(scale, scale_eps)
+            quantized = quantize_dequantize(
+                values,
+                scale[:, None],
+                zp[:, None],
+                q_min,
+                q_max,
+                QUANT_TYPE=QUANT_TYPE,
+                NUM_BITS=NUM_BITS,
+                HAS_ZP=HAS_ZP,
+            )
+            if OBSERVED_DTYPE == 1:
+                diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
+            elif OBSERVED_DTYPE == 2:
+                diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
+            else:
+                diff = tl.abs(quantized - values)
+            diff_pow = tl.exp(tl.log(diff.to(tl.float32)) * norm)
+            error = tl.sum(tl.where(value_mask, diff_pow, 0.0), axis=1)
+            previous_best = best_error
+            is_better = active & (error < previous_best)
+            best_error = tl.where(is_better, error, best_error)
+            best_step = tl.where(is_better, step, best_step)
+            within_buffer = error <= previous_best * (1.0 + triton_error_buffer)
+            stale = tl.where(
+                active & within_buffer,
+                0,
+                tl.where(active, stale + 1, stale),
+            )
+
+    tl.store(best_step_ptr + qparams, best_step, mask=qparam_mask)
+
+
+@triton.jit
+def _grid_search_mse_triton_split_kernel(
+    observed_ptr,
+    min_base_ptr,
+    max_base_ptr,
+    zp_base_ptr,
+    partial_error_ptr,
+    num_observations,
+    num_qparams,
+    group_size,
+    inv_grid,
+    q_min,
+    q_max,
+    norm,
+    scale_eps,
+    BLOCK_VALUES: tl.constexpr,
+    NUM_CHUNKS: tl.constexpr,
+    TOTAL_STEPS: tl.constexpr,
+    QUANT_TYPE: tl.constexpr,
+    NUM_BITS: tl.constexpr,
+    HAS_ZP: tl.constexpr,
+    SYMMETRIC: tl.constexpr,
+    SCALE_ROUND_TYPE: tl.constexpr,
+    OBSERVED_DTYPE: tl.constexpr,
+):
+    """Compute candidate partial errors for one 512-value qparam chunk."""
+    pid = tl.program_id(0)
+    qparam = pid // NUM_CHUNKS
+    chunk = pid % NUM_CHUNKS
+    qparam_mask = qparam < num_qparams
+    flat_offsets = chunk * BLOCK_VALUES + tl.arange(0, BLOCK_VALUES)
+    obs_idx = flat_offsets // group_size
+    group_idx = flat_offsets % group_size
+    value_mask = qparam_mask & (flat_offsets < num_observations * group_size)
+    values = tl.load(
+        observed_ptr
+        + obs_idx * num_qparams * group_size
+        + qparam * group_size
+        + group_idx,
+        mask=value_mask,
+        other=0.0,
+    ).to(tl.float32)
+    min_base = tl.load(min_base_ptr + qparam, mask=qparam_mask, other=0.0).to(
+        tl.float32
+    )
+    max_base = tl.load(max_base_ptr + qparam, mask=qparam_mask, other=0.0).to(
+        tl.float32
+    )
+    zp = tl.load(zp_base_ptr + qparam, mask=qparam_mask, other=0.0).to(tl.float32)
+
+    for step in tl.static_range(0, TOTAL_STEPS):
+        scale = calculate_candidate_scale(
+            min_base,
+            max_base,
+            1.0 - step * inv_grid,
+            q_min,
+            q_max,
+            SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
+            QUANT_TYPE=QUANT_TYPE,
+            SYMMETRIC=SYMMETRIC,
+        )
+        scale = tl.maximum(scale, scale_eps)
+        quantized = quantize_dequantize(
+            values,
+            scale,
+            zp,
+            q_min,
+            q_max,
+            QUANT_TYPE=QUANT_TYPE,
+            NUM_BITS=NUM_BITS,
+            HAS_ZP=HAS_ZP,
+        )
+        if OBSERVED_DTYPE == 1:
+            diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
+        elif OBSERVED_DTYPE == 2:
+            diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
+        else:
+            diff = tl.abs(quantized - values)
+        diff_pow = tl.exp(tl.log(diff.to(tl.float32)) * norm)
+        error = tl.sum(tl.where(value_mask, diff_pow, 0.0))
+        tl.store(
+            partial_error_ptr + (step * num_qparams + qparam) * NUM_CHUNKS + chunk,
+            error,
+            mask=qparam_mask,
+        )
+
+
+@triton.jit
+def _grid_search_mse_triton_split_reduce_kernel(
+    partial_error_ptr,
+    best_step_ptr,
+    num_qparams,
+    patience,
+    triton_error_buffer,
+    BLOCK_CHUNKS: tl.constexpr,
+    NUM_CHUNKS: tl.constexpr,
+    TOTAL_STEPS: tl.constexpr,
+):
+    """Reduce chunk errors and apply buffered patience per qparam."""
+    qparam = tl.program_id(0)
+    qparam_mask = qparam < num_qparams
+    chunks = tl.arange(0, BLOCK_CHUNKS)
+    chunk_mask = chunks < NUM_CHUNKS
+    best_error = tl.full([], float("inf"), tl.float32)
+    best_step = 0
+    stale = 0
+    for step in tl.static_range(0, TOTAL_STEPS):
+        partials = tl.load(
+            partial_error_ptr + (step * num_qparams + qparam) * NUM_CHUNKS + chunks,
+            mask=qparam_mask & chunk_mask,
+            other=0.0,
+        )
+        error = tl.sum(partials)
+        active = stale < patience
+        previous_best = best_error
+        is_better = active & (error < previous_best)
+        best_error = tl.where(is_better, error, best_error)
+        best_step = tl.where(is_better, step, best_step)
+        within_buffer = error <= previous_best * (1.0 + triton_error_buffer)
+        stale = tl.where(active & within_buffer, 0, tl.where(active, stale + 1, stale))
+    tl.store(best_step_ptr + qparam, best_step, mask=qparam_mask)
+
+
 def _scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
     if dtype is None or dtype == torch.float32:
         return 0, torch.finfo(torch.float32).eps
@@ -254,9 +480,7 @@ def _grid_search_mse_triton(
     max_base = max_base.reshape(-1).contiguous()
     zp_base = zp_base.reshape(-1).to(torch.float32).contiguous()
 
-    observed = observed.contiguous().reshape(
-        observed.shape[0], -1, observed.shape[-1]
-    )
+    observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
     total_steps = int(maxshrink * grid)
     best_step = torch.empty(num_qparams, dtype=torch.int32, device=observed.device)
@@ -268,36 +492,88 @@ def _grid_search_mse_triton(
         torch.bfloat16: 2,
     }[observed.dtype]
     quant_type = 0 if args.type == QuantizationType.INT else 1
-    block_values = min(1024, triton.next_power_of_2(group_size))
-    _grid_search_mse_triton_kernel[(num_qparams,)](
-        observed,
-        min_base,
-        max_base,
-        zp_base,
-        best_step,
-        num_observations,
-        num_qparams,
-        group_size,
-        total_steps,
-        1.0 / grid,
-        float(q_min),
-        float(q_max),
-        norm,
-        patience,
-        triton_error_buffer,
-        scale_eps,
-        BLOCK_VALUES=block_values,
-        TOTAL_STEPS=triton.next_power_of_2(total_steps),
-        QUANT_TYPE=quant_type,
-        NUM_BITS=args.num_bits,
-        HAS_ZP=not args.symmetric,
-        SYMMETRIC=args.symmetric,
-        SCALE_ROUND_TYPE=scale_round_type,
-        OBSERVED_DTYPE=observed_dtype,
+    total_values = num_observations * group_size
+    tile_values = 512
+    if total_values <= tile_values:
+        block_values = triton.next_power_of_2(total_values)
+        tile_qparams = max(1, tile_values // block_values)
+        _grid_search_mse_triton_packed_kernel[
+            (triton.cdiv(num_qparams, tile_qparams),)
+        ](
+            observed,
+            min_base,
+            max_base,
+            zp_base,
+            best_step,
+            num_observations,
+            num_qparams,
+            group_size,
+            total_steps,
+            1.0 / grid,
+            float(q_min),
+            float(q_max),
+            norm,
+            patience,
+            triton_error_buffer,
+            scale_eps,
+            BLOCK_VALUES=block_values,
+            TILE_QPARAMS=tile_qparams,
+            TOTAL_STEPS=triton.next_power_of_2(total_steps),
+            QUANT_TYPE=quant_type,
+            NUM_BITS=args.num_bits,
+            HAS_ZP=not args.symmetric,
+            SYMMETRIC=args.symmetric,
+            SCALE_ROUND_TYPE=scale_round_type,
+            OBSERVED_DTYPE=observed_dtype,
+        )
+    else:
+        num_chunks = triton.cdiv(total_values, tile_values)
+        partial_errors = torch.empty(
+            total_steps,
+            num_qparams,
+            num_chunks,
+            dtype=torch.float32,
+            device=observed.device,
+        )
+        _grid_search_mse_triton_split_kernel[(num_qparams * num_chunks,)](
+            observed,
+            min_base,
+            max_base,
+            zp_base,
+            partial_errors,
+            num_observations,
+            num_qparams,
+            group_size,
+            1.0 / grid,
+            float(q_min),
+            float(q_max),
+            norm,
+            scale_eps,
+            BLOCK_VALUES=tile_values,
+            NUM_CHUNKS=num_chunks,
+            TOTAL_STEPS=total_steps,
+            QUANT_TYPE=quant_type,
+            NUM_BITS=args.num_bits,
+            HAS_ZP=not args.symmetric,
+            SYMMETRIC=args.symmetric,
+            SCALE_ROUND_TYPE=scale_round_type,
+            OBSERVED_DTYPE=observed_dtype,
+        )
+        _grid_search_mse_triton_split_reduce_kernel[(num_qparams,)](
+            partial_errors,
+            best_step,
+            num_qparams,
+            patience,
+            triton_error_buffer,
+            BLOCK_CHUNKS=triton.next_power_of_2(num_chunks),
+            NUM_CHUNKS=num_chunks,
+            TOTAL_STEPS=total_steps,
+        )
+    ps = torch.tensor(
+        [1.0 - step / grid for step in range(total_steps)],
+        device=min_val.device,
+        dtype=min_val.dtype,
     )
-    ps = 1.0 - torch.arange(
-        total_steps, device=min_val.device, dtype=min_val.dtype
-    ) / grid
     best_p = ps[best_step.long()].reshape(min_val.shape)
     return min_val * best_p, max_val * best_p
 
