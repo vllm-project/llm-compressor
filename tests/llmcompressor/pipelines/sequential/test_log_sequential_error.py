@@ -55,6 +55,9 @@ def _run_oneshot_and_capture_metrics(log_sequential_error: bool) -> list[str]:
             model=MODEL,
             dataset="open_platypus",
             splits=f"train[:{NUM_SAMPLES}]",
+            # W8A8 uses per-channel weights (no group_size). tinysmokellama-3.2 has
+            # hidden_size=64, which is not divisible by the default W4A16 group_size
+            # (128) and would raise a RuntimeError in the weight observer.
             recipe=GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
@@ -97,7 +100,12 @@ def test_log_sequential_error_reports_kl_divergence():
 
     assert kl_lines, "Expected at least one 'sequential error (KL)' METRIC line"
 
-    num_subgraphs = kl_lines[0][1]
+    # every line should report the same subgraph total
+    subgraph_totals = {num_subgraphs for _, num_subgraphs, _ in kl_lines}
+    assert (
+        len(subgraph_totals) == 1
+    ), f"Expected a single consistent subgraph total, got {subgraph_totals}"
+    num_subgraphs = subgraph_totals.pop()
     reported_indices = {subgraph_index for subgraph_index, _, _ in kl_lines}
 
     # every subgraph except the last should report a KL value
