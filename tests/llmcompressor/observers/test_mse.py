@@ -140,6 +140,37 @@ def test_mse_triton_matches_eager_with_full_buffer(
     assert torch.equal(eager[1], triton[1])
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
+def test_mse_triton_matches_eager_when_group_is_split():
+    """Large qparam groups preserve eager choices across 512-value tiles."""
+    args = QuantizationArgs(
+        num_bits=4,
+        type="int",
+        symmetric=True,
+        strategy=QuantizationStrategy.CHANNEL,
+    )
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(8, 1024, device="cuda"), "weight", args
+    )
+    search_args = (
+        observed,
+        args,
+        token_args,
+        0.5,
+        5,
+        100.0,
+        2.4,
+        1.0,
+        1.0,
+    )
+    eager = ImplBackend.call("_grid_search_mse", *search_args)
+    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
+
+
 def test_mse_triton_error_buffer_defaults():
     args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
     observer = MovingAverageMSEObserver(base_name="weight", args=args)
@@ -151,9 +182,7 @@ def test_mse_triton_error_buffer_defaults():
         == 1.00
     )
     assert (
-        MovingAverageMSEObserver(
-            base_name="weight", args=fp4_args
-        ).triton_error_buffer
+        MovingAverageMSEObserver(base_name="weight", args=fp4_args).triton_error_buffer
         == 1.00
     )
 
