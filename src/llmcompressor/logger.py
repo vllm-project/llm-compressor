@@ -36,7 +36,7 @@ to configure via environment variables or direct function calls.
 import os
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import torch.distributed as dist
 from loguru import logger
@@ -51,11 +51,11 @@ _logged_once = set()
 @dataclass
 class LoggerConfig:
     disabled: bool = False
-    console_log_level: Optional[str] = "INFO"
-    log_file: Optional[str] = None
-    log_file_level: Optional[str] = None
+    console_log_level: str | None = "INFO"
+    log_file: str | None = None
+    log_file_level: str | None = None
     metrics_disabled: bool = False
-    rank: Optional[int] = None
+    rank: int | None = None
 
 
 # global config
@@ -129,7 +129,7 @@ def configure_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
     LOGGER_CONFIG = logger_config
 
 
-def support_log_once(record: Dict[str, Any]) -> bool:
+def support_log_once(record: dict[str, Any]) -> bool:
     """
     Support logging only once using `.bind(log_once=True)`
 
