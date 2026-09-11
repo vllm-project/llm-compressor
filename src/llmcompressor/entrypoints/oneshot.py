@@ -187,7 +187,9 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        self.validate_model(self.model)
+        # Skip model validation if using layerwise decompression for pre-quantized models
+        if not getattr(self.dataset_args, "layerwise_decompression", False):
+            self.validate_model(self.model)
 
     def __call__(self):
         """
