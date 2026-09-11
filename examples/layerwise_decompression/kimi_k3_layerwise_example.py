@@ -41,7 +41,7 @@ with load_context(KimiK3ForConditionalGeneration):
         MODEL_ID,
         config=config,
         device_map="auto_offload",
-        #max_memory={"cpu": "500GiB"}, 
+        # max_memory={"cpu": "500GiB"},
         offload_folder="/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder",
         dtype="auto",
         trust_remote_code=True,
@@ -93,12 +93,16 @@ oneshot(
     pipeline="sequential",
     sequential_targets=[
         "KimiDecoderLayer",
-    ], # Determines what is selected for subgraphs
-    sequential_targets_per_subgraph=1, # Number of targets for subgraph
+    ],  # Determines what is selected for subgraphs
+    sequential_targets_per_subgraph=1,  # Number of targets for subgraph
     layerwise_decompression=True,
     layerwise_compression=True,
 )
 
-SAVE_DIR = "/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-Layerwise"
+SAVE_DIR = (
+    "/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder/"
+    + MODEL_ID.rstrip("/").split("/")[-1]
+    + "-NVFP4-Layerwise"
+)
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

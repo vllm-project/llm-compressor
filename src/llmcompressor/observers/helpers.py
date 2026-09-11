@@ -183,8 +183,8 @@ def _fusion_search_modules(model: Module, modules: list[Module] | None):
         return model.modules()
 
     search_modules = []
-    seen = set() # isn't completely necessary, but
-    # in case we pass something like 
+    seen = set()  # isn't completely necessary, but
+    # in case we pass something like
     # [parent_module, parent_module.q_proj, parent_module.k_proj]
     for module in modules:
         if module in seen or not _has_fused_layer_group(module):

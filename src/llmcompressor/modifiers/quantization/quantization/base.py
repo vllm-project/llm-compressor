@@ -114,9 +114,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
             observe(rank_to_modules[rank], "weight")
             update_qparams(rank_to_modules[rank], "weight")
-            broadcast_qparams_and_cleanup(
-                module_list, module_to_rank, _WEIGHT_Q_PARAMS
-            )
+            broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
         if getattr(state, "layerwise_decompression", False):
             self.remove_hooks(self._calibration_hooks)
