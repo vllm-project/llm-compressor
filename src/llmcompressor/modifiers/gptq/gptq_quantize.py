@@ -155,6 +155,19 @@ def quantize_weight(
         used_rtn_fallback = True
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
+    # hoist per-column loop invariants (neuralmagic/compressed-tensors#766)
+    if strategy == QuantizationStrategy.CHANNEL:
+        channel_scale = scale[:, 0]
+        channel_zero_point = zero_point[:, 0]
+    elif strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+    ):
+        # each column slice is quantized channelwise; the altered args are
+        # identical for every column
+        altered_qargs = copy(quant_args)
+        altered_qargs.strategy = QuantizationStrategy.CHANNEL
+
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
@@ -179,8 +192,8 @@ def quantize_weight(
             elif strategy == QuantizationStrategy.CHANNEL:
                 q = fake_quantize(
                     q,
-                    scale[:, 0],
-                    zero_point[:, 0],
+                    channel_scale,
+                    channel_zero_point,
                     quant_args,
                     global_scale=global_scale,
                 )
@@ -195,9 +208,6 @@ def quantize_weight(
 
                 # Since we're only applying quantization to a slice, this
                 # ends up being a channelwise application
-                altered_qargs = copy(quant_args)
-                altered_qargs.strategy = QuantizationStrategy.CHANNEL
-
                 q = fake_quantize(
                     q,
                     scale[:, group_index],
