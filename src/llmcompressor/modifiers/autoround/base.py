@@ -390,23 +390,37 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             _fp_ref = None
             if _activations is not None and _next_names is not None:
                 _HIDDEN_STATE_KEYS = {"hidden_states", "inputs_embeds"}
-                _sorted_names = sorted(
-                    _next_names, key=lambda n: n not in _HIDDEN_STATE_KEYS
-                )
                 _refs = []
                 _num_batches = min(
                     len(cur_inputs), len(_activations.batch_intermediates)
                 )
                 for _b in range(_num_batches):
                     _batch = _activations.batch_intermediates[_b]
-                    for _name in _sorted_names:
-                        if _name in _batch:
-                            _v = _batch[_name].value
-                            if isinstance(_v, torch.Tensor) and (
-                                _name in _HIDDEN_STATE_KEYS or _v.ndim == 3
-                            ):
-                                _refs.append(_v)
-                                break
+                    # Pass 1: preferred name match (hidden_states / inputs_embeds).
+                    _found = next(
+                        (
+                            _batch[n].value
+                            for n in _next_names
+                            if n in _HIDDEN_STATE_KEYS
+                            and n in _batch
+                            and isinstance(_batch[n].value, torch.Tensor)
+                        ),
+                        None,
+                    )
+                    # Pass 2: shape fallback for non-standard naming conventions.
+                    if _found is None:
+                        _found = next(
+                            (
+                                _batch[n].value
+                                for n in _next_names
+                                if n in _batch
+                                and isinstance(_batch[n].value, torch.Tensor)
+                                and _batch[n].value.ndim == 3
+                            ),
+                            None,
+                        )
+                    if _found is not None:
+                        _refs.append(_found)
                 if len(_refs) == len(cur_inputs):
                     _fp_ref = _refs
 
@@ -435,7 +449,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.clear()
         # Release cached GPU memory back to the driver so the next block starts
         # with a clean allocator state (avoids cross-block fragmentation).
-        if torch.accelerator.is_available():
+        if hasattr(torch, "accelerator") and torch.accelerator.is_available():
             device_type = torch.accelerator.current_accelerator().type
             device_module = getattr(torch, device_type, None)
             if device_module is not None and hasattr(device_module, "empty_cache"):
