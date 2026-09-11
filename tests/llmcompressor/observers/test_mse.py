@@ -1,10 +1,12 @@
 import pytest
 import torch
-from compressed_tensors.quantization import fake_quantize
+from compressed_tensors.quantization import QuantizationStrategy, fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.utils.impl_backend import ImplBackend
 
 from llmcompressor.observers import MovingAverageMSEObserver, Observer
-from llmcompressor.observers.mse import MemorylessMSEObserver
+from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.observers.mse import MemorylessMSEObserver, NVFP4ExpandedMSEObserver
 
 
 @pytest.mark.parametrize(
@@ -88,36 +90,54 @@ def test_mse_fp4():
     assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.0015  # 0.0013
 
 
-def test_mse_observer_torch_compile():
-    """Test that MSE observer produces correct results with compiled inner loop"""
-    from llmcompressor.core import active_session
-
+@pytest.mark.parametrize(
+    "num_bits,quant_type,strategy,group_size,block_structure",
+    [
+        (4, "int", QuantizationStrategy.TENSOR, None, None),
+        (4, "int", QuantizationStrategy.CHANNEL, None, None),
+        (4, "int", QuantizationStrategy.GROUP, 32, None),
+        (4, "int", QuantizationStrategy.TENSOR_GROUP, 32, None),
+        (4, "float", QuantizationStrategy.GROUP, 32, None),
+        (8, "float", QuantizationStrategy.BLOCK, None, [2, 32]),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
+def test_mse_triton_matches_eager_with_full_buffer(
+    num_bits, quant_type, strategy, group_size, block_structure
+):
+    """A 100% buffer preserves eager choices across supported MSE layouts."""
+    if quant_type == "float" and num_bits == 8:
+        major, _ = torch.cuda.get_device_capability()
+        if major < 9:
+            pytest.skip("FP8 Triton QDQ requires SM90+")
     args = QuantizationArgs(
-        num_bits=8,
-        type="int",
+        num_bits=num_bits,
+        type=quant_type,
         symmetric=True,
-        strategy="tensor",
-        observer="memoryless_mse",
+        strategy=strategy,
+        group_size=group_size,
+        block_structure=block_structure,
     )
-    observer = Observer.load_from_registry(
-        "memoryless_mse", base_name="weight", args=args
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(8, 64, device="cuda"), "weight", args
     )
-    x = torch.randn(1, 1, 128)
-    try:
-        # eager baseline
-        active_session().state.enable_compile = False
-        eager_qparams = observer(x).get_qparams()
-        eager_scale, eager_zp = eager_qparams["scale"], eager_qparams["zero_point"]
-        # compiled inner loop
-        active_session().state.enable_compile = True
-        compiled_qparams = observer(x).get_qparams()
-        compiled_scale = compiled_qparams["scale"]
-        compiled_zp = compiled_qparams["zero_point"]
-        torch.testing.assert_close(eager_scale, compiled_scale)
-        torch.testing.assert_close(eager_zp, compiled_zp)
-    finally:
-        # always restore state, even if assertions fail
-        active_session().state.enable_compile = False
+    search_args = (
+        observed,
+        args,
+        token_args,
+        0.5,
+        5,
+        100.0,
+        2.4,
+        1.0,
+        1.0,
+    )
+    eager = ImplBackend.call("_grid_search_mse", *search_args)
+    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
 
 
 @pytest.mark.parametrize(
