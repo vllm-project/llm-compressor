@@ -97,8 +97,16 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         rank = dist.get_rank()
         world_size = dist.get_world_size()
 
+        # kv_cache_scheme attaches an input-activation-only scheme to weightless
+        # attention containers; only pack modules that have a weight tensor
+        weight_modules = [
+            module
+            for module in modules
+            if hasattr(module, "weight") and isinstance(module.weight, torch.Tensor)
+        ]
+
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
-            modules,
+            weight_modules,
             world_size,
             item_weight_fn=lambda mod: mod.weight.numel(),
         )
