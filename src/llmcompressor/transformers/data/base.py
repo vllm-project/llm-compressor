@@ -128,7 +128,7 @@ class TextGenerationDataset(RegistryMixin):
             self.max_seq_length = None
             self.padding = False
 
-    def __call__(self, add_labels: bool = True) -> DatasetType:
+    def __call__(self, add_labels: bool = False) -> DatasetType:
         dataset = self.dataset_args.dataset
 
         if isinstance(dataset, str):

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 files = "src/llmcompressor"
 
 [tool.ruff]
-extend-exclude = ["env", "src/llmcompressor/transformers/tracing/", "src/llmcompressor/version.py"]
+extend-exclude = ["env", "src/llmcompressor/transformers/tracing/", "src/llmcompressor/modeling/kimi_k3/", "src/llmcompressor/version.py"]
 line-length = 88
 lint.select = ["E", "F", "W", "I"]
 lint.extend-ignore = ["E203", "W605"]

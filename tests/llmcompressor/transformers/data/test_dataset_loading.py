@@ -50,7 +50,7 @@ def test_concatenation_tokenization(tiny_llama_tokenizer):
     assert raw_dataset.split == "train[:5%]"
     assert raw_dataset.info.config_name == "wikitext-2-raw-v1"
 
-    tokenized_dataset = wiki_manager()
+    tokenized_dataset = wiki_manager(add_labels=True)
     assert "input_ids" in tokenized_dataset.features
     assert "labels" in tokenized_dataset.features
     for i in range(len(tokenized_dataset)):
@@ -80,7 +80,7 @@ def test_no_padding_tokenization(tiny_llama_tokenizer):
     assert "Below is an instruction that describes a task" in ex_item
 
     assert dataset.split == "train[5%:7%]"
-    tokenized_dataset = op_manager()
+    tokenized_dataset = op_manager(add_labels=True)
     assert "input_ids" in tokenized_dataset.features
     assert "labels" in tokenized_dataset.features
     print(tokenized_dataset[0]["input_ids"])
@@ -156,7 +156,7 @@ def test_datasets(tiny_llama_tokenizer, dataset_key, dataset_config, split, do_c
     assert raw_dataset.split == split
     assert raw_dataset.info.config_name == dataset_config
 
-    tokenized_dataset = manager()
+    tokenized_dataset = manager(add_labels=True)
     assert "input_ids" in tokenized_dataset.features
     assert "labels" in tokenized_dataset.features
     for i in range(len(tokenized_dataset)):
@@ -184,7 +184,7 @@ def test_evol(tiny_llama_tokenizer):
     assert len(raw_dataset) > 0
     assert raw_dataset.split == "train[:2%]"
 
-    tokenized_dataset = evol_manager()
+    tokenized_dataset = evol_manager(add_labels=True)
     assert "input_ids" in tokenized_dataset.features
     assert "labels" in tokenized_dataset.features
     for i in range(len(tokenized_dataset)):
@@ -207,7 +207,7 @@ def test_stream_loading(tiny_llama_tokenizer):
         processor=tiny_llama_tokenizer,
     )
 
-    processed = manager()
+    processed = manager(add_labels=True)
     assert isinstance(processed, IterableDataset)
     with pytest.raises(TypeError):
         # in streaming mode we don't know the length of the dataset
