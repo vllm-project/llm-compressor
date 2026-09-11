@@ -117,7 +117,7 @@ from tests.testing_utils import requires_hf_token
         (
             "meta-llama/Llama-4-Scout-17B-16E-Instruct",
             Llama4ForConditionalGeneration,
-            "Llama4TextDecoderLayer",
+            ["Llama4TextDecoderLayer", "Llama4VisionEncoderLayer"],
             "vision",
             [],
         ),
@@ -162,6 +162,10 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
     target_modules = get_target_modules(model, targets)
     assert len(subgraphs) == len(target_modules) + 1
 
+    for i, (subgraph, (name, module)) in enumerate(zip(subgraphs, target_modules)):
+        subgraph_modules = list(subgraph.get_modules(model, recurse=False))
+        assert module in subgraph_modules, f"Could not find {name} in subgraph #{i}"
+
 
 def get_target_modules(model, sequential_targets):
     if sequential_targets is None:
@@ -169,7 +173,7 @@ def get_target_modules(model, sequential_targets):
     if isinstance(sequential_targets, str):
         sequential_targets = [sequential_targets]
 
-    return set(module for _, module in match_named_modules(model, sequential_targets))
+    return list(match_named_modules(model, sequential_targets))
 
 
 def run_subgraphs(model, subgraphs, inputs):
