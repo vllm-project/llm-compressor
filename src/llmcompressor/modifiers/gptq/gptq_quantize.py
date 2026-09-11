@@ -170,9 +170,9 @@ def _factorize_hessian(
         hessians.index_copy_(
             0,
             bad,
-            torch.eye(
-                num_columns, dtype=hessians.dtype, device=hessians.device
-            ).expand(bad.numel(), -1, -1),
+            torch.eye(num_columns, dtype=hessians.dtype, device=hessians.device).expand(
+                bad.numel(), -1, -1
+            ),
         )
         used_rtn_fallback[bad] = True
     torch.cholesky_inverse(hessians, out=hessians)
