@@ -4,6 +4,7 @@ from typing import Optional
 import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
+from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 
 from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
 
@@ -101,6 +102,15 @@ def test_update_intermediates(sample_cache):
     # Verify the updates were stored
     assert "hidden_states" in sample_cache.batch_intermediates[0]
     assert "logits" in sample_cache.batch_intermediates[0]
+
+
+def test_pretrained_config_is_not_recursively_wrapped():
+    """Dataclass model configs must survive cache round-tripping unchanged."""
+    config = Qwen3MoeConfig()
+    intermediate = IntermediatesCache._offload_value(config, torch.device("cpu"))
+
+    assert intermediate.value is config
+    assert IntermediatesCache._onload_value(intermediate) is config
 
 
 @pytest.mark.unit

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import disable_offloading, set_onload_device
+from compressed_tensors.utils import patch_attr
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -115,6 +116,15 @@ class SequentialPipeline(CalibrationPipeline):
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
+            # Linear targets trace through attention internals while forcing
+            # eager attention, which materializes an explicit causal mask in
+            # the traced graph. Keep the runtime config consistent with that
+            # graph; SDPA may return None for the same mask and cause
+            # ``scores + None`` in the partitioned subgraph.
+            if "Linear" in sequential_targets:
+                stack.enter_context(
+                    patch_attr(model.config, "_attn_implementation", "eager")
+                )
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device

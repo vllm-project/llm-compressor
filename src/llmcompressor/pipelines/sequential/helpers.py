@@ -187,6 +187,12 @@ class SequentialTracer(HFTracer):
         # special extension allows models which depend on config values to be traced
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
+            # `_attn_implementation` is stored privately by Transformers and
+            # therefore omitted from `to_dict()`. Preserve it so a traced
+            # config uses the same attention/mask implementation at runtime
+            # as it did during tracing.
+            if a._attn_implementation is not None:
+                kwargs["attn_implementation"] = self.create_arg(a._attn_implementation)
             return self.create_node("call_function", a.__class__, (), kwargs)
 
         # special extension for supporting `UserDict`s (Gemma4 uses this)

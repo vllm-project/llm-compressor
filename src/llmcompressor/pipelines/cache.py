@@ -11,6 +11,7 @@ from weakref import WeakKeyDictionary
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
+from transformers.configuration_utils import PretrainedConfig
 
 
 @dataclass
@@ -322,6 +323,12 @@ class IntermediatesCache:
                     == torch.accelerator.current_accelerator().type
                 )
                 return value.to(device=device, non_blocking=non_blocking)
+            case _ if isinstance(value, PretrainedConfig):
+                # Configs are immutable model metadata, not activations. In
+                # particular, recent Transformers configs are dataclasses with
+                # strict field validation; recursively wrapping their scalar
+                # fields as IntermediateValue breaks reconstruction.
+                return value
             case list():
                 return [cls._onload_value(v) for v in value]
             case tuple():
@@ -373,6 +380,9 @@ class IntermediatesCache:
                     value=offloaded,
                     device=(onload_device if onload_device else value.device),
                 )
+            case _ if isinstance(value, PretrainedConfig):
+                # Configs contain metadata rather than tensors to offload.
+                return IntermediateValue(value=value, device=None)
             case list():
                 return IntermediateValue(
                     value=[cls._offload_value(v, **kwargs) for v in value],
