@@ -1,8 +1,9 @@
 import contextlib
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 import torch
 from compressed_tensors.offload import disable_offloading, set_onload_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -46,6 +47,45 @@ def _get_batches(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
         yield batch_idx, inputs
+
+
+def _get_largest_tensor(outputs: dict[str, Any]) -> torch.Tensor | None:
+    """
+    Select the largest tensor (by number of elements) from a subgraph output dict.
+    This is used as a heuristic to identify the "main activation" (e.g. hidden
+    states) among a subgraph's outputs, which may also include pass-through values
+    such as attention masks or position ids.
+
+    :param outputs: dictionary of subgraph output values
+    :return: the largest tensor value, or None if no tensor values are present
+    """
+    largest = None
+    largest_numel = 0
+    for value in outputs.values():
+        if isinstance(value, torch.Tensor) and value.numel() > largest_numel:
+            largest = value
+            largest_numel = value.numel()
+    return largest
+
+
+def _compute_kl_divergence(
+    pre_tensor: torch.Tensor, post_tensor: torch.Tensor
+) -> float:
+    """
+    Compute the KL divergence between pre-compression and post-compression
+    activation tensors. Both tensors are cast to float32 and converted to
+    log-probability distributions via ``log_softmax`` along the last dimension
+    before computing the divergence.
+
+    :param pre_tensor: activation tensor captured before compression
+    :param post_tensor: activation tensor captured after compression
+    :return: scalar KL divergence value
+    """
+    pre_log_probs = torch.nn.functional.log_softmax(pre_tensor.float(), dim=-1)
+    post_log_probs = torch.nn.functional.log_softmax(post_tensor.float(), dim=-1)
+    return torch.nn.functional.kl_div(
+        post_log_probs, pre_log_probs, log_target=True, reduction="batchmean"
+    ).item()
 
 
 @CalibrationPipeline.register("sequential")
@@ -93,6 +133,12 @@ class SequentialPipeline(CalibrationPipeline):
         if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
             dataset_args.propagate_error = False
 
+        # log_sequential_error requires comparing unquantized (pass 1) and quantized
+        # (pass 2) outputs, so propagate_error must be enabled. This takes precedence
+        # over the AutoRoundModifier override above since it was explicitly requested
+        if dataset_args.log_sequential_error:
+            dataset_args.propagate_error = True
+
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
             model, dataset_args.sequential_targets
@@ -138,6 +184,10 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
+                # per-batch largest tensor captured before compression, used by
+                # log_sequential_error to compare against post-compression outputs
+                pre_compression_outputs: list[torch.Tensor] = []
+
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
@@ -157,11 +207,22 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
+                        if (
+                            dataset_args.log_sequential_error
+                            and subgraph_index < num_subgraphs - 1
+                        ):
+                            main_tensor = _get_largest_tensor(outputs)
+                            if main_tensor is not None:
+                                pre_compression_outputs.append(
+                                    main_tensor.detach().clone().cpu()
+                                )
+
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
                         # and is only used for capturing outputs of compressed modules
+                        batch_kls: list[float] = []
                         with HooksMixin.disable_hooks():
                             for batch_idx, inputs in _get_batches(
                                 activations,
@@ -176,6 +237,33 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                                # compare pre/post-compression activations
+                                if (
+                                    dataset_args.log_sequential_error
+                                    and subgraph_index < num_subgraphs - 1
+                                    and batch_idx < len(pre_compression_outputs)
+                                ):
+                                    post_tensor = _get_largest_tensor(output)
+                                    if post_tensor is not None:
+                                        pre_tensor = pre_compression_outputs[
+                                            batch_idx
+                                        ].to(post_tensor.device)
+                                        batch_kls.append(
+                                            _compute_kl_divergence(
+                                                pre_tensor, post_tensor
+                                            )
+                                        )
+
+                        if dataset_args.log_sequential_error and batch_kls:
+                            avg_kl = sum(batch_kls) / len(batch_kls)
+                            logger.log(
+                                "METRIC",
+                                f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
+                                f"sequential error (KL): {avg_kl:.6f}",
+                            )
+
+                pre_compression_outputs.clear()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

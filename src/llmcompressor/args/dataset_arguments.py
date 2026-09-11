@@ -272,6 +272,15 @@ class DatasetArguments(CustomDatasetArguments):
             "Default is True"
         },
     )
+    log_sequential_error: bool = field(
+        default=False,
+        metadata={
+            "help": "Only relevant for the sequential pipeline. If True, compute and "
+            "log the KL divergence between each subgraph's pre-compression and "
+            "post-compression outputs. Automatically enables propagate_error. "
+            "Default is False."
+        },
+    )
     use_loss_mask: bool = field(
         default=False,
         metadata={
