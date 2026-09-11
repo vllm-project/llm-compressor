@@ -9,6 +9,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 model_id = "meta-llama/Llama-3.3-70B-Instruct"
+# Use LLM Compressor's offloaded loading context for the 70B model.
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -25,9 +26,11 @@ ds = get_dataset(
 )
 
 recipe = [
+    # Attention input quantization calibrates Q, K, and V, including the KV cache.
     QuantizationModifier(
         config_groups={
             "attention": QuantizationScheme(
+                # Transformers 5 uses LlamaAttention across attention backends.
                 targets=["LlamaAttention"],
                 input_activations=QuantizationArgs(
                     num_bits=8, type="float", strategy="tensor"
