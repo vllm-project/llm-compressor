@@ -140,6 +140,27 @@ def test_mse_triton_matches_eager_with_full_buffer(
     assert torch.equal(eager[1], triton[1])
 
 
+def test_mse_triton_error_buffer_defaults():
+    args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
+    observer = MovingAverageMSEObserver(base_name="weight", args=args)
+    assert observer.triton_error_buffer == 0.30
+
+    fp4_args = QuantizationArgs(num_bits=4, type="float", symmetric=True)
+    assert (
+        MemorylessMSEObserver(base_name="weight", args=fp4_args).triton_error_buffer
+        == 1.00
+    )
+    assert (
+        MovingAverageMSEObserver(
+            base_name="weight", args=fp4_args
+        ).triton_error_buffer
+        == 1.00
+    )
+
+    nvfp4 = NVFP4ExpandedMSEObserver(base_name="weight", args=args)
+    assert nvfp4.triton_error_buffer == 1.00
+
+
 @pytest.mark.parametrize(
     "observer_cls", [MemorylessMSEObserver, MovingAverageMSEObserver]
 )
