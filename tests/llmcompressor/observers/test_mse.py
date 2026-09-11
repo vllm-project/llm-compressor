@@ -141,6 +141,28 @@ def test_mse_triton_matches_eager_when_tile_fits_group(
     assert torch.equal(eager[1], triton[1])
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
+def test_mse_triton_matches_eager_for_packed_nvfp4_groups():
+    """Packed BF16 NVFP4 groups preserve eager arithmetic and grid choices."""
+    args = QuantizationArgs(
+        num_bits=4,
+        type="float",
+        symmetric=True,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        group_size=16,
+    )
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(8, 1024, device="cuda", dtype=torch.bfloat16), "weight", args
+    )
+    search_args = (observed, args, token_args, 0.5, 5, 100.0, 2.4, 1.0, 1.0)
+    eager = ImplBackend.call("_grid_search_mse", *search_args)
+    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
+
+
 def test_mse_triton_error_buffer_defaults():
     args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
     observer = MovingAverageMSEObserver(base_name="weight", args=args)
