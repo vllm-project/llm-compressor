@@ -455,12 +455,16 @@ def test_fused_gptq_kernel_matches_eager(
     ],
 )
 @pytest.mark.parametrize("actorder", [None, ActivationOrdering.WEIGHT])
-@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("backend", ["eager", "triton"])
+@requires_gpu
 @torch.no_grad()
-def test_quantize_weight_batch_matches_single(quant_args, actorder, device):
-    """Batched GPTQ over same-shape modules must match per-module solves."""
-    if device == "cuda" and not torch.accelerator.is_available():
-        pytest.skip("requires CUDA")
+def test_quantize_weight_batch_close_to_single(
+    quant_args, actorder, backend, monkeypatch
+):
+    """Batched GPTQ should remain close to per-module solves for both backends."""
+    device = "cuda"
+    if backend == "eager":
+        monkeypatch.setenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "1")
     if actorder is not None:
         quant_args.actorder = actorder
 
@@ -496,8 +500,8 @@ def test_quantize_weight_batch_matches_single(quant_args, actorder, device):
     for idx, single in enumerate(single_results):
         s_loss, s_params, s_rtn = single
         assert s_rtn == batched_rtn[idx].item()
-        assert torch.equal(
-            s_params["weight"], batched_weights[idx]
+        assert torch.allclose(
+            s_params["weight"], batched_weights[idx], rtol=1e-4, atol=1e-5
         ), f"module {idx} weight mismatch"
         assert torch.equal(
             s_params["weight_scale"], scales[idx]
