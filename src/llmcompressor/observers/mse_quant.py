@@ -105,7 +105,7 @@ def _grid_search_mse_triton_kernel(
     num_qparams,
     group_size,
     total_steps,
-    inv_grid,
+    grid_points_ptr,
     q_min,
     q_max,
     norm,
@@ -134,7 +134,7 @@ def _grid_search_mse_triton_kernel(
     for step in range(TOTAL_STEPS):
         if step < total_steps:
             if stale < patience:
-                p = 1.0 - step * inv_grid
+                p = tl.load(grid_points_ptr + step)
                 scale = calculate_candidate_scale(
                     min_base,
                     max_base,
@@ -169,6 +169,7 @@ def _grid_search_mse_triton_kernel(
                         QUANT_TYPE=QUANT_TYPE,
                         NUM_BITS=NUM_BITS,
                         HAS_ZP=HAS_ZP,
+                        COMPUTE_DTYPE=OBSERVED_DTYPE,
                     )
                     if OBSERVED_DTYPE == 1:
                         diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
@@ -178,7 +179,9 @@ def _grid_search_mse_triton_kernel(
                         )
                     else:
                         diff = tl.abs(quantized - values)
-                    diff_pow = tl.exp(tl.log(diff.to(tl.float32)) * norm)
+                    diff_pow = tl.extra.cuda.libdevice.pow(
+                        diff.to(tl.float32), norm.to(tl.float32)
+                    )
                     error += tl.sum(tl.where(mask, diff_pow, 0.0))
 
                 is_better = error < best_error
@@ -201,7 +204,7 @@ def _grid_search_mse_triton_packed_kernel(
     num_qparams,
     group_size,
     total_steps,
-    inv_grid,
+    grid_points_ptr,
     q_min,
     q_max,
     norm,
@@ -243,23 +246,42 @@ def _grid_search_mse_triton_packed_kernel(
         tl.float32
     )
     zp = tl.load(zp_base_ptr + qparams, mask=qparam_mask, other=0.0).to(tl.float32)
-    best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float32)
+    if OBSERVED_DTYPE == 1:
+        best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float16)
+    elif OBSERVED_DTYPE == 2:
+        best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.bfloat16)
+    else:
+        best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float32)
     best_step = tl.zeros((TILE_QPARAMS,), tl.int32)
     stale = tl.zeros((TILE_QPARAMS,), tl.int32)
 
     for step in range(TOTAL_STEPS):
         if step < total_steps:
             active = stale < patience
+            p = tl.load(grid_points_ptr + step)
+            candidate_min = min_base * p
+            candidate_max = max_base * p
+            if OBSERVED_DTYPE == 1:
+                candidate_min = candidate_min.to(tl.float16).to(tl.float32)
+                candidate_max = candidate_max.to(tl.float16).to(tl.float32)
+            elif OBSERVED_DTYPE == 2:
+                candidate_min = candidate_min.to(tl.bfloat16).to(tl.float32)
+                candidate_max = candidate_max.to(tl.bfloat16).to(tl.float32)
             scale = calculate_candidate_scale(
-                min_base,
-                max_base,
-                1.0 - step * inv_grid,
+                candidate_min,
+                candidate_max,
+                1.0,
                 q_min,
                 q_max,
                 SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
                 QUANT_TYPE=QUANT_TYPE,
                 SYMMETRIC=SYMMETRIC,
             )
+            if SCALE_ROUND_TYPE == 0:
+                if OBSERVED_DTYPE == 1:
+                    scale = scale.to(tl.float16).to(tl.float32)
+                elif OBSERVED_DTYPE == 2:
+                    scale = scale.to(tl.bfloat16).to(tl.float32)
             scale = tl.maximum(scale, scale_eps)
             quantized = quantize_dequantize(
                 values,
@@ -270,6 +292,7 @@ def _grid_search_mse_triton_packed_kernel(
                 QUANT_TYPE=QUANT_TYPE,
                 NUM_BITS=NUM_BITS,
                 HAS_ZP=HAS_ZP,
+                COMPUTE_DTYPE=OBSERVED_DTYPE,
             )
             if OBSERVED_DTYPE == 1:
                 diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
@@ -277,8 +300,21 @@ def _grid_search_mse_triton_packed_kernel(
                 diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
             else:
                 diff = tl.abs(quantized - values)
-            diff_pow = tl.exp(tl.log(diff.to(tl.float32)) * norm)
-            error = tl.sum(tl.where(value_mask, diff_pow, 0.0), axis=1)
+            error_norm = norm.to(tl.float32)
+            if OBSERVED_DTYPE == 1:
+                error_norm = error_norm.to(tl.float16).to(tl.float32)
+            elif OBSERVED_DTYPE == 2:
+                error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
+            diff_pow = tl.extra.cuda.libdevice.pow(diff.to(tl.float32), error_norm)
+            if OBSERVED_DTYPE == 1:
+                diff_pow = diff_pow.to(tl.float16)
+            elif OBSERVED_DTYPE == 2:
+                diff_pow = diff_pow.to(tl.bfloat16)
+            error = tl.sum(
+                tl.where(value_mask, diff_pow, 0.0).to(tl.float32), axis=1
+            ).to(
+                best_error.dtype
+            )
             previous_best = best_error
             is_better = active & (error < previous_best)
             best_error = tl.where(is_better, error, best_error)
@@ -303,7 +339,7 @@ def _grid_search_mse_triton_split_kernel(
     num_observations,
     num_qparams,
     group_size,
-    inv_grid,
+    grid_points_ptr,
     q_min,
     q_max,
     norm,
@@ -347,7 +383,7 @@ def _grid_search_mse_triton_split_kernel(
         scale = calculate_candidate_scale(
             min_base,
             max_base,
-            1.0 - step * inv_grid,
+            tl.load(grid_points_ptr + step),
             q_min,
             q_max,
             SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
@@ -364,6 +400,7 @@ def _grid_search_mse_triton_split_kernel(
             QUANT_TYPE=QUANT_TYPE,
             NUM_BITS=NUM_BITS,
             HAS_ZP=HAS_ZP,
+            COMPUTE_DTYPE=OBSERVED_DTYPE,
         )
         if OBSERVED_DTYPE == 1:
             diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
@@ -371,7 +408,9 @@ def _grid_search_mse_triton_split_kernel(
             diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
         else:
             diff = tl.abs(quantized - values)
-        diff_pow = tl.exp(tl.log(diff.to(tl.float32)) * norm)
+        diff_pow = tl.extra.cuda.libdevice.pow(
+            diff.to(tl.float32), norm.to(tl.float32)
+        )
         error = tl.sum(tl.where(value_mask, diff_pow, 0.0))
         tl.store(
             partial_error_ptr + (step * num_qparams + qparam) * NUM_CHUNKS + chunk,
@@ -483,6 +522,11 @@ def _grid_search_mse_triton(
     observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
     total_steps = int(maxshrink * grid)
+    grid_points = torch.tensor(
+        [1.0 - step / grid for step in range(total_steps)],
+        device=observed.device,
+        dtype=torch.float32,
+    )
     best_step = torch.empty(num_qparams, dtype=torch.int32, device=observed.device)
     q_min, q_max = calculate_range(args, observed.device)
     scale_round_type, scale_eps = _scale_round_config(args.scale_dtype)
@@ -509,7 +553,7 @@ def _grid_search_mse_triton(
             num_qparams,
             group_size,
             total_steps,
-            1.0 / grid,
+            grid_points,
             float(q_min),
             float(q_max),
             norm,
@@ -544,7 +588,7 @@ def _grid_search_mse_triton(
             num_observations,
             num_qparams,
             group_size,
-            1.0 / grid,
+            grid_points,
             float(q_min),
             float(q_max),
             norm,
@@ -569,13 +613,10 @@ def _grid_search_mse_triton(
             NUM_CHUNKS=num_chunks,
             TOTAL_STEPS=total_steps,
         )
-    ps = torch.tensor(
-        [1.0 - step / grid for step in range(total_steps)],
-        device=min_val.device,
-        dtype=min_val.dtype,
-    )
-    best_p = ps[best_step.long()].reshape(min_val.shape)
-    return min_val * best_p, max_val * best_p
+    best_p = grid_points[best_step.long()].reshape(min_val.shape)
+    best_min = (min_val.to(torch.float32) * best_p).to(min_val.dtype)
+    best_max = (max_val.to(torch.float32) * best_p).to(max_val.dtype)
+    return best_min, best_max
 
 
 def _calculate_error(

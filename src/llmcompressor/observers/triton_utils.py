@@ -72,9 +72,14 @@ def quantize_dequantize(
     QUANT_TYPE: tl.constexpr,
     NUM_BITS: tl.constexpr,
     HAS_ZP: tl.constexpr,
+    COMPUTE_DTYPE: tl.constexpr,
 ):
     """GPTQ-style QDQ shared by MSE and future observer kernels."""
     normalized = tldevice.div_rn(values, scale)
+    if COMPUTE_DTYPE == 1:
+        normalized = normalized.to(tl.float16).to(tl.float32)
+    elif COMPUTE_DTYPE == 2:
+        normalized = normalized.to(tl.bfloat16).to(tl.float32)
     if HAS_ZP:
         normalized += zero_point
     normalized = tl.clamp(normalized, q_min, q_max)
