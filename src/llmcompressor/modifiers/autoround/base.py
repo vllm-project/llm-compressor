@@ -1,4 +1,3 @@
-import inspect
 import os
 from contextlib import contextmanager
 from typing import Any
@@ -424,18 +423,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 if len(_refs) == len(cur_inputs):
                     _fp_ref = _refs
 
-            # reference_output added in auto-round 0.16.0 (intel/auto-round#2289).
-            # Guard with inspect until the version pin is bumped to >=0.16.0.
-            _qb_kwargs = {}
-            if "reference_output" in inspect.signature(ar.quantize_block).parameters:
-                _qb_kwargs["reference_output"] = _fp_ref
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=ar_inputs,
                 q_input=self._q_input,
                 device=str(device),
                 auto_offload=auto_offload,
-                **_qb_kwargs,
+                reference_output=_fp_ref,
             )
             self._q_input = q_input
 
