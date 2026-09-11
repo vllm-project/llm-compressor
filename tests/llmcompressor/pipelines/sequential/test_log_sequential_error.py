@@ -111,12 +111,12 @@ def test_log_sequential_error_reports_kl_divergence():
     # when the compared tensors are (near) identical
     floating_point_tolerance = -1e-4
     for subgraph_index, _, kl_value in kl_lines:
-        assert math.isfinite(kl_value), (
-            f"subgraph {subgraph_index} KL divergence is not finite: {kl_value}"
-        )
-        assert kl_value >= floating_point_tolerance, (
-            f"subgraph {subgraph_index} KL divergence is negative: {kl_value}"
-        )
+        assert math.isfinite(
+            kl_value
+        ), f"subgraph {subgraph_index} KL divergence is not finite: {kl_value}"
+        assert (
+            kl_value >= floating_point_tolerance
+        ), f"subgraph {subgraph_index} KL divergence is negative: {kl_value}"
 
 
 def test_log_sequential_error_disabled_by_default():

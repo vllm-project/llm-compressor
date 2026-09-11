@@ -185,8 +185,11 @@ class SequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # per-batch largest tensor captured before compression, used by
-                # log_sequential_error to compare against post-compression outputs
-                pre_compression_outputs: list[torch.Tensor] = []
+                # log_sequential_error to compare against post-compression outputs.
+                # keyed by batch_idx (rather than appended to a list) so that a
+                # batch skipped in pass 1 (e.g. _get_largest_tensor returns None)
+                # cannot desynchronize the alignment with pass 2
+                pre_compression_outputs: dict[int, torch.Tensor] = {}
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
@@ -213,7 +216,7 @@ class SequentialPipeline(CalibrationPipeline):
                         ):
                             main_tensor = _get_largest_tensor(outputs)
                             if main_tensor is not None:
-                                pre_compression_outputs.append(
+                                pre_compression_outputs[batch_idx] = (
                                     main_tensor.detach().clone().cpu()
                                 )
 
@@ -242,7 +245,7 @@ class SequentialPipeline(CalibrationPipeline):
                                 if (
                                     dataset_args.log_sequential_error
                                     and subgraph_index < num_subgraphs - 1
-                                    and batch_idx < len(pre_compression_outputs)
+                                    and batch_idx in pre_compression_outputs
                                 ):
                                     post_tensor = _get_largest_tensor(output)
                                     if post_tensor is not None:
