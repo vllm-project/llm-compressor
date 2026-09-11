@@ -78,11 +78,11 @@ model.save_pretrained(
 tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-### Quantizing MTP Layers
+### Preserving and Quantizing MTP Layers
 
-Some models ship Multi-Token Prediction (MTP) layers used as the draft model for speculative decoding in vLLM. `transformers` never loads these layers, so oneshot processes them separately from the source checkpoint when saving to `output_dir`. By default they remain at full precision and are added to the quantization ignore list.
+Some models ship Multi-Token Prediction (MTP) layers used as the draft model for speculative decoding in vLLM. `transformers` never loads these layers, so oneshot processes them separately from the source checkpoint when saving to `output_dir`. For supported architectures, oneshot always writes the MTP tensors alongside the backbone. By default it preserves their source representation and adds them to the quantization ignore list.
 
-Pass `mtp_scheme` to `oneshot` to quantize the MTP layers instead. Because MTP layers are never loaded, their activation scales cannot be calibrated; any input-activation quantization whose scale must be calibrated (fully static, or NVFP4-style `dynamic="local"` with a static `input_global_scale`) is automatically dropped to weight-only. Only fully dynamic activation quantization (e.g. `FP8_DYNAMIC`), whose scales are computed at runtime, is kept.
+Pass `mtp_scheme` to `oneshot` to apply data-free quantization to the MTP layers. Schemes that require activation calibration are reduced to their data-free weight-only form; fully dynamic activation quantization such as `FP8_DYNAMIC` is retained. If the requested quantization cannot be applied safely, oneshot warns and preserves the source MTP tensors instead.
 
 MTP processing currently supports `Qwen3_5ForConditionalGeneration`,
 `Glm5NextForConditionalGeneration`, `GlmMoeDsaForCausalLM`, and
@@ -108,9 +108,11 @@ Choosing a scheme:
 
 | `mtp_scheme` | Notes |
 |--------------|-------|
-| `None` (default) | MTP kept bf16 (lossless), added to ignore list. |
+| `None` (default) | Preserves the source MTP tensors and adds the runtime modules to the quantization ignore list. |
 | `"FP8_DYNAMIC"` | Keeps calibration-free runtime activation quantization and uses weight-derived per-channel scales. |
-| `"NVFP4"` | Smallest on disk. Its calibration-dependent activation scale is unavailable for unloaded MTP layers, so MTP is weight-only NVFP4. |
+| `"NVFP4"` | Applies the data-free NVFP4A16 weight format; calibrated NVFP4 activation quantization is not performed. |
+
+Calibration-based MTP quantization, including GPTQ and AWQ, is not supported by this pathway because the MTP layers are not constructed for calibration.
 
 ## Notes
 

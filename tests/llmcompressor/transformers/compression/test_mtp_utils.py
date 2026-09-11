@@ -258,6 +258,33 @@ def test_nvfp4_quantizes_supported_architecture_layouts(tmp_path, case_name):
 
 
 @pytest.mark.parametrize(
+    "scheme,weight_suffix",
+    [
+        ("FP8_DYNAMIC", ".weight"),
+        ("MXFP4", ".weight_packed"),
+        ("NVFP4", ".weight_packed"),
+    ],
+)
+def test_data_free_mtp_schemes(tmp_path, scheme, weight_suffix):
+    """Supported data-free schemes produce an MTP checkpoint."""
+    config, tensors, quantized_module, _ = _qwen_case()
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+
+    _quantize_and_save_mtp_tensors(
+        str(source), str(destination), config, mtp_scheme=scheme
+    )
+
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        output_names = set(file.keys())
+    assert f"{quantized_module}{weight_suffix}" in output_names
+    output_config = json.loads((destination / "config.json").read_text())
+    assert "mtp_group" in output_config["quantization_config"]["config_groups"]
+
+
+@pytest.mark.parametrize(
     "case_factory,fused_modules",
     [
         (
@@ -452,6 +479,47 @@ def test_default_preserves_mtp_and_ignores_runtime_prefix(tmp_path):
     assert f"{quantized_module}.weight" in output_names
     assert f"{quantized_module}.weight_scale" not in output_names
 
+    output_config = json.loads((destination / "config.json").read_text())
+    quantization_config = output_config["quantization_config"]
+    assert "mtp_group" not in quantization_config["config_groups"]
+    assert r"re:^mtp\." in quantization_config["ignore"]
+
+
+def test_default_does_not_dequantize_source_mtp(tmp_path):
+    """Preserving MTP leaves source-format tensors unchanged."""
+    config, tensors, _, _ = _qwen_case()
+    weight_name = "mtp.layers.0.self_attn.q_proj.weight"
+    scale_name = "mtp.layers.0.self_attn.q_proj.weight_scale_inv"
+    tensors[weight_name] = tensors[weight_name].to(torch.float8_e4m3fn)
+    tensors[scale_name] = torch.ones(1, 1)
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+
+    _quantize_and_save_mtp_tensors(str(source), str(destination), config)
+
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        assert file.get_tensor(weight_name).dtype == torch.float8_e4m3fn
+        assert scale_name in file.keys()
+
+
+def test_failed_quantization_preserves_source_mtp(tmp_path):
+    """A data-free quantization failure never drops supported MTP tensors."""
+    config, tensors, _, _ = _qwen_case()
+    unsupported = "mtp.layers.0.self_attn.new_proj.weight"
+    tensors[unsupported] = torch.randn(32, 32)
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+
+    _quantize_and_save_mtp_tensors(
+        str(source), str(destination), config, mtp_scheme="NVFP4"
+    )
+
+    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
+        assert set(file.keys()) == set(tensors)
     output_config = json.loads((destination / "config.json").read_text())
     quantization_config = output_config["quantization_config"]
     assert "mtp_group" not in quantization_config["config_groups"]

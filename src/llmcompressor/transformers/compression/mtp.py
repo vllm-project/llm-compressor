@@ -285,7 +285,7 @@ def _resolve_mtp_layout(config: PretrainedConfig, names: set[str]) -> _MtpLayout
 def _resolve_mtp_scheme(
     mtp_scheme: str | QuantizationScheme | None,
 ) -> QuantizationScheme | None:
-    """Resolve an MTP preset and remove activation schemes needing calibration."""
+    """Resolve an MTP preset to a calibration-free quantization scheme."""
     if mtp_scheme is None:
         return None
     if isinstance(mtp_scheme, QuantizationScheme):
@@ -304,8 +304,8 @@ def _resolve_mtp_scheme(
     input_activations = scheme.input_activations
     if input_activations is not None and input_activations.dynamic is not True:
         logger.warning(
-            "MTP activations cannot be calibrated because Transformers does not "
-            "construct these layers; quantizing their weights only."
+            "MTP activation quantization requires calibration; using the "
+            "scheme's data-free weight quantization only."
         )
         scheme = scheme.model_copy(update={"input_activations": None})
     return scheme
@@ -567,12 +567,20 @@ def _quantize_and_save_mtp_tensors(
         local,
         layout,
     )
-    tensors = _dequantize_fp8_blocks(tensors, config)
     scheme = _resolve_mtp_scheme(mtp_scheme)
 
     if scheme is not None:
-        quantized, output = _partition_mtp_tensors(tensors, layout)
-        output.update(_compress_mtp_weights(quantized, scheme))
+        try:
+            quantization_input = _dequantize_fp8_blocks(tensors, config)
+            quantized, output = _partition_mtp_tensors(quantization_input, layout)
+            output.update(_compress_mtp_weights(quantized, scheme))
+        except (RuntimeError, ValueError) as error:
+            logger.warning(
+                "Could not apply data-free MTP quantization; preserving the "
+                f"source MTP tensors instead. Reason: {error}"
+            )
+            scheme = None
+            output = tensors
     else:
         output = tensors
 
@@ -591,8 +599,9 @@ def save_mtp_tensors(
 
     Supported layouts are Qwen3.5, GLM-5.3 Flash and DSA, and NemotronH.
     Transformers omits these tensors from the model object, so they are read
-    from the source checkpoint and optionally weight-quantized with model-free
-    PTQ.
+    from the source checkpoint and always written alongside the saved backbone.
+    A requested data-free quantization scheme is applied when possible; otherwise
+    the source tensors are preserved.
 
     :param model: Model whose source checkpoint contains MTP tensors.
     :param save_directory: Directory containing the saved backbone checkpoint.
