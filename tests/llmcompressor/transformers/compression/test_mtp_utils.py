@@ -215,7 +215,7 @@ def _write_destination(path: Path, stale_mtp_name: str) -> None:
 
 
 @pytest.mark.parametrize("case_name", CASES)
-def test_nvfp4_quantizes_supported_architecture_layouts(tmp_path, case_name):
+def test_nvfp4a16_quantizes_supported_architecture_layouts(tmp_path, case_name):
     """Each supported checkpoint layout is packed and described for its runtime."""
     config, tensors, quantized_module, dense_module = CASES[case_name]()
     layout = _resolve_mtp_layout(config, set(tensors))
@@ -229,7 +229,7 @@ def test_nvfp4_quantizes_supported_architecture_layouts(tmp_path, case_name):
         str(source),
         str(destination),
         config,
-        mtp_scheme="NVFP4",
+        mtp_scheme="NVFP4A16",
     )
 
     with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
@@ -261,8 +261,9 @@ def test_nvfp4_quantizes_supported_architecture_layouts(tmp_path, case_name):
     "scheme,weight_suffix",
     [
         ("FP8_DYNAMIC", ".weight"),
+        ("FP8_BLOCK", ".weight"),
         ("MXFP4", ".weight_packed"),
-        ("NVFP4", ".weight_packed"),
+        ("NVFP4A16", ".weight_packed"),
     ],
 )
 def test_data_free_mtp_schemes(tmp_path, scheme, weight_suffix):
@@ -319,7 +320,7 @@ def test_data_free_mtp_schemes(tmp_path, scheme, weight_suffix):
         ),
     ],
 )
-def test_nvfp4_fused_projections_share_global_scale(
+def test_nvfp4a16_fused_projections_share_global_scale(
     tmp_path, case_factory, fused_modules
 ):
     """Projection sets fused by vLLM receive one shared NVFP4 global scale."""
@@ -334,7 +335,7 @@ def test_nvfp4_fused_projections_share_global_scale(
         str(source),
         str(destination),
         config,
-        mtp_scheme="NVFP4",
+        mtp_scheme="NVFP4A16",
     )
 
     with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
@@ -485,6 +486,23 @@ def test_default_preserves_mtp_and_ignores_runtime_prefix(tmp_path):
     assert r"re:^mtp\." in quantization_config["ignore"]
 
 
+def test_default_handles_null_backbone_ignore_list(tmp_path):
+    """MTP preservation accepts compressed configs without explicit ignores."""
+    config, tensors, _, _ = _qwen_case()
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    output_config = json.loads((destination / "config.json").read_text())
+    output_config["quantization_config"]["ignore"] = None
+    (destination / "config.json").write_text(json.dumps(output_config))
+
+    _quantize_and_save_mtp_tensors(str(source), str(destination), config)
+
+    output_config = json.loads((destination / "config.json").read_text())
+    assert r"re:^mtp\." in output_config["quantization_config"]["ignore"]
+
+
 def test_default_does_not_dequantize_source_mtp(tmp_path):
     """Preserving MTP leaves source-format tensors unchanged."""
     config, tensors, _, _ = _qwen_case()
@@ -515,7 +533,7 @@ def test_failed_quantization_preserves_source_mtp(tmp_path):
     _write_destination(destination, "mtp.obsolete.weight")
 
     _quantize_and_save_mtp_tensors(
-        str(source), str(destination), config, mtp_scheme="NVFP4"
+        str(source), str(destination), config, mtp_scheme="NVFP4A16"
     )
 
     with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
@@ -632,11 +650,17 @@ def test_unquantized_scheme_aliases(alias):
     assert _resolve_mtp_scheme(alias) is None
 
 
-def test_scheme_keeps_only_calibration_free_activations():
-    """Static and local-dynamic activations are dropped; dynamic stays enabled."""
-    assert _resolve_mtp_scheme("NVFP4").input_activations is None
-    assert _resolve_mtp_scheme("FP8").input_activations is None
+def test_scheme_keeps_calibration_free_activations():
+    """Dynamic activation quantization remains enabled."""
     assert _resolve_mtp_scheme("FP8_DYNAMIC").input_activations.dynamic is True
+    assert _resolve_mtp_scheme("MXFP4").input_activations.dynamic is True
+    assert _resolve_mtp_scheme("NVFP4A16").input_activations is None
+
+
+@pytest.mark.parametrize("scheme", ["NVFP4", "FP8"])
+def test_calibration_dependent_scheme_preserves_source(scheme):
+    """Calibration-dependent MTP schemes are deferred to a future pathway."""
+    assert _resolve_mtp_scheme(scheme) is None
 
 
 def test_scheme_rejects_invalid_type():

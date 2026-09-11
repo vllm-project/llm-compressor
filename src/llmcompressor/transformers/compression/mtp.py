@@ -304,10 +304,12 @@ def _resolve_mtp_scheme(
     input_activations = scheme.input_activations
     if input_activations is not None and input_activations.dynamic is not True:
         logger.warning(
-            "MTP activation quantization requires calibration; using the "
-            "scheme's data-free weight quantization only."
+            "The requested MTP scheme requires activation calibration, which is "
+            "not supported because Transformers does not construct MTP layers. "
+            "Preserving the source MTP tensors instead; use an explicit data-free "
+            "scheme such as FP8_DYNAMIC, FP8_BLOCK, MXFP4, or NVFP4A16."
         )
-        scheme = scheme.model_copy(update={"input_activations": None})
+        return None
     return scheme
 
 
@@ -464,7 +466,7 @@ def _update_quantization_config(
     )
     ignores = [
         value
-        for value in (quantization_config.ignore if quantization_config else [])
+        for value in ((quantization_config.ignore or []) if quantization_config else [])
         if value not in managed_ignores
     ]
 
@@ -568,12 +570,18 @@ def _quantize_and_save_mtp_tensors(
         layout,
     )
     scheme = _resolve_mtp_scheme(mtp_scheme)
+    shard_path = os.path.join(destination, shard_name)
 
     if scheme is not None:
         try:
             quantization_input = _dequantize_fp8_blocks(tensors, config)
             quantized, output = _partition_mtp_tensors(quantization_input, layout)
             output.update(_compress_mtp_weights(quantized, scheme))
+            output = {
+                name: tensor if tensor.is_contiguous() else tensor.contiguous()
+                for name, tensor in output.items()
+            }
+            save_file(output, shard_path)
         except (RuntimeError, ValueError) as error:
             logger.warning(
                 "Could not apply data-free MTP quantization; preserving the "
@@ -581,10 +589,11 @@ def _quantize_and_save_mtp_tensors(
             )
             scheme = None
             output = tensors
+            save_file(output, shard_path)
     else:
         output = tensors
+        save_file(output, shard_path)
 
-    save_file(output, os.path.join(destination, shard_name))
     _update_index(destination, shard_name, output, layout)
     _update_quantization_config(destination, layout, scheme)
 
@@ -606,7 +615,7 @@ def save_mtp_tensors(
     :param model: Model whose source checkpoint contains MTP tensors.
     :param save_directory: Directory containing the saved backbone checkpoint.
     :param mtp_scheme: Preset name or ``QuantizationScheme`` for MTP weights.
-        ``None`` preserves the MTP tensors at full precision.
+        ``None`` preserves the source MTP tensor representation.
     :param revision: Optional source checkpoint revision.
     """
     text_config = _text_config(model.config)

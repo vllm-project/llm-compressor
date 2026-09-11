@@ -80,8 +80,10 @@ _DEFAULT_FUSED_MAPPINGS_LIST = [
         r"re:.*(attn|attention)\.kv_a_proj_with_mqa\.weight$",
     ],
     [
-        r"re:.*mlp(?:\.(?:experts\.\d+|shared_experts))?\.gate_proj\.weight$",
-        r"re:.*mlp(?:\.(?:experts\.\d+|shared_experts))?\.up_proj\.weight$",
+        r"re:.*(?:mlp|feed_forward)"
+        r"(?:\.(?:experts\.\d+|shared_experts))?\.gate_proj\.weight$",
+        r"re:.*(?:mlp|feed_forward)"
+        r"(?:\.(?:experts\.\d+|shared_experts))?\.up_proj\.weight$",
     ],
     [r"re:.*w1\.weight$", r"re:.*w3\.weight$"],
 ]

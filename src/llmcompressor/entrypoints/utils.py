@@ -11,6 +11,7 @@ import os
 from pathlib import PosixPath
 
 from compressed_tensors.offload import from_accelerate, is_distributed
+from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -101,7 +102,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
-    mtp_scheme=None,
+    mtp_scheme: str | QuantizationScheme | None = None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,

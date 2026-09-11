@@ -82,7 +82,7 @@ tokenizer.save_pretrained(SAVE_DIR)
 
 Some models ship Multi-Token Prediction (MTP) layers used as the draft model for speculative decoding in vLLM. `transformers` never loads these layers, so oneshot processes them separately from the source checkpoint when saving to `output_dir`. For supported architectures, oneshot always writes the MTP tensors alongside the backbone. By default it preserves their source representation and adds them to the quantization ignore list.
 
-Pass `mtp_scheme` to `oneshot` to apply data-free quantization to the MTP layers. Schemes that require activation calibration are reduced to their data-free weight-only form; fully dynamic activation quantization such as `FP8_DYNAMIC` is retained. If the requested quantization cannot be applied safely, oneshot warns and preserves the source MTP tensors instead.
+Pass `mtp_scheme` to `oneshot` to apply data-free quantization to the MTP layers. Fully dynamic activation quantization such as `FP8_DYNAMIC` is supported. Schemes that require calibration are not applied; oneshot warns and preserves the source MTP tensors instead. The same fallback is used if data-free quantization cannot be applied safely.
 
 MTP processing currently supports `Qwen3_5ForConditionalGeneration`,
 `Glm5NextForConditionalGeneration`, `GlmMoeDsaForCausalLM`, and
@@ -98,7 +98,7 @@ oneshot(
     recipe=recipe,
     dataset=dataset,
     output_dir=SAVE_DIR,
-    mtp_scheme="FP8_DYNAMIC",  # or "NVFP4", a QuantizationScheme, or None (bf16)
+    mtp_scheme="FP8_DYNAMIC",  # or "MXFP4", "NVFP4A16", or None
 )
 ```
 
@@ -110,7 +110,9 @@ Choosing a scheme:
 |--------------|-------|
 | `None` (default) | Preserves the source MTP tensors and adds the runtime modules to the quantization ignore list. |
 | `"FP8_DYNAMIC"` | Keeps calibration-free runtime activation quantization and uses weight-derived per-channel scales. |
-| `"NVFP4"` | Applies the data-free NVFP4A16 weight format; calibrated NVFP4 activation quantization is not performed. |
+| `"FP8_BLOCK"` | Applies data-free block-FP8 weight quantization with dynamic activations. |
+| `"MXFP4"` | Applies data-free MXFP4 weight and dynamic activation quantization. |
+| `"NVFP4A16"` | Applies data-free NVFP4 weight-only quantization. |
 
 Calibration-based MTP quantization, including GPTQ and AWQ, is not supported by this pathway because the MTP layers are not constructed for calibration.
 

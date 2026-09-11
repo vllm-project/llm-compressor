@@ -143,7 +143,7 @@ class Oneshot:
             Nothing is logged to file if None.
         :param mtp_scheme: Optional preset name or ``QuantizationScheme`` used to
             quantize unloaded MTP layers when ``output_dir`` is provided. ``None``
-            preserves them at full precision.
+            preserves their source representation.
         """
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
@@ -406,12 +406,13 @@ def oneshot(
     :param save_compressed: Whether to compress sparse models during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
-    :param mtp_scheme: Optional preset name (for example, ``"FP8_DYNAMIC"`` or
-        ``"NVFP4"``) or ``QuantizationScheme`` used for MTP layers. Transformers
+    :param mtp_scheme: Optional data-free preset name (for example,
+        ``"FP8_DYNAMIC"``, ``"MXFP4"``, or ``"NVFP4A16"``) or
+        ``QuantizationScheme`` used for MTP layers. Transformers
         does not load these layers, so oneshot processes them from the source
         checkpoint after saving the backbone to ``output_dir``. Schemes requiring
-        calibrated activation scales are reduced to weight-only. ``None`` preserves
-        MTP tensors at full precision.
+        calibration are not applied. ``None`` preserves the source MTP tensor
+        representation.
 
     # Recipe arguments
     :param recipe: A LLM Compressor recipe. Accepts a path (or list

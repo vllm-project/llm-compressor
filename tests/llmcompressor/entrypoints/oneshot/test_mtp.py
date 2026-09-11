@@ -24,7 +24,7 @@ def test_post_process_saves_mtp_after_backbone(monkeypatch, tmp_path):
     post_process(
         model_args=model_args,
         output_dir=str(tmp_path),
-        mtp_scheme="NVFP4",
+        mtp_scheme="NVFP4A16",
     )
 
     assert calls == ["backbone", "mtp"]
@@ -32,6 +32,6 @@ def test_post_process_saves_mtp_after_backbone(monkeypatch, tmp_path):
     save_mtp.assert_called_once_with(
         model,
         str(tmp_path),
-        "NVFP4",
+        "NVFP4A16",
         revision="revision",
     )
