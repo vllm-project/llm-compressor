@@ -143,9 +143,9 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": (
                 "Optional dataset split selector. Passing a string like 'train' or "
-                "'train[:50%]' is strongly recommended. Legacy dict input is "
+                "'train[:50%%]' is strongly recommended. Legacy dict input is "
                 "deprecated and only supported for calibration compatibility "
-                "(for example: {'calibration': 'train[:50%]'})."
+                "(for example: {'calibration': 'train[:50%%]'})."
             )
         },
     )
@@ -225,6 +225,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_4d_causal_attention_mask_with_cache_position",
             "_update_linear_attn_mask",
             "project_per_layer_inputs",
+            "_apply_attn_res",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "
