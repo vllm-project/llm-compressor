@@ -34,13 +34,15 @@ def main():
         f"dtype={lmeval_config['dtype']},"
         f"add_bos_token={lmeval_config['add_bos_token']},"
         f"trust_remote_code={lmeval_config['trust_remote_code']},"
-        f"max_model_len={config['max_model_len']},"
         f"seed={seed},"
         f"gpu_memory_utilization={config['gpu_memory_utilization']},"
         f"max_num_seqs={config['max_num_seqs']},"
         f"pipeline_parallel_size="
         f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
     )
+
+    if config["max_model_len"] is not None:
+        model_args += f"max_model_len={config['max_model_len']},"
 
     gen_kwargs = None
     if lmeval_config.get("max_gen_toks") is not None:

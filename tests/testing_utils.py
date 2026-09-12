@@ -280,8 +280,9 @@ class BaseTestConfig(BaseModel):
     max_num_seqs: int = Field(
         128, description="Maximum number of sequences to process in parallel."
     )
-    max_model_len: int = Field(
-        10000, description="Maximum sequence length for the model."
+    max_model_len: Optional[int] = Field(
+        default=None,
+        description="Maximum sequence length for the model. Not used by e2e tests."
     )
     pipeline_parallel: bool = Field(
         False,
