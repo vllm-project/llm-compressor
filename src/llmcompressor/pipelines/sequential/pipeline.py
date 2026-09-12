@@ -11,7 +11,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.moe.linearize import linearize_moe_layer
+from llmcompressor.modeling.moe.linearize import linearize_moe, linearize_moe_layer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -91,6 +91,10 @@ class SequentialPipeline(CalibrationPipeline):
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
 
+        # linearize MoE layers upfront if not using layer-wise linearization
+        if not dataset_args.sequential_linearize_moe:
+            linearize_moe(model)
+
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
         # layers during the calibration stage
@@ -148,7 +152,10 @@ class SequentialPipeline(CalibrationPipeline):
                 with disable_offloading():
                     # linearize moe layers just before calibration,
                     # deferring offloading setup until after calibration
-                    linearized = linearize_moe_layer(model, subgraph.submodules(model))
+                    if dataset_args.sequential_linearize_moe:
+                        linearized = linearize_moe_layer(model, subgraph.submodules(model))
+                    else:
+                        linearized = []  # already linearized upfront
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,

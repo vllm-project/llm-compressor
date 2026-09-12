@@ -15,6 +15,7 @@ from transformers import (
 from transformers.conversion_mapping import (
     register_checkpoint_conversion_mapping,
 )
+from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
@@ -32,13 +33,16 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
     Context manager for loading MoE models for calibration and quantization.
 
     This context manager patches the `from_pretrained` method of the given model class
-    to set up save conversion mappings for MoE models. The model is always loaded in
-    its original 3D format — linearization is deferred to the sequential pipeline
-    for efficient per-subgraph conversion via `linearize_moe_layer`.
+    to handle both 3D and 2D (linearized) MoE checkpoint formats.
 
-    If checkpoint conversion mappings exist for the model type, save mappings are
-    registered so that the model can be saved in the correct checkpoint format after
-    pipeline linearization.
+    For 3D checkpoints (model type without linearize mappings):
+      The model is loaded in original 3D format. Linearization is deferred to the
+      sequential pipeline for efficient per-subgraph conversion via `linearize_moe_layer`.
+
+    For 2D checkpoints (model type with linearize mappings):
+      The checkpoint is loaded directly in linearized format by registering patch mappings.
+      Save conversion mappings are registered so the model can be saved in the correct
+      format after pipeline operations.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -54,16 +58,25 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         config = AutoConfig.from_pretrained(*args, **kwargs)
         model_type = config.model_type
 
-        # load model in 3D format — linearization is deferred to the
-        # pipeline for efficient per-subgraph conversion
-        model = original_from_pretrained(*args, **kwargs)
+        # model is 3D (or otherwise doesn't have mappings)
+        # linearization is deferred to the sequential pipeline
+        if not has_linearize_load_mappings(model_type):
+            model = original_from_pretrained(*args, **kwargs)
+            return model
 
-        # set up save mappings so saving after pipeline linearization
-        # produces the correct checkpoint key format
-        if has_linearize_load_mappings(model_type):
-            _experts_cls, _load_map, save_map = get_linearize_load_mappings(model_type)
-            set_save_conversion_mapping(model, save_map)
-            register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
+        # prepare to load linearized weights from 2D checkpoint
+        experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
+        linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
+        register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
+        register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
+
+        # load model
+        model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
+
+        # prepare for saving to be called later
+        clear_patch_mapping()
+        set_save_conversion_mapping(model, save_map)
+        register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
 
         return model
 
@@ -89,9 +102,19 @@ def linearize_moe(model: PreTrainedModel):
     2. The expert module conforms to the standard transformers MoE format
     (as designated by the `use_experts_implementation` decorator)
 
+    Modules already in LinearExperts2D format are left as-is.
+
     :param model: model containing MoE layers to linearize
     """
-    non_linearized_moes = get_non_linearized_moes(model)
+    # Clear cached lookup to detect experts in the current state of the model
+    if hasattr(model, "_moe_lookup"):
+        delattr(model, "_moe_lookup")
+
+    all_moes = get_non_linearized_moes(model)
+    non_linearized_moes = {
+        module: name for module, name in all_moes.items()
+        if not isinstance(module, LinearExperts2D)
+    }
 
     if len(non_linearized_moes) <= 0:
         return model
@@ -147,6 +170,9 @@ def linearize_moe_layer(
     Offloading is deferred so calibration can run on the newly created modules before
     they are wrapped again.
 
+    Handles both 3D experts (which need linearization) and already-linearized 2D experts
+    (from checkpoints loaded via patch mappings), capturing offload kwargs for both.
+
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
     :return: list of (new LinearExperts2D module, offload kwargs from original)
@@ -155,11 +181,12 @@ def linearize_moe_layer(
     moe_lookup = get_non_linearized_moes(model)
 
     non_linearized = [
-        (moe_lookup[module], module) for module in subgraph_set if module in moe_lookup
+        (moe_lookup[module], module) for module in subgraph_set
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
     linearized = []
-    for name, module in non_linearized:
+    for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts in subgraph"):
         offload_kwargs = get_cache_init_kwargs(module)
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
@@ -171,5 +198,9 @@ def linearize_moe_layer(
 
     for _name, module in non_linearized:
         del moe_lookup[module]
+
+    # Note: Already-linearized 2D modules (from 2D checkpoints loaded via patch mappings)
+    # are left as-is. They have their offloading set up during loading and don't need
+    # deferred offloading setup like the 3D->2D converted modules.
 
     return linearized
