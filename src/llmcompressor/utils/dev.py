@@ -33,7 +33,9 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+def load_context(
+    model_cls: Type[PreTrainedModel] = AutoModelForCausalLM, meta: bool = False
+):
     """
     Context manager for loading HuggingFace models with both offloading and
     MoE linearization support.
@@ -43,11 +45,17 @@ def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     either or both capabilities.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    :param meta: If True, skip the offloading conversion; the model is expected
+        to be loaded with `device_map="meta"` and calibrated with the
+        "streaming" pipeline, which materializes weights directly from the
+        original checkpoint. Offloaded (meta) models have no weight data and
+        cannot be used with the regular pipelines.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 
     with contextlib.ExitStack() as stack:
-        stack.enter_context(load_offloaded_model(model_cls))
+        if not meta:
+            stack.enter_context(load_offloaded_model(model_cls))
         stack.enter_context(load_quantizable_moe(model_cls))
         yield
 

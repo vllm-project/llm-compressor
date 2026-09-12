@@ -90,7 +90,13 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         return output.type_as(x)
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
-        original.weight.data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
+        data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
+        if original.weight.device.type == "meta":
+            # meta weights cannot be assigned data (streaming pipeline);
+            # replace the parameter object instead
+            original.weight = torch.nn.Parameter(data, requires_grad=False)
+        else:
+            original.weight.data = data
         return original
 
 

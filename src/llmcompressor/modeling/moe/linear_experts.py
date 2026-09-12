@@ -196,6 +196,19 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
+        # When the source module is on the meta device (streaming pipeline),
+        # linearize structurally only: weights are materialized directly from
+        # the checkpoint later, so no data is copied and no offload cache is
+        # attached
+        src_is_meta = any(
+            param.device.type == "meta" for param in experts.parameters(recurse=False)
+        )
+
+        if src_is_meta:
+            with skip_weights_initialize(), torch.device("meta"):
+                self = cls(config)
+            return self
+
         with skip_weights_initialize():
             self = cls(config)
 
