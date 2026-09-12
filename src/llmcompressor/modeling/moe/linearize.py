@@ -4,7 +4,9 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.offload import get_cache_init_kwargs, load_offloaded_model
+from compressed_tensors.offload import get_cache_init_kwargs
+from compressed_tensors.offload.cache import OffloadCache
+from compressed_tensors.offload.module import remove_module_offload
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -59,7 +61,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         model_type = config.model_type
 
         # model is 3D (or otherwise doesn't have mappings)
-        # linearization is deferred to pipelines
+        # defer linearization to pipelines
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
             return model
@@ -127,13 +129,15 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    # If model has active offload caches, fully onload it before linearizing
-    # to avoid OOM when accessing offloaded parameters
+    # If model has active offload caches, remove them and onload tensors
+    # to avoid OOM when accessing offloaded parameters during linearization
     has_offload_caches = any(
-        get_cache_init_kwargs(module) for module in non_linearized_moes.keys()
+        isinstance(module._parameters, OffloadCache) for module in non_linearized_moes.keys()
     )
     if has_offload_caches:
-        load_offloaded_model(model)
+        for module in model.modules():
+            if isinstance(module._parameters, OffloadCache):
+                remove_module_offload(module, onload_tensors=True)
 
     for module, name in tqdm.tqdm(
         non_linearized_moes.items(), desc="Linearizing experts"
