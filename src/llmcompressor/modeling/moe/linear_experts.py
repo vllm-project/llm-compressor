@@ -238,6 +238,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.act_fn = act_fn
         self.alpha = moe_config.alpha
         self.limit = moe_config.limit
+        self.swiglu_limit = moe_config.limit
 
     def forward(
         self,
