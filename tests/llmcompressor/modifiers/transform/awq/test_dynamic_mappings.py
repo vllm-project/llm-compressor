@@ -7,7 +7,6 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     AWQ_DYNAMIC_MAPPING_REGISTRY,
-    _detect_linear_attn_projections,
     _detect_step3p5_ffn_layer_indices,
     build_hybrid_attention_mappings,
     build_step3p5_mappings,
@@ -18,6 +17,7 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     default_mappings,
 )
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
+    detect_linear_attn_projections,
     get_hybrid_attention_config,
 )
 
@@ -260,17 +260,17 @@ class TestDetectLinearAttnProjections:
         model = _make_hybrid_model(
             linear_proj_names=("in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a")
         )
-        projs = _detect_linear_attn_projections(model)
+        projs = detect_linear_attn_projections(model)
         assert projs == ["in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a"]
 
     def test_qwen3next_projections(self):
         model = _make_hybrid_model(linear_proj_names=("in_proj_qkvz", "in_proj_ba"))
-        projs = _detect_linear_attn_projections(model)
+        projs = detect_linear_attn_projections(model)
         assert projs == ["in_proj_qkvz", "in_proj_ba"]
 
     def test_deduplicates_across_layers(self):
         model = _make_hybrid_model(num_layers=8)
-        projs = _detect_linear_attn_projections(model)
+        projs = detect_linear_attn_projections(model)
         # 6 linear layers but should only return unique projection names
         assert len(projs) == len(set(projs))
 
