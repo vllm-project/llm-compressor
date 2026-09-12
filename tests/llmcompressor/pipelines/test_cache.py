@@ -203,3 +203,42 @@ def test_override_eq_mode():
     with OverrideEqMode():
         assert a == b
         assert not (a == c)
+
+
+def test_offload_dataclass_with_validating_setattr():
+    """
+    A dataclass that validates its fields must survive an offload/onload round trip.
+
+    Offloading wraps every field in an `IntermediateValue`, which is internal and
+    transient. Rebuilding the instance through its own `__init__` (or assigning
+    fields afterwards) submits that wrapper to the class's validation and is
+    rejected. `huggingface_hub`'s `@strict` dataclasses validate this way, and every
+    `transformers>=5` model config is one, so a model whose activations carry a
+    config could not be cached at all: that takes out the sequential pipeline, and
+    with it GPTQ on any model too large for `basic`.
+    """
+    import copy
+    from dataclasses import dataclass
+
+    @dataclass
+    class Validating:
+        name: str = ""
+        hidden: torch.Tensor | None = None
+
+        def __setattr__(self, key, value):
+            if key == "name" and not isinstance(value, str):
+                raise TypeError(f"{key} must be a str, got {type(value).__name__}")
+            super().__setattr__(key, value)
+
+    original = Validating(name="v5", hidden=torch.zeros(4))
+    before = copy.copy(original)
+
+    cache = IntermediatesCache.empty(num_batches=1, offload_device=torch.device("cpu"))
+    cache.update(0, {"value": original})
+    fetched = cache.fetch(0, ["value"])["value"]
+
+    assert fetched.name == "v5"
+    assert torch.equal(fetched.hidden, torch.zeros(4))
+    # the caller's instance is not mutated by caching
+    assert original.name == before.name
+    assert isinstance(original.hidden, torch.Tensor)
