@@ -11,7 +11,7 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -143,12 +143,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
-            # Re-tie input and output embeddings before offload conversion so a
-            # shared table is written once. Offloading splits a tied weight into
-            # separate params, and quantized embeddings are untied during
-            # calibration; either way identical tensors would otherwise be saved
-            # twice. Doing this before `to_accelerate` keeps accelerate's
-            # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
@@ -170,14 +164,6 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
-
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)

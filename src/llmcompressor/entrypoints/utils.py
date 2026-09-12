@@ -11,6 +11,7 @@ import os
 from pathlib import PosixPath
 
 from compressed_tensors.offload import from_accelerate, is_distributed
+from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -31,6 +32,7 @@ from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
+from llmcompressor.transformers.compression.mtp import save_mtp_tensors
 from llmcompressor.transformers.utils.helpers import (
     is_model_ct_quantized_from_path,
 )
@@ -100,6 +102,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
+    mtp_scheme: str | QuantizationScheme | None = None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -109,6 +112,10 @@ def post_process(
     actions. The model is saved in a compressed format if specified in `model_args`.
     Additionally, the tokenizer or processor, if available, is also saved.
 
+    :param model_args: Model loading and saving arguments.
+    :param recipe_args: Recipe arguments used by the completed oneshot run.
+    :param output_dir: Directory where the compressed artifact is saved.
+    :param mtp_scheme: Optional quantization scheme for unloaded MTP layers.
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
@@ -121,6 +128,12 @@ def post_process(
         # TODO: support general saving parameters, beyond save_compressed
         model_args.model.save_pretrained(
             output_dir, save_compressed=model_args.save_compressed
+        )
+        save_mtp_tensors(
+            model_args.model,
+            output_dir,
+            mtp_scheme,
+            revision=model_args.model_revision,
         )
 
         if model_args.processor is not None:
