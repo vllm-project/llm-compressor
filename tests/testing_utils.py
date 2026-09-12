@@ -282,7 +282,7 @@ class BaseTestConfig(BaseModel):
     )
     max_model_len: Optional[int] = Field(
         default=None,
-        description="Maximum sequence length for the model. Not used by e2e tests."
+        description="Maximum sequence length for the model. Not used by e2e tests.",
     )
     pipeline_parallel: bool = Field(
         False,
