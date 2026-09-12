@@ -125,9 +125,9 @@ setup(
         ),
         ("datasets>=4.8.4,<=5.0.1" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "auto-round>=0.14.1,<=0.14.2"
+            "auto-round>=0.15.1,<=0.15.1"
             if BUILD_TYPE == "release"
-            else "auto-round>=0.14.1"
+            else "auto-round>=0.15.1"
         ),
         (
             "accelerate>=1.6.0,<=1.14.0"
