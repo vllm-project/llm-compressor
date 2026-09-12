@@ -349,6 +349,27 @@ _example_parallel_transformer_block_mappings = [
     )
 ]
 
+_qwen2_5_vl_mappings = [
+    # Attention: same as default_mappings, these do not collide with the vision tower.
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    # MLP: scoped to the language model, because the vision tower's gate/up/down
+    # projections otherwise collapse the resolution.
+    AWQMapping(
+        r"re:.*language_model\.layers\.\d+\.post_attention_layernorm$",
+        [
+            r"re:.*language_model\.layers\.\d+\.mlp\.gate_proj$",
+            r"re:.*language_model\.layers\.\d+\.mlp\.up_proj$",
+        ],
+    ),
+    AWQMapping(
+        r"re:.*language_model\.layers\.\d+\.mlp\.up_proj$",
+        [r"re:.*language_model\.layers\.\d+\.mlp\.down_proj$"],
+    ),
+]
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "AfmoeForCausalLM": _afmoe_mappings,
     "BloomForCausalLM": _bloom_mappings,
@@ -383,7 +404,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen2ForCausalLM": default_mappings,
     "Qwen2_5OmniModel": default_mappings,
     "Qwen2_5OmniThinkerForConditionalGeneration": default_mappings,
-    "Qwen2_5_VLForConditionalGeneration": default_mappings,
+    "Qwen2_5_VLForConditionalGeneration": _qwen2_5_vl_mappings,
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
