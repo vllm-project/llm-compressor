@@ -194,14 +194,6 @@ class TestvLLM:
         import subprocess
 
         llm_kwargs = {"model": self.config.save_dir}
-
-        # if FP8A16 scheme, must set VLLM_TEST_FORCE_FP8_MARLIN=1
-        # to force usage of marlin kernel
-        if self.config.scheme and "FP8A16" in self.config.scheme.upper():
-            os.environ["VLLM_TEST_FORCE_FP8_MARLIN"] = "1"
-        else:
-            os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
-
         llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
 
         json_scheme = json.dumps(self.config.scheme)
@@ -210,6 +202,12 @@ class TestvLLM:
         json_prompts = json.dumps(prompts)
 
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # vLLM-specific environment variables from the test config
+        vllm_env_variables = {
+            str(key): str(value)
+            for key, value in self.config.vllm_env_variables.items()
+        }
 
         if IS_VLLM_IMAGE:
             # generate python command to run in the vllm image
@@ -228,14 +226,12 @@ class TestvLLM:
             ]
             vllm_cmd = " ".join(cmds)
             vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm.bash")
+            vllm_env_vars = "\n".join(
+                f'export {key}="{value}"\n'
+                for key, value in vllm_env_variables.items()
+            )
             with open(vllm_bash, "w") as cf:
-                cf.write(
-                    f"""#!/bin/bash
-                    export HF_HUB_OFFLINE=0
-                    export VLLM_NO_USAGE_STATS=1
-                    {vllm_cmd}
-                    """
-                )
+                cf.write(f"#!/bin/bash\n{vllm_env_vars}\n{vllm_cmd}")
             os.chmod(vllm_bash, 0o755)
             logger.info(f"Wrote vllm cmd into {vllm_bash}:")
             logger.info("vllm image. Run vllm cmd with kubectl.")
@@ -263,6 +259,7 @@ class TestvLLM:
             env = os.environ.copy()
             venv_bin = os.path.dirname(self.vllm_env)
             env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+            env.update(vllm_env_variables)
             result = subprocess.Popen(
                 [
                     self.vllm_env,
