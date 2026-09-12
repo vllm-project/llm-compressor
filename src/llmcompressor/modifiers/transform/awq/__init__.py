@@ -10,5 +10,6 @@ __all__ = [
     "get_layer_mappings_from_model",
     "AWQMapping",
     "AWQ_MAPPING_REGISTRY",
+    "SlicedSmoothTarget",
     "default_mappings",
 ]
