@@ -4,7 +4,7 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.offload import get_cache_init_kwargs
+from compressed_tensors.offload import get_cache_init_kwargs, load_offloaded_model
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -59,7 +59,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         model_type = config.model_type
 
         # model is 3D (or otherwise doesn't have mappings)
-        # linearization is deferred to the sequential pipeline
+        # linearization is deferred to pipelines
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
             return model
@@ -127,12 +127,23 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
+    # If model has active offload caches, fully onload it before linearizing
+    # to avoid OOM when accessing offloaded parameters
+    has_offload_caches = any(
+        get_cache_init_kwargs(module) for module in non_linearized_moes.keys()
+    )
+    if has_offload_caches:
+        load_offloaded_model(model)
+
     for module, name in tqdm.tqdm(
         non_linearized_moes.items(), desc="Linearizing experts"
     ):
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
+        # Never setup offloading here - it will be re-applied by the pipeline
+        linear_moe = linear_experts_cls.from_experts_module(
+            module, config, setup_offloading=False
+        )
         model.set_submodule(name, linear_moe)
 
 
