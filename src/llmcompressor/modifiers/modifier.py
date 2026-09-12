@@ -21,6 +21,7 @@ class Modifier(ModifierInterface, HooksMixin):
     1. initialize
     2. on_event ->
         * on_calibration_start if event.type_ == EventType.CALIBRATION_START
+        * on_sequential_epoch_start if event.type_ == EventType.SEQUENTIAL_EPOCH_START
         * on_start if self.start <= event.current_index
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
@@ -138,6 +139,10 @@ class Modifier(ModifierInterface, HooksMixin):
         if event.type_ == EventType.CALIBRATION_START:
             self.on_calibration_start(state, event, **kwargs)
             self.started_ = True
+            return
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
+            self.on_sequential_epoch_start(state, event, **kwargs)
             return
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -277,6 +282,16 @@ class Modifier(ModifierInterface, HooksMixin):
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch start
         :param kwargs: Additional arguments for the calibration epoch start
+        """
+        pass
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        """Run before the current subgraph's calibration forwards.
+
+        ``kwargs`` contains the executable subgraph, its index, and the activation
+        cache. Modifiers must not mutate the pipeline's input cache.
         """
         pass
 

@@ -154,13 +154,23 @@ class LifecycleCallbacks:
         return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod
+    def sequential_epoch_start(cls, modules: list["Module"], **kwargs) -> ModifiedState:
+        """Notify modifiers before calibrating a sequential subgraph.
+
+        The sequential pipeline supplies its executable ``subgraph``,
+        ``subgraph_index`` and current ``activations`` cache as keyword arguments.
+        These objects are valid for the current sequential stage only.
+        """
+        return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
+
+    @classmethod
     def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
         """
         Invoke a sequential epoch end event for the active session. This event should be
         called after one sequential layer has been calibrated/trained for one epoch
 
-        This is called after a sequential layer has been calibrated with one batch, see
-        `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
+        Called after all calibration batches for the subgraph, before propagation.
+        See `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example.
         """
         return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
 

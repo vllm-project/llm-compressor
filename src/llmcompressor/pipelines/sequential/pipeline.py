@@ -56,6 +56,7 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        additional_dataloaders: dict[str, DataLoader] | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -78,6 +79,9 @@ class SequentialPipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param additional_dataloaders: Named auxiliary data streams exposed to
+            modifiers at sequential_epoch_start. These bypass calibration hooks
+            and propagate through the final compressed subgraph independently.
         """
         session = active_session()
 
@@ -86,12 +90,13 @@ class SequentialPipeline(CalibrationPipeline):
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
 
-        # AutoRoundModifier optimizes each layer independently using its own
-        # forward passes, so quantization error should not be propagated between
-        # layers during the calibration stage
         modifiers = session.lifecycle.recipe.modifiers
+        # AutoRound uses independent forwards without sequential error propagation.
         if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
             dataset_args.propagate_error = False
+
+        if additional_dataloaders and not dataset_args.propagate_error:
+            raise ValueError("Auxiliary data streams require propagate_error=True")
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
@@ -110,7 +115,9 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
 
-        LifecycleCallbacks.calibration_start()
+        LifecycleCallbacks.calibration_start(
+            subgraphs=subgraphs, dataset_args=dataset_args
+        )
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -119,6 +126,12 @@ class SequentialPipeline(CalibrationPipeline):
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
             )
+            additional_activations = {
+                name: IntermediatesCache.from_dataloader(
+                    loader, onload_device, offload_device
+                )
+                for name, loader in (additional_dataloaders or {}).items()
+            }
 
             # Populate loss_masks once from cached activations for AWQ masking support
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
@@ -141,6 +154,14 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
+                    modules = subgraph.submodules(model)
+                    LifecycleCallbacks.sequential_epoch_start(
+                        modules,
+                        subgraph=subgraph,
+                        subgraph_index=subgraph_index,
+                        activations=activations,
+                        additional_activations=additional_activations,
+                    )
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,
@@ -157,7 +178,9 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+                    LifecycleCallbacks.sequential_epoch_end(
+                        modules, subgraph=subgraph, subgraph_index=subgraph_index
+                    )
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
@@ -176,6 +199,21 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                            # Auxiliary streams use the final weights after every
+                            # modifier has finished. They never collect PTQ stats.
+                            if subgraph_index < num_subgraphs - 1:
+                                for name, cache in additional_activations.items():
+                                    for batch_idx, inputs in _get_batches(
+                                        cache,
+                                        len(cache),
+                                        subgraph.input_names,
+                                        f"{prop_desc} ({name})",
+                                        sequential_prefetch,
+                                    ):
+                                        output = subgraph.forward(model, **inputs)
+                                        cache.update(batch_idx, output)
+                                        cache.delete(batch_idx, subgraph.consumed_names)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
